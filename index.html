@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Finance Tools — เครื่องมือคลีนข้อมูล</title>
+<script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
+<style>
+  :root{
+    --brand:#2563eb; --brand-dark:#1e40af; --brand-soft:#eff6ff;
+    --ink:#0f172a; --ink-2:#475569; --ink-3:#94a3b8;
+    --line:#e2e8f0; --bg:#f8fafc; --card:#ffffff;
+    --ok:#16a34a; --warn:#d97706; --bad:#dc2626;
+    --radius:14px; --shadow:0 1px 3px rgba(15,23,42,.08),0 8px 24px rgba(15,23,42,.05);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:"Segoe UI",-apple-system,"Sarabun",sans-serif;background:var(--bg);color:var(--ink);font-size:15px;line-height:1.55}
+  button{font-family:inherit;cursor:pointer}
+  /* ---- layout ---- */
+  .topbar{display:flex;align-items:center;gap:16px;background:var(--card);border-bottom:1px solid var(--line);padding:12px 22px;position:sticky;top:0;z-index:20}
+  .logo{font-weight:800;font-size:18px;color:var(--brand);letter-spacing:-.3px;white-space:nowrap}
+  .logo small{display:block;font-size:11px;color:var(--ink-3);font-weight:600;letter-spacing:.3px}
+  .company-switch{display:flex;gap:6px;margin-left:8px}
+  .company-switch button{border:1px solid var(--line);background:#fff;color:var(--ink-2);padding:7px 16px;border-radius:999px;font-weight:600;font-size:13px;transition:.15s}
+  .company-switch button.active{background:var(--brand);color:#fff;border-color:var(--brand);box-shadow:0 2px 8px rgba(37,99,235,.3)}
+  .spacer{flex:1}
+  .hint{font-size:12px;color:var(--ink-3)}
+  .wrap{display:flex;min-height:calc(100vh - 57px)}
+  .sidebar{width:280px;flex-shrink:0;background:var(--card);border-right:1px solid var(--line);padding:18px 12px;overflow-y:auto}
+  .stage-label{font-size:11px;font-weight:700;color:var(--ink-3);text-transform:uppercase;letter-spacing:.5px;padding:14px 12px 6px}
+  .nav-item{display:flex;gap:10px;align-items:flex-start;padding:11px 12px;border-radius:10px;cursor:pointer;transition:.12s;margin-bottom:2px}
+  .nav-item:hover{background:var(--brand-soft)}
+  .nav-item.active{background:var(--brand-soft);box-shadow:inset 3px 0 0 var(--brand)}
+  .nav-item .ic{font-size:18px;line-height:1.3}
+  .nav-item .t{font-weight:600;font-size:14px}
+  .nav-item.active .t{color:var(--brand-dark)}
+  .nav-item .d{font-size:11.5px;color:var(--ink-3);margin-top:1px}
+  .main{flex:1;padding:26px 30px;overflow-x:auto}
+  /* ---- page header ---- */
+  .page-head{margin-bottom:18px}
+  .page-head h1{margin:0 0 4px;font-size:22px;letter-spacing:-.4px}
+  .page-head .sub{color:var(--ink-2);font-size:14px}
+  .badge{display:inline-block;font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px;background:var(--brand-soft);color:var(--brand-dark);vertical-align:middle;margin-left:8px}
+  /* ---- cards ---- */
+  .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:20px;margin-bottom:18px}
+  .card h3{margin:0 0 4px;font-size:15px}
+  .card .note{color:var(--ink-3);font-size:13px;margin-bottom:14px}
+  /* ---- dropzone ---- */
+  .drop{border:2px dashed var(--line);border-radius:12px;padding:30px;text-align:center;color:var(--ink-2);transition:.15s;background:#fcfdff}
+  .drop.over{border-color:var(--brand);background:var(--brand-soft)}
+  .drop .big{font-size:34px;margin-bottom:6px}
+  .drop b{color:var(--brand)}
+  .drop .sm{font-size:12px;color:var(--ink-3);margin-top:6px}
+  .filechip{display:inline-flex;align-items:center;gap:8px;background:var(--brand-soft);color:var(--brand-dark);border-radius:999px;padding:6px 14px;font-size:13px;font-weight:600;margin-top:12px}
+  .filechip button{border:none;background:none;color:var(--brand-dark);font-size:15px;line-height:1}
+  /* ---- buttons ---- */
+  .btn{border:1px solid var(--brand);background:var(--brand);color:#fff;padding:9px 18px;border-radius:10px;font-weight:700;font-size:14px;transition:.15s}
+  .btn:hover{background:var(--brand-dark);border-color:var(--brand-dark)}
+  .btn[disabled]{opacity:.45;cursor:not-allowed}
+  .btn.ghost{background:#fff;color:var(--brand)}
+  .btn.ghost:hover{background:var(--brand-soft)}
+  .btnrow{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:16px}
+  /* ---- export dropdown ---- */
+  .dd{position:relative;display:inline-block}
+  .dd-menu{position:absolute;top:calc(100% + 6px);left:0;background:#fff;border:1px solid var(--line);border-radius:10px;box-shadow:var(--shadow);min-width:170px;overflow:hidden;display:none;z-index:10}
+  .dd.open .dd-menu{display:block}
+  .dd-menu button{display:flex;width:100%;gap:8px;align-items:center;border:none;background:#fff;padding:11px 14px;font-size:14px;text-align:left;color:var(--ink)}
+  .dd-menu button:hover{background:var(--brand-soft)}
+  .dd-menu .x{font-size:11px;color:var(--ink-3)}
+  /* ---- table ---- */
+  .table-wrap{overflow:auto;border:1px solid var(--line);border-radius:10px;margin-top:14px;max-height:430px}
+  table{border-collapse:collapse;width:100%;font-size:13px;white-space:nowrap}
+  th,td{border-bottom:1px solid var(--line);padding:8px 12px;text-align:left}
+  th{background:#f1f5f9;position:sticky;top:0;font-weight:700;color:var(--ink-2)}
+  tbody tr:hover{background:var(--brand-soft)}
+  .empty{padding:36px;text-align:center;color:var(--ink-3);font-size:13px}
+  /* ---- options ---- */
+  .opts{display:flex;gap:18px;flex-wrap:wrap;margin-bottom:6px}
+  .opt{display:flex;align-items:center;gap:7px;font-size:13px;color:var(--ink-2)}
+  .opt input{width:16px;height:16px;accent-color:var(--brand)}
+  .pill-stat{display:flex;gap:14px;flex-wrap:wrap;margin:14px 0 0}
+  .stat{background:var(--brand-soft);border-radius:10px;padding:10px 16px;min-width:110px}
+  .stat .n{font-size:20px;font-weight:800;color:var(--brand-dark)}
+  .stat .l{font-size:11.5px;color:var(--ink-2);font-weight:600}
+  .stat.warn{background:#fffbeb}.stat.warn .n{color:var(--warn)}
+  .stat.bad{background:#fef2f2}.stat.bad .n{color:var(--bad)}
+  .soon{font-size:12px;color:var(--ink-3);background:#f1f5f9;border-radius:8px;padding:10px 14px;margin-top:14px;border:1px dashed var(--line)}
+  @media(max-width:820px){
+    .sidebar{position:fixed;left:-300px;transition:.2s;height:100%;z-index:30}
+    .sidebar.show{left:0}
+    .main{padding:18px}
+    .menu-toggle{display:inline-block!important}
+  }
+  .menu-toggle{display:none;border:1px solid var(--line);background:#fff;border-radius:8px;padding:6px 11px;font-size:18px}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <button class="menu-toggle" onclick="document.getElementById('sb').classList.toggle('show')">☰</button>
+  <div class="logo">Finance Tools<small>เครื่องมือคลีน &amp; ตรวจสอบข้อมูล</small></div>
+  <div class="company-switch" id="companySwitch"></div>
+  <div class="spacer"></div>
+  <div class="hint">🔒 ประมวลผลในเครื่อง · ข้อมูลไม่ออกนอกเบราว์เซอร์</div>
+</div>
+
+<div class="wrap">
+  <aside class="sidebar" id="sb"></aside>
+  <main class="main" id="main"></main>
+</div>
+
+<script>
+/* ============================================================
+   Finance Tools — โครงร่าง (shell)
+   logic จริงของแต่ละ tool จะค่อยใส่ทีหลังตอนได้ไฟล์ตัวอย่าง
+   ============================================================ */
+
+const COMPANIES = [
+  { id:"mbark", name:"M Bark" },
+  { id:"benya", name:"Benya" },
+];
+
+const TOOLS = [
+  { id:"bigseller", stage:"Stage 1 · บัญชี — คีย์ IV", ic:"🧾",
+    name:"จัดฟอร์แมต Big Seller", desc:"เตรียมไฟล์เข้า AutoKey",
+    long:"อัปไฟล์ export จาก Big Seller → จัดฟอร์แมต/รันเลขออเดอร์ → ส่งออกพร้อมคีย์ผ่าน Love AutoKey" },
+  { id:"ivcheck", stage:"Stage 1 · บัญชี — คีย์ IV", ic:"✅",
+    name:"ตรวจ IV ครบไหม", desc:"เทียบ Big Seller × ลูกหนี้",
+    long:"อัป 2 ไฟล์ (Big Seller + รายงานลูกหนี้ Express) → ฟ้องออเดอร์ที่ยังไม่ได้คีย์ / คีย์ซ้ำ / ตกหล่น" },
+  { id:"armap", stage:"Stage 2 · การเงิน — รับชำระ", ic:"🔗",
+    name:"Map ลูกหนี้คงค้าง", desc:"กรองเฉพาะที่ยังค้าง",
+    long:"อัปรายงานลูกหนี้คงค้าง + รายละเอียดออเดอร์ → กรองเฉพาะที่ยังค้างชำระ (กันรับชำระซ้ำ) + เตรียมเลข IV/AR" },
+  { id:"settle", stage:"Stage 2 · การเงิน — รับชำระ", ic:"💰",
+    name:"จับยอด Settlement", desc:"Shopee / TikTok / Lazada",
+    long:"อัปรายงานเงินเข้ากระเป๋าจากแพลตฟอร์ม → จับคู่ออเดอร์ ว่าเงินเข้าจริงกี่บาท วันไหน + คำนวณส่วนต่าง (ค่าใช้จ่ายจ่ายล่วงหน้า)" },
+  { id:"bankrec", stage:"Stage 3 · การเงิน — ผ่านเช็ค", ic:"🏦",
+    name:"กระทบยอดถอนเงิน", desc:"เงินเข้าบัญชี → ผ่านเช็ค",
+    long:"อัปรายงานการถอนเงินจากแพลตฟอร์ม → จับว่ายอดเข้าบัญชีบริษัทมีออเดอร์ไหนบ้าง → สร้างรายการผ่านเช็ค + อ้างอิง Bank Rec" },
+];
+
+/* ---------- state ---------- */
+let state = { company: COMPANIES[0].id, tool: TOOLS[0].id, files:{}, data:{} };
+const key = () => state.company + ":" + state.tool;   // แยกข้อมูลต่อบริษัท+tool
+
+/* ---------- render: company switch ---------- */
+function renderCompanies(){
+  document.getElementById("companySwitch").innerHTML = COMPANIES.map(c =>
+    `<button class="${c.id===state.company?'active':''}" onclick="setCompany('${c.id}')">${c.name}</button>`
+  ).join("");
+}
+function setCompany(id){ state.company=id; renderCompanies(); renderTool(); }
+
+/* ---------- render: sidebar ---------- */
+function renderSidebar(){
+  let html="", lastStage="";
+  TOOLS.forEach(t=>{
+    if(t.stage!==lastStage){ html+=`<div class="stage-label">${t.stage}</div>`; lastStage=t.stage; }
+    html+=`<div class="nav-item ${t.id===state.tool?'active':''}" onclick="setTool('${t.id}')">
+        <div class="ic">${t.ic}</div>
+        <div><div class="t">${t.name}</div><div class="d">${t.desc}</div></div>
+      </div>`;
+  });
+  document.getElementById("sb").innerHTML=html;
+}
+function setTool(id){ state.tool=id; document.getElementById('sb').classList.remove('show'); renderSidebar(); renderTool(); }
+
+/* ---------- render: tool page ---------- */
+function renderTool(){
+  const t = TOOLS.find(x=>x.id===state.tool);
+  const k = key();
+  const rows = state.data[k];
+  const file = state.files[k];
+
+  document.getElementById("main").innerHTML = `
+    <div class="page-head">
+      <h1>${t.ic} ${t.name} <span class="badge">${COMPANIES.find(c=>c.id===state.company).name}</span></h1>
+      <div class="sub">${t.long}</div>
+    </div>
+
+    <div class="card">
+      <h3>1 · อัปโหลดไฟล์</h3>
+      <div class="note">รองรับ .xlsx, .xls, .csv — ลากไฟล์มาวาง หรือกดเลือกไฟล์</div>
+      <div class="drop" id="drop">
+        <div class="big">📂</div>
+        <div>ลากไฟล์มาวางที่นี่ หรือ <b>คลิกเพื่อเลือกไฟล์</b></div>
+        <div class="sm">ไฟล์ถูกอ่านในเครื่องเท่านั้น ไม่มีการอัปขึ้นเซิร์ฟเวอร์</div>
+        <input type="file" id="fileInput" accept=".xlsx,.xls,.csv" style="display:none" />
+      </div>
+      ${file ? `<div class="filechip">📄 ${file} <button onclick="clearFile()">✕</button></div>` : ``}
+    </div>
+
+    ${rows ? `
+    <div class="card">
+      <h3>2 · ตัวอย่างข้อมูล / ผลลัพธ์</h3>
+      <div class="note">แสดง ${Math.min(rows.length,200)} แถวแรกจากทั้งหมด ${rows.length} แถว</div>
+      <div class="opts">
+        <label class="opt"><input type="checkbox" id="optHeader" checked onchange="renderTool()"> แถวแรกเป็นหัวตาราง</label>
+        <label class="opt"><input type="checkbox" id="optTrim" checked> ตัดช่องว่างหน้า-หลัง</label>
+      </div>
+      ${tableHTML(rows)}
+      <div class="pill-stat">
+        <div class="stat"><div class="n">${rows.length}</div><div class="l">จำนวนแถว</div></div>
+        <div class="stat"><div class="n">${rows[0]?rows[0].length:0}</div><div class="l">จำนวนคอลัมน์</div></div>
+      </div>
+      <div class="btnrow">
+        <div class="dd" id="exportDD">
+          <button class="btn" onclick="document.getElementById('exportDD').classList.toggle('open')">⬇ ดาวน์โหลด ▾</button>
+          <div class="dd-menu">
+            <button onclick="exportFile('xlsx')">📊 Excel (.xlsx) <span class="x">— จัดรูปแบบสวย</span></button>
+            <button onclick="exportFile('csv')">📄 CSV (.csv) <span class="x">— เบา นำเข้าต่อง่าย</span></button>
+          </div>
+        </div>
+        <button class="btn ghost" onclick="copyTSV()">📋 คัดลอกตาราง</button>
+      </div>
+      <div class="soon">⚙️ <b>logic เฉพาะของเครื่องมือนี้ยังไม่ใส่</b> — ตอนนี้แสดง/ส่งออกข้อมูลดิบจากไฟล์ได้แล้ว
+        ขั้นต่อไป: ส่งไฟล์ตัวอย่างจริงมา แล้วจะใส่สูตรคลีน/แมพ/ตรวจสอบเฉพาะของ "${t.name}" ให้ค่ะ</div>
+    </div>` : `
+    <div class="card"><div class="empty">ยังไม่มีข้อมูล — อัปโหลดไฟล์ด้านบนเพื่อเริ่ม</div></div>`}
+  `;
+
+  wireDrop();
+}
+
+function tableHTML(rows){
+  if(!rows||!rows.length) return `<div class="empty">ไฟล์ว่าง</div>`;
+  const header = document.getElementById("optHeader") ? document.getElementById("optHeader").checked : true;
+  const head = header ? rows[0] : rows[0].map((_,i)=>"คอลัมน์ "+(i+1));
+  const body = header ? rows.slice(1,201) : rows.slice(0,200);
+  return `<div class="table-wrap"><table>
+    <thead><tr>${head.map(h=>`<th>${esc(h)}</th>`).join("")}</tr></thead>
+    <tbody>${body.map(r=>`<tr>${head.map((_,i)=>`<td>${esc(r[i])}</td>`).join("")}</tr>`).join("")}</tbody>
+  </table></div>`;
+}
+function esc(v){ return (v==null?"":String(v)).replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c])); }
+
+/* ---------- file handling ---------- */
+function wireDrop(){
+  const drop=document.getElementById("drop"); if(!drop) return;
+  const input=document.getElementById("fileInput");
+  drop.onclick=()=>input.click();
+  input.onchange=e=>{ if(e.target.files[0]) readFile(e.target.files[0]); };
+  drop.ondragover=e=>{e.preventDefault();drop.classList.add("over");};
+  drop.ondragleave=()=>drop.classList.remove("over");
+  drop.ondrop=e=>{e.preventDefault();drop.classList.remove("over"); if(e.dataTransfer.files[0]) readFile(e.dataTransfer.files[0]);};
+}
+function readFile(file){
+  const reader=new FileReader();
+  reader.onload=e=>{
+    try{
+      const wb=XLSX.read(e.target.result,{type:"array"});
+      const ws=wb.Sheets[wb.SheetNames[0]];
+      const rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:"",blankrows:false});
+      state.files[key()]=file.name;
+      state.data[key()]=rows;
+      renderTool();
+    }catch(err){ alert("อ่านไฟล์ไม่สำเร็จ: "+err.message); }
+  };
+  reader.readAsArrayBuffer(file);
+}
+function clearFile(){ delete state.files[key()]; delete state.data[key()]; renderTool(); }
+
+/* ---------- export ---------- */
+function exportFile(fmt){
+  const rows=state.data[key()]; if(!rows) return;
+  const t=TOOLS.find(x=>x.id===state.tool);
+  const base=`${COMPANIES.find(c=>c.id===state.company).name}_${t.name}_${stamp()}`;
+  const ws=XLSX.utils.aoa_to_sheet(rows);
+  if(fmt==="csv"){
+    const csv=XLSX.utils.sheet_to_csv(ws);
+    download("﻿"+csv, base+".csv", "text/csv;charset=utf-8");
+  }else{
+    const wb=XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb,ws,"ผลลัพธ์");
+    XLSX.writeFile(wb, base+".xlsx");
+  }
+  document.getElementById("exportDD").classList.remove("open");
+}
+function copyTSV(){
+  const rows=state.data[key()]; if(!rows) return;
+  const tsv=rows.map(r=>r.join("\t")).join("\n");
+  navigator.clipboard.writeText(tsv).then(()=>alert("คัดลอกแล้ว ✓ วางใน Excel ได้เลย"));
+}
+function download(text,name,type){
+  const blob=new Blob([text],{type});
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(blob); a.download=name; a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+}
+function stamp(){ const d=new Date(); const p=n=>String(n).padStart(2,"0");
+  return `${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}`; }
+
+/* ---------- close dropdown on outside click ---------- */
+document.addEventListener("click",e=>{
+  const dd=document.getElementById("exportDD");
+  if(dd && !dd.contains(e.target)) dd.classList.remove("open");
+});
+
+/* ---------- init ---------- */
+renderCompanies();
+renderSidebar();
+renderTool();
+</script>
+</body>
+</html>

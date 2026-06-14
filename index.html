@@ -53,6 +53,39 @@
   .drop .sm{font-size:12px;color:var(--ink-3);margin-top:6px}
   .filechip{display:inline-flex;align-items:center;gap:8px;background:var(--brand-soft);color:var(--brand-dark);border-radius:999px;padding:6px 14px;font-size:13px;font-weight:600;margin-top:12px}
   .filechip button{border:none;background:none;color:var(--brand-dark);font-size:15px;line-height:1}
+  .sheet-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:14px;padding:10px 14px;background:#f8fafc;border:1px solid var(--line);border-radius:10px}
+  .sheet-row .sheet-lbl{font-size:13px;font-weight:700;color:var(--ink-2)}
+  .sheet-row select{border:1px solid var(--line);border-radius:8px;padding:6px 10px;font-size:13px;font-family:inherit;background:#fff;min-width:200px;color:var(--ink)}
+  .sheet-row .sheet-auto{font-size:12px;color:var(--ok);font-weight:600}
+  .sheet-row .sheet-manual{font-size:12px;color:var(--warn);font-weight:600}
+  /* ---- armap multi-slot ---- */
+  .slots{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:18px}
+  @media(max-width:1100px){.slots{grid-template-columns:1fr}}
+  .slot{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:8px}
+  .slot .lbl{display:flex;align-items:center;gap:6px;font-weight:700;font-size:14px;color:var(--ink)}
+  .slot .lbl .step{display:inline-flex;width:22px;height:22px;border-radius:50%;background:var(--brand);color:#fff;font-size:12px;align-items:center;justify-content:center}
+  .slot .hint{font-size:12px;color:var(--ink-3);line-height:1.35}
+  .slot .drop{padding:18px;font-size:13px}
+  .slot .drop .big{font-size:24px;margin-bottom:2px}
+  .slot.ready{border-color:var(--ok);background:#f0fdf4}
+  .slot .files{display:flex;flex-direction:column;gap:5px}
+  .slot .fchip{display:flex;align-items:center;justify-content:space-between;gap:6px;background:var(--brand-soft);color:var(--brand-dark);border-radius:8px;padding:6px 10px;font-size:12px}
+  .slot .fchip .meta{font-size:10.5px;color:var(--ink-2);opacity:.85}
+  .slot .fchip button{border:none;background:none;color:var(--brand-dark);font-size:14px;line-height:1;cursor:pointer}
+  .slot .ok{font-size:12px;color:var(--ok);font-weight:600;margin-top:2px}
+  .slot .err{font-size:12px;color:var(--bad);font-weight:600;margin-top:2px}
+  .bigbtn{padding:13px 30px;font-size:15px;border-radius:12px}
+  .bigbtn .ic{margin-right:6px}
+  .tabs{display:flex;gap:4px;background:var(--ink-100,#f1f5f9);padding:4px;border-radius:10px;margin-bottom:14px}
+  .tabs button{flex:1;border:none;background:transparent;padding:9px 14px;font-size:13px;font-weight:700;color:var(--ink-2);border-radius:8px;cursor:pointer;transition:.15s}
+  .tabs button.active{background:#fff;color:var(--brand-dark);box-shadow:0 1px 3px rgba(0,0,0,.08)}
+  .tabs button .c{display:inline-block;margin-left:6px;background:var(--brand-soft);color:var(--brand-dark);border-radius:999px;padding:1px 8px;font-size:11px}
+  .tabs button.active .c{background:var(--brand);color:#fff}
+  .warning-row{background:#fffbeb!important}
+  .warning-row td:first-child{position:relative}
+  .warning-row td:first-child::before{content:"⚠️";position:absolute;left:-4px;top:50%;transform:translateY(-50%);font-size:14px}
+  .neg{color:var(--bad);font-weight:600}
+  .pos{color:var(--ok);font-weight:600}
   /* ---- buttons ---- */
   .btn{border:1px solid var(--brand);background:var(--brand);color:#fff;padding:9px 18px;border-radius:10px;font-weight:700;font-size:14px;transition:.15s}
   .btn:hover{background:var(--brand-dark);border-color:var(--brand-dark)}
@@ -119,27 +152,65 @@ const COMPANIES = [
   { id:"benya", name:"Benya" },
 ];
 
+/* sheetHints:
+   - exact: ["ชื่อ"] → จับเป๊ะ (ไม่สนตัวพิมพ์/ช่องว่าง)
+   - contains: ["คำ"] → ชื่อมีคำนี้อยู่ ก็พอ
+   - exclude: ["คำ"] → ตัดชีตที่มีคำนี้ออก (เช่น "สรุป", "Summary")
+   - หาเจอ 1 ตัว → auto-select; หาไม่เจอ → เปิด dropdown ให้เลือกเอง */
 const TOOLS = [
   { id:"bigseller", stage:"Stage 1 · บัญชี — คีย์ IV", ic:"🧾",
     name:"จัดฟอร์แมต Big Seller", desc:"เตรียมไฟล์เข้า AutoKey",
-    long:"อัปไฟล์ export จาก Big Seller → จัดฟอร์แมต/รันเลขออเดอร์ → ส่งออกพร้อมคีย์ผ่าน Love AutoKey" },
+    long:"อัปไฟล์ export จาก Big Seller → จัดฟอร์แมต/รันเลขออเดอร์ → ส่งออกพร้อมคีย์ผ่าน Love AutoKey",
+    sheetHints:{ contains:["รายละเอียด","detail","order","ออเดอร์"], exclude:["สรุป","summary"] } },
   { id:"ivcheck", stage:"Stage 1 · บัญชี — คีย์ IV", ic:"✅",
     name:"ตรวจ IV ครบไหม", desc:"เทียบ Big Seller × ลูกหนี้",
-    long:"อัป 2 ไฟล์ (Big Seller + รายงานลูกหนี้ Express) → ฟ้องออเดอร์ที่ยังไม่ได้คีย์ / คีย์ซ้ำ / ตกหล่น" },
+    long:"อัป 2 ไฟล์ (Big Seller + รายงานลูกหนี้ Express) → ฟ้องออเดอร์ที่ยังไม่ได้คีย์ / คีย์ซ้ำ / ตกหล่น",
+    sheetHints:{ contains:["ลูกหนี้","รายละเอียด","detail"], exclude:["สรุป","summary"] } },
   { id:"armap", stage:"Stage 2 · การเงิน — รับชำระ", ic:"🔗",
-    name:"Map ลูกหนี้คงค้าง", desc:"กรองเฉพาะที่ยังค้าง",
-    long:"อัปรายงานลูกหนี้คงค้าง + รายละเอียดออเดอร์ → กรองเฉพาะที่ยังค้างชำระ (กันรับชำระซ้ำ) + เตรียมเลข IV/AR" },
+    name:"Map ลูกหนี้คงค้าง", desc:"3 ไฟล์ → พร้อมคีย์รับชำระ",
+    long:"วาง 3 ไฟล์ — ลูกหนี้คงค้าง · รายงานขายแบบเห็นออเดอร์ · หลังบ้าน Shopee/TikTok (ลากกี่ไฟล์ก็ได้) → ระบบจะแมพ IV กับเงินเข้า แล้วออกผลเป็น 3 ชีต พร้อมคีย์เข้า AutoKey",
+    multiInput:true },
   { id:"settle", stage:"Stage 2 · การเงิน — รับชำระ", ic:"💰",
     name:"จับยอด Settlement", desc:"Shopee / TikTok / Lazada",
-    long:"อัปรายงานเงินเข้ากระเป๋าจากแพลตฟอร์ม → จับคู่ออเดอร์ ว่าเงินเข้าจริงกี่บาท วันไหน + คำนวณส่วนต่าง (ค่าใช้จ่ายจ่ายล่วงหน้า)" },
+    long:"อัปรายงานเงินเข้ากระเป๋าจากแพลตฟอร์ม → จับคู่ออเดอร์ ว่าเงินเข้าจริงกี่บาท วันไหน + คำนวณส่วนต่าง (ค่าใช้จ่ายจ่ายล่วงหน้า)",
+    sheetHints:{ contains:["settlement","income","รายได้","รายละเอียด"], exclude:["สรุป","summary"] } },
   { id:"bankrec", stage:"Stage 3 · การเงิน — ผ่านเช็ค", ic:"🏦",
     name:"กระทบยอดถอนเงิน", desc:"เงินเข้าบัญชี → ผ่านเช็ค",
-    long:"อัปรายงานการถอนเงินจากแพลตฟอร์ม → จับว่ายอดเข้าบัญชีบริษัทมีออเดอร์ไหนบ้าง → สร้างรายการผ่านเช็ค + อ้างอิง Bank Rec" },
+    long:"อัปรายงานการถอนเงินจากแพลตฟอร์ม → จับว่ายอดเข้าบัญชีบริษัทมีออเดอร์ไหนบ้าง → สร้างรายการผ่านเช็ค + อ้างอิง Bank Rec",
+    sheetHints:{ contains:["withdraw","ถอน","payout","transfer"], exclude:["สรุป","summary"] } },
 ];
 
-/* ---------- state ---------- */
-let state = { company: COMPANIES[0].id, tool: TOOLS[0].id, files:{}, data:{} };
+/* pick the best sheet name from a workbook for the given tool
+   returns { name, auto } — auto=true if matched a hint */
+function pickSheet(sheetNames, hints){
+  if(!sheetNames||!sheetNames.length) return null;
+  const norm = s => String(s||"").toLowerCase().replace(/\s+/g,"");
+  const list = sheetNames.map(n=>({raw:n, n:norm(n)}));
+  const exclude = (hints&&hints.exclude||[]).map(norm);
+  const filtered = list.filter(s => !exclude.some(x => s.n.includes(x)));
+  const pool = filtered.length ? filtered : list;
+  // exact
+  for(const x of (hints&&hints.exact||[]).map(norm)){
+    const hit = pool.find(s=>s.n===x); if(hit) return {name:hit.raw, auto:true};
+  }
+  // contains
+  for(const x of (hints&&hints.contains||[]).map(norm)){
+    const hit = pool.find(s=>s.n.includes(x)); if(hit) return {name:hit.raw, auto:true};
+  }
+  // no hint matched → no auto pick (let user choose)
+  return {name:pool[0].raw, auto:false};
+}
+
+/* ---------- state ----------
+   files[key] = file name
+   books[key] = { sheets:{name:rows[][]}, names:[], picked:"name", auto:true }
+   ใช้ books[key].sheets[books[key].picked] เป็นข้อมูลที่แสดง/ส่งออก */
+let state = { company: COMPANIES[0].id, tool: TOOLS[0].id, files:{}, books:{} };
 const key = () => state.company + ":" + state.tool;   // แยกข้อมูลต่อบริษัท+tool
+function currentRows(){
+  const b = state.books[key()]; if(!b) return null;
+  return b.sheets[b.picked] || null;
+}
 
 /* ---------- render: company switch ---------- */
 function renderCompanies(){
@@ -166,8 +237,10 @@ function setTool(id){ state.tool=id; document.getElementById('sb').classList.rem
 /* ---------- render: tool page ---------- */
 function renderTool(){
   const t = TOOLS.find(x=>x.id===state.tool);
+  if (t.multiInput) { renderToolArmap(); return; }
   const k = key();
-  const rows = state.data[k];
+  const book = state.books[k];
+  const rows = currentRows();
   const file = state.files[k];
 
   document.getElementById("main").innerHTML = `
@@ -186,6 +259,14 @@ function renderTool(){
         <input type="file" id="fileInput" accept=".xlsx,.xls,.csv" style="display:none" />
       </div>
       ${file ? `<div class="filechip">📄 ${file} <button onclick="clearFile()">✕</button></div>` : ``}
+      ${book && book.names.length > 1 ? `
+        <div class="sheet-row">
+          <span class="sheet-lbl">📑 ชีต:</span>
+          <select id="sheetPick" onchange="pickSheetByName(this.value)">
+            ${book.names.map(n=>`<option value="${esc(n)}" ${n===book.picked?'selected':''}>${esc(n)}${n===book.picked&&book.auto?' (เดาให้)':''}</option>`).join("")}
+          </select>
+          ${book.auto ? `<span class="sheet-auto">✓ เลือกอัตโนมัติ — เปลี่ยนได้</span>` : `<span class="sheet-manual">⚠️ เดาไม่ได้ เลือกชีตที่ถูกเอง</span>`}
+        </div>` : ``}
     </div>
 
     ${rows ? `
@@ -247,20 +328,29 @@ function readFile(file){
   reader.onload=e=>{
     try{
       const wb=XLSX.read(e.target.result,{type:"array"});
-      const ws=wb.Sheets[wb.SheetNames[0]];
-      const rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:"",blankrows:false});
+      const sheets={}, names=wb.SheetNames.slice();
+      names.forEach(n=>{
+        sheets[n]=XLSX.utils.sheet_to_json(wb.Sheets[n],{header:1,defval:"",blankrows:false});
+      });
+      const t=TOOLS.find(x=>x.id===state.tool);
+      const pick=pickSheet(names, t&&t.sheetHints);
       state.files[key()]=file.name;
-      state.data[key()]=rows;
+      state.books[key()]={ sheets, names, picked:pick.name, auto:pick.auto };
       renderTool();
     }catch(err){ alert("อ่านไฟล์ไม่สำเร็จ: "+err.message); }
   };
   reader.readAsArrayBuffer(file);
 }
-function clearFile(){ delete state.files[key()]; delete state.data[key()]; renderTool(); }
+function pickSheetByName(name){
+  const b=state.books[key()]; if(!b) return;
+  b.picked=name; b.auto=false;   // user เลือกเอง → ไม่ใช่ auto แล้ว
+  renderTool();
+}
+function clearFile(){ delete state.files[key()]; delete state.books[key()]; renderTool(); }
 
 /* ---------- export ---------- */
 function exportFile(fmt){
-  const rows=state.data[key()]; if(!rows) return;
+  const rows=currentRows(); if(!rows) return;
   const t=TOOLS.find(x=>x.id===state.tool);
   const base=`${COMPANIES.find(c=>c.id===state.company).name}_${t.name}_${stamp()}`;
   const ws=XLSX.utils.aoa_to_sheet(rows);
@@ -275,7 +365,7 @@ function exportFile(fmt){
   document.getElementById("exportDD").classList.remove("open");
 }
 function copyTSV(){
-  const rows=state.data[key()]; if(!rows) return;
+  const rows=currentRows(); if(!rows) return;
   const tsv=rows.map(r=>r.join("\t")).join("\n");
   navigator.clipboard.writeText(tsv).then(()=>alert("คัดลอกแล้ว ✓ วางใน Excel ได้เลย"));
 }
@@ -293,6 +383,652 @@ document.addEventListener("click",e=>{
   const dd=document.getElementById("exportDD");
   if(dd && !dd.contains(e.target)) dd.classList.remove("open");
 });
+
+/* ============================================================
+   AR MAP TOOL — รับชำระลูกหนี้ออนไลน์
+   3 inputs → join → 3 buckets → export
+   ============================================================ */
+
+state.armap = state.armap || {};
+function armapGet(){
+  if(!state.armap[state.company]){
+    state.armap[state.company] = { ar:null, sales:null, platforms:[], result:null, activeTab:'a' };
+  }
+  return state.armap[state.company];
+}
+
+/* ---------- helpers ---------- */
+function num(v){
+  if(v==null||v==="") return 0;
+  const n=parseFloat(String(v).replace(/[, ฿]/g,"").replace(/\(/,"-").replace(/\)/,""));
+  return isNaN(n)?0:n;
+}
+function round2(n){ return Math.round(n*100)/100; }
+function pad2(n){ return String(n).padStart(2,"0"); }
+
+/* ISO date helpers */
+function parseDate(v){
+  if(v==null||v==="") return "";
+  if(v instanceof Date) return `${v.getFullYear()}-${pad2(v.getMonth()+1)}-${pad2(v.getDate())}`;
+  const s=String(v).trim();
+  let m=s.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
+  if(m) return `${m[1]}-${pad2(m[2])}-${pad2(m[3])}`;
+  m=s.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{2,4})/);
+  if(m){
+    let y=parseInt(m[3],10);
+    if(y<100) y+=2000;
+    if(y>=2500) y-=543;
+    return `${y}-${pad2(m[2])}-${pad2(m[1])}`;
+  }
+  return s;
+}
+function fmtDateDDMMYYYY(iso){
+  if(!iso) return "";
+  const m=iso.match(/^(\d{4})-(\d{2})-(\d{2})/); if(!m) return iso;
+  return `${m[3]}/${m[2]}/${m[1]}`;
+}
+function fmtDateDDMMYY(iso){
+  if(!iso) return "";
+  const m=iso.match(/^(\d{4})-(\d{2})-(\d{2})/); if(!m) return iso;
+  return `${m[3]}/${m[2]}/${m[1].slice(2)}`;
+}
+
+/* CSV parser (handles "" escapes + CRLF) */
+function csvParse(text){
+  const rows=[]; let row=[],field="",inQ=false,i=0;
+  while(i<text.length){
+    const ch=text[i];
+    if(inQ){
+      if(ch==='"'){ if(text[i+1]==='"'){field+='"';i+=2;continue;} inQ=false; i++; }
+      else { field+=ch; i++; }
+    } else {
+      if(ch==='"'){ inQ=true; i++; }
+      else if(ch===','){ row.push(field); field=""; i++; }
+      else if(ch==='\r'){ i++; }
+      else if(ch==='\n'){ row.push(field); rows.push(row); row=[]; field=""; i++; }
+      else { field+=ch; i++; }
+    }
+  }
+  if(field||row.length){ row.push(field); rows.push(row); }
+  return rows;
+}
+
+/* read a file as Uint8Array (for XLSX) or decoded text (for CSV) */
+function readFileSmart(file){
+  return new Promise((resolve,reject)=>{
+    const isCSV=/\.csv$/i.test(file.name);
+    const r=new FileReader();
+    r.onerror=()=>reject(r.error);
+    r.onload=()=>{
+      if(isCSV){
+        // Express exports are TIS-620 / CP874 — decode safely
+        const buf=new Uint8Array(r.result);
+        let text;
+        try{ text=new TextDecoder("utf-8",{fatal:true}).decode(buf); }
+        catch(_){ try{ text=new TextDecoder("windows-874").decode(buf); }
+                  catch(__){ text=new TextDecoder("tis-620").decode(buf); } }
+        resolve({type:"csv", text});
+      } else {
+        const wb=XLSX.read(new Uint8Array(r.result),{type:"array",cellDates:true});
+        const sheets={}, names=wb.SheetNames.slice();
+        names.forEach(n=>{
+          sheets[n]=XLSX.utils.sheet_to_json(wb.Sheets[n],{header:1,defval:"",blankrows:false,raw:true});
+        });
+        resolve({type:"xlsx", names, sheets});
+      }
+    };
+    r.readAsArrayBuffer(file);
+  });
+}
+
+/* ---------- Parser: Express AR Outstanding (banded CSV) ---------- */
+function parseExpressAR(text){
+  const rows=csvParse(text);
+  const out=[]; let currCode="",currName="";
+  for(const r of rows){
+    const c1=(r[1]||"").trim();
+    const c3=(r[3]||"").trim();
+    const c4=(r[4]||"").trim();
+    const c5=(r[5]||"").trim();
+    const c7=(r[7]||"").trim();
+    // Skip subtotal/grand-total rows
+    if(/^รวม|^ประเภท/.test(c1)) continue;
+    // Customer header: name in c3, code in c4, no date
+    if(c3 && c4 && !c5 && !/^IV|^SR|^RE/.test(c4) && !/^---/.test(c3)){
+      currName=c3; currCode=c4;
+      continue;
+    }
+    // Detail row: date in c5, doc in c7
+    if(/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(c5) && /^(IV|SR|RE|CN|DN)/i.test(c7)){
+      out.push({
+        custCode:currCode, custName:currName,
+        doc:c7, date:parseDate(c5),
+        bill:num(r[9]), paid:num(r[10]), outstanding:num(r[11]),
+        isReturn:/^SR|^CN/i.test(c7)
+      });
+    }
+  }
+  return out;
+}
+
+/* ---------- Parser: Express Sales Detail (banded text-in-CSV) ---------- */
+function parseExpressSales(text){
+  const rows=csvParse(text);
+  const out=[]; let currCode="",currName="";
+  for(const r of rows){
+    // Each row is essentially one text line (column 0)
+    const line=(r[0]||"").replace(/[ ]/g," ").trimEnd();
+    if(!line.trim()) continue;
+    const sline=line.trim();
+    // Skip separator / header / totals
+    if(/^-+$/.test(sline)) continue;
+    if(/^รวม|^ทั้งหมด|^เขตการสาขา|^เขตการขาย$|^พิมพ์รายการ|^วันที่จาก|^บริษัท|^วิเคราะห์/.test(sline)) continue;
+    // Customer header: "<name> /<CUSTCODE>"
+    const ch=sline.match(/^(.+?)\s*\/\s*([A-Z][A-Z0-9 .\-_]*)$/);
+    if(ch && !/^IV\d|^SR\d|^RE\d/.test(sline)){
+      currName=ch[1].replace(/^ลูกค้าทั่วไป-?/,"").trim();
+      currCode=ch[2].trim();
+      continue;
+    }
+    // Detail row: starts with IV/SR + date
+    const m=sline.match(/^(IV|SR|RE)(\d{6,15})\s+(\d{1,2}\/\d{1,2}\/\d{2,4})\s+/);
+    if(m){
+      const doc=m[1]+m[2];
+      const date=parseDate(m[3]);
+      const rest=sline.slice(m[0].length);
+      const tokens=rest.split(/\s+/).filter(Boolean);
+      // Find second date (ครบกำหนด)
+      let dueIdx=-1;
+      for(let i=0;i<tokens.length;i++){
+        if(/^\d{1,2}\/\d{1,2}\/\d{2,4}$/.test(tokens[i])){ dueIdx=i; break; }
+      }
+      // Numeric tokens BEFORE dueIdx — last one = รวมทั้งสิ้น (with VAT)
+      let total=0;
+      if(dueIdx>0){
+        for(let i=dueIdx-1;i>=0;i--){
+          const t=tokens[i].replace(/,/g,"");
+          if(/^-?\d+(?:\.\d+)?$/.test(t)){ total=parseFloat(t); break; }
+        }
+      }
+      // อ้างอิง = first long alphanumeric token after dueIdx
+      let ref="";
+      if(dueIdx>=0){
+        for(let i=dueIdx+1;i<tokens.length;i++){
+          const t=tokens[i].replace(/"+$/,"");
+          if(/^[A-Z0-9]{8,}$/i.test(t) && !/^\d+\.\d+$/.test(t)){ ref=t; break; }
+        }
+      }
+      out.push({ iv:doc, date, custCode:currCode, custName:currName, ref, total });
+    }
+  }
+  return out;
+}
+
+/* ---------- Parser: Shopee Income ---------- */
+function parseShopeeIncome(book){
+  const incomeName = book.names.find(n => /^income$/i.test(n)) || book.names[0];
+  const summaryName = book.names.find(n => /summary/i.test(n)) || null;
+  let seller="";
+  if(summaryName){
+    const sumRows=book.sheets[summaryName]||[];
+    for(const r of sumRows){
+      const c0=String(r[0]||"");
+      if(c0.includes("ชื่อผู้ขาย") || c0.includes("ผู้ขาย (ร้านค้า)")){ seller=String(r[1]||"").trim(); break; }
+    }
+  }
+  const rows=book.sheets[incomeName]||[];
+  let headerIdx=-1;
+  for(let i=0;i<Math.min(15,rows.length);i++){
+    const r=rows[i]||[];
+    if(r.some(c=>String(c||"").includes("หมายเลขคำสั่งซื้อ"))){ headerIdx=i; break; }
+  }
+  if(headerIdx<0) return { rows:[], seller };
+  const header=rows[headerIdx].map(h=>String(h||""));
+  const find=keys=>{
+    for(const k of keys){ const i=header.findIndex(h=>h.includes(k)); if(i>=0) return i; }
+    return -1;
+  };
+  const cOrder=find(["หมายเลขคำสั่งซื้อ"]);
+  // วันที่โอน: "วันที่โอนชำระเงินสำเร็จ" (โอน success) > "วันที่โอน..." ทั่วไป
+  let cPaidDate=header.findIndex(h=>h.includes("วันที่โอนชำระเงินสำเร็จ"));
+  if(cPaidDate<0) cPaidDate=find(["วันที่โอน","วันที่จ่ายเงิน","วันที่ปล่อยเงิน"]);
+  const cOrderDate=find(["วันที่ทำการสั่งซื้อ"]);
+  // ยอดเงินจริงที่ได้รับ: "จำนวนเงินทั้งหมดที่โอนแล้ว (฿)" คือยอดสุทธิที่ผู้ขายได้
+  let cNet=header.findIndex(h=>h.includes("จำนวนเงินทั้งหมดที่โอนแล้ว"));
+  if(cNet<0) cNet=header.findIndex(h=>h.includes("จำนวนเงินสุทธิที่ผู้ขาย"));
+  if(cNet<0) cNet=header.findIndex(h=>h.includes("จำนวนเงิน")&&h.includes("฿")&&!h.includes("คืน")&&!h.includes("ค่า"));
+  const cGross=find(["ราคาขายค้าปลีก","ราคาตั้ง"]);
+  const out=[];
+  for(let i=headerIdx+1;i<rows.length;i++){
+    const r=rows[i];
+    const o=String(r[cOrder]||"").trim();
+    if(!o) continue;
+    out.push({
+      orderNo:o,
+      paymentDate:parseDate(r[cPaidDate]),
+      orderDate:parseDate(r[cOrderDate]),
+      net:num(r[cNet]),
+      gross:num(r[cGross])
+    });
+  }
+  return { rows:out, seller };
+}
+
+/* ---------- Parser: TikTok Income ---------- */
+function parseTikTokIncome(book){
+  const detailName = book.names.find(n => n.includes("รายละเอียดคำสั่งซื้อ")) || book.names[0];
+  const rows=book.sheets[detailName]||[];
+  if(!rows.length) return { rows:[], seller:"" };
+  const header=rows[0].map(h=>String(h||""));
+  const find=keys=>{
+    for(const k of keys){ const i=header.findIndex(h=>h.includes(k)); if(i>=0) return i; }
+    return -1;
+  };
+  const cOrder=find(["หมายเลขคำสั่งซื้อ"]);
+  const cClose=find(["เวลาที่ชำระคำสั่งซื้อ","เวลาที่ปิดคำสั่งซื้อ"]);
+  const cCreate=find(["เวลาที่สร้างคำสั่งซื้อ"]);
+  const cNet=find(["จำนวนเงินที่ชำระทั้งหมด","จำนวนเงินที่จะถึง"]);
+  const cGross=find(["รายได้รวม","มูลค่าสั่ง"]);
+  const out=[];
+  for(let i=1;i<rows.length;i++){
+    const r=rows[i];
+    const o=String(r[cOrder]||"").trim();
+    if(!o) continue;
+    out.push({
+      orderNo:o,
+      paymentDate:parseDate(r[cClose])||parseDate(r[cCreate]),
+      orderDate:parseDate(r[cCreate]),
+      net:num(r[cNet]),
+      gross:num(r[cGross])
+    });
+  }
+  return { rows:out, seller:"" };
+}
+
+/* ---------- Detect platform kind + brand ---------- */
+function detectPlatform(file, book){
+  const nm=file.name.toLowerCase();
+  const seller=(detectSeller(book)||"").toLowerCase();
+  let kind="";
+  if(/tiktok|รายละเอียดคำสั่งซื้อ/i.test(nm) || book.names.some(n=>/รายละเอียดคำสั่งซื้อ/.test(n))) kind="TT";
+  else if(/shopee|income/i.test(nm) || book.names.some(n=>/^income$/i.test(n))) kind="SP";
+  let brand="";
+  const all=(nm+" "+seller);
+  if(/betra|^be[ _\-]|\bbe[ _\-]/i.test(all)) brand="BT";
+  else if(/qi[ _-]?care|benya_official|^qi[ _\-]|\bqi[ _\-]/i.test(all)) brand="QI";
+  else if(/mbark|mmark|m[ _\-]?bark/i.test(all)) brand="MB";
+  return { kind, brand, seller };
+}
+function detectSeller(book){
+  const sumName=book.names.find(n=>/summary/i.test(n));
+  if(sumName){
+    for(const r of (book.sheets[sumName]||[])){
+      const c0=String(r[0]||"");
+      if(c0.includes("ชื่อผู้ขาย")||c0.includes("ผู้ขาย (ร้านค้า)")) return String(r[1]||"").trim();
+    }
+  }
+  // TikTok: รายงาน sheet doesn't have explicit seller — use filename hint
+  return "";
+}
+
+/* ---------- Brand guess from Express customer code ---------- */
+function guessBrandFromCustCode(code){
+  const c=String(code||"").toUpperCase();
+  // Express ใช้รหัสสั้น: "SHOPEE BE" = Betra, "SHOPEE QI" = QI Care
+  if(/BETRA|\bBT\b|\bBE\b/.test(c)) return "BT";
+  if(/QI[\s-]?CARE|\bQI\b/.test(c)) return "QI";
+  if(/MBARK|MMARK|M[ -]?BARK|\bMB\b/.test(c)) return "MB";
+  return "";
+}
+function guessChannelFromCustCode(code){
+  const c=String(code||"").toUpperCase();
+  if(/SHOPEE|\bSP\b/.test(c)) return "SP";
+  if(/TIKTOK|\bTT\b|\bTK\b/.test(c)) return "TT";
+  if(/LAZADA|\bLZ\b/.test(c)) return "LZ";
+  return "";
+}
+function bankCodeOf(kind,brand){
+  const map={ "SP|BT":"SB","SP|QI":"SI","TT|BT":"TB","TT|QI":"TQ","SP|MB":"SM","TT|MB":"TM" };
+  return map[kind+"|"+brand]||"";
+}
+
+/* ---------- ARMAP: file slot handlers ---------- */
+async function armapHandleFile(slot, files){
+  const data=armapGet();
+  for(const file of files){
+    try{
+      const parsed=await readFileSmart(file);
+      if(slot==="ar"){
+        if(parsed.type!=="csv"){ alert("ช่องลูกหนี้คงค้าง: ต้องเป็น CSV จาก Express"); continue; }
+        const rows=parseExpressAR(parsed.text);
+        data.ar={ file:file.name, rows };
+      } else if(slot==="sales"){
+        if(parsed.type!=="csv"){ alert("ช่องรายงานขาย: ต้องเป็น CSV จาก Express"); continue; }
+        const rows=parseExpressSales(parsed.text);
+        data.sales={ file:file.name, rows };
+      } else if(slot==="platform"){
+        if(parsed.type!=="xlsx"){ alert("ช่องหลังบ้าน: ต้องเป็น XLSX จาก Shopee/TikTok"); continue; }
+        const det=detectPlatform(file,parsed);
+        let parsedRows={ rows:[], seller:"" };
+        if(det.kind==="SP") parsedRows=parseShopeeIncome(parsed);
+        else if(det.kind==="TT") parsedRows=parseTikTokIncome(parsed);
+        data.platforms.push({
+          file:file.name, kind:det.kind, brand:det.brand,
+          sellerName:parsedRows.seller||det.seller, rows:parsedRows.rows
+        });
+      }
+    }catch(err){
+      alert(`อ่านไฟล์ "${file.name}" ไม่สำเร็จ: `+err.message);
+    }
+  }
+  data.result=null;   // invalidate previous result
+  renderTool();
+}
+function armapRemoveFile(slot, idx){
+  const d=armapGet();
+  if(slot==="ar") d.ar=null;
+  else if(slot==="sales") d.sales=null;
+  else if(slot==="platform") d.platforms.splice(idx,1);
+  d.result=null;
+  renderTool();
+}
+function armapClearAll(){
+  const d=armapGet();
+  d.ar=null; d.sales=null; d.platforms=[]; d.result=null;
+  renderTool();
+}
+
+/* ---------- ARMAP: compute ---------- */
+function armapCompute(){
+  const d=armapGet();
+  if(!d.ar||!d.sales||!d.platforms.length){
+    alert("ใส่ไฟล์ให้ครบ 3 ช่องก่อนค่ะ");
+    return;
+  }
+  // Index sales by IV
+  const salesByDoc={};
+  for(const s of d.sales.rows){
+    if(!s.iv) continue;
+    (salesByDoc[s.iv]=salesByDoc[s.iv]||[]).push(s);
+  }
+  // Index platform rows by orderNo (with kind+brand tags)
+  const platByOrder={};
+  for(const p of d.platforms){
+    for(const r of p.rows){
+      if(!r.orderNo) continue;
+      (platByOrder[r.orderNo]=platByOrder[r.orderNo]||[]).push({
+        ...r, _kind:p.kind, _brand:p.brand, _seller:p.sellerName, _file:p.file
+      });
+    }
+  }
+  const usedOrders=new Set();
+  const A=[],B=[];
+  // For each outstanding IV (positive, only IV docs)
+  for(const ar of d.ar.rows){
+    if(!/^IV/i.test(ar.doc)) continue;
+    if(ar.outstanding<=0) continue;
+    const sList=salesByDoc[ar.doc];
+    if(!sList||!sList.length){ B.push({ ar, reason:"ไม่เจอในรายงานขาย (ตกหล่น?)" }); continue; }
+    const sale=sList[0];
+    if(!sale.ref){ B.push({ ar, sale, reason:"รายงานขายไม่มีเลขออเดอร์อ้างอิง" }); continue; }
+    const plats=platByOrder[sale.ref];
+    if(!plats||!plats.length){ B.push({ ar, sale, reason:"รอเงินเข้า (ยังไม่อยู่ในไฟล์หลังบ้าน)" }); continue; }
+    const plat=plats[0];
+    usedOrders.add(sale.ref);
+    const expBrand=guessBrandFromCustCode(ar.custCode);
+    const expChan =guessChannelFromCustCode(ar.custCode);
+    const warning=[];
+    if(expBrand && plat._brand && expBrand!==plat._brand)
+      warning.push(`บัญชีคีย์แบรนด์ "${expBrand}" แต่เงินเข้า "${plat._brand}"`);
+    if(expChan && plat._kind && expChan!==plat._kind)
+      warning.push(`บัญชีคีย์ช่องทาง "${expChan}" แต่เงินเข้า "${plat._kind}"`);
+    A.push({
+      arIv:ar.doc, arDate:ar.date, arCustCode:ar.custCode, arCustName:ar.custName,
+      arOutstanding:ar.outstanding,
+      orderNo:sale.ref, saleTotal:sale.total,
+      channel:plat._kind, paymentDate:plat.paymentDate,
+      netAmount:plat.net, gross:plat.gross||0,
+      diff:round2(ar.outstanding-plat.net),
+      actualBrand:plat._brand, sellerName:plat._seller,
+      sourceFile:plat._file,
+      bankCode:bankCodeOf(plat._kind,plat._brand),
+      warning:warning.join(" · ")
+    });
+  }
+  // Bucket C: platform rows not consumed
+  const C=[];
+  for(const p of d.platforms){
+    for(const r of p.rows){
+      if(!r.orderNo||usedOrders.has(r.orderNo)) continue;
+      C.push({
+        orderNo:r.orderNo, paymentDate:r.paymentDate,
+        net:r.net, gross:r.gross,
+        channel:p.kind, brand:p.brand,
+        seller:p.sellerName, file:p.file
+      });
+    }
+  }
+  d.result={ A, B, C, totals:{
+    arIvs:d.ar.rows.filter(r=>r.outstanding>0&&/^IV/i.test(r.doc)).length,
+    salesIvs:d.sales.rows.length,
+    platOrders:Object.keys(platByOrder).length,
+    matched:A.length, waiting:B.length, orphan:C.length
+  } };
+  d.activeTab="a";
+  renderTool();
+}
+
+/* ---------- ARMAP: UI ---------- */
+function renderToolArmap(){
+  const t=TOOLS.find(x=>x.id===state.tool);
+  const d=armapGet();
+  const ready=d.ar && d.sales && d.platforms.length;
+  document.getElementById("main").innerHTML=`
+    <div class="page-head">
+      <h1>${t.ic} ${t.name} <span class="badge">${COMPANIES.find(c=>c.id===state.company).name}</span></h1>
+      <div class="sub">${t.long}</div>
+    </div>
+
+    <div class="slots">
+      ${slotHTML("ar","📋","รายงานลูกหนี้คงค้าง","CSV จาก Express · 1 ไฟล์", d.ar?[d.ar]:[], false)}
+      ${slotHTML("sales","🛒","รายงานขายแบบเห็นออเดอร์","CSV จาก Express · 1 ไฟล์", d.sales?[d.sales]:[], false)}
+      ${slotHTML("platform","💰","หลังบ้าน Shopee / TikTok","XLSX · ลากกี่ไฟล์/แบรนด์ก็ได้", d.platforms, true)}
+    </div>
+
+    <div class="btnrow" style="justify-content:center;margin-bottom:18px">
+      <button class="btn bigbtn" ${ready?"":"disabled"} onclick="armapCompute()"><span class="ic">⚡</span> ประมวลผล &amp; แมพข้อมูล</button>
+      ${(d.ar||d.sales||d.platforms.length)?`<button class="btn ghost" onclick="armapClearAll()">ล้างทั้งหมด</button>`:""}
+    </div>
+
+    ${d.result ? armapResultHTML(d.result, d.activeTab) : `
+      <div class="card"><div class="empty">ยังไม่มีผลลัพธ์ — ใส่ไฟล์ครบ 3 ช่องแล้วกด "ประมวลผล"</div></div>
+    `}
+  `;
+  armapWireDrops();
+}
+
+function slotHTML(slot, ic, label, hint, files, multi){
+  const stepMap={ar:1, sales:2, platform:3};
+  const ready=files.length>0;
+  return `
+    <div class="slot ${ready?'ready':''}">
+      <div class="lbl"><span class="step">${stepMap[slot]}</span> ${ic} ${label}</div>
+      <div class="hint">${hint}</div>
+      <div class="drop" data-slot="${slot}">
+        <div class="big">📂</div>
+        <div>${multi?"ลากไฟล์มาวาง":"ลากหรือคลิก"}</div>
+        <input type="file" data-slotinp="${slot}" ${multi?'multiple':''} accept="${slot==='platform'?'.xlsx,.xls':'.csv'}" style="display:none">
+      </div>
+      ${files.length?`<div class="files">${files.map((f,i)=>slotFileHTML(slot,f,i)).join("")}</div>`:""}
+    </div>
+  `;
+}
+function slotFileHTML(slot,f,idx){
+  if(slot==="ar"){
+    return `<div class="fchip"><span>📄 ${esc(f.file)}<div class="meta">${f.rows.length} แถว · ${f.rows.filter(r=>r.outstanding>0).length} ตัวยังค้าง</div></span><button onclick="armapRemoveFile('ar',0)">✕</button></div>`;
+  }
+  if(slot==="sales"){
+    const withRef=f.rows.filter(r=>r.ref).length;
+    return `<div class="fchip"><span>📄 ${esc(f.file)}<div class="meta">${f.rows.length} IV · ${withRef} มีเลขออเดอร์อ้างอิง</div></span><button onclick="armapRemoveFile('sales',0)">✕</button></div>`;
+  }
+  // platform
+  const kindLbl=f.kind==='SP'?'Shopee':f.kind==='TT'?'TikTok':'?';
+  const brandLbl=f.brand||'?';
+  return `<div class="fchip"><span>📄 ${esc(f.file)}<div class="meta">${kindLbl} · ${brandLbl} · ${f.rows.length} ออเดอร์${f.sellerName?` · ${esc(f.sellerName)}`:''}</div></span><button onclick="armapRemoveFile('platform',${idx})">✕</button></div>`;
+}
+
+function armapWireDrops(){
+  document.querySelectorAll('.slot .drop').forEach(drop=>{
+    const slot=drop.dataset.slot;
+    const inp=document.querySelector(`input[data-slotinp="${slot}"]`);
+    drop.onclick=()=>inp.click();
+    inp.onchange=e=>{ if(e.target.files.length) armapHandleFile(slot,e.target.files); inp.value=""; };
+    drop.ondragover=e=>{e.preventDefault();drop.classList.add("over");};
+    drop.ondragleave=()=>drop.classList.remove("over");
+    drop.ondrop=e=>{
+      e.preventDefault();drop.classList.remove("over");
+      if(e.dataTransfer.files.length) armapHandleFile(slot,e.dataTransfer.files);
+    };
+  });
+}
+
+function armapResultHTML(R, tab){
+  const tot=R.totals;
+  return `
+    <div class="card">
+      <h3>📊 ผลลัพธ์</h3>
+      <div class="pill-stat">
+        <div class="stat"><div class="n">${tot.arIvs}</div><div class="l">IV คงค้าง (ขาเข้า)</div></div>
+        <div class="stat"><div class="n">${tot.platOrders}</div><div class="l">ออเดอร์หลังบ้าน</div></div>
+        <div class="stat"><div class="n">${tot.matched}</div><div class="l">✓ Match ครบ</div></div>
+        <div class="stat warn"><div class="n">${tot.waiting}</div><div class="l">⏳ รอเงินเข้า</div></div>
+        <div class="stat bad"><div class="n">${tot.orphan}</div><div class="l">❓ เงินเข้า — ไม่มี IV</div></div>
+      </div>
+      <div class="tabs" style="margin-top:14px">
+        <button class="${tab==='a'?'active':''}" onclick="armapSetTab('a')">A · พร้อมคีย์รับชำระ <span class="c">${R.A.length}</span></button>
+        <button class="${tab==='b'?'active':''}" onclick="armapSetTab('b')">B · รอเงินเข้า <span class="c">${R.B.length}</span></button>
+        <button class="${tab==='c'?'active':''}" onclick="armapSetTab('c')">C · ไม่มี IV <span class="c">${R.C.length}</span></button>
+      </div>
+      ${tab==='a' ? bucketAHTML(R.A) : tab==='b' ? bucketBHTML(R.B) : bucketCHTML(R.C)}
+      <div class="btnrow" style="margin-top:14px">
+        <button class="btn" onclick="armapExport()">⬇ ดาวน์โหลด Excel (3 ชีต)</button>
+        <button class="btn ghost" onclick="armapExportCSV()">📄 ดาวน์โหลด CSV (ชีต A)</button>
+      </div>
+    </div>
+  `;
+}
+function armapSetTab(t){ armapGet().activeTab=t; renderTool(); }
+
+const A_HEAD=["ลำดับ","วันที่ IV","เลข IV","แบรนด์","ยอดค้าง","เลขออเดอร์","ช่องทาง","วันรับเงิน(DD/MM/YYYY)","วันรับเงิน(DD/MM/YY)","ยอดเงินจริง","ส่วนต่าง","รหัสลูกค้า(บัญชีคีย์)","Bank code","ชื่อร้าน(หลังบ้าน)","หมายเหตุ"];
+function bucketAHTML(A){
+  if(!A.length) return `<div class="empty">ไม่มี IV ที่ match ครบ</div>`;
+  const rows=A.slice(0,300).map((r,i)=>`
+    <tr class="${r.warning?'warning-row':''}">
+      <td>${i+1}</td>
+      <td>${fmtDateDDMMYYYY(r.arDate)}</td>
+      <td>${esc(r.arIv)}</td>
+      <td>${esc(r.actualBrand||'')}</td>
+      <td style="text-align:right">${num(r.arOutstanding).toLocaleString(undefined,{minimumFractionDigits:2})}</td>
+      <td>${esc(r.orderNo)}</td>
+      <td>${esc(r.channel)}</td>
+      <td>${fmtDateDDMMYYYY(r.paymentDate)}</td>
+      <td>${fmtDateDDMMYY(r.paymentDate)}</td>
+      <td style="text-align:right">${num(r.netAmount).toLocaleString(undefined,{minimumFractionDigits:2})}</td>
+      <td style="text-align:right" class="${r.diff>0?'pos':r.diff<0?'neg':''}">${num(r.diff).toLocaleString(undefined,{minimumFractionDigits:2})}</td>
+      <td>${esc(r.arCustCode)}</td>
+      <td>${esc(r.bankCode||'')}</td>
+      <td>${esc(r.sellerName||'')}</td>
+      <td>${esc(r.warning||'')}</td>
+    </tr>`).join("");
+  return `<div class="note">แสดง ${Math.min(A.length,300)}/${A.length} แถว · แถวเหลืองมีคำเตือน</div>
+    <div class="table-wrap"><table>
+      <thead><tr>${A_HEAD.map(h=>`<th>${h}</th>`).join("")}</tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>`;
+}
+function bucketBHTML(B){
+  if(!B.length) return `<div class="empty">ไม่มี IV ที่รอเงิน — Match ครบหมดทุกตัว 🎉</div>`;
+  const rows=B.slice(0,300).map((r,i)=>{
+    const ar=r.ar||{}, s=r.sale||{};
+    return `<tr>
+      <td>${i+1}</td>
+      <td>${fmtDateDDMMYYYY(ar.date)}</td>
+      <td>${esc(ar.doc)}</td>
+      <td>${esc(ar.custCode)}</td>
+      <td>${esc(ar.custName)}</td>
+      <td style="text-align:right">${num(ar.outstanding).toLocaleString(undefined,{minimumFractionDigits:2})}</td>
+      <td>${esc(s.ref||'')}</td>
+      <td>${esc(r.reason)}</td>
+    </tr>`;
+  }).join("");
+  return `<div class="note">แสดง ${Math.min(B.length,300)}/${B.length} แถว</div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>ลำดับ</th><th>วันที่ IV</th><th>เลข IV</th><th>รหัสลูกค้า</th><th>ชื่อ</th><th>ยอดค้าง</th><th>เลขออเดอร์</th><th>สาเหตุ</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>`;
+}
+function bucketCHTML(C){
+  if(!C.length) return `<div class="empty">ไม่มีออเดอร์เงินเข้าที่ไม่มี IV — ดีมาก ทุกออเดอร์มีคีย์ขายแล้ว</div>`;
+  const rows=C.slice(0,300).map((r,i)=>`<tr>
+      <td>${i+1}</td>
+      <td>${esc(r.orderNo)}</td>
+      <td>${esc(r.channel)}</td>
+      <td>${esc(r.brand||'')}</td>
+      <td>${fmtDateDDMMYYYY(r.paymentDate)}</td>
+      <td style="text-align:right">${num(r.net).toLocaleString(undefined,{minimumFractionDigits:2})}</td>
+      <td style="text-align:right">${num(r.gross).toLocaleString(undefined,{minimumFractionDigits:2})}</td>
+      <td>${esc(r.seller||'')}</td>
+      <td style="font-size:11px;color:var(--ink-3)">${esc(r.file)}</td>
+    </tr>`).join("");
+  return `<div class="note">⚠️ ออเดอร์เหล่านี้เงินเข้าแล้ว แต่ไม่มีในรายงานขาย — บัญชีอาจคีย์ขายไม่ครบ — แสดง ${Math.min(C.length,300)}/${C.length} แถว</div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>ลำดับ</th><th>เลขออเดอร์</th><th>ช่องทาง</th><th>แบรนด์</th><th>วันรับเงิน</th><th>ยอดสุทธิ</th><th>ยอดรวม</th><th>ชื่อร้าน</th><th>ไฟล์</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>`;
+}
+
+/* ---------- ARMAP: export ---------- */
+function armapExport(){
+  const d=armapGet(); if(!d.result) return;
+  const R=d.result;
+  const wb=XLSX.utils.book_new();
+  // Sheet A — พร้อมคีย์รับชำระ
+  const aRows=[A_HEAD].concat(R.A.map((r,i)=>[
+    i+1, fmtDateDDMMYYYY(r.arDate), r.arIv, r.actualBrand||"",
+    round2(r.arOutstanding), r.orderNo, r.channel,
+    fmtDateDDMMYYYY(r.paymentDate), fmtDateDDMMYY(r.paymentDate),
+    round2(r.netAmount), round2(r.diff),
+    r.arCustCode, r.bankCode||"", r.sellerName||"", r.warning||""
+  ]));
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(aRows), "A พร้อมคีย์รับชำระ");
+  // Sheet B
+  const bRows=[["ลำดับ","วันที่ IV","เลข IV","รหัสลูกค้า","ชื่อ","ยอดค้าง","เลขออเดอร์","สาเหตุ"]].concat(R.B.map((r,i)=>{
+    const ar=r.ar||{}, s=r.sale||{};
+    return [i+1, fmtDateDDMMYYYY(ar.date), ar.doc, ar.custCode, ar.custName, round2(ar.outstanding), s.ref||"", r.reason];
+  }));
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(bRows), "B รอเงินเข้า");
+  // Sheet C
+  const cRows=[["ลำดับ","เลขออเดอร์","ช่องทาง","แบรนด์","วันรับเงิน","ยอดสุทธิ","ยอดรวม","ชื่อร้าน","ไฟล์"]].concat(R.C.map((r,i)=>[
+    i+1, r.orderNo, r.channel, r.brand||"", fmtDateDDMMYYYY(r.paymentDate),
+    round2(r.net), round2(r.gross), r.seller||"", r.file
+  ]));
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(cRows), "C ไม่มี IV");
+  const base=`ARMap_${COMPANIES.find(c=>c.id===state.company).name}_${stamp()}.xlsx`;
+  XLSX.writeFile(wb, base);
+}
+function armapExportCSV(){
+  const d=armapGet(); if(!d.result) return;
+  const aRows=[A_HEAD].concat(d.result.A.map((r,i)=>[
+    i+1, fmtDateDDMMYYYY(r.arDate), r.arIv, r.actualBrand||"",
+    round2(r.arOutstanding), r.orderNo, r.channel,
+    fmtDateDDMMYYYY(r.paymentDate), fmtDateDDMMYY(r.paymentDate),
+    round2(r.netAmount), round2(r.diff),
+    r.arCustCode, r.bankCode||"", r.sellerName||"", r.warning||""
+  ]));
+  const ws=XLSX.utils.aoa_to_sheet(aRows);
+  const csv=XLSX.utils.sheet_to_csv(ws);
+  download("﻿"+csv, `ARMap_A_${COMPANIES.find(c=>c.id===state.company).name}_${stamp()}.csv`, "text/csv;charset=utf-8");
+}
 
 /* ---------- init ---------- */
 renderCompanies();

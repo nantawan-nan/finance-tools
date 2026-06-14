@@ -882,12 +882,19 @@ function armapWireDrops(){
     const slot=drop.dataset.slot;
     const inp=document.querySelector(`input[data-slotinp="${slot}"]`);
     drop.onclick=()=>inp.click();
-    inp.onchange=e=>{ if(e.target.files.length) armapHandleFile(slot,e.target.files); inp.value=""; };
+    inp.onchange=e=>{
+      // ⚠️ ต้อง clone FileList เป็น Array ก่อน เพราะ inp.value="" จะล้าง e.target.files
+      // ทำให้ async loop อ่านไฟล์ที่ 2+ ไม่ได้
+      const arr=Array.from(e.target.files);
+      inp.value="";
+      if(arr.length) armapHandleFile(slot,arr);
+    };
     drop.ondragover=e=>{e.preventDefault();drop.classList.add("over");};
     drop.ondragleave=()=>drop.classList.remove("over");
     drop.ondrop=e=>{
       e.preventDefault();drop.classList.remove("over");
-      if(e.dataTransfer.files.length) armapHandleFile(slot,e.dataTransfer.files);
+      const arr=Array.from(e.dataTransfer.files);
+      if(arr.length) armapHandleFile(slot,arr);
     };
   });
 }

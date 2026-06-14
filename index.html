@@ -1112,7 +1112,8 @@ function bsParseIvSeed(s){
   return { yy:m[1], mm:m[2], running:parseInt(m[3],10), raw:s };
 }
 function bsFormatIv(yy, mm, running){
-  return `IV${yy}${mm}${String(running).padStart(6,'0')}`;
+  // โชว์เลขล้วน 10 หลัก ไม่มี "IV" นำหน้า (ตามที่แนนต้องการ)
+  return `${yy}${mm}${String(running).padStart(6,'0')}`;
 }
 
 /* ---------- Brand lookup (shop name → brand) ----------
@@ -1316,6 +1317,7 @@ function bsBuildResult(){
         qty: it.qty,
         price: it.price,
         ship: isLast ? it.ship : 0,
+        discount: isLast ? 0 : 0,         // ส่วนลดท้ายบิล — รอแนนบอกว่าใช้คอลัมน์ไหนใน BigSeller (ตอนนี้ปล่อย 0)
         cancelled: isCancel,
         duplicate: hist.has(orderNo),
         unknownShop: !m.brand,
@@ -1453,7 +1455,7 @@ function bsImportHistory(file){
 }
 
 /* ---------- UI ---------- */
-const BS_HEAD = ["ลำดับ","เลข IV","เลขคำสั่งซื้อ","วันที่ขาย","ช่องทาง","รหัสลูกค้า","SKU","จำนวน","ราคา","ค่าส่ง"];
+const BS_HEAD = ["ลำดับ","เลข IV","เลขคำสั่งซื้อ","วันที่ขาย","ช่องทาง","รหัสลูกค้า","SKU","จำนวน","ราคา","ค่าส่ง","ส่วนลดท้ายบิล"];
 function renderToolBigSeller(){
   bsSeedShopBrand();
   const t = TOOLS.find(x=>x.id===state.tool);
@@ -1614,6 +1616,7 @@ function bsLineHTML(l){
     <td style="text-align:right">${l.qty||""}</td>
     <td style="text-align:right">${l.price?num(l.price).toLocaleString(undefined,{minimumFractionDigits:2}):""}</td>
     <td style="text-align:right">${l.ship?num(l.ship).toLocaleString(undefined,{minimumFractionDigits:2}):""}</td>
+    <td style="text-align:right">${l.discount?num(l.discount).toLocaleString(undefined,{minimumFractionDigits:2}):""}</td>
     <td style="font-size:11px;color:var(--ink-3)">${esc(l.shop)}</td>
     <td style="font-size:11px">${notes.join(" · ")}</td>
   </tr>`;
@@ -1655,7 +1658,7 @@ function bsExport(fmt){
     if(l.newSku) notes.push("SKU ใหม่");
     return [l.seq, l.ivShow, l.orderShow, l.saleDate?fmtDateDDMMYY(l.saleDate):"",
             l.channel, l.cust, l.sku, l.qty||"",
-            l.price||"", l.ship||"", l.shop, notes.join(" · ")];
+            l.price||"", l.ship||"", l.discount||"", l.shop, notes.join(" · ")];
   }));
   const ws = XLSX.utils.aoa_to_sheet(aoa);
   const base = `BigSeller_${COMPANIES.find(c=>c.id===state.company).name}_${stamp()}`;

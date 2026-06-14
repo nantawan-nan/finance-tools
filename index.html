@@ -692,16 +692,17 @@ function bankCodeOf(kind,brand){
   return map[kind+"|"+brand]||"";
 }
 
-/* AutoKey "เลือก Bank" command per company
-   ตัวเลข = ตำแหน่งของแบรนด์ใน dropdown ของระบบ (ต่างกันต่อบริษัท)
-   - เบญญา: SB=6, SI=7, TB=9, TQ=10  (จากเทมเพลตจริง)
-   - M Bark: TBD — ต้องเอาเลขจริงจากแนนมาเติม */
+/* AutoKey "เลือก Bank" command — key by BRAND × CHANNEL (ไม่ใช่บริษัท)
+   ตัวเลข = ตำแหน่งของช่องทาง+แบรนด์ใน dropdown ของระบบ
+   เบญญา (BT/QI brands):   SB=6, SI=7, TB=9, TQ=10
+   M Bark (MB brand):       ยังไม่รู้ — รอแนนบอก  */
 const BANK_DOWN = {
-  benya: { SB:6, SI:7, TB:9, TQ:10 },
-  mbark: { SM:null, TM:null }   // ยังไม่รู้ตัวเลข — รอแนนบอก
+  BT: { SP:6, TT:9 },     // SHOPEE-BETRA → 6 · TIKTOK-BETRA → 9
+  QI: { SP:7, TT:10 },    // SHOPEE-QI    → 7 · TIKTOK-QI    → 10
+  MB: { SP:null, TT:null } // M Bark template — TBD
 };
-function bankDownCmd(company, code){
-  const n=(BANK_DOWN[company]||{})[code];
+function bankDownCmd(brand, kind){
+  const n=(BANK_DOWN[brand]||{})[kind];
   return n ? `{Down ${n}}` : "";
 }
 
@@ -942,7 +943,9 @@ function armapSetTab(t){ armapGet().activeTab=t; renderTool(); }
 // เทมเพลตจริง 17 คอลัมน์ — ตรงกับไฟล์ "ตัวอย่างเทมเพลตที่ใช้บันทึก RE เข้าระบบ.xlsx"
 const A_HEAD=["ลำดับที่","วันที่ IV","เลข IV","แบรนด์","ยอดคงค้าง (IV)","รหัสออเดอร์","ช่องทาง","วันที่รับชำระ (DD/MM/YYYY)","วันที่รับชำระ (DD/MM/YY)","ยอดเงินเข้า (หลังหักค่าธรรมเนียม)","ส่วนต่างที่ต้องบันทึก","รหัสลูกค้า","เลือก LETT OTHER","Enter less other","เลือก Bank","เลขที่เอกสาร","ธนาคาร","หมายเหตุ"];
 function aRowOf(r,i,company){
-  const downCmd=bankDownCmd(company, r.bankCode);
+  // lookup ตามแบรนด์ที่ตรวจจับจากหลังบ้าน (BT/QI/MB) × ช่องทาง (SP/TT)
+  // ไม่ผูกกับ active company → กดประมวลผลที่หน้า M Bark แล้วอัปข้อมูลเบญญาก็ยังได้คอลัมน์ครบ
+  const downCmd=bankDownCmd(r.actualBrand, r.channel);
   return {
     ลำดับ:i+1,
     iv_date:fmtDateDDMMYYYY(r.arDate),
@@ -967,8 +970,8 @@ function aRowOf(r,i,company){
 function bucketAHTML(A){
   if(!A.length) return `<div class="empty">ไม่มี IV ที่ match ครบ</div>`;
   const company=state.company;
-  const needsKey=A.some(r=>r.bankCode && !bankDownCmd(company, r.bankCode));
-  const banner=needsKey ? `<div class="note" style="background:#fef3c7;color:#92400e;padding:8px 12px;border-radius:8px;margin-bottom:10px">⚠️ บริษัท ${COMPANIES.find(c=>c.id===company).name} ยังไม่ตั้งตัวเลข "เลือก Bank" ของ AutoKey — คอลัมน์ที่ 15 จะว่าง รอแนนบอกตำแหน่งตัวเลข (เช่น SB ใน M Bark ใช้ {Down ?})</div>` : "";
+  const missingBrands=[...new Set(A.filter(r=>r.actualBrand && r.channel && !bankDownCmd(r.actualBrand,r.channel)).map(r=>`${r.actualBrand}/${r.channel}`))];
+  const banner=missingBrands.length ? `<div class="note" style="background:#fef3c7;color:#92400e;padding:8px 12px;border-radius:8px;margin-bottom:10px">⚠️ ยังไม่ตั้งตัวเลข AutoKey สำหรับ: <b>${missingBrands.join(", ")}</b> — คอลัมน์ "เลือก Bank" ของแถวเหล่านี้จะว่าง รอแนนบอกว่าใน dropdown ของระบบ AutoKey อยู่ตำแหน่งที่เท่าไหร่</div>` : "";
   const rows=A.slice(0,300).map((r,i)=>{
     const a=aRowOf(r,i,company);
     return `<tr class="${r.warning?'warning-row':''}">

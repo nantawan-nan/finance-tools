@@ -692,6 +692,19 @@ function bankCodeOf(kind,brand){
   return map[kind+"|"+brand]||"";
 }
 
+/* AutoKey "เลือก Bank" command per company
+   ตัวเลข = ตำแหน่งของแบรนด์ใน dropdown ของระบบ (ต่างกันต่อบริษัท)
+   - เบญญา: SB=6, SI=7, TB=9, TQ=10  (จากเทมเพลตจริง)
+   - M Bark: TBD — ต้องเอาเลขจริงจากแนนมาเติม */
+const BANK_DOWN = {
+  benya: { SB:6, SI:7, TB:9, TQ:10 },
+  mbark: { SM:null, TM:null }   // ยังไม่รู้ตัวเลข — รอแนนบอก
+};
+function bankDownCmd(company, code){
+  const n=(BANK_DOWN[company]||{})[code];
+  return n ? `{Down ${n}}` : "";
+}
+
 /* ---------- ARMAP: file slot handlers ---------- */
 async function armapHandleFile(slot, files){
   const data=armapGet();
@@ -926,28 +939,60 @@ function armapResultHTML(R, tab){
 }
 function armapSetTab(t){ armapGet().activeTab=t; renderTool(); }
 
-const A_HEAD=["ลำดับ","วันที่ IV","เลข IV","แบรนด์","ยอดค้าง","เลขออเดอร์","ช่องทาง","วันรับเงิน(DD/MM/YYYY)","วันรับเงิน(DD/MM/YY)","ยอดเงินจริง","ส่วนต่าง","รหัสลูกค้า(บัญชีคีย์)","Bank code","ชื่อร้าน(หลังบ้าน)","หมายเหตุ"];
+// เทมเพลตจริง 17 คอลัมน์ — ตรงกับไฟล์ "ตัวอย่างเทมเพลตที่ใช้บันทึก RE เข้าระบบ.xlsx"
+const A_HEAD=["ลำดับที่","วันที่ IV","เลข IV","แบรนด์","ยอดคงค้าง (IV)","รหัสออเดอร์","ช่องทาง","วันที่รับชำระ (DD/MM/YYYY)","วันที่รับชำระ (DD/MM/YY)","ยอดเงินเข้า (หลังหักค่าธรรมเนียม)","ส่วนต่างที่ต้องบันทึก","รหัสลูกค้า","เลือก LETT OTHER","Enter less other","เลือก Bank","เลขที่เอกสาร","ธนาคาร","หมายเหตุ"];
+function aRowOf(r,i,company){
+  const downCmd=bankDownCmd(company, r.bankCode);
+  return {
+    ลำดับ:i+1,
+    iv_date:fmtDateDDMMYYYY(r.arDate),
+    iv:r.arIv,
+    brand:r.actualBrand||"",
+    outstanding:round2(r.arOutstanding),
+    orderNo:r.orderNo,
+    channel:r.channel,
+    pay_date_long:fmtDateDDMMYYYY(r.paymentDate),
+    pay_date_short:fmtDateDDMMYY(r.paymentDate),
+    net:round2(r.netAmount),
+    diff:round2(r.diff),
+    cust:r.arCustCode,
+    lett_other:"{Up 1}",
+    enter:"{Enter}",
+    bank_down:downCmd,
+    doc_no:"",                          // เลขที่เอกสาร RE — แนนรันเอง
+    bank_code:r.bankCode||"",           // SB/SI/TB/TQ
+    warning:r.warning||""
+  };
+}
 function bucketAHTML(A){
   if(!A.length) return `<div class="empty">ไม่มี IV ที่ match ครบ</div>`;
-  const rows=A.slice(0,300).map((r,i)=>`
-    <tr class="${r.warning?'warning-row':''}">
-      <td>${i+1}</td>
-      <td>${fmtDateDDMMYYYY(r.arDate)}</td>
-      <td>${esc(r.arIv)}</td>
-      <td>${esc(r.actualBrand||'')}</td>
-      <td style="text-align:right">${num(r.arOutstanding).toLocaleString(undefined,{minimumFractionDigits:2})}</td>
-      <td>${esc(r.orderNo)}</td>
-      <td>${esc(r.channel)}</td>
-      <td>${fmtDateDDMMYYYY(r.paymentDate)}</td>
-      <td>${fmtDateDDMMYY(r.paymentDate)}</td>
-      <td style="text-align:right">${num(r.netAmount).toLocaleString(undefined,{minimumFractionDigits:2})}</td>
-      <td style="text-align:right" class="${r.diff>0?'pos':r.diff<0?'neg':''}">${num(r.diff).toLocaleString(undefined,{minimumFractionDigits:2})}</td>
-      <td>${esc(r.arCustCode)}</td>
-      <td>${esc(r.bankCode||'')}</td>
-      <td>${esc(r.sellerName||'')}</td>
-      <td>${esc(r.warning||'')}</td>
-    </tr>`).join("");
-  return `<div class="note">แสดง ${Math.min(A.length,300)}/${A.length} แถว · แถวเหลืองมีคำเตือน</div>
+  const company=state.company;
+  const needsKey=A.some(r=>r.bankCode && !bankDownCmd(company, r.bankCode));
+  const banner=needsKey ? `<div class="note" style="background:#fef3c7;color:#92400e;padding:8px 12px;border-radius:8px;margin-bottom:10px">⚠️ บริษัท ${COMPANIES.find(c=>c.id===company).name} ยังไม่ตั้งตัวเลข "เลือก Bank" ของ AutoKey — คอลัมน์ที่ 15 จะว่าง รอแนนบอกตำแหน่งตัวเลข (เช่น SB ใน M Bark ใช้ {Down ?})</div>` : "";
+  const rows=A.slice(0,300).map((r,i)=>{
+    const a=aRowOf(r,i,company);
+    return `<tr class="${r.warning?'warning-row':''}">
+      <td>${a.ลำดับ}</td>
+      <td>${esc(a.iv_date)}</td>
+      <td>${esc(a.iv)}</td>
+      <td>${esc(a.brand)}</td>
+      <td style="text-align:right">${num(a.outstanding).toLocaleString(undefined,{minimumFractionDigits:2})}</td>
+      <td>${esc(a.orderNo)}</td>
+      <td>${esc(a.channel)}</td>
+      <td>${esc(a.pay_date_long)}</td>
+      <td>${esc(a.pay_date_short)}</td>
+      <td style="text-align:right">${num(a.net).toLocaleString(undefined,{minimumFractionDigits:2})}</td>
+      <td style="text-align:right" class="${r.diff>0?'pos':r.diff<0?'neg':''}">${num(a.diff).toLocaleString(undefined,{minimumFractionDigits:2})}</td>
+      <td>${esc(a.cust)}</td>
+      <td style="font-family:monospace;font-size:11.5px;color:#475569">${esc(a.lett_other)}</td>
+      <td style="font-family:monospace;font-size:11.5px;color:#475569">${esc(a.enter)}</td>
+      <td style="font-family:monospace;font-size:11.5px;color:${a.bank_down?'#475569':'#dc2626'}">${esc(a.bank_down||'(?)')}</td>
+      <td>${esc(a.doc_no)}</td>
+      <td>${esc(a.bank_code)}</td>
+      <td style="font-size:11.5px">${esc(a.warning)}</td>
+    </tr>`;
+  }).join("");
+  return `${banner}<div class="note">แสดง ${Math.min(A.length,300)}/${A.length} แถว · แถวเหลืองมีคำเตือน · เลขที่เอกสาร เว้นว่างให้แนนรันเอง</div>
     <div class="table-wrap"><table>
       <thead><tr>${A_HEAD.map(h=>`<th>${h}</th>`).join("")}</tr></thead>
       <tbody>${rows}</tbody>
@@ -998,15 +1043,15 @@ function bucketCHTML(C){
 function armapExport(){
   const d=armapGet(); if(!d.result) return;
   const R=d.result;
+  const company=state.company;
   const wb=XLSX.utils.book_new();
-  // Sheet A — พร้อมคีย์รับชำระ
-  const aRows=[A_HEAD].concat(R.A.map((r,i)=>[
-    i+1, fmtDateDDMMYYYY(r.arDate), r.arIv, r.actualBrand||"",
-    round2(r.arOutstanding), r.orderNo, r.channel,
-    fmtDateDDMMYYYY(r.paymentDate), fmtDateDDMMYY(r.paymentDate),
-    round2(r.netAmount), round2(r.diff),
-    r.arCustCode, r.bankCode||"", r.sellerName||"", r.warning||""
-  ]));
+  // Sheet A — พร้อมคีย์รับชำระ (17 คอลัมน์ตรง template + หมายเหตุ)
+  const aRows=[A_HEAD].concat(R.A.map((r,i)=>{
+    const a=aRowOf(r,i,company);
+    return [a.ลำดับ, a.iv_date, a.iv, a.brand, a.outstanding, a.orderNo, a.channel,
+            a.pay_date_long, a.pay_date_short, a.net, a.diff, a.cust,
+            a.lett_other, a.enter, a.bank_down, a.doc_no, a.bank_code, a.warning];
+  }));
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(aRows), "A พร้อมคีย์รับชำระ");
   // Sheet B
   const bRows=[["ลำดับ","วันที่ IV","เลข IV","รหัสลูกค้า","ชื่อ","ยอดค้าง","เลขออเดอร์","สาเหตุ"]].concat(R.B.map((r,i)=>{
@@ -1025,13 +1070,13 @@ function armapExport(){
 }
 function armapExportCSV(){
   const d=armapGet(); if(!d.result) return;
-  const aRows=[A_HEAD].concat(d.result.A.map((r,i)=>[
-    i+1, fmtDateDDMMYYYY(r.arDate), r.arIv, r.actualBrand||"",
-    round2(r.arOutstanding), r.orderNo, r.channel,
-    fmtDateDDMMYYYY(r.paymentDate), fmtDateDDMMYY(r.paymentDate),
-    round2(r.netAmount), round2(r.diff),
-    r.arCustCode, r.bankCode||"", r.sellerName||"", r.warning||""
-  ]));
+  const company=state.company;
+  const aRows=[A_HEAD].concat(d.result.A.map((r,i)=>{
+    const a=aRowOf(r,i,company);
+    return [a.ลำดับ, a.iv_date, a.iv, a.brand, a.outstanding, a.orderNo, a.channel,
+            a.pay_date_long, a.pay_date_short, a.net, a.diff, a.cust,
+            a.lett_other, a.enter, a.bank_down, a.doc_no, a.bank_code, a.warning];
+  }));
   const ws=XLSX.utils.aoa_to_sheet(aRows);
   const csv=XLSX.utils.sheet_to_csv(ws);
   download("﻿"+csv, `ARMap_A_${COMPANIES.find(c=>c.id===state.company).name}_${stamp()}.csv`, "text/csv;charset=utf-8");

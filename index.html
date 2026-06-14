@@ -159,9 +159,9 @@ const COMPANIES = [
    - หาเจอ 1 ตัว → auto-select; หาไม่เจอ → เปิด dropdown ให้เลือกเอง */
 const TOOLS = [
   { id:"bigseller", stage:"Stage 1 · บัญชี — คีย์ IV", ic:"🧾",
-    name:"จัดฟอร์แมต Big Seller", desc:"เตรียมไฟล์เข้า AutoKey",
-    long:"อัปไฟล์ export จาก Big Seller → จัดฟอร์แมต/รันเลขออเดอร์ → ส่งออกพร้อมคีย์ผ่าน Love AutoKey",
-    sheetHints:{ contains:["รายละเอียด","detail","order","ออเดอร์"], exclude:["สรุป","summary"] } },
+    name:"จัดฟอร์แมต Big Seller", desc:"BigSeller → เทมเพลตคีย์ IV",
+    long:"อัปไฟล์ Big Seller → จัดเป็นเทมเพลตคีย์ IV (8 คอลัมน์) — multi-line รวมในออเดอร์เดียว · ตรวจ SKU ใหม่ · ตรวจซ้ำกับประวัติ",
+    multiInput:true },
   { id:"ivcheck", stage:"Stage 1 · บัญชี — คีย์ IV", ic:"✅",
     name:"ตรวจ IV ครบไหม", desc:"เทียบ Big Seller × ลูกหนี้",
     long:"อัป 2 ไฟล์ (Big Seller + รายงานลูกหนี้ Express) → ฟ้องออเดอร์ที่ยังไม่ได้คีย์ / คีย์ซ้ำ / ตกหล่น",
@@ -237,7 +237,10 @@ function setTool(id){ state.tool=id; document.getElementById('sb').classList.rem
 /* ---------- render: tool page ---------- */
 function renderTool(){
   const t = TOOLS.find(x=>x.id===state.tool);
-  if (t.multiInput) { renderToolArmap(); return; }
+  if (t.multiInput) {
+    if (t.id==="armap") return renderToolArmap();
+    if (t.id==="bigseller") return renderToolBigSeller();
+  }
   const k = key();
   const book = state.books[k];
   const rows = currentRows();
@@ -1083,6 +1086,523 @@ function armapExportCSV(){
   const ws=XLSX.utils.aoa_to_sheet(aRows);
   const csv=XLSX.utils.sheet_to_csv(ws);
   download("﻿"+csv, `ARMap_A_${COMPANIES.find(c=>c.id===state.company).name}_${stamp()}.csv`, "text/csv;charset=utf-8");
+}
+
+/* ============================================================
+   BIG SELLER → IV TEMPLATE
+   อัปไฟล์ BigSeller → จัดเป็นเทมเพลตคีย์ IV
+   ============================================================ */
+
+state.bs = state.bs || {};
+function bsGet(){
+  if(!state.bs[state.company]){
+    state.bs[state.company] = { file:null, raw:null, result:null, opts:{ hideCancelled:false } };
+  }
+  return state.bs[state.company];
+}
+
+/* ---------- Brand lookup (shop name → brand) ----------
+   localStorage key: wtp-bs-shopbrand-v1 = { "betra_brand":{brand:"BT",channel:"SP"}, ... } */
+const BS_LS_SHOPBRAND = "wtp-bs-shopbrand-v1";
+const BS_LS_SKU       = "wtp-bs-sku-v1";       // SKU master per company
+const BS_LS_HISTORY   = "wtp-bs-history-v1";   // keyed orders per company
+
+function bsLoadJSON(key, fallback){
+  try{ const v=localStorage.getItem(key); return v?JSON.parse(v):fallback; }
+  catch(_){ return fallback; }
+}
+function bsSaveJSON(key, val){
+  try{ localStorage.setItem(key, JSON.stringify(val)); }catch(_){}
+}
+
+/* seed defaults — ของที่รู้แล้ว */
+function bsSeedShopBrand(){
+  const cur=bsLoadJSON(BS_LS_SHOPBRAND, null);
+  if(cur) return cur;
+  const seed={
+    // ของเบญญา ที่เรารู้จากไฟล์ Shopee summary
+    "betra_brand":     { brand:"BT", channel:"SP", company:"benya" },
+    "benya_official":  { brand:"QI", channel:"SP", company:"benya" },
+    // M Bark — จากไฟล์ตัวอย่างที่แนนส่งมา
+    "Mommam Brand":    { brand:"MB", channel:"SP", company:"mbark" },
+    "MommamOfficialTH":{ brand:"MB", channel:"TT", company:"mbark" },
+    "Paws Jai Clinic": { brand:"MB", channel:"SP", company:"mbark" },
+    "Mommam Store":    { brand:"MB", channel:"LZ", company:"mbark" }
+  };
+  bsSaveJSON(BS_LS_SHOPBRAND, seed);
+  return seed;
+}
+
+/* ---------- Channel from platform ---------- */
+function bsChannelFromPlatform(p){
+  const s=String(p||"").toLowerCase();
+  if(s.includes("shopee"))  return "SP";
+  if(s.includes("tiktok"))  return "TT";
+  if(s.includes("lazada"))  return "LZ";
+  return "";
+}
+
+/* ---------- Customer code derivation ---------- */
+function bsCustomerCode(company, channel, brand){
+  if(!channel) return "";
+  const chanName = { SP:"SHOPEE", TT:"TIKTOK", LZ:"LAZADA" }[channel] || channel;
+  if(company==="mbark") return chanName;                    // M Bark: "SHOPEE" / "TIKTOK"
+  // Benya: "SHOPEE BE" / "SHOPEE QI" / "TIKTOK BE" ...
+  const brandShort = { BT:"BE", QI:"QI" }[brand] || "";
+  return brandShort ? `${chanName} ${brandShort}` : chanName;
+}
+
+/* ---------- Thai date "07 มิ.ย. 2026 23:40" → ISO ---------- */
+const BS_THAI_MONTH = {
+  "ม.ค.":1,"ก.พ.":2,"มี.ค.":3,"เม.ย.":4,"พ.ค.":5,"มิ.ย.":6,
+  "ก.ค.":7,"ส.ค.":8,"ก.ย.":9,"ต.ค.":10,"พ.ย.":11,"ธ.ค.":12,
+  "มกราคม":1,"กุมภาพันธ์":2,"มีนาคม":3,"เมษายน":4,"พฤษภาคม":5,"มิถุนายน":6,
+  "กรกฎาคม":7,"สิงหาคม":8,"กันยายน":9,"ตุลาคม":10,"พฤศจิกายน":11,"ธันวาคม":12
+};
+function bsParseDate(v){
+  if(v==null||v==="") return "";
+  if(v instanceof Date) return `${v.getFullYear()}-${pad2(v.getMonth()+1)}-${pad2(v.getDate())}`;
+  const s=String(v).trim();
+  // "07 มิ.ย. 2026 23:40"
+  const m=s.match(/^(\d{1,2})\s+(\S+)\s+(\d{4})/);
+  if(m && BS_THAI_MONTH[m[2]]){
+    let y=parseInt(m[3],10);
+    if(y>=2500) y-=543;
+    return `${y}-${pad2(BS_THAI_MONTH[m[2]])}-${pad2(parseInt(m[1],10))}`;
+  }
+  // fallback to generic date parser
+  return parseDate(s);
+}
+
+/* ---------- BigSeller parser ---------- */
+function bsParse(book){
+  const sheet = book.names[0];
+  const rows = book.sheets[sheet] || [];
+  if(rows.length<2) return { items:[], shops:[] };
+  const header = rows[0].map(h=>String(h||"").trim());
+  const find = name => header.findIndex(h => h===name);
+  const c = {
+    order:   find("หมายเลขคำสั่งซื้อ"),
+    platform:find("แพลตฟอร์ม"),
+    shop:    find("ร้านค้าเพลตฟอร์ม"),
+    sku:     find("SKU"),
+    qty:     find("จำนวน"),
+    priceOrig:find("ราคาสินค้าเดิม"),   // AJ — ไม่มี mask ***
+    priceFallback: find("ราคา"),
+    total:   find("รวมค่าสินค้า"),
+    ship:    find("ค่าจัดส่ง"),
+    time:    find("เวลาสั่งซื้อ"),
+    status:  find("สถานะคำสั่งซื้อ"),
+    pstatus: find("สถานะแพลตฟอร์ม")
+  };
+  const items = [];
+  const shopsSeen = new Set();
+  for(let i=1;i<rows.length;i++){
+    const r = rows[i];
+    const orderNo = String(r[c.order]||"").trim();
+    if(!orderNo) continue;
+    const platform = String(r[c.platform]||"").trim();
+    const shop = String(r[c.shop]||"").trim();
+    if(shop) shopsSeen.add(shop);
+    const priceCell = r[c.priceOrig];
+    const priceStr = String(priceCell==null?"":priceCell);
+    // ถ้า "ราคาสินค้าเดิม" ว่าง/เป็น *** → ใช้ "ราคา" แทน
+    let price = num(priceCell);
+    if(!price || priceStr.includes("*")){
+      price = num(r[c.priceFallback]);
+    }
+    items.push({
+      orderNo,
+      platform,
+      shop,
+      channel: bsChannelFromPlatform(platform),
+      sku: String(r[c.sku]||"").trim(),
+      qty: num(r[c.qty]),
+      price,
+      ship: num(r[c.ship]),
+      saleDate: bsParseDate(r[c.time]),
+      status: String(r[c.status]||"").trim(),
+      pstatus: String(r[c.pstatus]||"").trim()
+    });
+  }
+  return { items, shops:Array.from(shopsSeen) };
+}
+
+/* ---------- Build output rows ---------- */
+function bsBuildResult(){
+  const d = bsGet();
+  if(!d.raw) return null;
+  const company = state.company;
+  const map = bsLoadJSON(BS_LS_SHOPBRAND, {});
+  const sku = bsLoadJSON(BS_LS_SKU, {});
+  const skuSet = new Set((sku[company]||[]).map(s=>String(s).trim()));
+  const history = bsLoadJSON(BS_LS_HISTORY, {});
+  const hist = new Set((history[company]||[]).map(o=>String(o)));
+
+  // Group items by order, preserve input order
+  const byOrder = {};
+  const orderList = [];
+  for(const it of d.raw.items){
+    if(!byOrder[it.orderNo]){ byOrder[it.orderNo]=[]; orderList.push(it.orderNo); }
+    byOrder[it.orderNo].push(it);
+  }
+
+  // Detect unknown shops (need brand mapping)
+  const unknownShops = [];
+  const knownShops = {};
+  for(const sh of d.raw.shops){
+    if(map[sh]) knownShops[sh] = map[sh];
+    else unknownShops.push(sh);
+  }
+
+  const lines = [];          // output lines
+  const newSku = new Set();
+  const dupOrders = new Set();
+  const cancelOrders = new Set();
+
+  let seq = 0;
+  for(const orderNo of orderList){
+    const its = byOrder[orderNo];
+    const isCancel = its.some(x => /ยกเลิก|cancel/i.test(x.status) || /cancel/i.test(x.pstatus));
+    if(isCancel) cancelOrders.add(orderNo);
+    if(hist.has(orderNo)) dupOrders.add(orderNo);
+    its.forEach((it, idx) => {
+      seq++;
+      // brand from shop lookup
+      const m = map[it.shop] || {};
+      const brand = m.brand || (company==="mbark" ? "MB" : "");
+      const channel = it.channel || m.channel || "";
+      const cust = bsCustomerCode(company, channel, brand);
+      const isFirst = idx===0;
+      const isLast  = idx===its.length-1;
+      const isNewSku = it.sku && !skuSet.has(it.sku);
+      if(isNewSku) newSku.add(it.sku);
+      lines.push({
+        seq,
+        orderShow: isFirst ? orderNo : "",
+        orderNo,
+        saleDate: it.saleDate,
+        channel, brand, cust, shop: it.shop,
+        sku: it.sku, qty: it.qty,
+        price: it.price,
+        ship: isLast ? it.ship : 0,
+        cancelled: isCancel,
+        duplicate: hist.has(orderNo),
+        unknownShop: !m.brand,
+        newSku: isNewSku
+      });
+    });
+  }
+
+  return {
+    lines,
+    summary:{
+      orders: orderList.length,
+      items: lines.length,
+      cancelled: cancelOrders.size,
+      duplicates: dupOrders.size,
+      newSkus: Array.from(newSku),
+      unknownShops
+    }
+  };
+}
+
+/* ---------- File handler ---------- */
+async function bsHandleFile(file){
+  try{
+    const parsed = await readFileSmart(file);
+    if(parsed.type!=="xlsx"){ alert("ต้องเป็นไฟล์ Excel จาก Big Seller"); return; }
+    const d = bsGet();
+    d.file = file.name;
+    d.raw = bsParse(parsed);
+    d.result = bsBuildResult();
+    renderTool();
+  }catch(err){
+    alert(`อ่านไฟล์ไม่สำเร็จ: ${err.message}`);
+  }
+}
+function bsClear(){
+  const d = bsGet();
+  d.file=null; d.raw=null; d.result=null;
+  renderTool();
+}
+function bsToggleHideCancel(){
+  const d = bsGet();
+  d.opts.hideCancelled = !d.opts.hideCancelled;
+  renderTool();
+}
+
+/* ---------- Brand mapping editor ---------- */
+function bsAssignShop(shop, brand, channel){
+  const map = bsLoadJSON(BS_LS_SHOPBRAND, {});
+  map[shop] = { brand, channel, company:state.company };
+  bsSaveJSON(BS_LS_SHOPBRAND, map);
+  const d = bsGet();
+  d.result = bsBuildResult();
+  renderTool();
+}
+
+/* ---------- SKU master ---------- */
+async function bsImportSku(file){
+  try{
+    const parsed = await readFileSmart(file);
+    let skus = [];
+    if(parsed.type==="csv"){
+      const rows = csvParse(parsed.text);
+      for(const r of rows) for(const v of r){
+        const s = String(v||"").trim();
+        if(s && !/sku/i.test(s) && s.length<40) skus.push(s);
+      }
+    } else {
+      // xlsx — pick all non-empty unique cells from any sheet
+      for(const sn of parsed.names){
+        for(const r of parsed.sheets[sn]||[]){
+          for(const v of r){
+            const s = String(v||"").trim();
+            if(s && s.length<40 && !/^[\d\.\-\s]+$/.test(s) && !/sku/i.test(s)) skus.push(s);
+          }
+        }
+      }
+    }
+    skus = Array.from(new Set(skus));
+    const cur = bsLoadJSON(BS_LS_SKU, {});
+    cur[state.company] = Array.from(new Set([...(cur[state.company]||[]), ...skus]));
+    bsSaveJSON(BS_LS_SKU, cur);
+    alert(`นำเข้า SKU ${skus.length} รายการ → รวมในระบบ ${cur[state.company].length} รายการ`);
+    const d=bsGet(); if(d.raw) d.result=bsBuildResult();
+    renderTool();
+  }catch(err){ alert("นำเข้า SKU ไม่สำเร็จ: "+err.message); }
+}
+function bsClearSku(){
+  if(!confirm(`ล้างฐาน SKU ของ ${COMPANIES.find(c=>c.id===state.company).name} ทั้งหมด?`)) return;
+  const cur = bsLoadJSON(BS_LS_SKU, {});
+  delete cur[state.company];
+  bsSaveJSON(BS_LS_SKU, cur);
+  const d=bsGet(); if(d.raw) d.result=bsBuildResult();
+  renderTool();
+}
+
+/* ---------- History ---------- */
+function bsRecordHistory(){
+  const d = bsGet(); if(!d.result) return;
+  const cur = bsLoadJSON(BS_LS_HISTORY, {});
+  const list = new Set(cur[state.company]||[]);
+  for(const l of d.result.lines){ if(!l.cancelled) list.add(l.orderNo); }
+  cur[state.company] = Array.from(list);
+  bsSaveJSON(BS_LS_HISTORY, cur);
+  d.result = bsBuildResult();
+  renderTool();
+}
+function bsExportHistory(){
+  const cur = bsLoadJSON(BS_LS_HISTORY, {});
+  download(JSON.stringify(cur,null,2), `bigseller_history_${stamp()}.json`, "application/json");
+}
+function bsImportHistory(file){
+  const r=new FileReader();
+  r.onload=()=>{
+    try{
+      const obj=JSON.parse(r.result);
+      bsSaveJSON(BS_LS_HISTORY, obj);
+      const d=bsGet(); if(d.raw) d.result=bsBuildResult();
+      alert("นำเข้าประวัติแล้ว");
+      renderTool();
+    }catch(err){ alert("ไฟล์ผิดรูปแบบ"); }
+  };
+  r.readAsText(file);
+}
+
+/* ---------- UI ---------- */
+const BS_HEAD = ["ลำดับ","เลขคำสั่งซื้อ","วันที่ขาย","ช่องทาง","รหัสลูกค้า","SKU","ราคา","ค่าส่ง"];
+function renderToolBigSeller(){
+  bsSeedShopBrand();
+  const t = TOOLS.find(x=>x.id===state.tool);
+  const d = bsGet();
+  const sku = bsLoadJSON(BS_LS_SKU, {});
+  const skuCount = (sku[state.company]||[]).length;
+  const histCount = (bsLoadJSON(BS_LS_HISTORY, {})[state.company]||[]).length;
+
+  document.getElementById("main").innerHTML = `
+    <div class="page-head">
+      <h1>${t.ic} ${t.name} <span class="badge">${COMPANIES.find(c=>c.id===state.company).name}</span></h1>
+      <div class="sub">${t.long}</div>
+    </div>
+
+    <div class="slots" style="grid-template-columns:2fr 1fr 1fr">
+      <div class="slot ${d.file?'ready':''}">
+        <div class="lbl"><span class="step">1</span> 📤 อัปไฟล์ Big Seller</div>
+        <div class="hint">Excel จาก BigSeller → Order-SKU all</div>
+        <div class="drop" data-slot="bsmain">
+          <div class="big">📂</div>
+          <div>ลากหรือคลิก</div>
+          <input type="file" data-slotinp="bsmain" accept=".xlsx,.xls" style="display:none">
+        </div>
+        ${d.file?`<div class="files"><div class="fchip"><span>📄 ${esc(d.file)}<div class="meta">${d.raw?d.raw.items.length:0} แถว · ${d.raw?(new Set(d.raw.items.map(i=>i.orderNo))).size:0} ออเดอร์</div></span><button onclick="bsClear()">✕</button></div></div>`:""}
+      </div>
+
+      <div class="slot">
+        <div class="lbl"><span class="step">2</span> 🗂️ SKU Master</div>
+        <div class="hint">รหัสสินค้าที่ระบบบัญชีมี · ${skuCount} รายการ</div>
+        <div class="drop" data-slot="bssku" style="padding:16px;font-size:13px">
+          <div class="big" style="font-size:22px">📥</div>
+          <div>ลากไฟล์ SKU เพื่อนำเข้า</div>
+          <input type="file" data-slotinp="bssku" accept=".xlsx,.xls,.csv" style="display:none">
+        </div>
+        ${skuCount?`<button class="btn ghost" style="font-size:12px;padding:6px 10px" onclick="bsClearSku()">ล้าง</button>`:""}
+      </div>
+
+      <div class="slot">
+        <div class="lbl"><span class="step">3</span> 📚 ประวัติคีย์</div>
+        <div class="hint">${histCount} ออเดอร์เคยคีย์แล้ว</div>
+        <div class="btnrow" style="flex-direction:column;gap:6px;align-items:stretch">
+          <button class="btn ghost" style="font-size:12px" onclick="bsExportHistory()">⬇ Export JSON</button>
+          <label class="btn ghost" style="font-size:12px;text-align:center;cursor:pointer">⬆ Import JSON<input type="file" accept=".json" onchange="bsImportHistory(this.files[0])" style="display:none"></label>
+        </div>
+      </div>
+    </div>
+
+    ${d.result ? bsResultHTML(d.result) : `<div class="card"><div class="empty">ยังไม่มีไฟล์ — อัป Big Seller ด้านบน</div></div>`}
+  `;
+  bsWireDrops();
+}
+
+function bsWireDrops(){
+  document.querySelectorAll('.slot .drop').forEach(drop=>{
+    const slot=drop.dataset.slot;
+    const inp=document.querySelector(`input[data-slotinp="${slot}"]`);
+    if(!inp) return;
+    drop.onclick=()=>inp.click();
+    inp.onchange=e=>{
+      const arr=Array.from(e.target.files);
+      inp.value="";
+      if(!arr.length) return;
+      if(slot==="bsmain") bsHandleFile(arr[0]);
+      else if(slot==="bssku") bsImportSku(arr[0]);
+    };
+    drop.ondragover=e=>{e.preventDefault();drop.classList.add("over");};
+    drop.ondragleave=()=>drop.classList.remove("over");
+    drop.ondrop=e=>{
+      e.preventDefault();drop.classList.remove("over");
+      const arr=Array.from(e.dataTransfer.files);
+      if(!arr.length) return;
+      if(slot==="bsmain") bsHandleFile(arr[0]);
+      else if(slot==="bssku") bsImportSku(arr[0]);
+    };
+  });
+}
+
+function bsResultHTML(R){
+  const d = bsGet();
+  const lines = d.opts.hideCancelled ? R.lines.filter(l=>!l.cancelled) : R.lines;
+  const visibleOrders = new Set(lines.map(l=>l.orderNo)).size;
+  const unknownBlock = R.summary.unknownShops.length ? bsUnknownShopsHTML(R.summary.unknownShops) : "";
+  const newSkuBlock = R.summary.newSkus.length ? `
+    <div class="note" style="background:#fef2f2;color:#991b1b;padding:10px 14px;border-radius:8px;margin-bottom:10px">
+      🚨 <b>SKU ใหม่ ${R.summary.newSkus.length} รหัส</b> ที่ยังไม่มีในระบบบัญชี:
+      <code style="background:#fee2e2;padding:2px 6px;border-radius:4px;margin:0 4px">${R.summary.newSkus.map(esc).join("</code> <code style=\"background:#fee2e2;padding:2px 6px;border-radius:4px;margin:0 4px\">")}</code>
+      <div style="margin-top:4px;font-size:12px">⚠️ ถ้าคีย์ตอนนี้ AutoKey จะ error ตอนเจอ SKU เหล่านี้ — แนะนำให้บัญชีเปิดรหัสในระบบก่อน</div>
+    </div>` : "";
+  const dupBlock = R.summary.duplicates ? `
+    <div class="note" style="background:#fffbeb;color:#92400e;padding:10px 14px;border-radius:8px;margin-bottom:10px">
+      ⚠️ <b>${R.summary.duplicates} ออเดอร์</b> ซ้ำกับประวัติที่เคยคีย์แล้ว (แถวสีน้ำเงิน)
+    </div>` : "";
+
+  return `
+    <div class="card">
+      <h3>📊 ผลลัพธ์ — เทมเพลตคีย์ IV</h3>
+      ${unknownBlock}${newSkuBlock}${dupBlock}
+      <div class="pill-stat">
+        <div class="stat"><div class="n">${R.summary.orders}</div><div class="l">ออเดอร์ทั้งหมด</div></div>
+        <div class="stat"><div class="n">${R.summary.items}</div><div class="l">รายการสินค้า</div></div>
+        <div class="stat ${R.summary.cancelled?'warn':''}"><div class="n">${R.summary.cancelled}</div><div class="l">ยกเลิก</div></div>
+        <div class="stat ${R.summary.duplicates?'warn':''}"><div class="n">${R.summary.duplicates}</div><div class="l">ซ้ำประวัติ</div></div>
+        <div class="stat ${R.summary.newSkus.length?'bad':''}"><div class="n">${R.summary.newSkus.length}</div><div class="l">SKU ใหม่</div></div>
+      </div>
+      <div class="opts" style="margin-top:12px">
+        <label class="opt"><input type="checkbox" ${d.opts.hideCancelled?'checked':''} onchange="bsToggleHideCancel()"> ซ่อนออเดอร์ที่ยกเลิก (${R.summary.cancelled})</label>
+      </div>
+      <div class="note">แสดง ${Math.min(lines.length,400)}/${lines.length} แถว · ${visibleOrders} ออเดอร์</div>
+      <div class="table-wrap"><table>
+        <thead><tr>${BS_HEAD.map(h=>`<th>${h}</th>`).join("")}<th>ร้าน</th><th>หมายเหตุ</th></tr></thead>
+        <tbody>${lines.slice(0,400).map(l=>bsLineHTML(l)).join("")}</tbody>
+      </table></div>
+      <div class="btnrow" style="margin-top:14px">
+        <button class="btn" onclick="bsExport('xlsx')">⬇ ดาวน์โหลด Excel</button>
+        <button class="btn ghost" onclick="bsExport('csv')">📄 CSV</button>
+        <button class="btn ghost" style="margin-left:auto" onclick="bsRecordHistory()">✅ บันทึกเป็น "คีย์แล้ว" (${R.summary.items - lines.filter(l=>l.duplicate).length} ใหม่)</button>
+      </div>
+    </div>
+  `;
+}
+
+function bsLineHTML(l){
+  const cls = l.cancelled?"warning-row":(l.duplicate?"":"");
+  const style = l.cancelled?'background:#fee2e2':l.duplicate?'background:#eff6ff':'';
+  const notes = [];
+  if(l.cancelled) notes.push("❌ ยกเลิก");
+  if(l.duplicate) notes.push("🔁 ซ้ำ");
+  if(l.unknownShop) notes.push("❓ ร้านไม่รู้แบรนด์");
+  if(l.newSku) notes.push("🆕 SKU ใหม่");
+  return `<tr class="${cls}" style="${style}">
+    <td>${l.seq}</td>
+    <td style="font-family:monospace">${esc(l.orderShow)}</td>
+    <td>${esc(l.saleDate ? fmtDateDDMMYY(l.saleDate):"")}</td>
+    <td>${esc(l.channel)}</td>
+    <td>${esc(l.cust)}</td>
+    <td style="font-family:monospace">${esc(l.sku)}</td>
+    <td style="text-align:right">${l.price?num(l.price).toLocaleString(undefined,{minimumFractionDigits:2}):""}</td>
+    <td style="text-align:right">${l.ship?num(l.ship).toLocaleString(undefined,{minimumFractionDigits:2}):""}</td>
+    <td style="font-size:11px;color:var(--ink-3)">${esc(l.shop)}</td>
+    <td style="font-size:11px">${notes.join(" · ")}</td>
+  </tr>`;
+}
+
+function bsUnknownShopsHTML(shops){
+  return `
+    <div class="note" style="background:#fef3c7;color:#92400e;padding:12px 14px;border-radius:8px;margin-bottom:10px">
+      ⚠️ <b>เจอร้าน ${shops.length} ร้าน</b>ที่ยังไม่รู้ว่าเป็นแบรนด์ไหน — เลือกแบรนด์ให้ก่อน:
+      <div style="display:flex;flex-direction:column;gap:6px;margin-top:8px">
+        ${shops.map(s=>`
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <code style="background:#fde68a;padding:3px 8px;border-radius:4px;font-size:13px">${esc(s)}</code> →
+            <select id="bs-brand-${esc(s)}" style="padding:4px 8px;font-family:inherit;border-radius:6px;border:1px solid #d4a574">
+              <option value="">— เลือกแบรนด์ —</option>
+              ${state.company==="benya"?'<option value="BT">BT (Betra)</option><option value="QI">QI (QI Care)</option>':'<option value="MB">MB (M Bark)</option>'}
+            </select>
+            <select id="bs-chan-${esc(s)}" style="padding:4px 8px;font-family:inherit;border-radius:6px;border:1px solid #d4a574">
+              <option value="">— ช่องทาง —</option>
+              <option value="SP">SP (Shopee)</option>
+              <option value="TT">TT (TikTok)</option>
+              <option value="LZ">LZ (Lazada)</option>
+            </select>
+            <button class="btn" style="font-size:12px;padding:4px 10px" onclick="bsAssignShop(${JSON.stringify(s)}, document.getElementById('bs-brand-'+${JSON.stringify(s)}).value, document.getElementById('bs-chan-'+${JSON.stringify(s)}).value)">บันทึก</button>
+          </div>`).join("")}
+      </div>
+    </div>`;
+}
+
+/* ---------- Export ---------- */
+function bsExport(fmt){
+  const d = bsGet(); if(!d.result) return;
+  const lines = d.opts.hideCancelled ? d.result.lines.filter(l=>!l.cancelled) : d.result.lines;
+  const aoa = [BS_HEAD.concat(["ร้าน","หมายเหตุ"])].concat(lines.map(l=>{
+    const notes=[];
+    if(l.cancelled) notes.push("ยกเลิก");
+    if(l.duplicate) notes.push("ซ้ำประวัติ");
+    if(l.unknownShop) notes.push("ร้านไม่รู้แบรนด์");
+    if(l.newSku) notes.push("SKU ใหม่");
+    return [l.seq, l.orderShow, l.saleDate?fmtDateDDMMYY(l.saleDate):"",
+            l.channel, l.cust, l.sku,
+            l.price||"", l.ship||"", l.shop, notes.join(" · ")];
+  }));
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  const base = `BigSeller_${COMPANIES.find(c=>c.id===state.company).name}_${stamp()}`;
+  if(fmt==="csv"){
+    download("﻿"+XLSX.utils.sheet_to_csv(ws), base+".csv", "text/csv;charset=utf-8");
+  } else {
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "เทมเพลตคีย์ IV");
+    XLSX.writeFile(wb, base+".xlsx");
+  }
 }
 
 /* ---------- init ---------- */

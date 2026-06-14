@@ -1096,9 +1096,23 @@ function armapExportCSV(){
 state.bs = state.bs || {};
 function bsGet(){
   if(!state.bs[state.company]){
-    state.bs[state.company] = { file:null, raw:null, result:null, opts:{ hideCancelled:false } };
+    state.bs[state.company] = {
+      file:null, raw:null, result:null,
+      opts:{ hideCancelled:false, lastIv:"" }   // lastIv = "2606000005" หรือ "IV2606000005"
+    };
   }
   return state.bs[state.company];
+}
+
+/* ---------- IV auto-numbering ---------- */
+function bsParseIvSeed(s){
+  if(!s) return null;
+  const m=String(s).match(/(?:IV)?\s*(\d{2})(\d{2})(\d{6})\s*$/i);
+  if(!m) return null;
+  return { yy:m[1], mm:m[2], running:parseInt(m[3],10), raw:s };
+}
+function bsFormatIv(yy, mm, running){
+  return `IV${yy}${mm}${String(running).padStart(6,'0')}`;
 }
 
 /* ---------- Brand lookup (shop name → brand) ----------
@@ -1249,13 +1263,16 @@ function bsBuildResult(){
 
   // Detect unknown shops (need brand mapping)
   const unknownShops = [];
-  const knownShops = {};
   for(const sh of d.raw.shops){
-    if(map[sh]) knownShops[sh] = map[sh];
-    else unknownShops.push(sh);
+    if(!map[sh]) unknownShops.push(sh);
   }
 
-  const lines = [];          // output lines
+  // IV auto-numbering seed
+  const seed = bsParseIvSeed(d.opts.lastIv);
+  let nextRun = seed ? seed.running + 1 : null;
+  const crossMonth = [];
+
+  const lines = [];
   const newSku = new Set();
   const dupOrders = new Set();
   const cancelOrders = new Set();
@@ -1266,9 +1283,19 @@ function bsBuildResult(){
     const isCancel = its.some(x => /ยกเลิก|cancel/i.test(x.status) || /cancel/i.test(x.pstatus));
     if(isCancel) cancelOrders.add(orderNo);
     if(hist.has(orderNo)) dupOrders.add(orderNo);
+
+    // Assign IV per order (skip cancelled — ไม่กิน IV)
+    let ivNo = "";
+    if(seed && !isCancel){
+      ivNo = bsFormatIv(seed.yy, seed.mm, nextRun);
+      nextRun++;
+      // Cross-month warning: order's sale month ≠ seed's mm
+      const m = (its[0].saleDate||"").match(/^\d{4}-(\d{2})/);
+      if(m && m[1]!==seed.mm) crossMonth.push({orderNo, expected:seed.mm, actual:m[1]});
+    }
+
     its.forEach((it, idx) => {
       seq++;
-      // brand from shop lookup
       const m = map[it.shop] || {};
       const brand = m.brand || (company==="mbark" ? "MB" : "");
       const channel = it.channel || m.channel || "";
@@ -1279,11 +1306,14 @@ function bsBuildResult(){
       if(isNewSku) newSku.add(it.sku);
       lines.push({
         seq,
+        ivShow: isFirst ? ivNo : "",     // โชว์เฉพาะแถวแรกของออเดอร์
+        ivNo,                             // เก็บ IV เต็มไว้สำหรับ tracking/export
         orderShow: isFirst ? orderNo : "",
         orderNo,
         saleDate: it.saleDate,
         channel, brand, cust, shop: it.shop,
-        sku: it.sku, qty: it.qty,
+        sku: it.sku,
+        qty: it.qty,
         price: it.price,
         ship: isLast ? it.ship : 0,
         cancelled: isCancel,
@@ -1302,7 +1332,12 @@ function bsBuildResult(){
       cancelled: cancelOrders.size,
       duplicates: dupOrders.size,
       newSkus: Array.from(newSku),
-      unknownShops
+      unknownShops,
+      ivSeed: seed,
+      ivAssigned: seed ? (orderList.length - cancelOrders.size) : 0,
+      ivFirst: seed ? bsFormatIv(seed.yy, seed.mm, seed.running+1) : "",
+      ivLast: seed && (orderList.length-cancelOrders.size>0) ? bsFormatIv(seed.yy, seed.mm, nextRun-1) : "",
+      crossMonth
     }
   };
 }
@@ -1329,6 +1364,12 @@ function bsClear(){
 function bsToggleHideCancel(){
   const d = bsGet();
   d.opts.hideCancelled = !d.opts.hideCancelled;
+  renderTool();
+}
+function bsSetLastIv(v){
+  const d = bsGet();
+  d.opts.lastIv = String(v||"").trim();
+  if(d.raw) d.result = bsBuildResult();
   renderTool();
 }
 
@@ -1412,7 +1453,7 @@ function bsImportHistory(file){
 }
 
 /* ---------- UI ---------- */
-const BS_HEAD = ["ลำดับ","เลขคำสั่งซื้อ","วันที่ขาย","ช่องทาง","รหัสลูกค้า","SKU","ราคา","ค่าส่ง"];
+const BS_HEAD = ["ลำดับ","เลข IV","เลขคำสั่งซื้อ","วันที่ขาย","ช่องทาง","รหัสลูกค้า","SKU","จำนวน","ราคา","ค่าส่ง"];
 function renderToolBigSeller(){
   bsSeedShopBrand();
   const t = TOOLS.find(x=>x.id===state.tool);
@@ -1506,9 +1547,29 @@ function bsResultHTML(R){
       ⚠️ <b>${R.summary.duplicates} ออเดอร์</b> ซ้ำกับประวัติที่เคยคีย์แล้ว (แถวสีน้ำเงิน)
     </div>` : "";
 
+  // IV input bar — ใส่เลข IV ล่าสุดในระบบ → auto-run ต่อไป
+  const ivValid = !!R.summary.ivSeed;
+  const ivStatus = !d.opts.lastIv ? `<span style="color:var(--ink-3)">⬅ ใส่เลข IV ล่าสุดเพื่อให้ระบบรันต่อให้</span>`
+    : !ivValid ? `<span style="color:var(--bad)">⚠️ รูปแบบไม่ถูก — ต้องเป็น 10 หลัก เช่น 2606000005 หรือ IV2606000005</span>`
+    : `<span style="color:var(--ok)">✓ จะรันต่อจาก <b>${esc(R.summary.ivFirst)}</b> → <b>${esc(R.summary.ivLast)}</b> (${R.summary.ivAssigned} ออเดอร์)</span>`;
+  const crossBlock = R.summary.crossMonth.length ? `
+    <div class="note" style="background:#fef3c7;color:#92400e;padding:8px 12px;border-radius:8px;margin-top:6px;font-size:12px">
+      ⚠️ ${R.summary.crossMonth.length} ออเดอร์มีวันที่ขายไม่ตรงกับเดือนของเลข IV ที่กรอก — อาจต้องเปลี่ยน prefix YYMM
+    </div>` : "";
+  const ivBar = `
+    <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:12px 14px;margin-bottom:12px">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <span style="font-weight:700;color:#1e3a8a">📄 เลข IV ล่าสุดในระบบ:</span>
+        <input type="text" value="${esc(d.opts.lastIv||'')}" placeholder="เช่น 2606000005" style="font-family:monospace;font-size:14px;padding:6px 10px;border:1px solid #93c5fd;border-radius:6px;width:170px" onchange="bsSetLastIv(this.value)" onkeyup="if(event.key==='Enter')bsSetLastIv(this.value)">
+        ${ivStatus}
+      </div>
+      ${crossBlock}
+    </div>`;
+
   return `
     <div class="card">
       <h3>📊 ผลลัพธ์ — เทมเพลตคีย์ IV</h3>
+      ${ivBar}
       ${unknownBlock}${newSkuBlock}${dupBlock}
       <div class="pill-stat">
         <div class="stat"><div class="n">${R.summary.orders}</div><div class="l">ออเดอร์ทั้งหมด</div></div>
@@ -1544,11 +1605,13 @@ function bsLineHTML(l){
   if(l.newSku) notes.push("🆕 SKU ใหม่");
   return `<tr class="${cls}" style="${style}">
     <td>${l.seq}</td>
+    <td style="font-family:monospace;font-weight:600;color:var(--brand-dark)">${esc(l.ivShow)}</td>
     <td style="font-family:monospace">${esc(l.orderShow)}</td>
     <td>${esc(l.saleDate ? fmtDateDDMMYY(l.saleDate):"")}</td>
     <td>${esc(l.channel)}</td>
     <td>${esc(l.cust)}</td>
     <td style="font-family:monospace">${esc(l.sku)}</td>
+    <td style="text-align:right">${l.qty||""}</td>
     <td style="text-align:right">${l.price?num(l.price).toLocaleString(undefined,{minimumFractionDigits:2}):""}</td>
     <td style="text-align:right">${l.ship?num(l.ship).toLocaleString(undefined,{minimumFractionDigits:2}):""}</td>
     <td style="font-size:11px;color:var(--ink-3)">${esc(l.shop)}</td>
@@ -1590,8 +1653,8 @@ function bsExport(fmt){
     if(l.duplicate) notes.push("ซ้ำประวัติ");
     if(l.unknownShop) notes.push("ร้านไม่รู้แบรนด์");
     if(l.newSku) notes.push("SKU ใหม่");
-    return [l.seq, l.orderShow, l.saleDate?fmtDateDDMMYY(l.saleDate):"",
-            l.channel, l.cust, l.sku,
+    return [l.seq, l.ivShow, l.orderShow, l.saleDate?fmtDateDDMMYY(l.saleDate):"",
+            l.channel, l.cust, l.sku, l.qty||"",
             l.price||"", l.ship||"", l.shop, notes.join(" · ")];
   }));
   const ws = XLSX.utils.aoa_to_sheet(aoa);

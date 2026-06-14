@@ -1058,19 +1058,26 @@ function armapExport(){
             a.pay_date_long, a.pay_date_short, a.net, a.diff, a.cust,
             a.lett_other, a.enter, a.bank_down, a.doc_no, a.bank_code, a.warning];
   }));
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(aRows), "A พร้อมคีย์รับชำระ");
+  // cols: 2=เลข IV, 5=รหัสออเดอร์, 11=รหัสลูกค้า — บังคับ text กัน Excel ตัดท้ายเลข 18+ หลัก
+  const aSheet = XLSX.utils.aoa_to_sheet(aRows);
+  forceTextCells(aSheet, [2, 5, 11]);
+  XLSX.utils.book_append_sheet(wb, aSheet, "A พร้อมคีย์รับชำระ");
   // Sheet B
   const bRows=[["ลำดับ","วันที่ IV","เลข IV","รหัสลูกค้า","ชื่อ","ยอดค้าง","เลขออเดอร์","สาเหตุ"]].concat(R.B.map((r,i)=>{
     const ar=r.ar||{}, s=r.sale||{};
     return [i+1, fmtDateDDMMYYYY(ar.date), ar.doc, ar.custCode, ar.custName, round2(ar.outstanding), s.ref||"", r.reason];
   }));
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(bRows), "B รอเงินเข้า");
+  const bSheet = XLSX.utils.aoa_to_sheet(bRows);
+  forceTextCells(bSheet, [2, 3, 6]);   // เลข IV, รหัสลูกค้า, เลขออเดอร์
+  XLSX.utils.book_append_sheet(wb, bSheet, "B รอเงินเข้า");
   // Sheet C
   const cRows=[["ลำดับ","เลขออเดอร์","ช่องทาง","แบรนด์","วันรับเงิน","ยอดสุทธิ","ยอดรวม","ชื่อร้าน","ไฟล์"]].concat(R.C.map((r,i)=>[
     i+1, r.orderNo, r.channel, r.brand||"", fmtDateDDMMYYYY(r.paymentDate),
     round2(r.net), round2(r.gross), r.seller||"", r.file
   ]));
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(cRows), "C ไม่มี IV");
+  const cSheet = XLSX.utils.aoa_to_sheet(cRows);
+  forceTextCells(cSheet, [1]);          // เลขออเดอร์
+  XLSX.utils.book_append_sheet(wb, cSheet, "C ไม่มี IV");
   const base=`ARMap_${COMPANIES.find(c=>c.id===state.company).name}_${stamp()}.xlsx`;
   XLSX.writeFile(wb, base);
 }
@@ -1084,6 +1091,7 @@ function armapExportCSV(){
             a.lett_other, a.enter, a.bank_down, a.doc_no, a.bank_code, a.warning];
   }));
   const ws=XLSX.utils.aoa_to_sheet(aRows);
+  forceTextCells(ws, [2, 5, 11]);    // เลข IV, รหัสออเดอร์, รหัสลูกค้า
   const csv=XLSX.utils.sheet_to_csv(ws);
   download("﻿"+csv, `ARMap_A_${COMPANIES.find(c=>c.id===state.company).name}_${stamp()}.csv`, "text/csv;charset=utf-8");
 }
@@ -1646,6 +1654,26 @@ function bsUnknownShopsHTML(shops){
     </div>`;
 }
 
+/* ---------- Force text type on long-ID columns ----------
+   Excel เปลี่ยน "584420620051055642" → 5.84E+17 + ตัดท้ายเป็น 0000
+   เพราะ Number มี precision แค่ ~15 หลัก
+   แก้: set ws cell.t='s' (string) บังคับ */
+function forceTextCells(ws, textColIndices){
+  if(!ws['!ref']) return;
+  const range = XLSX.utils.decode_range(ws['!ref']);
+  for(let R=1; R<=range.e.r; R++){            // ข้าม header (row 0)
+    for(const C of textColIndices){
+      const addr = XLSX.utils.encode_cell({r:R, c:C});
+      if(ws[addr] && ws[addr].v!=null && ws[addr].v!==""){
+        ws[addr].t = 's';
+        ws[addr].v = String(ws[addr].v);
+        delete ws[addr].w;                    // clear cached display string
+        delete ws[addr].z;                    // clear number format
+      }
+    }
+  }
+}
+
 /* ---------- Export ---------- */
 function bsExport(fmt){
   const d = bsGet(); if(!d.result) return;
@@ -1661,6 +1689,8 @@ function bsExport(fmt){
             l.price||"", l.ship||"", l.discount||"", l.shop, notes.join(" · ")];
   }));
   const ws = XLSX.utils.aoa_to_sheet(aoa);
+  // col indices: 1=เลข IV, 2=เลขคำสั่งซื้อ, 6=SKU — บังคับ text กัน Excel ตัดท้ายเป็น 0
+  forceTextCells(ws, [1, 2, 6]);
   const base = `BigSeller_${COMPANIES.find(c=>c.id===state.company).name}_${stamp()}`;
   if(fmt==="csv"){
     download("﻿"+XLSX.utils.sheet_to_csv(ws), base+".csv", "text/csv;charset=utf-8");

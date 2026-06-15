@@ -1127,8 +1127,24 @@ function bsFormatIv(yy, mm, running){
 /* ---------- Brand lookup (shop name → brand) ----------
    localStorage key: wtp-bs-shopbrand-v1 = { "betra_brand":{brand:"BT",channel:"SP"}, ... } */
 const BS_LS_SHOPBRAND = "wtp-bs-shopbrand-v1";
-const BS_LS_SKU       = "wtp-bs-sku-v1";       // SKU master per company
+const BS_LS_SKU       = "wtp-bs-sku-v1";       // SKU master เพิ่มเติม per company
 const BS_LS_HISTORY   = "wtp-bs-history-v1";   // keyed orders per company
+
+/* รหัสสินค้าทั้งหมดของบริษัท M Bark — ฝังไว้ใน code เลย (ไม่ต้องอัปไฟล์ เพราะรายงานออกมาไม่ครบ) */
+const BS_SKU_SEED_MBARK = [
+  "1152-00","4101-02","4208-01","4300-04","A114002-01","A114002-02","BRU001",
+  "DUO001","DUO002","DUO004","DUO005","FMM001","FR0001","L212003","L213801",
+  "MM001","MM002","MM2001","MM2002","MM5001","MM5002","MM5003","MM5004",
+  "MP-001","MP-002","PP001","PP002","PP003","PP004","PP005","PP006","PP007",
+  "PSP1F1","RS2001","RS2002","RS5001","RS5002","RS5003","RS5004",
+  "S531011-001","SH001","SM10","SM150","SP0300","SP2301","SP2302","SP2303",
+  "SR4001","SSR502","SSR503","SSR504","SSYN02","SSYN03",
+  "STSP02","STSP03","STSR02","STSR03","SYN501","SYN502","SYN503",
+  "TESTER2001","TESTER5001","TS1001","TS1002","TS1003","TSR011","TSR012","TSR013"
+];
+function bsSeedSkuFor(company){
+  return company==="mbark" ? BS_SKU_SEED_MBARK : [];
+}
 
 function bsLoadJSON(key, fallback){
   try{ const v=localStorage.getItem(key); return v?JSON.parse(v):fallback; }
@@ -1258,7 +1274,7 @@ function bsBuildResult(){
   const company = state.company;
   const map = bsLoadJSON(BS_LS_SHOPBRAND, {});
   const sku = bsLoadJSON(BS_LS_SKU, {});
-  const skuSet = new Set((sku[company]||[]).map(s=>String(s).trim()));
+  const skuSet = new Set([...bsSeedSkuFor(company), ...(sku[company]||[]).map(s=>String(s).trim())]);
   const history = bsLoadJSON(BS_LS_HISTORY, {});
   const hist = new Set((history[company]||[]).map(o=>String(o)));
 
@@ -1425,7 +1441,7 @@ async function bsImportSku(file){
   }catch(err){ alert("นำเข้า SKU ไม่สำเร็จ: "+err.message); }
 }
 function bsClearSku(){
-  if(!confirm(`ล้างฐาน SKU ของ ${COMPANIES.find(c=>c.id===state.company).name} ทั้งหมด?`)) return;
+  if(!confirm(`ล้างรหัส SKU ที่เพิ่มเองของ ${COMPANIES.find(c=>c.id===state.company).name} (ไม่กระทบรหัส built-in)?`)) return;
   const cur = bsLoadJSON(BS_LS_SKU, {});
   delete cur[state.company];
   bsSaveJSON(BS_LS_SKU, cur);
@@ -1449,6 +1465,34 @@ function bsExportHistory(){
   download(JSON.stringify(cur,null,2), `bigseller_history_${stamp()}.json`, "application/json");
 }
 function bsImportHistory(file){
+  const isCSV=/\.csv$/i.test(file.name);
+  if(isCSV){
+    // รายงานขายแบบเห็นออเดอร์ (Express) — ดึงเลขออเดอร์ (ref) ที่มีเลข IV แล้ว มาเป็นประวัติคีย์
+    const r=new FileReader();
+    r.onload=()=>{
+      try{
+        const buf=new Uint8Array(r.result);
+        let text;
+        try{ text=new TextDecoder("utf-8",{fatal:true}).decode(buf); }
+        catch(_){ try{ text=new TextDecoder("windows-874").decode(buf); }
+                  catch(__){ text=new TextDecoder("tis-620").decode(buf); } }
+        const rows=parseExpressSales(text);
+        const cur=bsLoadJSON(BS_LS_HISTORY, {});
+        const list=new Set(cur[state.company]||[]);
+        let added=0;
+        for(const row of rows){
+          if(row.ref){ if(!list.has(row.ref)) added++; list.add(row.ref); }
+        }
+        cur[state.company]=Array.from(list);
+        bsSaveJSON(BS_LS_HISTORY, cur);
+        const d=bsGet(); if(d.raw) d.result=bsBuildResult();
+        alert(`นำเข้าประวัติจาก CSV: พบ ${rows.length} ใบ IV, เพิ่มออเดอร์ใหม่ ${added} รายการ (รวม ${list.size} รายการ)`);
+        renderTool();
+      }catch(err){ alert("อ่านไฟล์ CSV ไม่สำเร็จ: "+err.message); }
+    };
+    r.readAsArrayBuffer(file);
+    return;
+  }
   const r=new FileReader();
   r.onload=()=>{
     try{
@@ -1469,7 +1513,9 @@ function renderToolBigSeller(){
   const t = TOOLS.find(x=>x.id===state.tool);
   const d = bsGet();
   const sku = bsLoadJSON(BS_LS_SKU, {});
-  const skuCount = (sku[state.company]||[]).length;
+  const seedCount = bsSeedSkuFor(state.company).length;
+  const extraCount = (sku[state.company]||[]).length;
+  const skuCount = seedCount + extraCount;
   const histCount = (bsLoadJSON(BS_LS_HISTORY, {})[state.company]||[]).length;
 
   document.getElementById("main").innerHTML = `
@@ -1492,13 +1538,13 @@ function renderToolBigSeller(){
 
       <div class="slot">
         <div class="lbl"><span class="step">2</span> 🗂️ SKU Master</div>
-        <div class="hint">รหัสสินค้าที่ระบบบัญชีมี · ${skuCount} รายการ</div>
+        <div class="hint">รหัสสินค้าที่ระบบบัญชีมี · ${skuCount} รายการ${seedCount?` (built-in ${seedCount}${extraCount?` + เพิ่มเอง ${extraCount}`:""})`:""}</div>
         <div class="drop" data-slot="bssku" style="padding:16px;font-size:13px">
           <div class="big" style="font-size:22px">📥</div>
-          <div>ลากไฟล์ SKU เพื่อนำเข้า</div>
+          <div>ลากไฟล์ SKU เพื่อนำเข้าเพิ่ม</div>
           <input type="file" data-slotinp="bssku" accept=".xlsx,.xls,.csv" style="display:none">
         </div>
-        ${skuCount?`<button class="btn ghost" style="font-size:12px;padding:6px 10px" onclick="bsClearSku()">ล้าง</button>`:""}
+        ${extraCount?`<button class="btn ghost" style="font-size:12px;padding:6px 10px" onclick="bsClearSku()">ล้างที่เพิ่มเอง</button>`:""}
       </div>
 
       <div class="slot">
@@ -1506,8 +1552,9 @@ function renderToolBigSeller(){
         <div class="hint">${histCount} ออเดอร์เคยคีย์แล้ว</div>
         <div class="btnrow" style="flex-direction:column;gap:6px;align-items:stretch">
           <button class="btn ghost" style="font-size:12px" onclick="bsExportHistory()">⬇ Export JSON</button>
-          <label class="btn ghost" style="font-size:12px;text-align:center;cursor:pointer">⬆ Import JSON<input type="file" accept=".json" onchange="bsImportHistory(this.files[0])" style="display:none"></label>
+          <label class="btn ghost" style="font-size:12px;text-align:center;cursor:pointer">⬆ Import CSV/JSON<input type="file" accept=".csv,.json" onchange="bsImportHistory(this.files[0])" style="display:none"></label>
         </div>
+        <div class="hint" style="margin-top:4px;font-size:11px;opacity:.7">CSV = รายงานขายแบบเห็นออเดอร์ (Express)</div>
       </div>
     </div>
 

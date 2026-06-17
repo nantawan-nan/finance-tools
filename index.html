@@ -328,8 +328,8 @@ const TOOLS = [
   // ───── 3. ลูกหนี้ ─────
   { id:"ar", stage:"💰 ลูกหนี้ (AR)", ic:"📒",
     name:"AR Outstanding", desc:"ลูกหนี้คงค้าง + Aging",
-    long:"ลูกหนี้คงค้าง · Aging 0-30 / 31-60 / 61-90 / >90 · เกินกำหนด",
-    multiInput:true, status:"soon" },
+    long:"ลูกหนี้คงค้าง · AR จริง vs AR บัญชี · Aging 0-30 / 31-60 / 61-90 / >90 · บันทึกรับเงิน",
+    multiInput:true, status:"live" },
   { id:"armap", stage:"💰 ลูกหนี้ (AR)", ic:"🔗",
     name:"Map ลูกหนี้ → เงินเข้า", desc:"3 ไฟล์ → พร้อมคีย์ RE",
     long:"วาง 3 ไฟล์ — ลูกหนี้คงค้าง · รายงานขาย · หลังบ้าน Shopee/TikTok → แมพ IV กับเงินเข้า แล้วออกเป็น 3 ชีตพร้อมคีย์ AutoKey",
@@ -462,6 +462,7 @@ function renderTool(){
   const t = TOOLS.find(x=>x.id===state.tool);
   updateCrumb();
   if (t.multiInput) {
+    if (t.id==="ar")       return renderToolAr();
     if (t.id==="armap") return renderToolArmap();
     if (t.id==="bigseller") return renderToolBigSeller();
     if (t.id==="expressmatch") return renderToolExpressMatch();
@@ -1741,6 +1742,7 @@ async function bsSaveToCloud(){
       const newStatus = h.cancelled ? "cancelled" : "pending";
       const ex = existing[ono];
       if(!ex){
+        const orderNetAmt = g.items.reduce((s,it)=>s+((it.qty||0)*(it.price||0)),0);
         newOrders.push({
           id: `${company}|${ono}`,
           order_no: ono, company,
@@ -1750,6 +1752,7 @@ async function bsSaveToCloud(){
           sale_date: h.saleDate || null,
           cust_code: h.cust || "",
           iv_no: null,
+          net_amount: Math.round(orderNetAmt*100)/100,
           status: newStatus,
           updated_at: new Date().toISOString()
         });
@@ -2880,6 +2883,340 @@ function renderToolHome(){
 }
 
 /* Placeholder page สำหรับ module ที่ยังไม่เสร็จ */
+/* ============================================================
+   AR OUTSTANDING — ลูกหนี้คงค้าง
+   AR จริง  = ยอดขายทุกออเดอร์ (non-cancelled) - รับเงินแล้ว
+   AR บัญชี = เฉพาะออเดอร์ที่มี IV - รับเงินแล้ว
+   Gap      = ยอดที่ยังไม่คีย์ IV
+   ============================================================ */
+state.ar = state.ar || {};
+function arGet(){
+  const co = state.company;
+  if(!state.ar[co]) state.ar[co] = { tab:"real", orders:null, receipts:null };
+  return state.ar[co];
+}
+
+function arFmt(n){ return (n||0).toLocaleString("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function arDaysSince(dateStr){ if(!dateStr) return 999; return Math.floor((Date.now()-new Date(dateStr).getTime())/86400000); }
+function arAgingLabel(days){
+  if(days<=30)  return "0–30 วัน";
+  if(days<=60)  return "31–60 วัน";
+  if(days<=90)  return "61–90 วัน";
+  return ">90 วัน";
+}
+function arAgingColor(days){
+  if(days<=30)  return "var(--ok)";
+  if(days<=60)  return "var(--warn)";
+  return "var(--bad)";
+}
+
+async function arLoad(){
+  const co = state.company;
+  const d = arGet();
+
+  // 0) หา company_id UUID จาก companies table
+  const coCode = co === "mbark" ? "MBARC" : "BENYA";
+  const { data: coRows, error: coErr } = await sb.from("companies").select("id").eq("code", coCode).limit(1);
+  if(coErr) throw coErr;
+  const companyId = coRows && coRows.length ? coRows[0].id : null;
+
+  // 1) orders — ดึงทั้งหมด ของบริษัทนี้
+  let orders = [], from = 0;
+  while(true){
+    const { data, error } = await sb.from("orders")
+      .select("id,order_no,iv_no,sale_date,status,net_amount,platform,shop_name,brand,cust_code,company_id")
+      .eq("company", co).range(from, from+999);
+    if(error) throw error;
+    if(!data||!data.length) break;
+    orders = orders.concat(data);
+    if(data.length < 1000) break;
+    from += 1000;
+  }
+  d.orders = orders;
+  d.companyId = companyId;
+
+  // 2) ar_receipts — RLS กรองให้อยู่แล้ว แต่ filter company_id ซ้ำเพื่อ multi-company safety
+  let receipts = [], from2 = 0;
+  while(true){
+    let q = sb.from("ar_receipts")
+      .select("id,order_no,iv_no,received_date,received_amount,bank_account,note");
+    if(companyId) q = q.eq("company_id", companyId);
+    const { data, error } = await q.range(from2, from2+999);
+    if(error) throw error;
+    if(!data||!data.length) break;
+    receipts = receipts.concat(data);
+    if(data.length < 1000) break;
+    from2 += 1000;
+  }
+  d.receipts = receipts;
+}
+
+function arBuildRows(orders, receipts){
+  // sum receipts per order_no
+  const recByOrder = {};
+  for(const r of receipts){
+    recByOrder[r.order_no] = (recByOrder[r.order_no]||0) + (r.received_amount||0);
+  }
+  return orders
+    .filter(o => o.status !== "cancelled")
+    .map(o => {
+      const amt     = o.net_amount || 0;
+      const recv    = recByOrder[o.order_no] || 0;
+      const out     = Math.max(0, amt - recv);
+      const days    = arDaysSince(o.sale_date);
+      return { ...o, amt, recv, out, days };
+    });
+}
+
+async function renderToolAr(){
+  const t = TOOLS.find(x=>x.id===state.tool);
+  const co = state.company;
+  const d = arGet();
+  document.getElementById("main").innerHTML = `
+    <div class="page-head">
+      <h1>${t.ic} ${t.name} <span class="badge">${COMPANIES.find(c=>c.id===co).name}</span></h1>
+      <div class="sub">${t.long}</div>
+    </div>
+    <div class="card"><div class="empty">⏳ กำลังโหลดข้อมูลลูกหนี้...</div></div>
+  `;
+  try{ await arLoad(); }
+  catch(err){
+    document.getElementById("main").innerHTML += `<div class="card"><div style="color:var(--bad)">โหลดข้อมูลไม่สำเร็จ: ${esc(err.message||err)}</div></div>`;
+    return;
+  }
+
+  const rows = arBuildRows(d.orders, d.receipts);
+  const rowsIv = rows.filter(r => r.iv_no);
+
+  const arReal  = rows.reduce((s,r)=>s+r.out, 0);
+  const arAcct  = rowsIv.reduce((s,r)=>s+r.out, 0);
+  const arGap   = arReal - arAcct;
+
+  const canWrite = AUTH.role && ["admin","finance_mgr","accountant","treasury"].includes(AUTH.role);
+
+  document.getElementById("main").innerHTML = `
+    <div class="page-head">
+      <h1>${t.ic} ${t.name} <span class="badge">${COMPANIES.find(c=>c.id===co).name}</span></h1>
+      <div class="sub">${t.long}</div>
+    </div>
+
+    <!-- KPI 3 การ์ด -->
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:18px">
+      <div class="card" style="border-top:4px solid var(--bad);margin-bottom:0">
+        <div style="font-size:11px;font-weight:700;color:var(--ink-3);letter-spacing:.5px;text-transform:uppercase">AR จริง (ค้างรับทั้งหมด)</div>
+        <div style="font-size:26px;font-weight:800;color:var(--bad);margin:6px 0 2px">฿${arFmt(arReal)}</div>
+        <div style="font-size:12px;color:var(--ink-2)">${rows.filter(r=>r.out>0).length} ออเดอร์ · ทุกช่องทาง</div>
+      </div>
+      <div class="card" style="border-top:4px solid var(--warn);margin-bottom:0">
+        <div style="font-size:11px;font-weight:700;color:var(--ink-3);letter-spacing:.5px;text-transform:uppercase">AR บัญชี (มี IV แล้ว)</div>
+        <div style="font-size:26px;font-weight:800;color:var(--warn);margin:6px 0 2px">฿${arFmt(arAcct)}</div>
+        <div style="font-size:12px;color:var(--ink-2)">${rowsIv.filter(r=>r.out>0).length} ออเดอร์ · คีย์ IV แล้ว</div>
+      </div>
+      <div class="card" style="border-top:4px solid var(--ink-3);margin-bottom:0">
+        <div style="font-size:11px;font-weight:700;color:var(--ink-3);letter-spacing:.5px;text-transform:uppercase">Gap (ยังไม่คีย์ IV)</div>
+        <div style="font-size:26px;font-weight:800;color:var(--ink-2);margin:6px 0 2px">฿${arFmt(arGap)}</div>
+        <div style="font-size:12px;color:var(--ink-2)">${rows.filter(r=>r.out>0&&!r.iv_no).length} ออเดอร์ · รอคีย์ IV</div>
+      </div>
+    </div>
+
+    <!-- แท็บ -->
+    <div class="card">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+        <div class="tabs" style="margin-bottom:0;flex:1">
+          <button class="${d.tab==='real'?'active':''}" onclick="arSetTab('real')">📋 AR จริง (${rows.filter(r=>r.out>0).length})</button>
+          <button class="${d.tab==='acct'?'active':''}" onclick="arSetTab('acct')">📑 AR บัญชี + Aging (${rowsIv.filter(r=>r.out>0).length})</button>
+          <button class="${d.tab==='hist'?'active':''}" onclick="arSetTab('hist')">📜 ประวัติรับเงิน (${d.receipts.length})</button>
+        </div>
+        <button class="btn ghost" style="margin-left:10px;font-size:12px;white-space:nowrap" onclick="arRefresh()">🔄 รีเฟรช</button>
+      </div>
+      ${d.tab==='real' ? arTabReal(rows, canWrite)
+      : d.tab==='acct' ? arTabAcct(rowsIv, canWrite)
+      : arTabHist(d.receipts)}
+    </div>
+  `;
+}
+
+function arSetTab(tab){ arGet().tab=tab; renderToolAr(); }
+function arRefresh(){ state.ar[state.company]=null; arGet(); renderToolAr(); }
+
+function arTabReal(rows, canWrite){
+  const outstanding = rows.filter(r=>r.out>0).sort((a,b)=>a.sale_date<b.sale_date?1:-1);
+  if(!outstanding.length) return `<div class="empty">🎉 ไม่มีลูกหนี้ค้างชำระ</div>`;
+  return `
+    <div class="table-wrap"><table>
+      <thead><tr>
+        <th>เลขออเดอร์</th><th>วันที่ขาย</th><th>ช่องทาง</th><th>IV No.</th>
+        <th style="text-align:right">ยอดขาย</th><th style="text-align:right">รับแล้ว</th>
+        <th style="text-align:right;color:var(--bad)">ค้างรับ</th>
+        <th>อายุ</th>${canWrite?'<th></th>':''}
+      </tr></thead>
+      <tbody>${outstanding.map(r=>`
+        <tr>
+          <td><code style="font-size:12px">${esc(r.order_no)}</code></td>
+          <td>${esc(r.sale_date||'—')}</td>
+          <td>${esc(r.platform||r.shop_name||'—')}</td>
+          <td>${r.iv_no?`<span class="badge" style="background:#dcfce7;color:#166534">${esc(r.iv_no)}</span>`:'<span style="color:var(--ink-3);font-size:12px">ยังไม่คีย์</span>'}</td>
+          <td style="text-align:right">${arFmt(r.amt)}</td>
+          <td style="text-align:right;color:var(--ok)">${r.recv>0?arFmt(r.recv):'—'}</td>
+          <td style="text-align:right;font-weight:700;color:var(--bad)">${arFmt(r.out)}</td>
+          <td><span style="font-size:12px;color:${arAgingColor(r.days)}">${r.days} วัน</span></td>
+          ${canWrite?`<td><button class="btn ghost" style="padding:4px 10px;font-size:12px" onclick="arOpenReceipt(${JSON.stringify({order_no:r.order_no,iv_no:r.iv_no||'',out:r.out,amt:r.amt}).replace(/"/g,'&quot;')})">💵 รับเงิน</button></td>`:''}
+        </tr>`).join("")}
+      </tbody>
+    </table></div>
+    <div style="color:var(--ink-3);font-size:12px;margin-top:10px">แสดง ${outstanding.length} ออเดอร์ที่ยังค้างชำระ (ซ่อนที่รับครบแล้ว)</div>
+  `;
+}
+
+function arTabAcct(rowsIv, canWrite){
+  const buckets = {"0–30 วัน":[],"31–60 วัน":[],"61–90 วัน":[],">90 วัน":[]};
+  const outstanding = rowsIv.filter(r=>r.out>0);
+  for(const r of outstanding){
+    const lbl = arAgingLabel(r.days);
+    buckets[lbl].push(r);
+  }
+  if(!outstanding.length) return `<div class="empty">🎉 ไม่มี AR บัญชีค้างชำระ</div>`;
+  const colors = {"0–30 วัน":"var(--ok)","31–60 วัน":"var(--warn)","61–90 วัน":"var(--bad)",">90 วัน":"#7f1d1d"};
+  let html = `<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px">`;
+  for(const [lbl,rows] of Object.entries(buckets)){
+    const tot = rows.reduce((s,r)=>s+r.out,0);
+    html += `<div style="background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:12px;text-align:center">
+      <div style="font-size:12px;font-weight:700;color:${colors[lbl]}">${lbl}</div>
+      <div style="font-size:20px;font-weight:800;color:${colors[lbl]};margin:4px 0">฿${arFmt(tot)}</div>
+      <div style="font-size:12px;color:var(--ink-3)">${rows.length} IV</div>
+    </div>`;
+  }
+  html += `</div><div class="table-wrap"><table>
+    <thead><tr>
+      <th>เลข IV</th><th>เลขออเดอร์</th><th>วันที่ขาย</th><th>ช่องทาง</th>
+      <th style="text-align:right">ยอด IV</th><th style="text-align:right">รับแล้ว</th>
+      <th style="text-align:right;color:var(--bad)">ค้างรับ</th>
+      <th>Aging</th>${canWrite?'<th></th>':''}
+    </tr></thead>
+    <tbody>${outstanding.sort((a,b)=>b.days-a.days).map(r=>`
+      <tr>
+        <td><span class="badge" style="background:#dcfce7;color:#166534">${esc(r.iv_no)}</span></td>
+        <td><code style="font-size:12px">${esc(r.order_no)}</code></td>
+        <td>${esc(r.sale_date||'—')}</td>
+        <td>${esc(r.platform||r.shop_name||'—')}</td>
+        <td style="text-align:right">${arFmt(r.amt)}</td>
+        <td style="text-align:right;color:var(--ok)">${r.recv>0?arFmt(r.recv):'—'}</td>
+        <td style="text-align:right;font-weight:700;color:${arAgingColor(r.days)}">${arFmt(r.out)}</td>
+        <td><span style="font-size:12px;font-weight:700;color:${arAgingColor(r.days)}">${arAgingLabel(r.days)}</span></td>
+        ${canWrite?`<td><button class="btn ghost" style="padding:4px 10px;font-size:12px" onclick="arOpenReceipt(${JSON.stringify({order_no:r.order_no,iv_no:r.iv_no,out:r.out,amt:r.amt}).replace(/"/g,'&quot;')})">💵 รับเงิน</button></td>`:''}
+      </tr>`).join("")}
+    </tbody>
+  </table></div>`;
+  return html;
+}
+
+function arTabHist(receipts){
+  if(!receipts.length) return `<div class="empty">ยังไม่มีประวัติรับเงิน</div>`;
+  const sorted = [...receipts].sort((a,b)=>b.received_date<a.received_date?-1:1);
+  const total = receipts.reduce((s,r)=>s+(r.received_amount||0),0);
+  return `
+    <div style="margin-bottom:12px">
+      <span style="font-weight:700;color:var(--ok)">รับเงินแล้วทั้งหมด: ฿${arFmt(total)}</span>
+      <span style="color:var(--ink-3);font-size:13px;margin-left:10px">(${receipts.length} รายการ)</span>
+    </div>
+    <div class="table-wrap"><table>
+      <thead><tr>
+        <th>วันที่รับ</th><th>เลขออเดอร์</th><th>IV No.</th>
+        <th style="text-align:right">จำนวน</th><th>บัญชี</th><th>หมายเหตุ</th>
+      </tr></thead>
+      <tbody>${sorted.map(r=>`
+        <tr>
+          <td>${esc(r.received_date)}</td>
+          <td><code style="font-size:12px">${esc(r.order_no)}</code></td>
+          <td>${r.iv_no?`<span class="badge" style="background:#dcfce7;color:#166534">${esc(r.iv_no)}</span>`:'—'}</td>
+          <td style="text-align:right;color:var(--ok);font-weight:700">฿${arFmt(r.received_amount)}</td>
+          <td style="font-size:13px">${esc(r.bank_account||'—')}</td>
+          <td style="font-size:13px;color:var(--ink-2)">${esc(r.note||'')}</td>
+        </tr>`).join("")}
+      </tbody>
+    </table></div>
+  `;
+}
+
+/* ---------- บันทึกรับเงิน modal ---------- */
+function arOpenReceipt(info){
+  const today = new Date().toISOString().slice(0,10);
+  const wrap = document.createElement("div");
+  wrap.id = "arReceiptModal";
+  wrap.style.cssText = "position:fixed;inset:0;background:rgba(15,23,42,.5);z-index:1000;display:flex;align-items:center;justify-content:center;padding:20px";
+  wrap.innerHTML = `
+    <div style="background:#fff;border-radius:14px;padding:28px;max-width:440px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.3)">
+      <h3 style="margin:0 0 4px;font-size:17px">💵 บันทึกรับเงิน</h3>
+      <div style="color:var(--ink-2);font-size:13px;margin-bottom:18px">ออเดอร์ <b>${esc(info.order_no)}</b>${info.iv_no?' · IV '+esc(info.iv_no):''} · ค้างรับ <b style="color:var(--bad)">฿${arFmt(info.out)}</b></div>
+      <div style="display:grid;gap:12px">
+        <label style="font-size:13px;font-weight:600;color:var(--ink)">วันที่รับเงิน
+          <input id="arRDate" type="date" value="${today}"
+            style="display:block;width:100%;margin-top:4px;padding:9px 12px;border:1px solid var(--line);border-radius:8px;font-size:14px;font-family:inherit">
+        </label>
+        <label style="font-size:13px;font-weight:600;color:var(--ink)">จำนวนเงินที่รับ (บาท)
+          <input id="arRAmt" type="number" step="0.01" min="0" value="${info.out.toFixed(2)}" placeholder="0.00"
+            style="display:block;width:100%;margin-top:4px;padding:9px 12px;border:1px solid var(--line);border-radius:8px;font-size:14px;font-family:inherit">
+        </label>
+        <label style="font-size:13px;font-weight:600;color:var(--ink)">บัญชีธนาคาร
+          <input id="arRBank" type="text" placeholder="เช่น SCB xxx-x-x1234-x"
+            style="display:block;width:100%;margin-top:4px;padding:9px 12px;border:1px solid var(--line);border-radius:8px;font-size:14px;font-family:inherit">
+        </label>
+        <label style="font-size:13px;font-weight:600;color:var(--ink)">หมายเหตุ
+          <input id="arRNote" type="text" placeholder="ไม่บังคับ"
+            style="display:block;width:100%;margin-top:4px;padding:9px 12px;border:1px solid var(--line);border-radius:8px;font-size:14px;font-family:inherit">
+        </label>
+        <div id="arRErr" style="color:var(--bad);font-size:13px;display:none"></div>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:20px;justify-content:flex-end">
+        <button onclick="document.getElementById('arReceiptModal').remove()"
+          style="padding:9px 16px;border:1px solid var(--line);background:#fff;border-radius:8px;font-weight:600;cursor:pointer">ยกเลิก</button>
+        <button id="arRSaveBtn" onclick="arSaveReceipt(${JSON.stringify(info).replace(/"/g,'&quot;')})"
+          style="padding:9px 20px;background:var(--ok);color:#fff;border:none;border-radius:8px;font-weight:700;cursor:pointer">✅ บันทึก</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(wrap);
+  wrap.onclick = (e)=>{ if(e.target===wrap) wrap.remove(); };
+}
+
+async function arSaveReceipt(info){
+  const date  = document.getElementById("arRDate").value;
+  const amt   = parseFloat(document.getElementById("arRAmt").value);
+  const bank  = document.getElementById("arRBank").value.trim();
+  const note  = document.getElementById("arRNote").value.trim();
+  const errEl = document.getElementById("arRErr");
+  if(!date){ errEl.textContent="กรุณาระบุวันที่"; errEl.style.display=""; return; }
+  if(!amt || amt<=0){ errEl.textContent="กรุณาระบุจำนวนเงิน > 0"; errEl.style.display=""; return; }
+  errEl.style.display="none";
+  const btn = document.getElementById("arRSaveBtn");
+  btn.disabled=true; btn.textContent="กำลังบันทึก...";
+  try{
+    const d = arGet();
+    const o = d.orders.find(x=>x.order_no===info.order_no);
+    const companyId = (o && o.company_id) || d.companyId;
+    if(!companyId) throw new Error("ไม่พบ company_id — ลอง refresh ใหม่");
+    const id = `ar|${state.company}|${info.order_no}|${date}|${Date.now()}`;
+    const { error } = await sb.from("ar_receipts").insert({
+      id, company_id: companyId,
+      order_no: info.order_no,
+      iv_no:    info.iv_no || null,
+      received_date: date,
+      received_amount: amt,
+      bank_account: bank || null,
+      note: note || null,
+      created_by: AUTH.user ? AUTH.user.id : null
+    });
+    if(error) throw error;
+    document.getElementById("arReceiptModal").remove();
+    await arLoad();
+    renderToolAr();
+  }catch(err){
+    btn.disabled=false; btn.textContent="✅ บันทึก";
+    errEl.textContent="บันทึกไม่สำเร็จ: "+(err.message||err);
+    errEl.style.display="";
+  }
+}
+
 function renderToolSoon(t){
   document.getElementById("main").innerHTML = `
     <div class="page-head">

@@ -42,7 +42,7 @@ jobs:
               -d "$PAYLOAD" \
               "https://api.supabase.com/v1/projects/$SUPA_PROJECT_REF/database/query")
 
-            if [ "$RESPONSE" = "200" ]; then
+            if [ "$RESPONSE" = "200" ] || [ "$RESPONSE" = "201" ]; then
               echo "✅ $FILE — สำเร็จ"
               jq -r 'if type=="array" then last | to_entries[] | "   \(.key): \(.value)" else . end' /tmp/res.json 2>/dev/null || true
             else

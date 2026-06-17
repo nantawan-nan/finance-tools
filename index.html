@@ -1922,8 +1922,30 @@ function bsWireDrops(){
 
 function bsResultHTML(R){
   const d = bsGet();
-  const lines = d.opts.hideCancelled ? R.lines.filter(l=>!l.cancelled) : R.lines;
+  // problem filter
+  if(!d.opts.problemFilter) d.opts.problemFilter = new Set();
+  let lines = d.opts.hideCancelled ? R.lines.filter(l=>!l.cancelled) : R.lines;
+  const ff = d.opts.problemFilter;
+  if(ff.size > 0){
+    const okOrders = new Set();
+    for(const l of lines){
+      if(ff.has("cancelled")   && l.cancelled)   okOrders.add(l.orderNo);
+      if(ff.has("duplicate")   && l.duplicate)   okOrders.add(l.orderNo);
+      if(ff.has("newSku")      && l.newSku)      okOrders.add(l.orderNo);
+      if(ff.has("unknownShop") && l.unknownShop) okOrders.add(l.orderNo);
+      if(ff.has("manual")      && l.manual)      okOrders.add(l.orderNo);
+    }
+    lines = lines.filter(l => okOrders.has(l.orderNo));
+  }
   const visibleOrders = new Set(lines.map(l=>l.orderNo)).size;
+  // count problems
+  const ct = { cancelled:0, duplicate:0, newSku:0, unknownShop:0, manual:0 };
+  const seenOrder = { cancelled:new Set(), duplicate:new Set(), newSku:new Set(), unknownShop:new Set(), manual:new Set() };
+  for(const l of R.lines){
+    ["cancelled","duplicate","newSku","unknownShop","manual"].forEach(k => {
+      if(l[k] && !seenOrder[k].has(l.orderNo)){ ct[k]++; seenOrder[k].add(l.orderNo); }
+    });
+  }
   const unknownBlock = R.summary.unknownShops.length ? bsUnknownShopsHTML(R.summary.unknownShops) : "";
   const newSkuBlock = R.summary.newSkus.length ? `
     <div class="note" style="background:#fef2f2;color:#991b1b;padding:10px 14px;border-radius:8px;margin-bottom:10px;display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap">
@@ -1976,10 +1998,22 @@ function bsResultHTML(R){
         <div class="stat ${R.summary.duplicates?'warn':''}"><div class="n">${R.summary.duplicates}</div><div class="l">ซ้ำประวัติ</div></div>
         <div class="stat ${R.summary.newSkus.length?'bad':''}"><div class="n">${R.summary.newSkus.length}</div><div class="l">SKU ใหม่</div></div>
       </div>
-      <div class="opts" style="margin-top:12px">
-        <label class="opt"><input type="checkbox" ${d.opts.hideCancelled?'checked':''} onchange="bsToggleHideCancel()"> ซ่อนออเดอร์ที่ยกเลิก (${R.summary.cancelled})</label>
+      <div class="opts" style="margin-top:12px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+        <span style="font-size:12px;font-weight:700;color:#475569;margin-right:4px">🔍 ดูเฉพาะ:</span>
+        ${[
+          ["newSku","🆕 SKU ใหม่", ct.newSku, "#dc2626"],
+          ["cancelled","❌ ยกเลิก", ct.cancelled, "#dc2626"],
+          ["duplicate","🔁 ซ้ำ", ct.duplicate, "#d97706"],
+          ["unknownShop","❓ ไม่รู้แบรนด์", ct.unknownShop, "#d97706"],
+          ["manual","✋ Manual", ct.manual, "#0891b2"],
+        ].map(([k,label,n,col]) => {
+          const on = ff.has(k);
+          return n===0 ? "" : `<button onclick="bsToggleFilter('${k}')" style="padding:5px 11px;border:1px solid ${on?col:'#e2e8f0'};background:${on?col:'#fff'};color:${on?'#fff':'#475569'};border-radius:999px;font-size:12px;font-weight:600;cursor:pointer">${label} (${n})</button>`;
+        }).join("")}
+        ${ff.size>0 ? `<button onclick="bsClearFilter()" style="padding:5px 11px;border:1px solid #e2e8f0;background:#fff;color:#475569;border-radius:999px;font-size:12px;font-weight:600;cursor:pointer">✕ ล้างฟิลเตอร์</button>` : ""}
+        <label class="opt" style="margin-left:auto"><input type="checkbox" ${d.opts.hideCancelled?'checked':''} onchange="bsToggleHideCancel()"> ซ่อนยกเลิก</label>
       </div>
-      <div class="note">แสดง ${Math.min(lines.length,400)}/${lines.length} แถว · ${visibleOrders} ออเดอร์</div>
+      <div class="note">แสดง ${Math.min(lines.length,400)}/${lines.length} แถว · ${visibleOrders}/${R.summary.orders} ออเดอร์${ff.size>0?` · ฟิลเตอร์: ${Array.from(ff).join(", ")}`:""}</div>
       <div class="table-wrap"><table>
         <thead><tr>${BS_HEAD.map(h=>`<th>${h}</th>`).join("")}<th>ร้าน</th><th>หมายเหตุ</th></tr></thead>
         <tbody>${lines.slice(0,400).map(l=>bsLineHTML(l)).join("")}</tbody>
@@ -2039,6 +2073,18 @@ function bsRestoreDeleted(){
   const d = bsGet();
   d.opts.deletedOrders.clear();
   d.result = bsBuildResult();
+  renderTool();
+}
+function bsToggleFilter(key){
+  const d = bsGet();
+  if(!d.opts.problemFilter) d.opts.problemFilter = new Set();
+  if(d.opts.problemFilter.has(key)) d.opts.problemFilter.delete(key);
+  else d.opts.problemFilter.add(key);
+  renderTool();
+}
+function bsClearFilter(){
+  const d = bsGet();
+  if(d.opts.problemFilter) d.opts.problemFilter.clear();
   renderTool();
 }
 

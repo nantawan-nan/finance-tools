@@ -266,6 +266,10 @@ const TOOLS = [
     name:"แมพ IV จาก Express", desc:"CSV → ผูก IV กับ orderNo",
     long:"อัป CSV \"รายงานขายแบบเห็นออเดอร์\" (Express) → แมพเลข IV + รหัสลูกค้า + วันที่คีย์ ให้ออเดอร์ที่บันทึกใน Supabase แล้ว",
     multiInput:true },
+  { id:"exportkey", stage:"Stage 1 · บัญชี — คีย์ IV", ic:"📤",
+    name:"ส่งออกคีย์ออโต้คีย์", desc:"Filter จาก Supabase → CSV",
+    long:"เลือกออเดอร์จาก Supabase (กรองสถานะ/ช่องทาง/แบรนด์/วันที่) → รัน IV + ดาวน์โหลด CSV เพื่อนำไปคีย์ออโต้คีย์",
+    multiInput:true },
   { id:"ivcheck", stage:"Stage 1 · บัญชี — คีย์ IV", ic:"✅",
     name:"ตรวจ IV ครบไหม", desc:"เทียบ Big Seller × ลูกหนี้",
     long:"อัป 2 ไฟล์ (Big Seller + รายงานลูกหนี้ Express) → ฟ้องออเดอร์ที่ยังไม่ได้คีย์ / คีย์ซ้ำ / ตกหล่น",
@@ -345,6 +349,7 @@ function renderTool(){
     if (t.id==="armap") return renderToolArmap();
     if (t.id==="bigseller") return renderToolBigSeller();
     if (t.id==="expressmatch") return renderToolExpressMatch();
+    if (t.id==="exportkey") return renderToolExportKey();
     if (t.id==="dashboard") return renderToolDashboard();
   }
   const k = key();
@@ -1336,10 +1341,13 @@ function bsParse(book){
     priceFallback: find("ราคา"),
     total:   find("รวมค่าสินค้า"),
     ship:    find("ค่าจัดส่ง"),
+    discount:find("ส่วนลดผู้ขาย"),       // BP — ส่วนลดท้ายบิล
     time:    find("เวลาสั่งซื้อ"),
     status:  find("สถานะคำสั่งซื้อ"),
     pstatus: find("สถานะแพลตฟอร์ม")
   };
+  // BP fallback by position ถ้าหาด้วยชื่อไม่เจอ
+  if(c.discount<0 && header.length>67) c.discount = 67;
   const items = [];
   const shopsSeen = new Set();
   for(let i=1;i<rows.length;i++){
@@ -1365,6 +1373,7 @@ function bsParse(book){
       qty: num(r[c.qty]),
       price,
       ship: num(r[c.ship]),
+      billDiscount: c.discount>=0 ? num(r[c.discount]) : 0,
       saleDate: bsParseDate(r[c.time]),
       status: String(r[c.status]||"").trim(),
       pstatus: String(r[c.pstatus]||"").trim()
@@ -1373,14 +1382,27 @@ function bsParse(book){
   return { items, shops:Array.from(shopsSeen) };
 }
 
+/* ---------- Brand จากชื่อร้าน (Benya = QI/Betra, Mbark = MB เสมอ) ---------- */
+function bsBrandFromShop(company, shop){
+  if(company==="mbark") return "MB";
+  const s = String(shop||"");
+  if(/qi/i.test(s))    return "QI";
+  if(/betra|be\b/i.test(s)) return "BT";
+  return "";
+}
+
 /* ---------- Build output rows ---------- */
 function bsBuildResult(){
   const d = bsGet();
   if(!d.raw) return null;
   const company = state.company;
-  const map = bsLoadJSON(BS_LS_SHOPBRAND, {});
   const sku = bsLoadJSON(BS_LS_SKU, {});
-  const skuSet = new Set([...bsSeedSkuFor(company), ...(sku[company]||[]).map(s=>String(s).trim())]);
+  const skuCloud = (state.skuCloud && state.skuCloud[company]) || [];
+  const skuSet = new Set([
+    ...bsSeedSkuFor(company),
+    ...skuCloud.map(s=>String(s).trim()),
+    ...(sku[company]||[]).map(s=>String(s).trim())
+  ]);
   const history = bsLoadJSON(BS_LS_HISTORY, {});
   const hist = new Set((history[company]||[]).map(o=>String(o)));
 
@@ -1425,11 +1447,13 @@ function bsBuildResult(){
       if(m && m[1]!==seed.mm) crossMonth.push({orderNo, expected:seed.mm, actual:m[1]});
     }
 
+    // ค่าส่ง + ส่วนลด — ใช้ค่าจาก item แรกเป็นตัวแทนของออเดอร์ (BigSeller ลงค่าเดียวกันทุก line)
+    const orderShip = its.reduce((mx,x)=>Math.max(mx, x.ship||0), 0);
+    const orderDiscount = its.reduce((mx,x)=>Math.max(mx, x.billDiscount||0), 0);
     its.forEach((it, idx) => {
       seq++;
-      const m = map[it.shop] || {};
-      const brand = m.brand || (company==="mbark" ? "MB" : "");
-      const channel = it.channel || m.channel || "";
+      const brand = bsBrandFromShop(company, it.shop);
+      const channel = it.channel || "";
       const cust = bsCustomerCode(company, channel, brand);
       const isFirst = idx===0;
       const isLast  = idx===its.length-1;
@@ -1446,11 +1470,11 @@ function bsBuildResult(){
         sku: it.sku,
         qty: it.qty,
         price: it.price,
-        ship: isLast ? it.ship : 0,
-        discount: isLast ? 0 : 0,         // ส่วนลดท้ายบิล — รอแนนบอกว่าใช้คอลัมน์ไหนใน BigSeller (ตอนนี้ปล่อย 0)
+        ship: isLast ? orderShip : 0,         // ค่าส่ง → บรรทัดสุดท้าย
+        discount: isFirst ? orderDiscount : 0, // ส่วนลดท้ายบิล (BP) → บรรทัดแรก
         cancelled: isCancel,
         duplicate: hist.has(orderNo),
-        unknownShop: !m.brand,
+        unknownShop: !brand,
         newSku: isNewSku
       });
     });
@@ -1474,7 +1498,77 @@ function bsBuildResult(){
   };
 }
 
-/* ---------- Supabase: save BigSeller orders to cloud ---------- */
+/* ---------- Supabase: SKU master (ทีมเห็นร่วม) ---------- */
+state.skuCloud = state.skuCloud || {};
+async function bsLoadSkuCloud(){
+  const company = state.company;
+  const { data, error } = await sb.from("sku_master").select("sku").eq("company", company);
+  if(error){ console.error("loadSku", error); return; }
+  state.skuCloud[company] = (data||[]).map(r=>r.sku);
+}
+async function bsSaveSkuCloud(skus){
+  if(!AUTH.can("upload_bigseller")){ alert("คุณไม่มีสิทธิ์เพิ่ม SKU"); return; }
+  const company = state.company;
+  const rows = skus.map(sku => ({
+    id: `${company}|${sku}`,
+    company,
+    sku,
+    added_by: AUTH.email,
+    added_at: new Date().toISOString()
+  }));
+  const { error } = await sb.from("sku_master").upsert(rows);
+  if(error){ alert("บันทึก SKU ไม่สำเร็จ: "+error.message); return; }
+  await bsLoadSkuCloud();
+  // rebuild result เพื่อเอา SKU ใหม่ออกจากรายการเตือน
+  const d = bsGet(); if(d.raw) d.result = bsBuildResult();
+}
+
+/* ---------- SKU new popup modal ---------- */
+function bsOpenSkuModal(){
+  const d = bsGet();
+  if(!d.result || !d.result.summary.newSkus.length){ alert("ไม่มี SKU ใหม่ให้บันทึก"); return; }
+  const skus = d.result.summary.newSkus;
+  // overlay
+  const wrap = document.createElement("div");
+  wrap.id = "skuModal";
+  wrap.style.cssText = "position:fixed;inset:0;background:rgba(15,23,42,.5);z-index:1000;display:flex;align-items:center;justify-content:center;padding:20px";
+  wrap.innerHTML = `
+    <div style="background:#fff;border-radius:14px;padding:24px;max-width:480px;width:100%;max-height:80vh;overflow:auto;box-shadow:0 20px 60px rgba(0,0,0,.3)">
+      <h3 style="margin:0 0 6px;font-size:17px">🆕 พบ SKU ใหม่ (${skus.length} รายการ)</h3>
+      <div style="color:#64748b;font-size:13px;margin-bottom:14px">ติ๊กที่ใช่ → บันทึกเข้า SKU master (ทีมเห็นร่วม) · ครั้งหน้าจะไม่เตือน</div>
+      <div style="display:flex;gap:6px;margin-bottom:8px">
+        <button onclick="document.querySelectorAll('#skuModal input[type=checkbox]').forEach(c=>c.checked=true)" style="font-size:12px;padding:5px 10px;border:1px solid #e2e8f0;background:#f8fafc;border-radius:6px;cursor:pointer">เลือกทั้งหมด</button>
+        <button onclick="document.querySelectorAll('#skuModal input[type=checkbox]').forEach(c=>c.checked=false)" style="font-size:12px;padding:5px 10px;border:1px solid #e2e8f0;background:#f8fafc;border-radius:6px;cursor:pointer">ไม่เลือก</button>
+      </div>
+      <div style="border:1px solid #e2e8f0;border-radius:8px;padding:10px;max-height:300px;overflow:auto">
+        ${skus.map(s=>`<label style="display:flex;gap:8px;padding:5px 4px;cursor:pointer;font-size:14px"><input type="checkbox" data-sku="${esc(s)}" checked> ${esc(s)}</label>`).join("")}
+      </div>
+      <div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end">
+        <button onclick="document.getElementById('skuModal').remove()" style="padding:9px 14px;border:1px solid #e2e8f0;background:#fff;border-radius:8px;font-weight:600;cursor:pointer">ข้าม (เตือนใหม่ครั้งหน้า)</button>
+        <button id="skuSaveBtn" onclick="bsConfirmSku()" style="padding:9px 14px;background:#16a34a;color:#fff;border:none;border-radius:8px;font-weight:600;cursor:pointer">✅ บันทึกเข้า SKU master</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(wrap);
+  wrap.onclick = (e)=>{ if(e.target===wrap) wrap.remove(); };
+}
+async function bsConfirmSku(){
+  const checks = document.querySelectorAll("#skuModal input[type=checkbox]:checked");
+  const skus = Array.from(checks).map(c=>c.dataset.sku);
+  if(!skus.length){ document.getElementById("skuModal").remove(); return; }
+  const btn = document.getElementById("skuSaveBtn");
+  btn.disabled = true; btn.textContent = "กำลังบันทึก...";
+  await bsSaveSkuCloud(skus);
+  document.getElementById("skuModal").remove();
+  renderTool();
+}
+
+/* ---------- Supabase: save BigSeller orders to cloud (diff mode)
+   - ออเดอร์ใหม่ → INSERT พร้อมรายการสินค้า
+   - ออเดอร์เดิม + status เปลี่ยน (เช่น pending → cancelled) → UPDATE เฉพาะ status
+   - ออเดอร์เดิม + status เหมือนเดิม → SKIP
+   - ไม่ทับ iv_no / cust_code / key_date ของออเดอร์ที่บัญชีคีย์ไปแล้ว
+   ---------- */
 async function bsSaveToCloud(){
   const d = bsGet();
   if(!d.result || !d.result.lines.length){ alert("ยังไม่มีข้อมูลให้บันทึก"); return; }
@@ -1488,58 +1582,94 @@ async function bsSaveToCloud(){
     if(!byOrder[l.orderNo]) byOrder[l.orderNo] = { header:l, items:[] };
     byOrder[l.orderNo].items.push(l);
   }
+  const orderNos = Object.keys(byOrder);
 
-  const orders = [];
-  const items = [];
-  for(const ono of Object.keys(byOrder)){
-    const g = byOrder[ono];
-    const h = g.header;
-    orders.push({
-      id: `${company}|${ono}`,
-      order_no: ono,
-      company,
-      platform: h.shop ? (h.channel||"") : "",
-      shop_name: h.shop || "",
-      brand: h.brand || "",
-      sale_date: h.saleDate || null,
-      cust_code: h.cust || "",
-      iv_no: h.ivNo || null,
-      status: h.cancelled ? "cancelled" : "pending",
-      updated_at: new Date().toISOString()
-    });
-    g.items.forEach((it, idx)=>{
-      items.push({
-        id: `${company}|${ono}|${idx}`,
-        order_no: ono, company,
-        sku: it.sku || "",
-        qty: it.qty || 0,
-        price: it.price || 0,
-        ship: it.ship || 0,
-        discount: it.discount || 0
-      });
-    });
-  }
-
-  // batch upsert 500 each
   const btn = document.getElementById("bsCloudBtn");
-  if(btn){ btn.disabled=true; btn.textContent="กำลังอัปโหลด..."; }
+  if(btn){ btn.disabled=true; btn.textContent="กำลังตรวจของเดิม..."; }
+
   try{
-    for(let i=0;i<orders.length;i+=500){
-      const { error } = await sb.from("orders").upsert(orders.slice(i,i+500));
+    // 1) ดึงของเดิมใน DB มาเทียบ (เฉพาะออเดอร์ในไฟล์นี้)
+    const existing = {};
+    for(let i=0;i<orderNos.length;i+=500){
+      const slice = orderNos.slice(i, i+500);
+      const { data, error } = await sb.from("orders")
+        .select("order_no,status,iv_no").eq("company", company).in("order_no", slice);
+      if(error) throw error;
+      (data||[]).forEach(o => existing[o.order_no] = o);
+    }
+
+    // 2) แยกเป็น 3 กอง
+    const newOrders = [], statusUpdates = [], skipped = [];
+    const newItemRows = [];
+    for(const ono of orderNos){
+      const g = byOrder[ono];
+      const h = g.header;
+      const newStatus = h.cancelled ? "cancelled" : "pending";
+      const ex = existing[ono];
+      if(!ex){
+        newOrders.push({
+          id: `${company}|${ono}`,
+          order_no: ono, company,
+          platform: h.channel || "",
+          shop_name: h.shop || "",
+          brand: h.brand || "",
+          sale_date: h.saleDate || null,
+          cust_code: h.cust || "",
+          iv_no: null,
+          status: newStatus,
+          updated_at: new Date().toISOString()
+        });
+        g.items.forEach((it, idx)=>{
+          newItemRows.push({
+            id: `${company}|${ono}|${idx}`,
+            order_no: ono, company,
+            sku: it.sku || "",
+            qty: it.qty || 0,
+            price: it.price || 0,
+            ship: it.ship || 0,
+            discount: it.discount || 0
+          });
+        });
+      } else if(ex.status !== newStatus){
+        statusUpdates.push({
+          id: `${company}|${ono}`,
+          order_no: ono, company,
+          status: newStatus,
+          updated_at: new Date().toISOString()
+        });
+      } else {
+        skipped.push(ono);
+      }
+    }
+
+    if(btn) btn.textContent = `กำลังบันทึก (ใหม่ ${newOrders.length} · อัปเดต ${statusUpdates.length})...`;
+
+    // 3) INSERT ใหม่
+    for(let i=0;i<newOrders.length;i+=500){
+      const { error } = await sb.from("orders").insert(newOrders.slice(i,i+500));
       if(error) throw error;
     }
-    for(let i=0;i<items.length;i+=500){
-      const { error } = await sb.from("order_items").upsert(items.slice(i,i+500));
+    for(let i=0;i<newItemRows.length;i+=500){
+      const { error } = await sb.from("order_items").insert(newItemRows.slice(i,i+500));
       if(error) throw error;
     }
-    // also mark as keyed in localStorage history
-    const cur = bsLoadJSON(BS_LS_HISTORY, {});
-    const list = new Set(cur[company]||[]);
-    for(const o of orders){ if(o.status!=="cancelled") list.add(o.order_no); }
-    cur[company] = Array.from(list);
-    bsSaveJSON(BS_LS_HISTORY, cur);
-    alert(`บันทึกลง Supabase สำเร็จ\nออเดอร์ ${orders.length} รายการ · รายการสินค้า ${items.length} แถว`);
-    renderTool();
+    // 4) UPSERT status updates (id เดิม) — ใช้ upsert จะแทน status + ไม่แตะ iv_no/cust_code (เพราะเราไม่ส่งฟิลด์เหล่านี้)
+    //    แต่ upsert จะแทนทั้งแถว → ต้องใช้ update แทน
+    for(const u of statusUpdates){
+      const { error } = await sb.from("orders")
+        .update({ status:u.status, updated_at:u.updated_at })
+        .eq("id", u.id);
+      if(error) throw error;
+    }
+
+    alert(`บันทึกลง Supabase สำเร็จ\n• เพิ่มออเดอร์ใหม่: ${newOrders.length}\n• อัปเดตสถานะ: ${statusUpdates.length}\n• ข้ามที่มีอยู่แล้ว: ${skipped.length}`);
+
+    // 5) เปิด popup SKU ใหม่ (ถ้ามี)
+    if(d.result.summary.newSkus.length && AUTH.can("upload_bigseller")){
+      bsOpenSkuModal();
+    } else {
+      renderTool();
+    }
   }catch(err){
     alert("บันทึกไม่สำเร็จ: " + (err.message||err));
   }finally{
@@ -1689,6 +1819,13 @@ function bsImportHistory(file){
 const BS_HEAD = ["ลำดับ","เลข IV","เลขคำสั่งซื้อ","วันที่ขาย","ช่องทาง","รหัสลูกค้า","SKU","จำนวน","ราคา","ค่าส่ง","ส่วนลดท้ายบิล"];
 function renderToolBigSeller(){
   bsSeedShopBrand();
+  // โหลด SKU master จาก Supabase (ครั้งแรก/ตอนเปลี่ยนบริษัท)
+  if(!state.skuCloud[state.company]){
+    bsLoadSkuCloud().then(()=>{
+      const d = bsGet(); if(d.raw) d.result = bsBuildResult();
+      renderTool();
+    });
+  }
   const t = TOOLS.find(x=>x.id===state.tool);
   const d = bsGet();
   const sku = bsLoadJSON(BS_LS_SKU, {});
@@ -1773,10 +1910,13 @@ function bsResultHTML(R){
   const visibleOrders = new Set(lines.map(l=>l.orderNo)).size;
   const unknownBlock = R.summary.unknownShops.length ? bsUnknownShopsHTML(R.summary.unknownShops) : "";
   const newSkuBlock = R.summary.newSkus.length ? `
-    <div class="note" style="background:#fef2f2;color:#991b1b;padding:10px 14px;border-radius:8px;margin-bottom:10px">
-      🚨 <b>SKU ใหม่ ${R.summary.newSkus.length} รหัส</b> ที่ยังไม่มีในระบบบัญชี:
-      <code style="background:#fee2e2;padding:2px 6px;border-radius:4px;margin:0 4px">${R.summary.newSkus.map(esc).join("</code> <code style=\"background:#fee2e2;padding:2px 6px;border-radius:4px;margin:0 4px\">")}</code>
-      <div style="margin-top:4px;font-size:12px">⚠️ ถ้าคีย์ตอนนี้ AutoKey จะ error ตอนเจอ SKU เหล่านี้ — แนะนำให้บัญชีเปิดรหัสในระบบก่อน</div>
+    <div class="note" style="background:#fef2f2;color:#991b1b;padding:10px 14px;border-radius:8px;margin-bottom:10px;display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap">
+      <div style="flex:1;min-width:280px">
+        🚨 <b>SKU ใหม่ ${R.summary.newSkus.length} รหัส</b> ที่ยังไม่มีในระบบบัญชี:
+        <code style="background:#fee2e2;padding:2px 6px;border-radius:4px;margin:0 4px">${R.summary.newSkus.map(esc).join("</code> <code style=\"background:#fee2e2;padding:2px 6px;border-radius:4px;margin:0 4px\">")}</code>
+        <div style="margin-top:4px;font-size:12px">⚠️ ถ้าคีย์ตอนนี้ AutoKey จะ error ตอนเจอ SKU เหล่านี้ — แนะนำให้บัญชีเปิดรหัสในระบบก่อน</div>
+      </div>
+      ${AUTH.can("upload_bigseller") ? `<button class="btn" style="background:#16a34a;align-self:flex-start" onclick="bsOpenSkuModal()">✅ บันทึก SKU ใหม่</button>` : ""}
     </div>` : "";
   const dupBlock = R.summary.duplicates ? `
     <div class="note" style="background:#fffbeb;color:#92400e;padding:10px 14px;border-radius:8px;margin-bottom:10px">
@@ -2236,6 +2376,243 @@ async function renderToolDashboard(){
     </div>` : ""}
     `}
   `;
+}
+
+
+/* ============================================================
+   EXPORT AUTOKEY — เลือกออเดอร์จาก Supabase → CSV เพื่อคีย์ออโต้คีย์
+   ============================================================ */
+state.exk = state.exk || {};
+function exkGet(){
+  if(!state.exk[state.company]){
+    state.exk[state.company] = {
+      orders:null, items:null,
+      filters:{ status:"pending", from:"", to:"", platforms:[], brands:[] },
+      lastIv:"", selected:{}  // orderNo → true
+    };
+  }
+  return state.exk[state.company];
+}
+
+async function exkLoad(){
+  const company = state.company;
+  const d = exkGet();
+  // ดึง orders ทั้งหมดของบริษัทนี้ (paginate 1000)
+  let orders = [], from = 0, sz = 1000;
+  while(true){
+    const { data, error } = await sb.from("orders").select("*")
+      .eq("company", company).order("sale_date",{ascending:false}).range(from, from+sz-1);
+    if(error) throw error;
+    if(!data || !data.length) break;
+    orders = orders.concat(data);
+    if(data.length < sz) break;
+    from += sz;
+  }
+  d.orders = orders;
+  // ดึง items ของออเดอร์ที่ status='pending' พอเพราะตัวอื่นไม่ต้องคีย์
+  const orderNos = orders.filter(o=>o.status==="pending").map(o=>o.order_no);
+  d.items = [];
+  for(let i=0;i<orderNos.length;i+=500){
+    const slice = orderNos.slice(i, i+500);
+    const { data, error } = await sb.from("order_items").select("*")
+      .eq("company", company).in("order_no", slice);
+    if(error) throw error;
+    d.items = d.items.concat(data||[]);
+  }
+}
+
+function exkFiltered(){
+  const d = exkGet();
+  if(!d.orders) return [];
+  const f = d.filters;
+  return d.orders.filter(o => {
+    if(f.status==="pending" && o.iv_no) return false;
+    if(f.status==="pending" && o.status==="cancelled") return false;
+    if(f.status==="keyed" && !o.iv_no) return false;
+    if(f.from && o.sale_date && o.sale_date < f.from) return false;
+    if(f.to && o.sale_date && o.sale_date > f.to) return false;
+    if(f.platforms.length && !f.platforms.includes(o.platform||"")) return false;
+    if(f.brands.length && !f.brands.includes(o.brand||"")) return false;
+    return true;
+  });
+}
+
+async function renderToolExportKey(){
+  const t = TOOLS.find(x=>x.id===state.tool);
+  const company = state.company;
+  const d = exkGet();
+
+  if(!d.orders){
+    document.getElementById("main").innerHTML = `
+      <div class="page-head"><h1>${t.ic} ${t.name} <span class="badge">${COMPANIES.find(c=>c.id===company).name}</span></h1>
+      <div class="sub">${t.long}</div></div>
+      <div class="card"><div class="empty">⏳ กำลังโหลด...</div></div>`;
+    try{ await exkLoad(); }catch(err){
+      document.getElementById("main").innerHTML += `<div class="card" style="color:#dc2626">โหลดไม่สำเร็จ: ${esc(err.message||err)}</div>`;
+      return;
+    }
+  }
+
+  const rows = exkFiltered();
+  // distinct values for filter chips
+  const allPlatforms = Array.from(new Set(d.orders.map(o=>o.platform||"").filter(Boolean))).sort();
+  const allBrands    = Array.from(new Set(d.orders.map(o=>o.brand||"").filter(Boolean))).sort();
+  const f = d.filters;
+
+  // เลือกทั้งหมด/ไม่เลือก (ตาม filter ปัจจุบัน)
+  const selectedCount = rows.filter(r=>d.selected[r.order_no]).length;
+
+  document.getElementById("main").innerHTML = `
+    <div class="page-head">
+      <h1>${t.ic} ${t.name} <span class="badge">${COMPANIES.find(c=>c.id===company).name}</span></h1>
+      <div class="sub">${t.long}</div>
+    </div>
+
+    <div class="card">
+      <h3>1 · กรองออเดอร์</h3>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;margin-top:8px">
+        <label style="font-size:13px;font-weight:600;color:#334155">สถานะ
+          <select onchange="exkSetFilter('status', this.value)" style="display:block;width:100%;margin-top:4px;padding:8px;border:1px solid #e2e8f0;border-radius:8px;font-size:13px;font-family:inherit">
+            <option value="pending" ${f.status==="pending"?"selected":""}>ยังไม่คีย์ IV</option>
+            <option value="keyed" ${f.status==="keyed"?"selected":""}>คีย์ IV แล้ว</option>
+            <option value="all" ${f.status==="all"?"selected":""}>ทั้งหมด (ยกเว้นยกเลิก)</option>
+          </select>
+        </label>
+        <label style="font-size:13px;font-weight:600;color:#334155">ขายตั้งแต่
+          <input type="date" value="${f.from}" onchange="exkSetFilter('from', this.value)"
+            style="display:block;width:100%;margin-top:4px;padding:8px;border:1px solid #e2e8f0;border-radius:8px;font-size:13px;font-family:inherit">
+        </label>
+        <label style="font-size:13px;font-weight:600;color:#334155">ถึงวันที่
+          <input type="date" value="${f.to}" onchange="exkSetFilter('to', this.value)"
+            style="display:block;width:100%;margin-top:4px;padding:8px;border:1px solid #e2e8f0;border-radius:8px;font-size:13px;font-family:inherit">
+        </label>
+        <label style="font-size:13px;font-weight:600;color:#334155">เลข IV ล่าสุดในระบบ
+          <input type="text" placeholder="เช่น 2606000005" value="${esc(d.lastIv||"")}" oninput="exkSetIv(this.value)"
+            style="display:block;width:100%;margin-top:4px;padding:8px;border:1px solid #e2e8f0;border-radius:8px;font-size:13px;font-family:inherit">
+        </label>
+      </div>
+      <div style="margin-top:12px">
+        <div style="font-size:13px;font-weight:600;color:#334155;margin-bottom:6px">ช่องทาง</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          ${allPlatforms.length===0?`<span style="color:#94a3b8;font-size:13px">— ไม่มีข้อมูล —</span>`:""}
+          ${allPlatforms.map(p=>`
+            <button onclick="exkToggle('platforms','${esc(p)}')" style="padding:5px 12px;border:1px solid ${f.platforms.includes(p)?'#2563eb':'#e2e8f0'};background:${f.platforms.includes(p)?'#eff6ff':'#fff'};color:${f.platforms.includes(p)?'#1e40af':'#475569'};border-radius:999px;font-size:12px;font-weight:600;cursor:pointer">${esc(p)||"(ไม่ระบุ)"}</button>
+          `).join("")}
+        </div>
+      </div>
+      <div style="margin-top:10px">
+        <div style="font-size:13px;font-weight:600;color:#334155;margin-bottom:6px">แบรนด์</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          ${allBrands.length===0?`<span style="color:#94a3b8;font-size:13px">— ไม่มีข้อมูล —</span>`:""}
+          ${allBrands.map(b=>`
+            <button onclick="exkToggle('brands','${esc(b)}')" style="padding:5px 12px;border:1px solid ${f.brands.includes(b)?'#2563eb':'#e2e8f0'};background:${f.brands.includes(b)?'#eff6ff':'#fff'};color:${f.brands.includes(b)?'#1e40af':'#475569'};border-radius:999px;font-size:12px;font-weight:600;cursor:pointer">${esc(b)}</button>
+          `).join("")}
+        </div>
+      </div>
+      <button class="btn ghost" style="margin-top:12px;font-size:12px" onclick="exkResetCache()">🔄 โหลดข้อมูลใหม่จาก Supabase</button>
+    </div>
+
+    <div class="card">
+      <h3>2 · ออเดอร์ที่เลือก (${rows.length} ใบ · ติ๊กไว้ ${selectedCount})</h3>
+      <div class="btnrow" style="margin-bottom:10px">
+        <button class="btn ghost" style="font-size:12px" onclick="exkSelectAll(true)">เลือกทั้งหมดในรายการนี้</button>
+        <button class="btn ghost" style="font-size:12px" onclick="exkSelectAll(false)">ไม่เลือก</button>
+        ${selectedCount>0 ? `<button class="btn" style="margin-left:auto" onclick="exkExport()">⬇ ดาวน์โหลด CSV (${selectedCount} ออเดอร์)</button>` : ""}
+      </div>
+      ${rows.length===0?`<div class="empty">ไม่มีออเดอร์ตามเงื่อนไข</div>`:`
+      <div class="table-wrap"><table>
+        <thead><tr>
+          <th style="width:30px"></th>
+          <th>วันที่ขาย</th><th>เลขออเดอร์</th><th>ช่องทาง</th><th>แบรนด์</th><th>ร้านค้า</th>
+          <th>รหัสลูกค้า</th><th>IV</th><th>สถานะ</th>
+        </tr></thead>
+        <tbody>${rows.slice(0,500).map(o=>`
+          <tr style="background:${d.selected[o.order_no]?'#eff6ff':''}">
+            <td><input type="checkbox" ${d.selected[o.order_no]?'checked':''} onchange="exkToggleRow('${esc(o.order_no)}')"></td>
+            <td>${esc(o.sale_date||"")}</td>
+            <td>${esc(o.order_no)}</td>
+            <td>${esc(o.platform||"")}</td>
+            <td>${esc(o.brand||"")}</td>
+            <td>${esc(o.shop_name||"")}</td>
+            <td>${esc(o.cust_code||"")}</td>
+            <td>${o.iv_no?`<b>${esc(o.iv_no)}</b>`:`<span style="color:#94a3b8">—</span>`}</td>
+            <td><span style="font-size:11px;padding:2px 8px;border-radius:999px;background:${o.status==="cancelled"?"#fee2e2":o.iv_no?"#dcfce7":"#fef3c7"};color:${o.status==="cancelled"?"#991b1b":o.iv_no?"#15803d":"#92400e"}">${esc(o.status==="cancelled"?"ยกเลิก":o.iv_no?"คีย์แล้ว":"ยังไม่คีย์")}</span></td>
+          </tr>`).join("")}</tbody>
+      </table></div>
+      ${rows.length>500?`<div class="hint" style="margin-top:6px">แสดง 500 แถวแรก · ใช้ฟิลเตอร์ลดจำนวน</div>`:""}
+      `}
+    </div>
+  `;
+}
+
+function exkSetFilter(field, val){ exkGet().filters[field] = val; renderToolExportKey(); }
+function exkToggle(field, val){
+  const arr = exkGet().filters[field];
+  const i = arr.indexOf(val);
+  if(i>=0) arr.splice(i,1); else arr.push(val);
+  renderToolExportKey();
+}
+function exkSetIv(v){ exkGet().lastIv = v; }
+function exkToggleRow(ono){ const d=exkGet(); d.selected[ono] = !d.selected[ono]; renderToolExportKey(); }
+function exkSelectAll(on){
+  const d = exkGet(); const rows = exkFiltered();
+  rows.forEach(r => { if(on) d.selected[r.order_no]=true; else delete d.selected[r.order_no]; });
+  renderToolExportKey();
+}
+async function exkResetCache(){
+  const d = exkGet(); d.orders=null; d.items=null;
+  renderToolExportKey();
+}
+
+function exkExport(){
+  const d = exkGet();
+  const rows = exkFiltered().filter(r => d.selected[r.order_no]);
+  if(!rows.length){ alert("ยังไม่ได้เลือกออเดอร์"); return; }
+  // จัดเรียงตามวันที่ขายก่อน เพื่อให้ IV รันตามลำดับ
+  rows.sort((a,b)=> (a.sale_date||"").localeCompare(b.sale_date||"") || a.order_no.localeCompare(b.order_no));
+
+  // เตรียม items ของออเดอร์ที่เลือก
+  const itemsBy = {};
+  (d.items||[]).forEach(it => {
+    if(!itemsBy[it.order_no]) itemsBy[it.order_no]=[];
+    itemsBy[it.order_no].push(it);
+  });
+
+  // IV seed
+  const seed = bsParseIvSeed(d.lastIv);
+  let nextRun = seed ? seed.running+1 : null;
+
+  const aoa = [BS_HEAD.concat(["ร้าน","หมายเหตุ"])];
+  let seq = 0;
+  for(const o of rows){
+    const its = itemsBy[o.order_no] || [];
+    if(!its.length) continue;
+    const ivNo = seed ? bsFormatIv(seed.yy, seed.mm, nextRun++) : (o.iv_no || "");
+    its.forEach((it, idx) => {
+      seq++;
+      const isFirst = idx===0, isLast = idx===its.length-1;
+      aoa.push([
+        seq,
+        isFirst ? ivNo : "",
+        isFirst ? o.order_no : "",
+        o.sale_date || "",
+        o.platform || "",
+        o.cust_code || "",
+        it.sku || "",
+        it.qty || 0,
+        it.price || 0,
+        isLast ? (it.ship || 0) : 0,
+        isFirst ? (it.discount || 0) : 0,
+        o.shop_name || "",
+        ""
+      ]);
+    });
+  }
+
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  forceTextCells(ws, [1, 2, 6]);
+  const base = `AutoKey_${COMPANIES.find(c=>c.id===state.company).name}_${stamp()}`;
+  download("﻿"+XLSX.utils.sheet_to_csv(ws), base+".csv", "text/csv;charset=utf-8");
 }
 
 

@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Finance Tools — เครื่องมือคลีนข้อมูล</title>
 <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <style>
   :root{
     --brand:#2563eb; --brand-dark:#1e40af; --brand-soft:#eff6ff;
@@ -127,25 +128,120 @@
   .menu-toggle{display:none;border:1px solid var(--line);background:#fff;border-radius:8px;padding:6px 11px;font-size:18px}
 </style>
 </head>
-<body>
-<div class="topbar">
-  <button class="menu-toggle" onclick="document.getElementById('sb').classList.toggle('show')">☰</button>
-  <div class="logo">Finance Tools<small>เครื่องมือคลีน &amp; ตรวจสอบข้อมูล</small></div>
-  <div class="company-switch" id="companySwitch"></div>
-  <div class="spacer"></div>
-  <div class="hint">🔒 ประมวลผลในเครื่อง · ข้อมูลไม่ออกนอกเบราว์เซอร์</div>
-</div>
-
-<div class="wrap">
-  <aside class="sidebar" id="sb"></aside>
-  <main class="main" id="main"></main>
-</div>
-
+<body><div style="padding:40px;text-align:center;color:#94a3b8">กำลังโหลด…</div>
 <script>
 /* ============================================================
    Finance Tools — โครงร่าง (shell)
    logic จริงของแต่ละ tool จะค่อยใส่ทีหลังตอนได้ไฟล์ตัวอย่าง
    ============================================================ */
+
+/* ---------- Supabase ---------- */
+const SUPABASE_URL = "https://qbsuynmsjieqglxzbqpw.supabase.co";
+const SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFic3V5bm1zamllcWdseHpicXB3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE2NzQ5NzEsImV4cCI6MjA5NzI1MDk3MX0.EeE22dBxLtUoW9hWKkd1O2DpTbjAeVFeydRe4YorfnA";
+const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON, {
+  auth:{ persistSession:true, autoRefreshToken:true }
+});
+
+const AUTH = {
+  user: null,
+  role: null,
+  email: null,
+  async refresh(){
+    const { data } = await sb.auth.getUser();
+    this.user = data.user || null;
+    this.email = this.user ? this.user.email : null;
+    this.role = this.user ? (this.user.app_metadata && this.user.app_metadata.role) || null : null;
+  },
+  can(action){
+    if(!this.role) return false;
+    if(this.role==="admin") return true;
+    if(action==="upload_bigseller" || action==="upload_express" || action==="upload_income")
+      return this.role==="accounting";
+    if(action==="upload_withdrawal") return this.role==="finance";
+    return true; // view dashboard
+  },
+  isReadOnly(){ return !this.role || this.role==="viewer"; }
+};
+
+async function authSignIn(email, password){
+  const { data, error } = await sb.auth.signInWithPassword({ email, password });
+  if(error) throw error;
+  await AUTH.refresh();
+  return data;
+}
+async function authSignOut(){
+  await sb.auth.signOut();
+  AUTH.user=null; AUTH.role=null; AUTH.email=null;
+  renderApp();
+}
+
+/* ---------- Login screen ---------- */
+function renderLogin(msg){
+  document.body.innerHTML = `
+    <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#eff6ff 0%,#dbeafe 100%);font-family:'Segoe UI','Sarabun',sans-serif">
+      <div style="background:#fff;border-radius:16px;box-shadow:0 10px 40px rgba(15,23,42,.12);padding:36px 32px;width:100%;max-width:380px">
+        <div style="font-size:22px;font-weight:800;color:#2563eb;margin-bottom:4px">Finance Tools</div>
+        <div style="color:#64748b;font-size:13px;margin-bottom:24px">เข้าสู่ระบบเพื่อใช้งาน</div>
+        <form id="lf" style="display:flex;flex-direction:column;gap:12px">
+          <label style="font-size:13px;font-weight:600;color:#334155">อีเมล
+            <input id="lfEmail" type="email" required autofocus
+              style="display:block;width:100%;margin-top:4px;padding:10px 12px;border:1px solid #e2e8f0;border-radius:8px;font-size:14px;font-family:inherit">
+          </label>
+          <label style="font-size:13px;font-weight:600;color:#334155">รหัสผ่าน
+            <input id="lfPwd" type="password" required
+              style="display:block;width:100%;margin-top:4px;padding:10px 12px;border:1px solid #e2e8f0;border-radius:8px;font-size:14px;font-family:inherit">
+          </label>
+          ${msg ? `<div style="color:#dc2626;font-size:13px;background:#fef2f2;padding:8px 12px;border-radius:8px">${esc(msg)}</div>` : ""}
+          <button type="submit" style="margin-top:6px;padding:11px;background:#2563eb;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer">เข้าสู่ระบบ</button>
+        </form>
+      </div>
+    </div>
+  `;
+  document.getElementById("lf").onsubmit = async (e) => {
+    e.preventDefault();
+    const email = document.getElementById("lfEmail").value.trim();
+    const pwd = document.getElementById("lfPwd").value;
+    try{
+      await authSignIn(email, pwd);
+      renderApp();
+    }catch(err){
+      renderLogin("เข้าสู่ระบบไม่สำเร็จ: " + (err.message||"unknown"));
+    }
+  };
+}
+
+/* ---------- Main render — choose login vs app ---------- */
+async function renderApp(){
+  await AUTH.refresh();
+  if(!AUTH.user){ renderLogin(); return; }
+  if(!AUTH.role){
+    renderLogin("บัญชีนี้ยังไม่ได้ตั้ง role — ติดต่อแอดมิน");
+    await authSignOut();
+    return;
+  }
+  buildShell();
+  renderCompanies();
+  renderSidebar();
+  renderTool();
+}
+
+function buildShell(){
+  document.body.innerHTML = `
+<div class="topbar">
+  <button class="menu-toggle" onclick="document.getElementById('sb').classList.toggle('show')">☰</button>
+  <div class="logo">Finance Tools<small>เครื่องมือคลีน &amp; ตรวจสอบข้อมูล</small></div>
+  <div class="company-switch" id="companySwitch"></div>
+  <div class="spacer"></div>
+  <div class="hint" style="display:flex;gap:14px;align-items:center">
+    <span>👤 ${esc(AUTH.email||"")} · <b style="color:#2563eb">${esc(AUTH.role||"")}</b></span>
+    <button onclick="authSignOut()" style="border:1px solid #e2e8f0;background:#fff;border-radius:8px;padding:6px 12px;font-size:12px;cursor:pointer">ออกจากระบบ</button>
+  </div>
+</div>
+<div class="wrap">
+  <aside class="sidebar" id="sb"></aside>
+  <main class="main" id="main"></main>
+</div>`;
+}
 
 const COMPANIES = [
   { id:"mbark", name:"M Bark" },
@@ -1368,6 +1464,79 @@ function bsBuildResult(){
   };
 }
 
+/* ---------- Supabase: save BigSeller orders to cloud ---------- */
+async function bsSaveToCloud(){
+  const d = bsGet();
+  if(!d.result || !d.result.lines.length){ alert("ยังไม่มีข้อมูลให้บันทึก"); return; }
+  if(!AUTH.can("upload_bigseller")){ alert("คุณไม่มีสิทธิ์อัปโหลด BigSeller"); return; }
+  const company = state.company;
+  const lines = d.result.lines;
+
+  // group by order
+  const byOrder = {};
+  for(const l of lines){
+    if(!byOrder[l.orderNo]) byOrder[l.orderNo] = { header:l, items:[] };
+    byOrder[l.orderNo].items.push(l);
+  }
+
+  const orders = [];
+  const items = [];
+  for(const ono of Object.keys(byOrder)){
+    const g = byOrder[ono];
+    const h = g.header;
+    orders.push({
+      id: `${company}|${ono}`,
+      order_no: ono,
+      company,
+      platform: h.shop ? (h.channel||"") : "",
+      shop_name: h.shop || "",
+      brand: h.brand || "",
+      sale_date: h.saleDate || null,
+      cust_code: h.cust || "",
+      iv_no: h.ivNo || null,
+      status: h.cancelled ? "cancelled" : "pending",
+      updated_at: new Date().toISOString()
+    });
+    g.items.forEach((it, idx)=>{
+      items.push({
+        id: `${company}|${ono}|${idx}`,
+        order_no: ono, company,
+        sku: it.sku || "",
+        qty: it.qty || 0,
+        price: it.price || 0,
+        ship: it.ship || 0,
+        discount: it.discount || 0
+      });
+    });
+  }
+
+  // batch upsert 500 each
+  const btn = document.getElementById("bsCloudBtn");
+  if(btn){ btn.disabled=true; btn.textContent="กำลังอัปโหลด..."; }
+  try{
+    for(let i=0;i<orders.length;i+=500){
+      const { error } = await sb.from("orders").upsert(orders.slice(i,i+500));
+      if(error) throw error;
+    }
+    for(let i=0;i<items.length;i+=500){
+      const { error } = await sb.from("order_items").upsert(items.slice(i,i+500));
+      if(error) throw error;
+    }
+    // also mark as keyed in localStorage history
+    const cur = bsLoadJSON(BS_LS_HISTORY, {});
+    const list = new Set(cur[company]||[]);
+    for(const o of orders){ if(o.status!=="cancelled") list.add(o.order_no); }
+    cur[company] = Array.from(list);
+    bsSaveJSON(BS_LS_HISTORY, cur);
+    alert(`บันทึกลง Supabase สำเร็จ\nออเดอร์ ${orders.length} รายการ · รายการสินค้า ${items.length} แถว`);
+    renderTool();
+  }catch(err){
+    alert("บันทึกไม่สำเร็จ: " + (err.message||err));
+  }finally{
+    if(btn){ btn.disabled=false; btn.textContent="☁️ บันทึกลง Supabase"; }
+  }
+}
+
 /* ---------- File handler ---------- */
 async function bsHandleFile(file){
   try{
@@ -1646,6 +1815,7 @@ function bsResultHTML(R){
       <div class="btnrow" style="margin-top:14px">
         <button class="btn" onclick="bsExport('xlsx')">⬇ ดาวน์โหลด Excel</button>
         <button class="btn ghost" onclick="bsExport('csv')">📄 CSV</button>
+        ${AUTH.can("upload_bigseller") ? `<button id="bsCloudBtn" class="btn" style="background:#16a34a" onclick="bsSaveToCloud()">☁️ บันทึกลง Supabase</button>` : ""}
         <button class="btn ghost" style="margin-left:auto" onclick="bsRecordHistory()">✅ บันทึกเป็น "คีย์แล้ว" (${R.summary.items - lines.filter(l=>l.duplicate).length} ใหม่)</button>
       </div>
     </div>
@@ -1749,9 +1919,8 @@ function bsExport(fmt){
 }
 
 /* ---------- init ---------- */
-renderCompanies();
-renderSidebar();
-renderTool();
+renderApp();
+sb.auth.onAuthStateChange((evt)=>{ if(evt==="SIGNED_IN" || evt==="SIGNED_OUT") renderApp(); });
 </script>
 </body>
 </html>

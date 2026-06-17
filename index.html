@@ -254,9 +254,17 @@ const COMPANIES = [
    - exclude: ["คำ"] → ตัดชีตที่มีคำนี้ออก (เช่น "สรุป", "Summary")
    - หาเจอ 1 ตัว → auto-select; หาไม่เจอ → เปิด dropdown ให้เลือกเอง */
 const TOOLS = [
+  { id:"dashboard", stage:"📊 ภาพรวม", ic:"📈",
+    name:"Dashboard", desc:"สรุปรายวัน · คีย์ถึงวันไหน",
+    long:"ภาพรวมสถานะออเดอร์ทั้งบริษัท — คีย์ IV ถึงวันไหน · รับชำระถึงวันไหน · ยังค้างกี่ใบ (ข้อมูลจาก Supabase)",
+    multiInput:true },
   { id:"bigseller", stage:"Stage 1 · บัญชี — คีย์ IV", ic:"🧾",
     name:"จัดฟอร์แมต Big Seller", desc:"BigSeller → เทมเพลตคีย์ IV",
     long:"อัปไฟล์ Big Seller → จัดเป็นเทมเพลตคีย์ IV (8 คอลัมน์) — multi-line รวมในออเดอร์เดียว · ตรวจ SKU ใหม่ · ตรวจซ้ำกับประวัติ",
+    multiInput:true },
+  { id:"expressmatch", stage:"Stage 1 · บัญชี — คีย์ IV", ic:"🔗",
+    name:"แมพ IV จาก Express", desc:"CSV → ผูก IV กับ orderNo",
+    long:"อัป CSV \"รายงานขายแบบเห็นออเดอร์\" (Express) → แมพเลข IV + รหัสลูกค้า + วันที่คีย์ ให้ออเดอร์ที่บันทึกใน Supabase แล้ว",
     multiInput:true },
   { id:"ivcheck", stage:"Stage 1 · บัญชี — คีย์ IV", ic:"✅",
     name:"ตรวจ IV ครบไหม", desc:"เทียบ Big Seller × ลูกหนี้",
@@ -336,6 +344,8 @@ function renderTool(){
   if (t.multiInput) {
     if (t.id==="armap") return renderToolArmap();
     if (t.id==="bigseller") return renderToolBigSeller();
+    if (t.id==="expressmatch") return renderToolExpressMatch();
+    if (t.id==="dashboard") return renderToolDashboard();
   }
   const k = key();
   const book = state.books[k];
@@ -1917,6 +1927,317 @@ function bsExport(fmt){
     XLSX.writeFile(wb, base+".xlsx");
   }
 }
+
+/* ============================================================
+   EXPRESS MATCH — อัป CSV "รายงานขายแบบเห็นออเดอร์" → อัปเดต IV ใน Supabase
+   ============================================================ */
+state.em = state.em || {};
+function emGet(){
+  if(!state.em[state.company]) state.em[state.company] = { file:null, rows:null, result:null };
+  return state.em[state.company];
+}
+
+async function emHandleFile(file){
+  try{
+    if(!/\.csv$/i.test(file.name)){ alert("ต้องเป็นไฟล์ CSV (รายงานขายแบบเห็นออเดอร์ จาก Express)"); return; }
+    const buf = await file.arrayBuffer();
+    const u = new Uint8Array(buf);
+    let text;
+    try{ text = new TextDecoder("utf-8",{fatal:true}).decode(u); }
+    catch(_){ try{ text = new TextDecoder("windows-874").decode(u); }
+              catch(__){ text = new TextDecoder("tis-620").decode(u); } }
+    const rows = parseExpressSales(text);
+    const d = emGet();
+    d.file = file.name;
+    d.rows = rows;
+    d.result = await emMatch(rows);
+    renderTool();
+  }catch(err){ alert("อ่านไฟล์ไม่สำเร็จ: "+err.message); }
+}
+
+async function emMatch(rows){
+  const company = state.company;
+  // กรอง: เอาเฉพาะแถวที่มี IV และมี ref (เลขออเดอร์)
+  const withRef = rows.filter(r => r.iv && r.ref);
+  const noRef = rows.filter(r => r.iv && !r.ref);
+
+  // ดึง orders ในบริษัทนี้มาเทียบ
+  const refList = Array.from(new Set(withRef.map(r=>r.ref)));
+  if(refList.length===0) return { rows, matched:[], noOrder:[], noRef, updated:0 };
+
+  // ดึงทีละ chunk 500 (in filter)
+  const orderMap = {};
+  for(let i=0;i<refList.length;i+=500){
+    const slice = refList.slice(i, i+500);
+    const { data, error } = await sb.from("orders")
+      .select("id,order_no,iv_no,cust_code,company,sale_date")
+      .eq("company", company).in("order_no", slice);
+    if(error){ throw error; }
+    (data||[]).forEach(o => orderMap[o.order_no] = o);
+  }
+
+  const matched = [], noOrder = [];
+  for(const r of withRef){
+    const o = orderMap[r.ref];
+    if(o){
+      matched.push({ ...r, order:o, alreadyIv:o.iv_no, willOverwrite:!!(o.iv_no && o.iv_no!==r.iv) });
+    } else {
+      noOrder.push(r);
+    }
+  }
+  return { rows, matched, noOrder, noRef, updated:0 };
+}
+
+async function emApply(){
+  const d = emGet();
+  if(!d.result) return;
+  if(!AUTH.can("upload_express")){ alert("คุณไม่มีสิทธิ์แมพ IV"); return; }
+  const company = state.company;
+  const matched = d.result.matched;
+  if(!matched.length){ alert("ไม่มีรายการให้แมพ"); return; }
+
+  const btn = document.getElementById("emApplyBtn");
+  if(btn){ btn.disabled = true; btn.textContent = "กำลังบันทึก..."; }
+  try{
+    let n = 0;
+    // ทำเป็น chunk 200 update (ใช้ upsert ก็ได้ เพราะรู้ id แล้ว)
+    const today = new Date().toISOString().slice(0,10);
+    for(let i=0;i<matched.length;i+=200){
+      const slice = matched.slice(i, i+200);
+      const payload = slice.map(m => ({
+        id: m.order.id,
+        order_no: m.order.order_no,
+        company,
+        iv_no: m.iv,
+        cust_code: m.custCode || m.order.cust_code || "",
+        key_date: today,
+        status: "keyed",
+        updated_at: new Date().toISOString()
+      }));
+      const { error } = await sb.from("orders").upsert(payload);
+      if(error) throw error;
+      n += slice.length;
+    }
+    d.result.updated = n;
+    alert(`แมพ IV สำเร็จ ${n} ใบ`);
+    renderTool();
+  }catch(err){
+    alert("บันทึกไม่สำเร็จ: " + (err.message||err));
+  }finally{
+    if(btn){ btn.disabled = false; btn.textContent = "💾 บันทึกการแมพลง Supabase"; }
+  }
+}
+
+function renderToolExpressMatch(){
+  const t = TOOLS.find(x=>x.id===state.tool);
+  const d = emGet();
+  const canUpload = AUTH.can("upload_express");
+
+  document.getElementById("main").innerHTML = `
+    <div class="page-head">
+      <h1>${t.ic} ${t.name} <span class="badge">${COMPANIES.find(c=>c.id===state.company).name}</span></h1>
+      <div class="sub">${t.long}</div>
+    </div>
+
+    <div class="card">
+      <h3>1 · อัปไฟล์ CSV จาก Express</h3>
+      <div class="note">รายงานขายแบบเห็นออเดอร์ (มีเลข IV + เลขออเดอร์ในคอลัมน์ "อ้างอิง")</div>
+      <div class="drop" id="emDrop" ${canUpload?"":"style='opacity:.5;pointer-events:none'"}>
+        <div class="big">📂</div>
+        <div>ลากไฟล์ CSV มาวาง หรือ <b>คลิกเพื่อเลือก</b></div>
+        <div class="sm">${canUpload?"":"⚠ คุณไม่มีสิทธิ์อัปโหลด (role = "+esc(AUTH.role||"")+")"}</div>
+        <input type="file" id="emInput" accept=".csv" style="display:none">
+      </div>
+      ${d.file?`<div class="filechip">📄 ${esc(d.file)} <button onclick="emClear()">✕</button></div>`:""}
+    </div>
+
+    ${d.result ? emResultHTML(d.result) : ""}
+  `;
+
+  const drop = document.getElementById("emDrop");
+  const inp = document.getElementById("emInput");
+  if(drop && inp && canUpload){
+    drop.onclick = ()=>inp.click();
+    inp.onchange = e => { const f=e.target.files[0]; inp.value=""; if(f) emHandleFile(f); };
+    drop.ondragover = e => { e.preventDefault(); drop.classList.add("over"); };
+    drop.ondragleave = ()=>drop.classList.remove("over");
+    drop.ondrop = e => { e.preventDefault(); drop.classList.remove("over"); const f=e.dataTransfer.files[0]; if(f) emHandleFile(f); };
+  }
+}
+function emClear(){ const d=emGet(); d.file=null; d.rows=null; d.result=null; renderTool(); }
+
+function emResultHTML(R){
+  const overwrite = R.matched.filter(m=>m.willOverwrite).length;
+  const fresh = R.matched.length - overwrite;
+  return `
+    <div class="card">
+      <h3>2 · ผลการแมพ</h3>
+      <div class="pill-stat">
+        <div class="stat"><div class="n" style="color:#16a34a">${R.matched.length}</div><div class="l">แมพได้</div></div>
+        <div class="stat"><div class="n">${fresh}</div><div class="l">ใหม่</div></div>
+        <div class="stat"><div class="n" style="color:#d97706">${overwrite}</div><div class="l">เคยแมพแล้ว (จะทับ)</div></div>
+        <div class="stat"><div class="n" style="color:#dc2626">${R.noOrder.length}</div><div class="l">หาออเดอร์ใน DB ไม่เจอ</div></div>
+        <div class="stat"><div class="n">${R.noRef.length}</div><div class="l">IV ไม่มี ref</div></div>
+      </div>
+      ${R.updated?`<div style="background:#dcfce7;color:#15803d;padding:10px 14px;border-radius:8px;margin:10px 0;font-weight:600">✅ บันทึกแมพไปแล้ว ${R.updated} ใบ</div>`:""}
+      <div class="btnrow" style="margin-top:14px">
+        ${AUTH.can("upload_express") && R.matched.length ? `<button id="emApplyBtn" class="btn" style="background:#16a34a" onclick="emApply()">💾 บันทึกการแมพลง Supabase</button>` : ""}
+      </div>
+      ${R.matched.length ? `
+        <h4 style="margin:20px 0 8px;font-size:14px">แมพได้ (แสดง 50 รายการแรก)</h4>
+        <div class="table-wrap"><table>
+          <thead><tr><th>IV</th><th>วันที่ขาย</th><th>รหัสลูกค้า</th><th>เลขออเดอร์</th><th>ยอด</th><th>หมายเหตุ</th></tr></thead>
+          <tbody>${R.matched.slice(0,50).map(m=>`
+            <tr>
+              <td><b>${esc(m.iv)}</b></td>
+              <td>${esc(m.date||"")}</td>
+              <td>${esc(m.custCode||"")}</td>
+              <td>${esc(m.ref)}</td>
+              <td style="text-align:right">${(m.total||0).toLocaleString()}</td>
+              <td>${m.willOverwrite?`<span style="color:#d97706">เคยแมพเป็น ${esc(m.alreadyIv)}</span>`:""}</td>
+            </tr>`).join("")}</tbody>
+        </table></div>
+      `:""}
+      ${R.noOrder.length ? `
+        <h4 style="margin:20px 0 8px;font-size:14px;color:#dc2626">หาออเดอร์ไม่เจอใน Supabase (${R.noOrder.length}) — ฝ่ายขายอาจยังไม่ได้อัป BigSeller</h4>
+        <div class="table-wrap"><table>
+          <thead><tr><th>IV</th><th>วันที่</th><th>รหัสลูกค้า</th><th>เลขออเดอร์ที่หาไม่เจอ</th></tr></thead>
+          <tbody>${R.noOrder.slice(0,50).map(r=>`
+            <tr><td>${esc(r.iv)}</td><td>${esc(r.date||"")}</td><td>${esc(r.custCode||"")}</td><td>${esc(r.ref)}</td></tr>`).join("")}</tbody>
+        </table></div>
+      `:""}
+    </div>
+  `;
+}
+
+
+/* ============================================================
+   DASHBOARD — ภาพรวมจาก Supabase
+   ============================================================ */
+state.dash = state.dash || {};
+async function dashLoad(){
+  const company = state.company;
+  // ดึง orders ทั้งหมดของบริษัทนี้ (paginate 1000)
+  let all = [], from = 0, sz = 1000;
+  while(true){
+    const { data, error } = await sb.from("orders")
+      .select("order_no,sale_date,iv_no,key_date,cust_code,status,platform,brand,shop_name")
+      .eq("company", company)
+      .order("sale_date",{ascending:false})
+      .range(from, from+sz-1);
+    if(error) throw error;
+    if(!data || !data.length) break;
+    all = all.concat(data);
+    if(data.length < sz) break;
+    from += sz;
+  }
+  return all;
+}
+
+async function renderToolDashboard(){
+  const t = TOOLS.find(x=>x.id===state.tool);
+  const company = state.company;
+  document.getElementById("main").innerHTML = `
+    <div class="page-head">
+      <h1>${t.ic} ${t.name} <span class="badge">${COMPANIES.find(c=>c.id===company).name}</span></h1>
+      <div class="sub">${t.long}</div>
+    </div>
+    <div class="card"><div class="empty">⏳ กำลังโหลดข้อมูลจาก Supabase...</div></div>
+  `;
+  let rows;
+  try{ rows = await dashLoad(); }
+  catch(err){
+    document.getElementById("main").innerHTML += `<div class="card"><div style="color:#dc2626">โหลดข้อมูลไม่สำเร็จ: ${esc(err.message||err)}</div></div>`;
+    return;
+  }
+  state.dash[company] = rows;
+
+  const total = rows.length;
+  const cancelled = rows.filter(r=>r.status==="cancelled").length;
+  const keyed = rows.filter(r=>r.iv_no).length;
+  const pending = rows.filter(r=>!r.iv_no && r.status!=="cancelled").length;
+
+  // วันที่ขายล่าสุด / คีย์ล่าสุด
+  const saleDates = rows.map(r=>r.sale_date).filter(Boolean).sort();
+  const keyDates = rows.filter(r=>r.key_date).map(r=>r.key_date).sort();
+  const latestSale = saleDates.length ? saleDates[saleDates.length-1] : "-";
+  const oldestSaleNotKeyed = rows.filter(r=>!r.iv_no && r.status!=="cancelled" && r.sale_date)
+    .map(r=>r.sale_date).sort()[0] || "-";
+  const latestKey = keyDates.length ? keyDates[keyDates.length-1] : "-";
+
+  // กลุ่มตามวันขาย (รายวัน 14 วันล่าสุด)
+  const dailyMap = {};
+  for(const r of rows){
+    if(!r.sale_date) continue;
+    const k = r.sale_date;
+    if(!dailyMap[k]) dailyMap[k] = { date:k, total:0, keyed:0, cancelled:0 };
+    dailyMap[k].total++;
+    if(r.iv_no) dailyMap[k].keyed++;
+    if(r.status==="cancelled") dailyMap[k].cancelled++;
+  }
+  const daily = Object.values(dailyMap).sort((a,b)=>a.date<b.date?1:-1).slice(0,14);
+
+  // group by ช่องทาง (ที่ยังไม่คีย์)
+  const pendingByPlatform = {};
+  for(const r of rows){
+    if(r.iv_no || r.status==="cancelled") continue;
+    const k = r.platform || r.shop_name || "-";
+    pendingByPlatform[k] = (pendingByPlatform[k]||0)+1;
+  }
+
+  document.getElementById("main").innerHTML = `
+    <div class="page-head">
+      <h1>${t.ic} ${t.name} <span class="badge">${COMPANIES.find(c=>c.id===company).name}</span></h1>
+      <div class="sub">${t.long}</div>
+    </div>
+
+    <div class="card">
+      <div class="pill-stat">
+        <div class="stat"><div class="n">${total.toLocaleString()}</div><div class="l">ออเดอร์ทั้งหมด</div></div>
+        <div class="stat"><div class="n" style="color:#16a34a">${keyed.toLocaleString()}</div><div class="l">คีย์ IV แล้ว</div></div>
+        <div class="stat"><div class="n" style="color:#d97706">${pending.toLocaleString()}</div><div class="l">ยังไม่คีย์</div></div>
+        <div class="stat"><div class="n" style="color:#94a3b8">${cancelled.toLocaleString()}</div><div class="l">ยกเลิก</div></div>
+      </div>
+      <div class="pill-stat" style="margin-top:8px">
+        <div class="stat"><div class="n" style="font-size:18px">${esc(latestSale)}</div><div class="l">ออเดอร์ล่าสุด</div></div>
+        <div class="stat"><div class="n" style="font-size:18px">${esc(latestKey)}</div><div class="l">คีย์ IV ล่าสุด</div></div>
+        <div class="stat"><div class="n" style="font-size:18px;color:#dc2626">${esc(oldestSaleNotKeyed)}</div><div class="l">ออเดอร์เก่าสุดที่ยังไม่คีย์</div></div>
+      </div>
+      <button class="btn ghost" style="margin-top:10px;font-size:12px" onclick="renderToolDashboard()">🔄 รีเฟรช</button>
+    </div>
+
+    ${total===0 ? `<div class="card"><div class="empty">ยังไม่มีข้อมูลใน Supabase — อัป BigSeller ที่หน้า "จัดฟอร์แมต Big Seller" แล้วกด "บันทึกลง Supabase"</div></div>` : `
+    <div class="card">
+      <h3>📅 รายวัน (14 วันล่าสุด)</h3>
+      <div class="table-wrap"><table>
+        <thead><tr><th>วันที่ขาย</th><th>ทั้งหมด</th><th>คีย์ IV แล้ว</th><th>ยังไม่คีย์</th><th>%</th></tr></thead>
+        <tbody>${daily.map(d=>{
+          const left = d.total - d.keyed - d.cancelled;
+          const pct = d.total ? Math.round(d.keyed*100/d.total) : 0;
+          return `<tr>
+            <td>${esc(d.date)}</td>
+            <td>${d.total}</td>
+            <td style="color:#16a34a">${d.keyed}</td>
+            <td style="color:${left>0?'#d97706':'#94a3b8'}">${left}</td>
+            <td>${pct}%</td>
+          </tr>`;
+        }).join("")}</tbody>
+      </table></div>
+    </div>
+
+    ${pending>0 ? `
+    <div class="card">
+      <h3>📌 ออเดอร์ค้างคีย์ ตามช่องทาง</h3>
+      <div class="pill-stat">
+        ${Object.keys(pendingByPlatform).sort().map(k=>`
+          <div class="stat"><div class="n">${pendingByPlatform[k]}</div><div class="l">${esc(k)}</div></div>
+        `).join("")}
+      </div>
+    </div>` : ""}
+    `}
+  `;
+}
+
 
 /* ---------- init ---------- */
 renderApp();

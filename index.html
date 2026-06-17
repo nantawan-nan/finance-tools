@@ -1414,10 +1414,10 @@ function bsBuildResult(){
     byOrder[it.orderNo].push(it);
   }
 
-  // Detect unknown shops (need brand mapping)
+  // Detect unknown shops — ร้านที่ regex QI/Betra ไม่จับ
   const unknownShops = [];
   for(const sh of d.raw.shops){
-    if(!map[sh]) unknownShops.push(sh);
+    if(!bsBrandFromShop(company, sh)) unknownShops.push(sh);
   }
 
   // IV auto-numbering seed

@@ -1,0 +1,86 @@
+name: db-backup
+
+on:
+  schedule:
+    - cron: '0 19 * * *'   # 02:00 ICT ทุกคืน (UTC 19:00 = ICT 02:00+7)
+  workflow_dispatch:         # กด Run ด้วยมือได้ใน Actions tab
+
+permissions:
+  contents: write            # อนุญาตให้ push backup file
+
+jobs:
+  backup:
+    name: Supabase Daily Backup
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Install postgresql-client
+        run: sudo apt-get install -y postgresql-client
+
+      - name: Dump database
+        env:
+          PGPASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: |
+          DATE=$(date -u +%Y-%m-%d_%H%M)
+          echo "DATE=$DATE" >> $GITHUB_ENV
+
+          # Dump เป็น SQL plain text
+          pg_dump \
+            --host="${{ secrets.SUPABASE_DB_HOST }}" \
+            --port=5432 \
+            --username=postgres \
+            --dbname=postgres \
+            --no-owner \
+            --no-acl \
+            --format=plain \
+            --file="backup_${DATE}.sql"
+
+          echo "✅ Dump สำเร็จ: $(wc -l < backup_${DATE}.sql) lines"
+
+      - name: Compress + Encrypt
+        run: |
+          # Compress
+          gzip "backup_${{ env.DATE }}.sql"
+
+          # Encrypt ด้วย AES-256 (ต้องมี BACKUP_PASSPHRASE ใน GitHub Secrets)
+          openssl enc -aes-256-cbc -salt -pbkdf2 -iter 100000 \
+            -in  "backup_${{ env.DATE }}.sql.gz" \
+            -out "backups/backup_${{ env.DATE }}.sql.gz.enc" \
+            -k   "${{ secrets.BACKUP_PASSPHRASE }}"
+
+          rm "backup_${{ env.DATE }}.sql.gz"
+          echo "✅ Encrypt สำเร็จ: backups/backup_${{ env.DATE }}.sql.gz.enc"
+
+      - name: Commit backup
+        run: |
+          git config user.name  "backup-bot"
+          git config user.email "backup-bot@noreply.github.com"
+          git add backups/
+          git commit -m "backup: ${{ env.DATE }} (automated)" || echo "ℹ️ ไม่มีไฟล์ใหม่"
+          git push
+
+      - name: Prune old backups (เก็บแค่ 30 วัน)
+        run: |
+          cd backups
+          COUNT=$(ls -1 *.enc 2>/dev/null | wc -l)
+          if [ "$COUNT" -gt 30 ]; then
+            TO_DELETE=$(ls -1t *.enc | tail -n +31)
+            echo "ลบ backup เก่า: $TO_DELETE"
+            git rm $TO_DELETE
+            git commit -m "backup: prune old backups (keep 30)" || echo "nothing to prune"
+            git push
+          else
+            echo "ℹ️ มี $COUNT backup (ยังไม่ครบ 30 — ไม่ต้อง prune)"
+          fi
+
+      - name: Summary
+        run: |
+          echo "### Backup สำเร็จ ✅" >> $GITHUB_STEP_SUMMARY
+          echo "- **ไฟล์:** backups/backup_${{ env.DATE }}.sql.gz.enc" >> $GITHUB_STEP_SUMMARY
+          echo "- **เวลา:** $(date -u '+%Y-%m-%d %H:%M UTC') = $(TZ='Asia/Bangkok' date '+%H:%M ICT')" >> $GITHUB_STEP_SUMMARY
+          echo "- **จำนวน backup ที่เก็บไว้:** $(ls backups/*.enc 2>/dev/null | wc -l)" >> $GITHUB_STEP_SUMMARY

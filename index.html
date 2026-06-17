@@ -1217,11 +1217,16 @@ function bsGet(){
   if(!state.bs[state.company]){
     state.bs[state.company] = {
       file:null, raw:null, result:null,
-      opts:{ hideCancelled:false, lastIv:"" }   // lastIv = "2606000005" หรือ "IV2606000005"
+      opts:{ hideCancelled:false, lastIv:"", deletedOrders:new Set() }
     };
   }
+  // safety: เคสที่ state เก่ายังไม่มี deletedOrders
+  if(!state.bs[state.company].opts.deletedOrders) state.bs[state.company].opts.deletedOrders = new Set();
   return state.bs[state.company];
 }
+
+/* รหัสผังค่าส่ง ต่อบริษัท — สำหรับ AutoKey */
+const BS_SHIP_SKU = { mbark:"SH001", benya:"4200-01" };
 
 /* ---------- IV auto-numbering ---------- */
 function bsParseIvSeed(s){
@@ -1406,10 +1411,12 @@ function bsBuildResult(){
   const history = bsLoadJSON(BS_LS_HISTORY, {});
   const hist = new Set((history[company]||[]).map(o=>String(o)));
 
-  // Group items by order, preserve input order
+  // Group items by order (กรองออเดอร์ที่ user กดลบออก)
+  const deleted = d.opts.deletedOrders || new Set();
   const byOrder = {};
   const orderList = [];
   for(const it of d.raw.items){
+    if(deleted.has(it.orderNo)) continue;
     if(!byOrder[it.orderNo]){ byOrder[it.orderNo]=[]; orderList.push(it.orderNo); }
     byOrder[it.orderNo].push(it);
   }
@@ -1450,15 +1457,20 @@ function bsBuildResult(){
     // ค่าส่ง + ส่วนลด — ใช้ค่าจาก item แรกเป็นตัวแทนของออเดอร์ (BigSeller ลงค่าเดียวกันทุก line)
     const orderShip = its.reduce((mx,x)=>Math.max(mx, x.ship||0), 0);
     const orderDiscount = its.reduce((mx,x)=>Math.max(mx, x.billDiscount||0), 0);
+    // ออเดอร์ manual (FB / OD) → cust = FACE
+    const isManual = /^(FB|OD)/i.test(orderNo);
+    const shipSkuCode = BS_SHIP_SKU[company] || "";
     its.forEach((it, idx) => {
       seq++;
       const brand = bsBrandFromShop(company, it.shop);
       const channel = it.channel || "";
-      const cust = bsCustomerCode(company, channel, brand);
+      const cust = isManual ? "FACE" : bsCustomerCode(company, channel, brand);
       const isFirst = idx===0;
       const isLast  = idx===its.length-1;
       const isNewSku = it.sku && !skuSet.has(it.sku);
       if(isNewSku) newSku.add(it.sku);
+      // 3 ฟิลด์ AutoKey ค่าส่ง — เฉพาะบรรทัดสุดท้าย ที่ออเดอร์มีค่าส่ง > 0
+      const hasShip = isLast && orderShip > 0;
       lines.push({
         seq,
         ivShow: isFirst ? ivNo : "",     // โชว์เฉพาะแถวแรกของออเดอร์
@@ -1472,9 +1484,13 @@ function bsBuildResult(){
         price: it.price,
         ship: isLast ? orderShip : 0,         // ค่าส่ง → บรรทัดสุดท้าย
         discount: isFirst ? orderDiscount : 0, // ส่วนลดท้ายบิล (BP) → บรรทัดแรก
+        shipSku:    hasShip ? shipSkuCode : "",
+        shipEnter:  hasShip ? "{Enter}"    : "",
+        shipAmount: hasShip ? orderShip    : 0,
+        manual: isManual,
         cancelled: isCancel,
         duplicate: hist.has(orderNo),
-        unknownShop: !brand,
+        unknownShop: !isManual && !brand,
         newSku: isNewSku
       });
     });
@@ -1816,7 +1832,7 @@ function bsImportHistory(file){
 }
 
 /* ---------- UI ---------- */
-const BS_HEAD = ["ลำดับ","เลข IV","เลขคำสั่งซื้อ","วันที่ขาย","ช่องทาง","รหัสลูกค้า","SKU","จำนวน","ราคา","ค่าส่ง","ส่วนลดท้ายบิล"];
+const BS_HEAD = ["ลำดับ","เลข IV","เลขคำสั่งซื้อ","วันที่ขาย","ช่องทาง","รหัสลูกค้า","SKU","จำนวน","ราคา","ค่าส่ง","ส่วนลดท้ายบิล","ผังค่าส่ง","Enter ค่าส่ง","ค่าส่ง (AutoKey)"];
 function renderToolBigSeller(){
   bsSeedShopBrand();
   // โหลด SKU master จาก Supabase (ครั้งแรก/ตอนเปลี่ยนบริษัท)
@@ -1922,6 +1938,12 @@ function bsResultHTML(R){
     <div class="note" style="background:#fffbeb;color:#92400e;padding:10px 14px;border-radius:8px;margin-bottom:10px">
       ⚠️ <b>${R.summary.duplicates} ออเดอร์</b> ซ้ำกับประวัติที่เคยคีย์แล้ว (แถวสีน้ำเงิน)
     </div>` : "";
+  const delCount = d.opts.deletedOrders ? d.opts.deletedOrders.size : 0;
+  const delBlock = delCount ? `
+    <div class="note" style="background:#f1f5f9;color:#475569;padding:8px 14px;border-radius:8px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center">
+      <span>🗑 ลบออเดอร์ออกแล้ว ${delCount} รายการ (จะไม่ถูกบันทึก/ส่งออก)</span>
+      <button class="btn ghost" style="font-size:12px" onclick="bsRestoreDeleted()">↩ คืนค่า</button>
+    </div>` : "";
 
   // IV input bar — ใส่เลข IV ล่าสุดในระบบ → auto-run ต่อไป
   const ivValid = !!R.summary.ivSeed;
@@ -1946,7 +1968,7 @@ function bsResultHTML(R){
     <div class="card">
       <h3>📊 ผลลัพธ์ — เทมเพลตคีย์ IV</h3>
       ${ivBar}
-      ${unknownBlock}${newSkuBlock}${dupBlock}
+      ${unknownBlock}${newSkuBlock}${dupBlock}${delBlock}
       <div class="pill-stat">
         <div class="stat"><div class="n">${R.summary.orders}</div><div class="l">ออเดอร์ทั้งหมด</div></div>
         <div class="stat"><div class="n">${R.summary.items}</div><div class="l">รายการสินค้า</div></div>
@@ -1978,12 +2000,17 @@ function bsLineHTML(l){
   const notes = [];
   if(l.cancelled) notes.push("❌ ยกเลิก");
   if(l.duplicate) notes.push("🔁 ซ้ำ");
+  if(l.manual)    notes.push("✋ Manual → FACE");
   if(l.unknownShop) notes.push("❓ ร้านไม่รู้แบรนด์");
   if(l.newSku) notes.push("🆕 SKU ใหม่");
+  // ปุ่มลบโชว์เฉพาะบรรทัดแรกของออเดอร์ (orderShow ไม่ว่าง)
+  const delBtn = l.orderShow
+    ? `<button title="ลบออเดอร์นี้" onclick="bsDeleteOrder(${JSON.stringify(l.orderNo)})" style="border:none;background:transparent;color:#dc2626;cursor:pointer;font-size:14px;padding:2px 4px">✕</button>`
+    : "";
   return `<tr class="${cls}" style="${style}">
     <td>${l.seq}</td>
     <td style="font-family:monospace;font-weight:600;color:var(--brand-dark)">${esc(l.ivShow)}</td>
-    <td style="font-family:monospace">${esc(l.orderShow)}</td>
+    <td style="font-family:monospace">${esc(l.orderShow)} ${delBtn}</td>
     <td>${esc(l.saleDate ? fmtDateDDMMYY(l.saleDate):"")}</td>
     <td>${esc(l.channel)}</td>
     <td>${esc(l.cust)}</td>
@@ -1992,9 +2019,27 @@ function bsLineHTML(l){
     <td style="text-align:right">${l.price?num(l.price).toLocaleString(undefined,{minimumFractionDigits:2}):""}</td>
     <td style="text-align:right">${l.ship?num(l.ship).toLocaleString(undefined,{minimumFractionDigits:2}):""}</td>
     <td style="text-align:right">${l.discount?num(l.discount).toLocaleString(undefined,{minimumFractionDigits:2}):""}</td>
+    <td style="font-family:monospace;font-size:12px">${esc(l.shipSku||"")}</td>
+    <td style="font-size:11px;color:var(--ink-3)">${esc(l.shipEnter||"")}</td>
+    <td style="text-align:right">${l.shipAmount?num(l.shipAmount).toLocaleString(undefined,{minimumFractionDigits:2}):""}</td>
     <td style="font-size:11px;color:var(--ink-3)">${esc(l.shop)}</td>
     <td style="font-size:11px">${notes.join(" · ")}</td>
   </tr>`;
+}
+
+/* ลบ/คืนค่า ออเดอร์ */
+function bsDeleteOrder(orderNo){
+  if(!confirm(`ลบออเดอร์ ${orderNo} ออกจากผลลัพธ์? (กดบันทึกลง Supabase แล้วจะไม่ขึ้นออเดอร์นี้)`)) return;
+  const d = bsGet();
+  d.opts.deletedOrders.add(orderNo);
+  d.result = bsBuildResult();
+  renderTool();
+}
+function bsRestoreDeleted(){
+  const d = bsGet();
+  d.opts.deletedOrders.clear();
+  d.result = bsBuildResult();
+  renderTool();
 }
 
 function bsUnknownShopsHTML(shops){
@@ -2053,11 +2098,13 @@ function bsExport(fmt){
     if(l.newSku) notes.push("SKU ใหม่");
     return [l.seq, l.ivShow, l.orderShow, l.saleDate?fmtDateDDMMYY(l.saleDate):"",
             l.channel, l.cust, l.sku, l.qty||"",
-            l.price||"", l.ship||"", l.discount||"", l.shop, notes.join(" · ")];
+            l.price||"", l.ship||"", l.discount||"",
+            l.shipSku||"", l.shipEnter||"", l.shipAmount||"",
+            l.shop, notes.join(" · ")];
   }));
   const ws = XLSX.utils.aoa_to_sheet(aoa);
-  // col indices: 1=เลข IV, 2=เลขคำสั่งซื้อ, 6=SKU — บังคับ text กัน Excel ตัดท้ายเป็น 0
-  forceTextCells(ws, [1, 2, 6]);
+  // 1=เลข IV, 2=เลขคำสั่งซื้อ, 6=SKU, 11=ผังค่าส่ง, 12=Enter ค่าส่ง — บังคับ text กัน Excel
+  forceTextCells(ws, [1, 2, 6, 11, 12]);
   const base = `BigSeller_${COMPANIES.find(c=>c.id===state.company).name}_${stamp()}`;
   if(fmt==="csv"){
     download("﻿"+XLSX.utils.sheet_to_csv(ws), base+".csv", "text/csv;charset=utf-8");
@@ -2584,33 +2631,45 @@ function exkExport(){
 
   const aoa = [BS_HEAD.concat(["ร้าน","หมายเหตุ"])];
   let seq = 0;
+  const company = state.company;
+  const shipSkuCode = BS_SHIP_SKU[company] || "";
   for(const o of rows){
     const its = itemsBy[o.order_no] || [];
     if(!its.length) continue;
     const ivNo = seed ? bsFormatIv(seed.yy, seed.mm, nextRun++) : (o.iv_no || "");
+    // FB/OD → FACE (กรณีออเดอร์ที่ฝ่ายขายไม่ได้แก้ตอนอัป)
+    const isManual = /^(FB|OD)/i.test(o.order_no);
+    const cust = isManual ? "FACE" : (o.cust_code || "");
+    // หา orderShip ก่อน (เพื่อใส่ 3 cols ใหม่ที่บรรทัดสุดท้ายเฉพาะที่มีค่าส่ง)
+    const orderShip = its.reduce((mx,x)=>Math.max(mx, x.ship||0), 0);
+    const orderDiscount = its.reduce((mx,x)=>Math.max(mx, x.discount||0), 0);
     its.forEach((it, idx) => {
       seq++;
       const isFirst = idx===0, isLast = idx===its.length-1;
+      const hasShip = isLast && orderShip > 0;
       aoa.push([
         seq,
         isFirst ? ivNo : "",
         isFirst ? o.order_no : "",
         o.sale_date || "",
         o.platform || "",
-        o.cust_code || "",
+        cust,
         it.sku || "",
         it.qty || 0,
         it.price || 0,
-        isLast ? (it.ship || 0) : 0,
-        isFirst ? (it.discount || 0) : 0,
+        isLast ? orderShip : 0,
+        isFirst ? orderDiscount : 0,
+        hasShip ? shipSkuCode : "",
+        hasShip ? "{Enter}"   : "",
+        hasShip ? orderShip   : "",
         o.shop_name || "",
-        ""
+        isManual ? "Manual → FACE" : ""
       ]);
     });
   }
 
   const ws = XLSX.utils.aoa_to_sheet(aoa);
-  forceTextCells(ws, [1, 2, 6]);
+  forceTextCells(ws, [1, 2, 6, 11, 12]);
   const base = `AutoKey_${COMPANIES.find(c=>c.id===state.company).name}_${stamp()}`;
   download("﻿"+XLSX.utils.sheet_to_csv(ws), base+".csv", "text/csv;charset=utf-8");
 }

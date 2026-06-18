@@ -10,140 +10,162 @@
   :root{
     --brand:#1e3a8a; --brand-dark:#172554; --brand-soft:#eff6ff;
     --ink:#0f172a; --ink-2:#475569; --ink-3:#94a3b8;
-    --line:#e2e8f0; --bg:#f8fafc; --card:#ffffff;
+    --line:#e2e8f0; --bg:#f4f6f9; --card:#ffffff;
     --ok:#16a34a; --warn:#d97706; --bad:#dc2626;
-    --radius:14px; --shadow:0 1px 3px rgba(15,23,42,.08),0 8px 24px rgba(15,23,42,.05);
+    --radius:12px;
+    --shadow:0 1px 2px rgba(15,23,42,.06),0 4px 16px rgba(15,23,42,.06);
+    --shadow-md:0 2px 8px rgba(15,23,42,.08),0 12px 32px rgba(15,23,42,.08);
   }
-  /* M Bark (Mommam) theme — navy blue */
   body[data-co="mbark"]{ --brand:#1e3a8a; --brand-dark:#172554; --brand-soft:#dbeafe;
-    --gradient-1:#1e3a8a; --gradient-2:#3b82f6; --co-name:"M Bark"; }
-  /* Benya theme — teal */
+    --gradient-1:#1e3a8a; --gradient-2:#2563eb; }
   body[data-co="benya"]{ --brand:#0d9488; --brand-dark:#115e59; --brand-soft:#ccfbf1;
-    --gradient-1:#0d9488; --gradient-2:#2dd4bf; --co-name:"Benya"; }
+    --gradient-1:#0d9488; --gradient-2:#14b8a6; }
   *{box-sizing:border-box}
-  body{margin:0;font-family:"Segoe UI",-apple-system,"Sarabun",sans-serif;background:var(--bg);color:var(--ink);font-size:15px;line-height:1.55}
+  body{margin:0;font-family:"Segoe UI","Inter","Sarabun",sans-serif;background:var(--bg);color:var(--ink);font-size:14.5px;line-height:1.6}
   button{font-family:inherit;cursor:pointer}
+
   /* ---- topbar ---- */
-  .topbar{display:flex;align-items:center;gap:14px;background:var(--card);border-bottom:1px solid var(--line);padding:11px 24px;position:sticky;top:0;z-index:20;height:58px}
-  .crumb{display:flex;align-items:center;gap:6px;font-size:14px;color:var(--ink-2);flex:1;min-width:0}
-  .crumb .co{font-weight:700;color:var(--brand-dark)}
-  .crumb .sep{color:var(--ink-3);opacity:.5}
-  .crumb .pg{color:var(--ink);font-weight:600}
-  .topbar .date{display:flex;align-items:center;gap:6px;background:var(--brand-soft);color:var(--brand-dark);font-size:12.5px;font-weight:700;padding:6px 12px;border-radius:999px;white-space:nowrap}
+  .topbar{display:flex;align-items:center;gap:12px;background:var(--card);border-bottom:1px solid var(--line);padding:0 24px;position:sticky;top:0;z-index:20;height:54px}
+  .crumb{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--ink-3);flex:1;min-width:0}
+  .crumb .co{font-weight:700;color:var(--brand-dark);font-size:13.5px}
+  .crumb .sep{color:var(--line)}
+  .crumb .pg{color:var(--ink);font-weight:600;font-size:13px}
+  .topbar .date{font-size:12px;color:var(--ink-3);font-weight:500;white-space:nowrap;letter-spacing:.2px}
   .topbar .user{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--ink-2)}
-  .topbar .user .pill{background:var(--brand);color:#fff;padding:3px 10px;border-radius:999px;font-size:11px;font-weight:700;text-transform:uppercase}
-  .topbar .logout{border:1px solid var(--line);background:#fff;border-radius:8px;padding:6px 12px;font-size:12px;color:var(--ink-2)}
-  .topbar .logout:hover{background:#f1f5f9}
-  /* ---- sidebar (full height with logo) ---- */
+  .topbar .user .u-email{color:var(--ink-3);font-size:12px;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .topbar .user .pill{background:var(--brand);color:#fff;padding:2px 9px;border-radius:999px;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.4px}
+  .topbar .logout{border:1px solid var(--line);background:#fff;border-radius:7px;padding:5px 12px;font-size:12px;color:var(--ink-2);font-weight:500;transition:.15s}
+  .topbar .logout:hover{background:var(--bg);color:var(--bad);border-color:#fca5a5}
+
+  /* ---- sidebar ---- */
   .wrap{display:flex;min-height:100vh}
-  .sidebar{width:240px;flex-shrink:0;background:#fff;border-right:1px solid var(--line);display:flex;flex-direction:column;height:100vh;position:sticky;top:0}
-  .sb-brand{padding:18px 16px 16px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:11px}
-  .sb-brand .sb-logo{width:42px;height:42px;border-radius:11px;background:linear-gradient(135deg,var(--gradient-1,#1e3a8a),var(--gradient-2,#3b82f6));display:flex;align-items:center;justify-content:center;color:#fff;font-weight:900;font-size:18px;letter-spacing:-1px;box-shadow:0 4px 10px rgba(0,0,0,.15)}
-  .sb-brand .sb-name{font-weight:800;font-size:15px;color:var(--ink);line-height:1.15}
-  .sb-brand .sb-name small{display:block;font-size:10.5px;color:var(--ink-3);font-weight:600;margin-top:2px}
-  .company-switch{display:flex;gap:5px;padding:10px 12px;border-bottom:1px solid var(--line)}
-  .company-switch button{flex:1;border:1px solid var(--line);background:#fff;color:var(--ink-2);padding:6px 8px;border-radius:8px;font-weight:700;font-size:12px;transition:.15s}
-  .company-switch button.active{background:var(--brand);color:#fff;border-color:var(--brand);box-shadow:0 2px 6px rgba(0,0,0,.12)}
-  .sb-nav{flex:1;overflow-y:auto;padding:10px 8px 18px}
-  .stage-label{font-size:10.5px;font-weight:800;color:var(--ink-3);text-transform:uppercase;letter-spacing:.6px;padding:14px 10px 5px}
-  .nav-item{display:flex;gap:10px;align-items:center;padding:9px 10px;border-radius:9px;cursor:pointer;transition:.12s;margin-bottom:1px;text-decoration:none;color:var(--ink)}
-  .nav-item:hover{background:var(--brand-soft)}
-  .nav-item.active{background:var(--brand-soft);box-shadow:inset 3px 0 0 var(--brand)}
-  .nav-item .ic{font-size:16px;line-height:1.3;width:20px;text-align:center}
-  .nav-item .t{font-weight:600;font-size:13px}
-  .nav-item.active .t{color:var(--brand-dark)}
-  .nav-item .badge-mini{margin-left:auto;font-size:9.5px;background:#fbbf24;color:#78350f;padding:1px 6px;border-radius:999px;font-weight:700}
-  .sb-footer{padding:12px 14px;border-top:1px solid var(--line);font-size:11px;color:var(--ink-3)}
-  .main{flex:1;padding:26px 32px;overflow-x:auto;min-width:0}
+  .sidebar{width:232px;flex-shrink:0;background:var(--card);border-right:1px solid var(--line);display:flex;flex-direction:column;height:100vh;position:sticky;top:0}
+  .sb-brand{padding:16px 14px 14px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:10px}
+  .sb-brand .sb-logo{width:36px;height:36px;border-radius:9px;background:linear-gradient(135deg,var(--gradient-1,#1e3a8a),var(--gradient-2,#2563eb));display:flex;align-items:center;justify-content:center;color:#fff;font-weight:900;font-size:14px;letter-spacing:-.5px;flex-shrink:0}
+  .sb-brand .sb-name{font-weight:800;font-size:14px;color:var(--ink);line-height:1.2}
+  .sb-brand .sb-name small{display:block;font-size:10px;color:var(--ink-3);font-weight:500;margin-top:1px}
+  .company-switch{display:flex;gap:4px;padding:8px 10px;border-bottom:1px solid var(--line)}
+  .company-switch button{flex:1;border:1px solid var(--line);background:#fff;color:var(--ink-3);padding:5px 8px;border-radius:7px;font-weight:600;font-size:11.5px;transition:.15s}
+  .company-switch button.active{background:var(--brand);color:#fff;border-color:var(--brand)}
+  .sb-nav{flex:1;overflow-y:auto;padding:8px 6px 16px;scrollbar-width:thin;scrollbar-color:var(--line) transparent}
+  .stage-label{font-size:10px;font-weight:700;color:var(--ink-3);text-transform:uppercase;letter-spacing:.8px;padding:14px 10px 4px}
+  .nav-item{display:flex;gap:9px;align-items:center;padding:8px 10px;border-radius:8px;cursor:pointer;transition:.12s;margin-bottom:1px;color:var(--ink-2)}
+  .nav-item:hover{background:var(--brand-soft);color:var(--ink)}
+  .nav-item.active{background:var(--brand-soft);color:var(--brand-dark);font-weight:600}
+  .nav-item.active{border-left:2.5px solid var(--brand);padding-left:8px}
+  .nav-item .ic{font-size:14px;width:18px;text-align:center;flex-shrink:0;opacity:.7}
+  .nav-item.active .ic{opacity:1}
+  .nav-item .t{font-size:12.5px;font-weight:500}
+  .nav-item.active .t{font-weight:700;color:var(--brand-dark)}
+  .nav-item .badge-mini{margin-left:auto;font-size:9px;background:#fef3c7;color:#92400e;padding:1px 6px;border-radius:999px;font-weight:700;letter-spacing:.2px}
+  .sb-footer{padding:10px 12px;border-top:1px solid var(--line);font-size:10.5px;color:var(--ink-3);display:flex;align-items:center;gap:6px}
+  .sb-footer .dot{width:6px;height:6px;border-radius:50%;background:var(--ok);flex-shrink:0}
+
+  /* ---- main ---- */
+  .main{flex:1;padding:24px 28px;overflow-x:auto;min-width:0;max-width:1400px}
+
   /* ---- page header ---- */
-  .page-head{margin-bottom:18px}
-  .page-head h1{margin:0 0 4px;font-size:22px;letter-spacing:-.4px}
-  .page-head .sub{color:var(--ink-2);font-size:14px}
-  .badge{display:inline-block;font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px;background:var(--brand-soft);color:var(--brand-dark);vertical-align:middle;margin-left:8px}
+  .page-head{margin-bottom:20px}
+  .page-head h1{margin:0 0 4px;font-size:20px;font-weight:800;letter-spacing:-.4px;color:var(--ink)}
+  .page-head .sub{color:var(--ink-3);font-size:13px}
+  .badge{display:inline-block;font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:999px;background:var(--brand-soft);color:var(--brand-dark);vertical-align:middle;margin-left:7px;letter-spacing:.2px}
+
   /* ---- cards ---- */
-  .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:20px;margin-bottom:18px}
-  .card h3{margin:0 0 4px;font-size:15px}
-  .card .note{color:var(--ink-3);font-size:13px;margin-bottom:14px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:20px;margin-bottom:16px}
+  .card h3{margin:0 0 4px;font-size:14px;font-weight:700;color:var(--ink)}
+  .card .note{color:var(--ink-3);font-size:12.5px;margin-bottom:14px}
+
   /* ---- dropzone ---- */
-  .drop{border:2px dashed var(--line);border-radius:12px;padding:30px;text-align:center;color:var(--ink-2);transition:.15s;background:#fcfdff}
-  .drop.over{border-color:var(--brand);background:var(--brand-soft)}
-  .drop .big{font-size:34px;margin-bottom:6px}
+  .drop{border:1.5px dashed var(--line);border-radius:10px;padding:28px;text-align:center;color:var(--ink-3);transition:.15s;background:#fafbfd;cursor:pointer}
+  .drop:hover,.drop.over{border-color:var(--brand);background:var(--brand-soft)}
+  .drop .big{font-size:28px;margin-bottom:6px;opacity:.6}
   .drop b{color:var(--brand)}
-  .drop .sm{font-size:12px;color:var(--ink-3);margin-top:6px}
-  .filechip{display:inline-flex;align-items:center;gap:8px;background:var(--brand-soft);color:var(--brand-dark);border-radius:999px;padding:6px 14px;font-size:13px;font-weight:600;margin-top:12px}
-  .filechip button{border:none;background:none;color:var(--brand-dark);font-size:15px;line-height:1}
-  .sheet-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:14px;padding:10px 14px;background:#f8fafc;border:1px solid var(--line);border-radius:10px}
-  .sheet-row .sheet-lbl{font-size:13px;font-weight:700;color:var(--ink-2)}
-  .sheet-row select{border:1px solid var(--line);border-radius:8px;padding:6px 10px;font-size:13px;font-family:inherit;background:#fff;min-width:200px;color:var(--ink)}
-  .sheet-row .sheet-auto{font-size:12px;color:var(--ok);font-weight:600}
-  .sheet-row .sheet-manual{font-size:12px;color:var(--warn);font-weight:600}
-  /* ---- armap multi-slot ---- */
-  .slots{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:18px}
+  .drop .sm{font-size:11.5px;margin-top:6px}
+  .filechip{display:inline-flex;align-items:center;gap:8px;background:var(--brand-soft);color:var(--brand-dark);border-radius:999px;padding:5px 14px;font-size:12.5px;font-weight:600;margin-top:10px}
+  .filechip button{border:none;background:none;color:var(--brand-dark);font-size:14px;line-height:1;opacity:.7}
+  .filechip button:hover{opacity:1}
+  .sheet-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:12px;padding:10px 14px;background:var(--bg);border:1px solid var(--line);border-radius:9px}
+  .sheet-row .sheet-lbl{font-size:12.5px;font-weight:700;color:var(--ink-2)}
+  .sheet-row select{border:1px solid var(--line);border-radius:7px;padding:5px 10px;font-size:12.5px;font-family:inherit;background:#fff;min-width:180px;color:var(--ink)}
+  .sheet-row .sheet-auto{font-size:11.5px;color:var(--ok);font-weight:600}
+  .sheet-row .sheet-manual{font-size:11.5px;color:var(--warn);font-weight:600}
+
+  /* ---- slots (armap) ---- */
+  .slots{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px}
   @media(max-width:1100px){.slots{grid-template-columns:1fr}}
-  .slot{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:8px}
-  .slot .lbl{display:flex;align-items:center;gap:6px;font-weight:700;font-size:14px;color:var(--ink)}
-  .slot .lbl .step{display:inline-flex;width:22px;height:22px;border-radius:50%;background:var(--brand);color:#fff;font-size:12px;align-items:center;justify-content:center}
-  .slot .hint{font-size:12px;color:var(--ink-3);line-height:1.35}
-  .slot .drop{padding:18px;font-size:13px}
-  .slot .drop .big{font-size:24px;margin-bottom:2px}
+  .slot{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:7px}
+  .slot .lbl{display:flex;align-items:center;gap:7px;font-weight:700;font-size:13px;color:var(--ink)}
+  .slot .lbl .step{display:inline-flex;width:20px;height:20px;border-radius:50%;background:var(--brand);color:#fff;font-size:11px;align-items:center;justify-content:center;font-weight:800;flex-shrink:0}
+  .slot .hint{font-size:11.5px;color:var(--ink-3);line-height:1.4}
+  .slot .drop{padding:16px;font-size:12.5px}
+  .slot .drop .big{font-size:20px;margin-bottom:2px}
   .slot.ready{border-color:var(--ok);background:#f0fdf4}
-  .slot .files{display:flex;flex-direction:column;gap:5px}
-  .slot .fchip{display:flex;align-items:center;justify-content:space-between;gap:6px;background:var(--brand-soft);color:var(--brand-dark);border-radius:8px;padding:6px 10px;font-size:12px}
-  .slot .fchip .meta{font-size:10.5px;color:var(--ink-2);opacity:.85}
-  .slot .fchip button{border:none;background:none;color:var(--brand-dark);font-size:14px;line-height:1;cursor:pointer}
-  .slot .ok{font-size:12px;color:var(--ok);font-weight:600;margin-top:2px}
-  .slot .err{font-size:12px;color:var(--bad);font-weight:600;margin-top:2px}
-  .bigbtn{padding:13px 30px;font-size:15px;border-radius:12px}
-  .bigbtn .ic{margin-right:6px}
-  .tabs{display:flex;gap:4px;background:var(--ink-100,#f1f5f9);padding:4px;border-radius:10px;margin-bottom:14px}
-  .tabs button{flex:1;border:none;background:transparent;padding:9px 14px;font-size:13px;font-weight:700;color:var(--ink-2);border-radius:8px;cursor:pointer;transition:.15s}
-  .tabs button.active{background:#fff;color:var(--brand-dark);box-shadow:0 1px 3px rgba(0,0,0,.08)}
-  .tabs button .c{display:inline-block;margin-left:6px;background:var(--brand-soft);color:var(--brand-dark);border-radius:999px;padding:1px 8px;font-size:11px}
+  .slot .files{display:flex;flex-direction:column;gap:4px}
+  .slot .fchip{display:flex;align-items:center;justify-content:space-between;gap:6px;background:var(--brand-soft);color:var(--brand-dark);border-radius:7px;padding:5px 10px;font-size:11.5px}
+  .slot .fchip .meta{font-size:10px;color:var(--ink-2);opacity:.8}
+  .slot .fchip button{border:none;background:none;color:var(--brand-dark);font-size:13px;cursor:pointer;opacity:.7}
+  .slot .ok{font-size:11.5px;color:var(--ok);font-weight:600;margin-top:2px}
+  .slot .err{font-size:11.5px;color:var(--bad);font-weight:600;margin-top:2px}
+  .bigbtn{padding:12px 28px;font-size:14.5px;border-radius:10px}
+
+  /* ---- tabs ---- */
+  .tabs{display:flex;gap:3px;background:#f1f5f9;padding:3px;border-radius:9px;margin-bottom:14px}
+  .tabs button{flex:1;border:none;background:transparent;padding:8px 12px;font-size:12.5px;font-weight:600;color:var(--ink-3);border-radius:7px;cursor:pointer;transition:.15s}
+  .tabs button.active{background:#fff;color:var(--brand-dark);box-shadow:0 1px 3px rgba(0,0,0,.09);font-weight:700}
+  .tabs button .c{display:inline-block;margin-left:5px;background:var(--brand-soft);color:var(--brand-dark);border-radius:999px;padding:1px 7px;font-size:10.5px}
   .tabs button.active .c{background:var(--brand);color:#fff}
+
+  /* ---- state colors ---- */
   .warning-row{background:#fffbeb!important}
-  .warning-row td:first-child{position:relative}
-  .warning-row td:first-child::before{content:"⚠️";position:absolute;left:-4px;top:50%;transform:translateY(-50%);font-size:14px}
   .neg{color:var(--bad);font-weight:600}
   .pos{color:var(--ok);font-weight:600}
+
   /* ---- buttons ---- */
-  .btn{border:1px solid var(--brand);background:var(--brand);color:#fff;padding:9px 18px;border-radius:10px;font-weight:700;font-size:14px;transition:.15s}
+  .btn{border:1px solid var(--brand);background:var(--brand);color:#fff;padding:8px 16px;border-radius:8px;font-weight:600;font-size:13px;transition:.15s;letter-spacing:.1px}
   .btn:hover{background:var(--brand-dark);border-color:var(--brand-dark)}
-  .btn[disabled]{opacity:.45;cursor:not-allowed}
-  .btn.ghost{background:#fff;color:var(--brand)}
+  .btn[disabled]{opacity:.4;cursor:not-allowed}
+  .btn.ghost{background:#fff;color:var(--brand);border-color:var(--brand)}
   .btn.ghost:hover{background:var(--brand-soft)}
-  .btnrow{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:16px}
-  /* ---- export dropdown ---- */
+  .btn.sm{padding:5px 12px;font-size:12px;border-radius:7px}
+  .btnrow{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:14px}
+
+  /* ---- dropdown ---- */
   .dd{position:relative;display:inline-block}
-  .dd-menu{position:absolute;top:calc(100% + 6px);left:0;background:#fff;border:1px solid var(--line);border-radius:10px;box-shadow:var(--shadow);min-width:170px;overflow:hidden;display:none;z-index:10}
+  .dd-menu{position:absolute;top:calc(100% + 5px);left:0;background:#fff;border:1px solid var(--line);border-radius:9px;box-shadow:var(--shadow-md);min-width:165px;overflow:hidden;display:none;z-index:10}
   .dd.open .dd-menu{display:block}
-  .dd-menu button{display:flex;width:100%;gap:8px;align-items:center;border:none;background:#fff;padding:11px 14px;font-size:14px;text-align:left;color:var(--ink)}
+  .dd-menu button{display:flex;width:100%;gap:8px;align-items:center;border:none;background:#fff;padding:10px 14px;font-size:13px;text-align:left;color:var(--ink);transition:.12s}
   .dd-menu button:hover{background:var(--brand-soft)}
-  .dd-menu .x{font-size:11px;color:var(--ink-3)}
+  .dd-menu .x{font-size:10.5px;color:var(--ink-3)}
+
   /* ---- table ---- */
-  .table-wrap{overflow:auto;border:1px solid var(--line);border-radius:10px;margin-top:14px;max-height:430px}
-  table{border-collapse:collapse;width:100%;font-size:13px;white-space:nowrap}
+  .table-wrap{overflow:auto;border:1px solid var(--line);border-radius:9px;margin-top:12px;max-height:440px}
+  table{border-collapse:collapse;width:100%;font-size:12.5px;white-space:nowrap}
   th,td{border-bottom:1px solid var(--line);padding:8px 12px;text-align:left}
-  th{background:#f1f5f9;position:sticky;top:0;font-weight:700;color:var(--ink-2)}
-  tbody tr:hover{background:var(--brand-soft)}
-  .empty{padding:36px;text-align:center;color:var(--ink-3);font-size:13px}
+  th{background:#f8fafc;position:sticky;top:0;font-weight:700;color:var(--ink-2);font-size:11.5px;letter-spacing:.3px;text-transform:uppercase}
+  tbody tr:last-child td{border-bottom:none}
+  tbody tr:hover{background:#f8fafc}
+  .empty{padding:40px;text-align:center;color:var(--ink-3);font-size:13px}
+
   /* ---- options ---- */
-  .opts{display:flex;gap:18px;flex-wrap:wrap;margin-bottom:6px}
-  .opt{display:flex;align-items:center;gap:7px;font-size:13px;color:var(--ink-2)}
-  .opt input{width:16px;height:16px;accent-color:var(--brand)}
-  .pill-stat{display:flex;gap:14px;flex-wrap:wrap;margin:14px 0 0}
-  .stat{background:var(--brand-soft);border-radius:10px;padding:10px 16px;min-width:110px}
+  .opts{display:flex;gap:16px;flex-wrap:wrap;margin-bottom:8px}
+  .opt{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--ink-2)}
+  .opt input{width:15px;height:15px;accent-color:var(--brand)}
+  .pill-stat{display:flex;gap:12px;flex-wrap:wrap;margin:12px 0 0}
+  .stat{background:var(--brand-soft);border-radius:9px;padding:10px 16px;min-width:100px}
   .stat .n{font-size:20px;font-weight:800;color:var(--brand-dark)}
-  .stat .l{font-size:11.5px;color:var(--ink-2);font-weight:600}
+  .stat .l{font-size:11px;color:var(--ink-2);font-weight:600;margin-top:1px}
   .stat.warn{background:#fffbeb}.stat.warn .n{color:var(--warn)}
   .stat.bad{background:#fef2f2}.stat.bad .n{color:var(--bad)}
-  .soon{font-size:12px;color:var(--ink-3);background:#f1f5f9;border-radius:8px;padding:10px 14px;margin-top:14px;border:1px dashed var(--line)}
+  .soon-note{font-size:12px;color:var(--ink-3);background:#f8fafc;border-radius:7px;padding:10px 14px;margin-top:12px;border:1px solid var(--line)}
+
+  /* ---- responsive ---- */
   @media(max-width:820px){
-    .sidebar{position:fixed;left:-300px;transition:.2s;height:100%;z-index:30}
+    .sidebar{position:fixed;left:-260px;transition:.22s;height:100%;z-index:30}
     .sidebar.show{left:0}
-    .main{padding:18px}
+    .main{padding:16px}
     .menu-toggle{display:inline-block!important}
   }
-  .menu-toggle{display:none;border:1px solid var(--line);background:#fff;border-radius:8px;padding:6px 11px;font-size:18px}
+  .menu-toggle{display:none;border:1px solid var(--line);background:#fff;border-radius:7px;padding:5px 10px;font-size:18px;line-height:1;color:var(--ink-2)}
 </style>
 </head>
 <body><div style="padding:40px;text-align:center;color:#94a3b8">กำลังโหลด…</div>
@@ -196,27 +218,40 @@ async function authSignOut(){
 /* ---------- Login screen ---------- */
 function renderLogin(msg){
   document.body.innerHTML = `
-    <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#eff6ff 0%,#dbeafe 100%);font-family:'Segoe UI','Sarabun',sans-serif">
-      <div style="background:#fff;border-radius:16px;box-shadow:0 10px 40px rgba(15,23,42,.12);padding:36px 32px;width:100%;max-width:380px">
-        <div style="font-size:22px;font-weight:800;color:#2563eb;margin-bottom:4px">Finance Tools</div>
-        <div style="color:#64748b;font-size:13px;margin-bottom:24px">เข้าสู่ระบบเพื่อใช้งาน</div>
-        <form id="lf" style="display:flex;flex-direction:column;gap:12px">
-          <label style="font-size:13px;font-weight:600;color:#334155">อีเมล
-            <input id="lfEmail" type="email" required autofocus
-              style="display:block;width:100%;margin-top:4px;padding:10px 12px;border:1px solid #e2e8f0;border-radius:8px;font-size:14px;font-family:inherit">
-          </label>
-          <label style="font-size:13px;font-weight:600;color:#334155">รหัสผ่าน
-            <input id="lfPwd" type="password" required
-              style="display:block;width:100%;margin-top:4px;padding:10px 12px;border:1px solid #e2e8f0;border-radius:8px;font-size:14px;font-family:inherit">
-          </label>
-          ${msg ? `<div style="color:#dc2626;font-size:13px;background:#fef2f2;padding:8px 12px;border-radius:8px">${esc(msg)}</div>` : ""}
-          <button type="submit" style="margin-top:6px;padding:11px;background:#2563eb;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer">เข้าสู่ระบบ</button>
-        </form>
+    <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:#f4f6f9;font-family:'Segoe UI','Sarabun',sans-serif">
+      <div style="width:100%;max-width:400px;padding:20px">
+        <div style="text-align:center;margin-bottom:32px">
+          <div style="display:inline-flex;width:48px;height:48px;border-radius:13px;background:linear-gradient(135deg,#1e3a8a,#2563eb);align-items:center;justify-content:center;color:#fff;font-weight:900;font-size:20px;margin-bottom:14px">F</div>
+          <div style="font-size:22px;font-weight:800;color:#0f172a;letter-spacing:-.4px">Finance Tools</div>
+          <div style="color:#94a3b8;font-size:13px;margin-top:4px">ระบบบริหารงานการเงิน</div>
+        </div>
+        <div style="background:#fff;border-radius:14px;box-shadow:0 2px 8px rgba(15,23,42,.07),0 12px 32px rgba(15,23,42,.07);padding:32px 28px">
+          <form id="lf" style="display:flex;flex-direction:column;gap:14px">
+            <div>
+              <label style="display:block;font-size:12px;font-weight:700;color:#475569;margin-bottom:5px;letter-spacing:.3px;text-transform:uppercase">อีเมล</label>
+              <input id="lfEmail" type="email" required autofocus placeholder="you@company.com"
+                style="display:block;width:100%;padding:10px 13px;border:1px solid #e2e8f0;border-radius:8px;font-size:14px;font-family:inherit;color:#0f172a;outline:none;transition:.15s"
+                onfocus="this.style.borderColor='#2563eb'" onblur="this.style.borderColor='#e2e8f0'">
+            </div>
+            <div>
+              <label style="display:block;font-size:12px;font-weight:700;color:#475569;margin-bottom:5px;letter-spacing:.3px;text-transform:uppercase">รหัสผ่าน</label>
+              <input id="lfPwd" type="password" required placeholder="••••••••"
+                style="display:block;width:100%;padding:10px 13px;border:1px solid #e2e8f0;border-radius:8px;font-size:14px;font-family:inherit;color:#0f172a;outline:none;transition:.15s"
+                onfocus="this.style.borderColor='#2563eb'" onblur="this.style.borderColor='#e2e8f0'">
+            </div>
+            ${msg ? `<div style="color:#dc2626;font-size:12.5px;background:#fef2f2;border:1px solid #fecaca;padding:9px 12px;border-radius:7px">${esc(msg)}</div>` : ""}
+            <button type="submit" id="lfBtn" style="margin-top:4px;padding:11px;background:#1e3a8a;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;transition:.15s;letter-spacing:.2px"
+              onmouseover="this.style.background='#172554'" onmouseout="this.style.background='#1e3a8a'">เข้าสู่ระบบ</button>
+          </form>
+        </div>
+        <div style="text-align:center;margin-top:18px;font-size:11.5px;color:#94a3b8">ระบบเฉพาะพนักงาน M Bark &amp; Benya</div>
       </div>
     </div>
   `;
   document.getElementById("lf").onsubmit = async (e) => {
     e.preventDefault();
+    const btn = document.getElementById("lfBtn");
+    btn.disabled = true; btn.textContent = "กำลังเข้าสู่ระบบ...";
     const email = document.getElementById("lfEmail").value.trim();
     const pwd = document.getElementById("lfPwd").value;
     try{
@@ -250,23 +285,22 @@ function buildShell(){
   <aside class="sidebar" id="sb"></aside>
   <div style="flex:1;min-width:0;display:flex;flex-direction:column">
     <div class="topbar">
-      <button class="menu-toggle" onclick="document.getElementById('sb').classList.toggle('show')">☰</button>
+      <button class="menu-toggle" onclick="document.getElementById('sb').classList.toggle('show')">≡</button>
       <div class="crumb" id="crumb"></div>
       <div class="date" id="topDate"></div>
       <div class="user">
-        <span>👤 ${esc(AUTH.email||"")}</span>
+        <span class="u-email">${esc(AUTH.email||"")}</span>
         <span class="pill">${esc(AUTH.role||"")}</span>
-        <button class="logout" onclick="authSignOut()">ออก</button>
+        <button class="logout" onclick="authSignOut()">ออกจากระบบ</button>
       </div>
     </div>
     <main class="main" id="main"></main>
   </div>
 </div>`;
-  // วันที่ภาษาไทย
   try{
     const today = new Date();
     const M=["ม.ค.","ก.พ.","มี.ค.","เม.ย.","พ.ค.","มิ.ย.","ก.ค.","ส.ค.","ก.ย.","ต.ค.","พ.ย.","ธ.ค."];
-    document.getElementById("topDate").innerHTML = `🗓 ${today.getDate()} ${M[today.getMonth()]} ${today.getFullYear()+543}`;
+    document.getElementById("topDate").textContent = `${today.getDate()} ${M[today.getMonth()]} ${today.getFullYear()+543}`;
   }catch(_){}
 }
 
@@ -275,7 +309,7 @@ function updateCrumb(){
   const co = COMPANIES.find(c=>c.id===state.company);
   const el = document.getElementById("crumb");
   if(!el || !t || !co) return;
-  el.innerHTML = `<span class="co">${esc(co.name)}</span> <span class="sep">›</span> <span style="color:var(--ink-3)">${esc(t.stage||"")}</span> <span class="sep">›</span> <span class="pg">${t.ic} ${esc(t.name)}</span>`;
+  el.innerHTML = `<span class="co">${esc(co.name)}</span> <span class="sep">/</span> <span style="color:var(--ink-3);font-size:12.5px">${esc(t.stage||"")}</span> <span class="sep">/</span> <span class="pg">${esc(t.name)}</span>`;
 }
 
 const COMPANIES = [
@@ -298,81 +332,81 @@ function applyCompanyTheme(id){
    ============================================================ */
 const TOOLS = [
   // ───── 1. ภาพรวม ─────
-  { id:"home", stage:"📊 ภาพรวม", ic:"🏠",
+  { id:"home", stage:"ภาพรวม", ic:"◈",
     name:"หน้าหลัก", desc:"Hub ของบริษัท",
     long:"ภาพรวม KPI · ทางลัดไปแต่ละโมดูล · สถานะระบบ",
     multiInput:true, status:"live" },
-  { id:"execdash", stage:"📊 ภาพรวม", ic:"📈",
+  { id:"execdash", stage:"ภาพรวม", ic:"↗",
     name:"Executive Dashboard", desc:"สำหรับผู้บริหาร",
     long:"Cash position · AR · AP · Sales · KPI หลัก — รวมจากทุก module",
     multiInput:true, status:"soon" },
 
   // ───── 2. การขาย ─────
-  { id:"dashboard", stage:"💼 การขาย (Sales)", ic:"📊",
+  { id:"dashboard", stage:"การขาย", ic:"◉",
     name:"Sales Dashboard", desc:"สรุปออเดอร์รายวัน",
     long:"คีย์ IV ถึงวันไหน · ยังค้างกี่ใบ · แยกตามช่องทาง — ข้อมูลจาก Supabase",
     multiInput:true, status:"live" },
-  { id:"bigseller", stage:"💼 การขาย (Sales)", ic:"🧾",
-    name:"BigSeller → คีย์ IV", desc:"อัป BigSeller รายวัน",
+  { id:"bigseller", stage:"การขาย", ic:"↑",
+    name:"BigSeller → IV", desc:"อัป BigSeller รายวัน",
     long:"อัปไฟล์ Big Seller → ตรวจ SKU · ลบออเดอร์ที่ไม่เอา · บันทึกลง Supabase พร้อมเทมเพลตคีย์ AutoKey",
     multiInput:true, status:"live" },
-  { id:"expressmatch", stage:"💼 การขาย (Sales)", ic:"🔗",
+  { id:"expressmatch", stage:"การขาย", ic:"⇌",
     name:"แมพ IV จาก Express", desc:"CSV → ผูก IV/SR",
-    long:"อัป CSV \"รายงานขายแบบเห็นออเดอร์\" → แมพเลข IV + SR (ใบลดหนี้/ยกเลิก) ให้ออเดอร์ใน Supabase",
+    long:"อัป CSV รายงานขายแบบเห็นออเดอร์ → แมพเลข IV + SR (ใบลดหนี้/ยกเลิก) ให้ออเดอร์ใน Supabase",
     multiInput:true, status:"live" },
-  { id:"exportkey", stage:"💼 การขาย (Sales)", ic:"📤",
-    name:"ส่งออกคีย์ออโต้คีย์", desc:"Filter → CSV",
+  { id:"exportkey", stage:"การขาย", ic:"↓",
+    name:"ส่งออกคีย์ AutoKey", desc:"Filter → CSV",
     long:"เลือกออเดอร์ที่ยังไม่คีย์ → รัน IV + ดาวน์โหลด CSV เพื่อนำไปคีย์ออโต้คีย์",
     multiInput:true, status:"live" },
 
   // ───── 3. ลูกหนี้ ─────
-  { id:"ar", stage:"💰 ลูกหนี้ (AR)", ic:"📒",
+  { id:"ar", stage:"ลูกหนี้ (AR)", ic:"◷",
     name:"AR Outstanding", desc:"ลูกหนี้คงค้าง + Aging",
     long:"ลูกหนี้คงค้าง · AR จริง vs AR บัญชี · Aging 0-30 / 31-60 / 61-90 / >90 · บันทึกรับเงิน",
     multiInput:true, status:"live" },
-  { id:"armap", stage:"💰 ลูกหนี้ (AR)", ic:"🔗",
+  { id:"armap", stage:"ลูกหนี้ (AR)", ic:"⇌",
     name:"Map ลูกหนี้ → เงินเข้า", desc:"3 ไฟล์ → พร้อมคีย์ RE",
     long:"วาง 3 ไฟล์ — ลูกหนี้คงค้าง · รายงานขาย · หลังบ้าน Shopee/TikTok → แมพ IV กับเงินเข้า แล้วออกเป็น 3 ชีตพร้อมคีย์ AutoKey",
     multiInput:true, status:"live" },
-  { id:"settle", stage:"💰 ลูกหนี้ (AR)", ic:"💵",
+  { id:"settle", stage:"ลูกหนี้ (AR)", ic:"≡",
     name:"จับยอด Settlement", desc:"Shopee / TikTok / Lazada",
     long:"อัปรายงานเงินเข้ากระเป๋าจากแพลตฟอร์ม → จับคู่ออเดอร์ ว่าเงินเข้าจริงกี่บาท วันไหน + คำนวณส่วนต่าง",
     sheetHints:{ contains:["settlement","income","รายได้","รายละเอียด"], exclude:["สรุป","summary"] }, status:"live" },
 
   // ───── 4. ธนาคาร ─────
-  { id:"bankrec", stage:"🏦 ธนาคาร", ic:"🔄",
+  { id:"bankrec", stage:"ธนาคาร", ic:"⇆",
     name:"Bank Reconciliation", desc:"กระทบ Statement",
     long:"อัป Statement → match รายการอัตโนมัติ · แสดงรายการไม่ match · ซ้ำ · ยังไม่บันทึก",
     multiInput:true, status:"soon" },
-  { id:"withdraw", stage:"🏦 ธนาคาร", ic:"💸",
+  { id:"withdraw", stage:"ธนาคาร", ic:"↙",
     name:"กระทบยอดถอนเงิน", desc:"แพลตฟอร์ม → แบงค์",
     long:"อัปรายงานถอนเงินจากแพลตฟอร์ม → จับว่ายอดเข้าบัญชีบริษัทมีออเดอร์ไหนบ้าง + สร้างรายการผ่านเช็ค",
     sheetHints:{ contains:["withdraw","ถอน","payout","transfer"], exclude:["สรุป","summary"] }, status:"live" },
 
   // ───── 5. เจ้าหนี้ ─────
-  { id:"ap", stage:"🧾 เจ้าหนี้ (AP)", ic:"📋",
+  { id:"ap", stage:"เจ้าหนี้ (AP)", ic:"◁",
     name:"AP Outstanding", desc:"เจ้าหนี้ค้างจ่าย",
     long:"เจ้าหนี้คงค้าง · วันครบกำหนด · ใกล้ครบกำหนด · ประวัติการจ่าย",
     multiInput:true, status:"soon" },
 
   // ───── 6. กระแสเงินสด ─────
-  { id:"cashflow", stage:"📉 กระแสเงินสด", ic:"💧",
+  { id:"cashflow", stage:"กระแสเงินสด", ic:"~",
     name:"Cash Flow Forecast", desc:"คาดการณ์ 7/30/90 วัน",
     long:"รายรับจาก AR + เงินรอถอน + คาดรับ · รายจ่ายจาก AP + ค่าใช้จ่ายประจำ → คาดการณ์เงินสดล่วงหน้า",
     multiInput:true, status:"soon" },
 
   // ───── 7. งาน / เอกสาร ─────
-  { id:"tasks", stage:"📌 งาน & เอกสาร", ic:"✅",
+  { id:"tasks", stage:"งาน & เอกสาร", ic:"☐",
     name:"Task Management", desc:"งานที่ต้องทำ",
     long:"ติดตามงาน — ออก IV · ติดตามลูกหนี้ · ตรวจเอกสาร · ผู้รับผิดชอบ · Due Date",
     multiInput:true, status:"soon" },
-  { id:"docs", stage:"📌 งาน & เอกสาร", ic:"📁",
+  { id:"docs", stage:"งาน & เอกสาร", ic:"▤",
     name:"Document Center", desc:"เก็บเอกสาร",
     long:"เก็บ IV · PO · สัญญา · Statement — ค้นหา + เปิดดูได้ทันที",
     multiInput:true, status:"soon" },
 
   // ───── 8. ตั้งค่า ─────
-  { id:"audit", stage:"⚙️ ตั้งค่า", ic:"📜",
+  { id:"audit", stage:"ตั้งค่า", ic:"≣",
     name:"Audit Trail", desc:"ประวัติการแก้ไข",
     long:"ใครแก้อะไร เมื่อไหร่ — เพื่อตรวจสอบย้อนหลัง",
     multiInput:true, status:"soon" },
@@ -445,7 +479,7 @@ function renderSidebar(){
     </div>
     <div class="company-switch" id="companySwitch"></div>
     <div class="sb-nav">${navHtml}</div>
-    <div class="sb-footer">Finance Tools v2 · 🔒 ${esc(AUTH.role||"")}</div>
+    <div class="sb-footer"><span class="dot"></span>Finance Tools v2 · ${esc(AUTH.role||"")}</div>
   `;
   renderCompanies();
 }
@@ -478,15 +512,15 @@ function renderTool(){
 
   document.getElementById("main").innerHTML = `
     <div class="page-head">
-      <h1>${t.ic} ${t.name} <span class="badge">${COMPANIES.find(c=>c.id===state.company).name}</span></h1>
+      <h1>${t.name} <span class="badge">${COMPANIES.find(c=>c.id===state.company).name}</span></h1>
       <div class="sub">${t.long}</div>
     </div>
 
     <div class="card">
-      <h3>1 · อัปโหลดไฟล์</h3>
+      <h3>อัปโหลดไฟล์</h3>
       <div class="note">รองรับ .xlsx, .xls, .csv — ลากไฟล์มาวาง หรือกดเลือกไฟล์</div>
       <div class="drop" id="drop">
-        <div class="big">📂</div>
+        <div class="big">↑</div>
         <div>ลากไฟล์มาวางที่นี่ หรือ <b>คลิกเพื่อเลือกไฟล์</b></div>
         <div class="sm">ไฟล์ถูกอ่านในเครื่องเท่านั้น ไม่มีการอัปขึ้นเซิร์ฟเวอร์</div>
         <input type="file" id="fileInput" accept=".xlsx,.xls,.csv" style="display:none" />
@@ -517,16 +551,15 @@ function renderTool(){
       </div>
       <div class="btnrow">
         <div class="dd" id="exportDD">
-          <button class="btn" onclick="document.getElementById('exportDD').classList.toggle('open')">⬇ ดาวน์โหลด ▾</button>
+          <button class="btn" onclick="document.getElementById('exportDD').classList.toggle('open')">ดาวน์โหลด ▾</button>
           <div class="dd-menu">
-            <button onclick="exportFile('xlsx')">📊 Excel (.xlsx) <span class="x">— จัดรูปแบบสวย</span></button>
-            <button onclick="exportFile('csv')">📄 CSV (.csv) <span class="x">— เบา นำเข้าต่อง่าย</span></button>
+            <button onclick="exportFile('xlsx')">Excel (.xlsx) <span class="x">จัดรูปแบบสวย</span></button>
+            <button onclick="exportFile('csv')">CSV (.csv) <span class="x">เบา นำเข้าต่อง่าย</span></button>
           </div>
         </div>
-        <button class="btn ghost" onclick="copyTSV()">📋 คัดลอกตาราง</button>
+        <button class="btn ghost" onclick="copyTSV()">คัดลอกตาราง</button>
       </div>
-      <div class="soon">⚙️ <b>logic เฉพาะของเครื่องมือนี้ยังไม่ใส่</b> — ตอนนี้แสดง/ส่งออกข้อมูลดิบจากไฟล์ได้แล้ว
-        ขั้นต่อไป: ส่งไฟล์ตัวอย่างจริงมา แล้วจะใส่สูตรคลีน/แมพ/ตรวจสอบเฉพาะของ "${t.name}" ให้ค่ะ</div>
+      <div class="soon-note"><b>logic เฉพาะของเครื่องมือนี้ยังไม่ใส่</b> — ส่งไฟล์ตัวอย่างจริงมา แล้วจะใส่สูตรคลีน/แมพ/ตรวจสอบเฉพาะของ "${t.name}" ให้ค่ะ</div>
     </div>` : `
     <div class="card"><div class="empty">ยังไม่มีข้อมูล — อัปโหลดไฟล์ด้านบนเพื่อเริ่ม</div></div>`}
   `;
@@ -2854,27 +2887,26 @@ function renderToolHome(){
     groups[t.stage].push(t);
   });
   document.getElementById("main").innerHTML = `
-    <div style="background:linear-gradient(135deg,var(--gradient-1) 0%,var(--gradient-2) 100%);border-radius:18px;padding:30px 32px;color:#fff;margin-bottom:24px;box-shadow:0 8px 28px rgba(0,0,0,.15)">
-      <div style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:14px">
-        <div>
-          <div style="font-size:13px;opacity:.85;font-weight:600;letter-spacing:.5px;text-transform:uppercase">${esc(co.brand)}</div>
-          <div style="font-size:30px;font-weight:800;margin-top:4px;letter-spacing:-.5px">Finance Operations · ${esc(co.name)}</div>
-          <div style="font-size:14px;opacity:.9;margin-top:6px">ระบบบริหารงานการเงิน — กดเลือกโมดูลจาก sidebar ซ้ายมือ</div>
-        </div>
-        <div style="font-size:48px;opacity:.7">${co.short==="MM"?"☕":"💊"}</div>
-      </div>
+    <div style="background:linear-gradient(135deg,var(--gradient-1) 0%,var(--gradient-2) 100%);border-radius:14px;padding:26px 28px;color:#fff;margin-bottom:20px">
+      <div style="font-size:11px;opacity:.7;font-weight:700;letter-spacing:.8px;text-transform:uppercase;margin-bottom:6px">${esc(co.brand)}</div>
+      <div style="font-size:24px;font-weight:800;letter-spacing:-.4px">Finance Operations</div>
+      <div style="font-size:13px;opacity:.8;margin-top:5px">${esc(co.name)} · เลือกโมดูลจาก sidebar หรือกดด้านล่าง</div>
     </div>
 
     ${Object.keys(groups).map(stage => `
-      <div class="card" style="padding:18px 22px">
-        <h3 style="font-size:14px;color:var(--ink-2);font-weight:800;margin-bottom:14px">${stage}</h3>
-        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px">
+      <div class="card" style="padding:16px 18px;margin-bottom:12px">
+        <div style="font-size:10.5px;font-weight:700;color:var(--ink-3);text-transform:uppercase;letter-spacing:.7px;margin-bottom:12px">${stage}</div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px">
           ${groups[stage].map(t => `
-            <button onclick="setTool('${t.id}')" style="text-align:left;padding:14px 16px;border:1px solid var(--line);background:#fff;border-radius:12px;cursor:pointer;transition:.15s;position:relative" onmouseover="this.style.borderColor='var(--brand)';this.style.background='var(--brand-soft)'" onmouseout="this.style.borderColor='var(--line)';this.style.background='#fff'">
-              <div style="font-size:22px;margin-bottom:4px">${t.ic}</div>
-              <div style="font-weight:700;font-size:13.5px;color:var(--ink)">${t.name}</div>
-              <div style="font-size:11.5px;color:var(--ink-3);margin-top:2px">${t.desc}</div>
-              ${t.status==="soon" ? `<span style="position:absolute;top:8px;right:8px;font-size:9.5px;background:#fbbf24;color:#78350f;padding:1px 7px;border-radius:999px;font-weight:700">เร็วๆนี้</span>` : ""}
+            <button onclick="setTool('${t.id}')" style="text-align:left;padding:13px 14px;border:1px solid var(--line);background:#fff;border-radius:9px;cursor:pointer;transition:.12s;position:relative;display:flex;align-items:flex-start;gap:10px"
+              onmouseover="this.style.background='var(--brand-soft)';this.style.borderColor='var(--brand)'"
+              onmouseout="this.style.background='#fff';this.style.borderColor='var(--line)'">
+              <span style="font-size:16px;color:var(--brand);font-weight:700;flex-shrink:0;margin-top:1px;line-height:1.2">${t.ic}</span>
+              <span>
+                <span style="display:block;font-weight:700;font-size:13px;color:var(--ink)">${t.name}</span>
+                <span style="font-size:11.5px;color:var(--ink-3);margin-top:2px;display:block">${t.desc}</span>
+              </span>
+              ${t.status==="soon" ? `<span style="position:absolute;top:8px;right:8px;font-size:9px;background:#fef3c7;color:#92400e;padding:2px 6px;border-radius:999px;font-weight:700;letter-spacing:.2px">เร็วๆนี้</span>` : ""}
             </button>`).join("")}
         </div>
       </div>
@@ -2974,10 +3006,10 @@ async function renderToolAr(){
   const d = arGet();
   document.getElementById("main").innerHTML = `
     <div class="page-head">
-      <h1>${t.ic} ${t.name} <span class="badge">${COMPANIES.find(c=>c.id===co).name}</span></h1>
+      <h1>${t.name} <span class="badge">${COMPANIES.find(c=>c.id===co).name}</span></h1>
       <div class="sub">${t.long}</div>
     </div>
-    <div class="card"><div class="empty">⏳ กำลังโหลดข้อมูลลูกหนี้...</div></div>
+    <div class="card"><div class="empty" style="color:var(--ink-3)">กำลังโหลดข้อมูล...</div></div>
   `;
   try{ await arLoad(); }
   catch(err){
@@ -2996,7 +3028,7 @@ async function renderToolAr(){
 
   document.getElementById("main").innerHTML = `
     <div class="page-head">
-      <h1>${t.ic} ${t.name} <span class="badge">${COMPANIES.find(c=>c.id===co).name}</span></h1>
+      <h1>${t.name} <span class="badge">${COMPANIES.find(c=>c.id===co).name}</span></h1>
       <div class="sub">${t.long}</div>
     </div>
 
@@ -3023,11 +3055,11 @@ async function renderToolAr(){
     <div class="card">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
         <div class="tabs" style="margin-bottom:0;flex:1">
-          <button class="${d.tab==='real'?'active':''}" onclick="arSetTab('real')">📋 AR จริง (${rows.filter(r=>r.out>0).length})</button>
-          <button class="${d.tab==='acct'?'active':''}" onclick="arSetTab('acct')">📑 AR บัญชี + Aging (${rowsIv.filter(r=>r.out>0).length})</button>
-          <button class="${d.tab==='hist'?'active':''}" onclick="arSetTab('hist')">📜 ประวัติรับเงิน (${d.receipts.length})</button>
+          <button class="${d.tab==='real'?'active':''}" onclick="arSetTab('real')">AR จริง <span class="c">${rows.filter(r=>r.out>0).length}</span></button>
+          <button class="${d.tab==='acct'?'active':''}" onclick="arSetTab('acct')">AR บัญชี + Aging <span class="c">${rowsIv.filter(r=>r.out>0).length}</span></button>
+          <button class="${d.tab==='hist'?'active':''}" onclick="arSetTab('hist')">ประวัติรับเงิน <span class="c">${d.receipts.length}</span></button>
         </div>
-        <button class="btn ghost" style="margin-left:10px;font-size:12px;white-space:nowrap" onclick="arRefresh()">🔄 รีเฟรช</button>
+        <button class="btn ghost btn sm" style="margin-left:10px;white-space:nowrap" onclick="arRefresh()">รีเฟรช</button>
       </div>
       ${d.tab==='real' ? arTabReal(rows, canWrite)
       : d.tab==='acct' ? arTabAcct(rowsIv, canWrite)
@@ -3060,11 +3092,11 @@ function arTabReal(rows, canWrite){
           <td style="text-align:right;color:var(--ok)">${r.recv>0?arFmt(r.recv):'—'}</td>
           <td style="text-align:right;font-weight:700;color:var(--bad)">${arFmt(r.out)}</td>
           <td><span style="font-size:12px;color:${arAgingColor(r.days)}">${r.days} วัน</span></td>
-          ${canWrite?`<td><button class="btn ghost" style="padding:4px 10px;font-size:12px" onclick="arOpenReceipt(${JSON.stringify({order_no:r.order_no,iv_no:r.iv_no||'',out:r.out,amt:r.amt}).replace(/"/g,'&quot;')})">💵 รับเงิน</button></td>`:''}
+          ${canWrite?`<td><button class="btn ghost btn sm" onclick="arOpenReceipt(${JSON.stringify({order_no:r.order_no,iv_no:r.iv_no||'',out:r.out,amt:r.amt}).replace(/"/g,'&quot;')})">บันทึกรับเงิน</button></td>`:''}
         </tr>`).join("")}
       </tbody>
     </table></div>
-    <div style="color:var(--ink-3);font-size:12px;margin-top:10px">แสดง ${outstanding.length} ออเดอร์ที่ยังค้างชำระ (ซ่อนที่รับครบแล้ว)</div>
+    <div style="color:var(--ink-3);font-size:12px;margin-top:10px">${outstanding.length} ออเดอร์ค้างชำระ</div>
   `;
 }
 
@@ -3103,7 +3135,7 @@ function arTabAcct(rowsIv, canWrite){
         <td style="text-align:right;color:var(--ok)">${r.recv>0?arFmt(r.recv):'—'}</td>
         <td style="text-align:right;font-weight:700;color:${arAgingColor(r.days)}">${arFmt(r.out)}</td>
         <td><span style="font-size:12px;font-weight:700;color:${arAgingColor(r.days)}">${arAgingLabel(r.days)}</span></td>
-        ${canWrite?`<td><button class="btn ghost" style="padding:4px 10px;font-size:12px" onclick="arOpenReceipt(${JSON.stringify({order_no:r.order_no,iv_no:r.iv_no,out:r.out,amt:r.amt}).replace(/"/g,'&quot;')})">💵 รับเงิน</button></td>`:''}
+        ${canWrite?`<td><button class="btn ghost btn sm" onclick="arOpenReceipt(${JSON.stringify({order_no:r.order_no,iv_no:r.iv_no,out:r.out,amt:r.amt}).replace(/"/g,'&quot;')})">บันทึกรับเงิน</button></td>`:''}
       </tr>`).join("")}
     </tbody>
   </table></div>`;
@@ -3146,8 +3178,8 @@ function arOpenReceipt(info){
   wrap.style.cssText = "position:fixed;inset:0;background:rgba(15,23,42,.5);z-index:1000;display:flex;align-items:center;justify-content:center;padding:20px";
   wrap.innerHTML = `
     <div style="background:#fff;border-radius:14px;padding:28px;max-width:440px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.3)">
-      <h3 style="margin:0 0 4px;font-size:17px">💵 บันทึกรับเงิน</h3>
-      <div style="color:var(--ink-2);font-size:13px;margin-bottom:18px">ออเดอร์ <b>${esc(info.order_no)}</b>${info.iv_no?' · IV '+esc(info.iv_no):''} · ค้างรับ <b style="color:var(--bad)">฿${arFmt(info.out)}</b></div>
+      <h3 style="margin:0 0 4px;font-size:16px;font-weight:800">บันทึกรับเงิน</h3>
+      <div style="color:var(--ink-3);font-size:12.5px;margin-bottom:18px">ออเดอร์ <b style="color:var(--ink)">${esc(info.order_no)}</b>${info.iv_no?' · IV '+esc(info.iv_no):''} · ค้างรับ <b style="color:var(--bad)">฿${arFmt(info.out)}</b></div>
       <div style="display:grid;gap:12px">
         <label style="font-size:13px;font-weight:600;color:var(--ink)">วันที่รับเงิน
           <input id="arRDate" type="date" value="${today}"
@@ -3171,7 +3203,7 @@ function arOpenReceipt(info){
         <button onclick="document.getElementById('arReceiptModal').remove()"
           style="padding:9px 16px;border:1px solid var(--line);background:#fff;border-radius:8px;font-weight:600;cursor:pointer">ยกเลิก</button>
         <button id="arRSaveBtn" onclick="arSaveReceipt(${JSON.stringify(info).replace(/"/g,'&quot;')})"
-          style="padding:9px 20px;background:var(--ok);color:#fff;border:none;border-radius:8px;font-weight:700;cursor:pointer">✅ บันทึก</button>
+          style="padding:9px 20px;background:var(--ok);color:#fff;border:none;border-radius:8px;font-weight:700;cursor:pointer;font-size:13px">บันทึก</button>
       </div>
     </div>
   `;
@@ -3220,14 +3252,14 @@ async function arSaveReceipt(info){
 function renderToolSoon(t){
   document.getElementById("main").innerHTML = `
     <div class="page-head">
-      <h1>${t.ic} ${t.name} <span class="badge">${COMPANIES.find(c=>c.id===state.company).name}</span></h1>
+      <h1>${t.name} <span class="badge">${COMPANIES.find(c=>c.id===state.company).name}</span></h1>
       <div class="sub">${t.long}</div>
     </div>
-    <div class="card" style="text-align:center;padding:48px 30px">
-      <div style="font-size:54px;margin-bottom:10px">🚧</div>
-      <div style="font-size:18px;font-weight:700;color:var(--ink);margin-bottom:6px">โมดูลนี้กำลังพัฒนา</div>
-      <div style="color:var(--ink-2);font-size:14px;max-width:520px;margin:0 auto">${t.long}</div>
-      <div style="background:var(--brand-soft);color:var(--brand-dark);font-size:12px;padding:8px 14px;border-radius:999px;margin-top:18px;display:inline-block;font-weight:600">📅 อยู่ใน roadmap — รอแนนระบุลำดับ</div>
+    <div class="card" style="padding:48px 30px;text-align:center">
+      <div style="width:48px;height:48px;border-radius:12px;background:var(--brand-soft);display:flex;align-items:center;justify-content:center;margin:0 auto 16px;font-size:22px;color:var(--brand);font-weight:800">${t.ic}</div>
+      <div style="font-size:17px;font-weight:700;color:var(--ink);margin-bottom:6px">กำลังพัฒนา</div>
+      <div style="color:var(--ink-3);font-size:13px;max-width:480px;margin:0 auto;line-height:1.7">${t.long}</div>
+      <div style="margin-top:20px;display:inline-block;background:var(--brand-soft);color:var(--brand-dark);font-size:12px;padding:6px 16px;border-radius:999px;font-weight:600">อยู่ใน roadmap</div>
     </div>
   `;
 }

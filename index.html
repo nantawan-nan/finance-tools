@@ -6,6 +6,8 @@
 <title>Finance Tools — เครื่องมือคลีนข้อมูล</title>
 <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-chart-treemap@2.3.0/dist/chartjs-chart-treemap.min.js"></script>
 <style>
   :root{
     --brand:#1e3a8a; --brand-dark:#172554; --brand-soft:#eff6ff;
@@ -337,9 +339,9 @@ const TOOLS = [
     long:"ภาพรวม KPI · ทางลัดไปแต่ละโมดูล · สถานะระบบ",
     multiInput:true, status:"live" },
   { id:"execdash", stage:"ภาพรวม", ic:"↗",
-    name:"Executive Dashboard", desc:"สำหรับผู้บริหาร",
-    long:"Cash position · AR · AP · Sales · KPI หลัก — รวมจากทุก module",
-    multiInput:true, status:"soon" },
+    name:"Executive Cash Flow", desc:"แดชบอร์ดผู้บริหาร",
+    long:"อัปไฟล์ \"รายละเอียดเงินรับ-เงินจ่าย\" → 6 แดชบอร์ด: Summary · Activity · Category · Bank · Explorer · Statement",
+    multiInput:true, status:"live", adminOnly:true },
 
   // ───── 2. การขาย ─────
   { id:"dashboard", stage:"การขาย", ic:"◉",
@@ -502,6 +504,7 @@ function renderTool(){
   updateCrumb();
   if (t.multiInput) {
     if (t.id==="users")    return renderToolUsers();
+    if (t.id==="execdash") return renderToolExecDash();
     if (t.id==="ar")       return renderToolAr();
     if (t.id==="armap") return renderToolArmap();
     if (t.id==="bigseller") return renderToolBigSeller();
@@ -3783,6 +3786,975 @@ async function usrConfirmDelete(uid, email){
   }catch(e){
     alert("ลบไม่สำเร็จ: " + (e.message||e));
   }
+}
+
+/* ============================================================
+   EXECUTIVE CASH FLOW DASHBOARD — admin only
+   อัปไฟล์ "รายละเอียดเงินรับ-เงินจ่าย" หลายบัญชี/หลายเดือน
+   ============================================================ */
+state.ed = state.ed || { file:null, data:null, tab:"summary", err:null, monthFilter:"all", drill:null };
+
+const ED_COLORS = {
+  brand:"#4F8AF7", brand2:"#A6C8FF", bg:"#EEF5FF",
+  in:"#16a34a", out:"#dc2626", neutral:"#64748b",
+  op:"#4F8AF7", inv:"#f59e0b", fin:"#8b5cf6"
+};
+const BANK_KEYS = ["BBL","SCB","KBANK","KTB","BAY","TTB","TMB","GSB","UOB","CIMB","KKP","TISCO","ICBC","LH","HSBC"];
+
+function edFmt(n){
+  if(n==null || isNaN(n)) return "—";
+  const v = Number(n);
+  const sign = v < 0 ? "-" : "";
+  return sign + "฿" + Math.abs(v).toLocaleString("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2});
+}
+function edFmtCompact(n){
+  if(!n) return "0";
+  const v = Math.abs(n);
+  if(v >= 1e6) return (n/1e6).toFixed(2) + "M";
+  if(v >= 1e3) return (n/1e3).toFixed(1) + "K";
+  return n.toFixed(0);
+}
+function edParseAcctHeader(s){
+  // "S/A #BBL 865-0-98040-5 (ฝ่าย ออนไลน์)"
+  s = String(s||"").trim();
+  let bank = "—", no = "", nick = "";
+  for(const k of BANK_KEYS){
+    if(s.toUpperCase().includes(k)){ bank = k; break; }
+  }
+  const m = s.match(/#\s*[A-Z]+\s+([\d\-]+)/);
+  if(m) no = m[1];
+  const p = s.match(/\(([^)]+)\)/);
+  if(p) nick = p[1].trim();
+  return { bank, no, nick, raw:s };
+}
+function edActivityKey(s){
+  s = String(s||"").trim();
+  if(s.includes("ดำเนินงาน")) return "operating";
+  if(s.includes("ลงทุน"))     return "investing";
+  if(s.includes("จัดหา"))     return "financing";
+  return "other";
+}
+function edActivityLabel(k){
+  return ({operating:"ดำเนินงาน",investing:"ลงทุน",financing:"จัดหาเงิน",other:"อื่น ๆ"})[k] || k;
+}
+
+/* ---------- Parser ---------- */
+function edParse(book){
+  // book = { sheets:{name:rows[][]}, names }
+  const result = {
+    company:"",
+    months:[],            // [{ key:"2026.01", year, month, accounts:[{header, opening, closing, computed, ok, items:[]}] }]
+    transactions:[],      // flat: { date, dateISO, mne, ref, out, in, balance, status, note, category, activity, activityKey, bank, accountNo, accountNick, month, accountKey }
+    errors:[],
+    accounts:{},          // accountKey → { bank, no, nick, months:{m: {opening,closing,computed,ok}} }
+  };
+
+  for(const name of book.names){
+    if(!/^\d{4}\.\d{2}$/.test(name)) continue;
+    const [y,m] = name.split(".").map(Number);
+    const rows = book.sheets[name] || [];
+    if(!rows.length) continue;
+
+    // capture company from r1
+    if(!result.company){
+      for(let r=0;r<Math.min(5,rows.length);r++){
+        for(const v of (rows[r]||[])){
+          const s = String(v||"").trim();
+          if(s.startsWith("บริษัท")){ result.company = s; break; }
+        }
+        if(result.company) break;
+      }
+    }
+
+    const monthObj = { key:name, year:y, month:m, accounts:[] };
+    let curAcct = null;
+    let pendingHeader = false;     // เห็น "S/A #..." แล้ว รอผ่าน 3 บรรทัด (date range, headers, ยอดยกมา)
+
+    for(let r=0;r<rows.length;r++){
+      const row = rows[r] || [];
+      // detect new account: column D (idx 3) มี "S/A" หรือ "SA #" หรือเริ่มด้วย "#"
+      const cell0 = String(row[0]||"").trim();
+      const cell3 = String(row[3]||"").trim();
+      if(cell3.toUpperCase().startsWith("S/A") || cell3.toUpperCase().startsWith("SA #") || /^#[A-Z]/.test(cell3)){
+        const info = edParseAcctHeader(cell3);
+        const accountKey = info.bank + "·" + info.no;
+        curAcct = {
+          header: info,
+          accountKey,
+          opening: 0, closing: null, computed: 0,
+          totalIn: 0, totalOut: 0,
+          items: []
+        };
+        monthObj.accounts.push(curAcct);
+        pendingHeader = true;
+        continue;
+      }
+      if(!curAcct) continue;
+
+      // ยอดยกมา row: column C === "ยอดยกมา" หรือมีคำว่า "ยกมา"
+      const cell2 = String(row[2]||"").trim();
+      if(cell2.includes("ยกมา")){
+        curAcct.opening = Number(row[5]) || 0;
+        curAcct.computed = curAcct.opening;
+        pendingHeader = false;
+        continue;
+      }
+      // skip header rows + footer
+      if(cell0 === "วันที่" || cell0.includes("ผู้ตรวจ") || cell0.includes("วันที่_")) continue;
+      if(pendingHeader) continue;
+
+      // transaction row — must have a real date in col A
+      const d = row[0];
+      if(!(d instanceof Date)) continue;
+
+      const out = Number(row[3]) || 0;
+      const inc = Number(row[4]) || 0;
+      const bal = (row[5] == null || row[5] === "") ? null : Number(row[5]);
+      if(out === 0 && inc === 0) continue;
+
+      const dateISO = d.toISOString().slice(0,10);
+      const cat = String(row[8]||"").trim() || "ไม่ระบุหมวด";
+      const actStr = String(row[9]||"").trim();
+      const actKey = edActivityKey(actStr);
+
+      const tx = {
+        date: d, dateISO,
+        mne: String(row[1]||"").trim(),
+        ref: String(row[2]||"").trim(),
+        out, in: inc, balance: bal,
+        status: String(row[6]||"").trim(),
+        note:   String(row[7]||"").trim(),
+        category: cat,
+        activity: actStr || "ไม่ระบุ",
+        activityKey: actKey,
+        bank: curAcct.header.bank,
+        accountNo: curAcct.header.no,
+        accountNick: curAcct.header.nick,
+        accountKey: curAcct.accountKey,
+        month: name
+      };
+      curAcct.items.push(tx);
+      curAcct.totalIn  += inc;
+      curAcct.totalOut += out;
+      curAcct.computed += (inc - out);
+      if(bal != null) curAcct.closing = bal;
+      result.transactions.push(tx);
+    }
+
+    // reconcile each account in this month
+    for(const a of monthObj.accounts){
+      if(a.closing == null) a.closing = a.computed;
+      const diff = Math.abs(a.computed - a.closing);
+      a.ok = diff < 0.02;       // ทศนิยมยอม 0.02 บาท (rounding)
+      a.diff = a.computed - a.closing;
+      if(!a.ok){
+        result.errors.push({
+          month: name, account: a.accountKey, bank: a.header.bank, no: a.header.no,
+          opening: a.opening, in: a.totalIn, out: a.totalOut,
+          expected: a.opening + a.totalIn - a.totalOut,
+          got: a.closing, diff: a.diff
+        });
+      }
+      // accumulate per-account totals
+      if(!result.accounts[a.accountKey]){
+        result.accounts[a.accountKey] = {
+          bank: a.header.bank, no: a.header.no, nick: a.header.nick,
+          months:{}, totalIn:0, totalOut:0, firstOpen:null, lastClose:null
+        };
+      }
+      const accSum = result.accounts[a.accountKey];
+      accSum.months[name] = { opening:a.opening, closing:a.closing, in:a.totalIn, out:a.totalOut, ok:a.ok };
+      accSum.totalIn  += a.totalIn;
+      accSum.totalOut += a.totalOut;
+      if(accSum.firstOpen == null) accSum.firstOpen = a.opening;
+      accSum.lastClose = a.closing;
+    }
+
+    result.months.push(monthObj);
+  }
+  result.months.sort((a,b)=> a.key < b.key ? -1 : 1);
+  result.transactions.sort((a,b)=> a.date - b.date);
+  return result;
+}
+
+/* ---------- Aggregations ---------- */
+function edAgg(data, monthFilter){
+  // monthFilter: "all" หรือ "2026.01"
+  const txs = data.transactions.filter(t => monthFilter==="all" || t.month===monthFilter);
+
+  const totalIn  = txs.reduce((s,t)=>s+t.in, 0);
+  const totalOut = txs.reduce((s,t)=>s+t.out, 0);
+  const net = totalIn - totalOut;
+
+  // opening/closing for the period
+  let opening = 0, closing = 0;
+  if(monthFilter==="all"){
+    // sum of firstOpen + sum of lastClose across all accounts
+    for(const k in data.accounts){
+      opening += data.accounts[k].firstOpen || 0;
+      closing += data.accounts[k].lastClose || 0;
+    }
+  } else {
+    const m = data.months.find(x=>x.key===monthFilter);
+    if(m) for(const a of m.accounts){
+      opening += a.opening; closing += (a.closing || a.computed);
+    }
+  }
+
+  // by activity
+  const byAct = { operating:{in:0,out:0}, investing:{in:0,out:0}, financing:{in:0,out:0}, other:{in:0,out:0} };
+  for(const t of txs){
+    byAct[t.activityKey].in  += t.in;
+    byAct[t.activityKey].out += t.out;
+  }
+
+  // by category
+  const byCat = {};
+  for(const t of txs){
+    const k = t.category;
+    if(!byCat[k]) byCat[k] = { in:0, out:0, count:0, net:0 };
+    byCat[k].in  += t.in;
+    byCat[k].out += t.out;
+    byCat[k].count++;
+    byCat[k].net = byCat[k].in - byCat[k].out;
+  }
+
+  // by bank account
+  const byAcct = {};
+  for(const t of txs){
+    const k = t.accountKey;
+    if(!byAcct[k]) byAcct[k] = { bank:t.bank, no:t.accountNo, nick:t.accountNick, in:0, out:0, count:0, net:0 };
+    byAcct[k].in  += t.in;
+    byAcct[k].out += t.out;
+    byAcct[k].count++;
+    byAcct[k].net = byAcct[k].in - byAcct[k].out;
+  }
+
+  // by month timeline
+  const byMonth = {};
+  for(const t of txs){
+    if(!byMonth[t.month]) byMonth[t.month] = { in:0, out:0, op:{in:0,out:0}, inv:{in:0,out:0}, fin:{in:0,out:0} };
+    byMonth[t.month].in += t.in;
+    byMonth[t.month].out += t.out;
+    const ak = t.activityKey==="other" ? "op" : ({operating:"op",investing:"inv",financing:"fin"})[t.activityKey];
+    if(byMonth[t.month][ak]){
+      byMonth[t.month][ak].in  += t.in;
+      byMonth[t.month][ak].out += t.out;
+    }
+  }
+
+  return { txs, totalIn, totalOut, net, opening, closing, byAct, byCat, byAcct, byMonth };
+}
+
+/* ---------- Chart helpers ---------- */
+const _edCharts = {};
+function edDestroyChart(id){
+  if(_edCharts[id]){ try{ _edCharts[id].destroy(); }catch(e){} delete _edCharts[id]; }
+}
+function edMakeChart(id, cfg){
+  edDestroyChart(id);
+  const el = document.getElementById(id);
+  if(!el || !window.Chart) return;
+  _edCharts[id] = new Chart(el.getContext("2d"), cfg);
+}
+
+/* ---------- Main render ---------- */
+function renderToolExecDash(){
+  const t = TOOLS.find(x=>x.id==="execdash");
+  const co = COMPANIES.find(c=>c.id===state.company);
+  const main = document.getElementById("main");
+
+  if(AUTH.role !== "admin"){
+    main.innerHTML = `
+      <div class="page-head"><h1>${t.name}</h1></div>
+      <div class="card" style="text-align:center;padding:48px 20px">
+        <div style="font-size:16px;font-weight:700;color:var(--bad);margin-bottom:6px">ไม่มีสิทธิ์เข้าถึง</div>
+        <div style="color:var(--ink-3);font-size:13px">หน้านี้สำหรับ admin เท่านั้น</div>
+      </div>`;
+    return;
+  }
+
+  const d = state.ed;
+
+  // No data yet → upload screen
+  if(!d.data){
+    main.innerHTML = `
+      <div class="page-head">
+        <h1>${t.name} <span class="badge">${esc(co.name)}</span></h1>
+        <div class="sub">${t.long}</div>
+      </div>
+      <div class="card">
+        <h3>อัปโหลดไฟล์</h3>
+        <div class="note">ไฟล์ Excel "รายละเอียดเงินรับ-เงินจ่าย" หลายบัญชี/หลายเดือน · 1 ชีต = 1 เดือน · ชื่อชีตรูปแบบ YYYY.MM</div>
+        <div class="drop" id="edDrop">
+          <div class="big">↑</div>
+          <div>ลากไฟล์มาวางที่นี่ หรือ <b>คลิกเพื่อเลือกไฟล์</b></div>
+          <div class="sm">ไฟล์อ่านในเครื่องเท่านั้น ไม่อัปขึ้นเซิร์ฟเวอร์</div>
+          <input type="file" id="edInput" accept=".xlsx,.xls" style="display:none">
+        </div>
+        ${d.err ? `<div style="background:#fef2f2;color:#991b1b;padding:10px 14px;border-radius:8px;margin-top:12px;font-size:13px">${esc(d.err)}</div>` : ""}
+        <div class="soon-note" style="margin-top:14px">
+          <b>ระบบจะกระทบยอดทุกบัญชีทุกเดือนก่อนแสดงผล</b> — ถ้าเปิดต้น + รับ − จ่าย ≠ ปิดงวด จะแจ้ง error ไม่ดำเนินการต่อ ป้องกันตัวเลขเพี้ยน
+        </div>
+      </div>`;
+    const drop = document.getElementById("edDrop");
+    const inp  = document.getElementById("edInput");
+    drop.onclick = ()=>inp.click();
+    drop.ondragover = e=>{e.preventDefault(); drop.classList.add("over");};
+    drop.ondragleave = ()=>drop.classList.remove("over");
+    drop.ondrop = e=>{ e.preventDefault(); drop.classList.remove("over"); if(e.dataTransfer.files[0]) edHandleFile(e.dataTransfer.files[0]); };
+    inp.onchange = e=>{ if(e.target.files[0]) edHandleFile(e.target.files[0]); };
+    return;
+  }
+
+  // Has data — show errors first if any
+  if(d.data.errors.length){
+    main.innerHTML = `
+      <div class="page-head">
+        <h1>${t.name} <span class="badge">${esc(co.name)}</span></h1>
+        <div class="sub">กระทบยอดไม่ผ่าน — แก้ไฟล์แล้วอัปใหม่</div>
+      </div>
+      <div class="card" style="border-left:4px solid var(--bad)">
+        <h3 style="color:var(--bad)">พบ ${d.data.errors.length} รายการที่กระทบยอดไม่ผ่าน</h3>
+        <div class="note">เปิดต้นงวด + ยอดรับ − ยอดจ่าย ต้องเท่ากับยอดคงเหลือปลายงวด แต่บางบัญชี/เดือนคำนวณไม่ตรง — ตรวจไฟล์ก่อน</div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>เดือน</th><th>ธนาคาร</th><th>เลขบัญชี</th><th style="text-align:right">เปิดต้น</th><th style="text-align:right">รับ</th><th style="text-align:right">จ่าย</th><th style="text-align:right">ควรเป็น</th><th style="text-align:right">ในไฟล์</th><th style="text-align:right;color:var(--bad)">ส่วนต่าง</th></tr></thead>
+          <tbody>${d.data.errors.map(e=>`
+            <tr><td>${esc(e.month)}</td><td><b>${esc(e.bank)}</b></td><td><code>${esc(e.no)}</code></td>
+              <td style="text-align:right">${edFmt(e.opening)}</td>
+              <td style="text-align:right;color:var(--ok)">${edFmt(e.in)}</td>
+              <td style="text-align:right;color:var(--bad)">${edFmt(e.out)}</td>
+              <td style="text-align:right">${edFmt(e.expected)}</td>
+              <td style="text-align:right">${edFmt(e.got)}</td>
+              <td style="text-align:right;color:var(--bad);font-weight:700">${edFmt(e.diff)}</td></tr>`).join("")}
+          </tbody></table></div>
+        <div class="btnrow">
+          <button class="btn" onclick="edReset()">อัปไฟล์ใหม่</button>
+          <button class="btn ghost" onclick="edForceShow()">แสดงผลทั้ง ๆ ที่ไม่ผ่าน (ไม่แนะนำ)</button>
+        </div>
+      </div>`;
+    return;
+  }
+
+  edRenderDashboard();
+}
+
+function edHandleFile(file){
+  const d = state.ed;
+  d.file = file.name;
+  d.err = null;
+  const reader = new FileReader();
+  reader.onload = e => {
+    try{
+      const wb = XLSX.read(e.target.result, { type:"array", cellDates:true });
+      const sheets = {}, names = wb.SheetNames.slice();
+      names.forEach(n => { sheets[n] = XLSX.utils.sheet_to_json(wb.Sheets[n], { header:1, defval:"", blankrows:false }); });
+      d.data = edParse({ sheets, names });
+      if(!d.data.months.length){
+        d.data = null;
+        d.err = "ไม่พบชีตในรูปแบบ YYYY.MM (เช่น 2026.01)";
+      }
+      renderToolExecDash();
+    }catch(err){
+      d.err = "อ่านไฟล์ไม่สำเร็จ: " + (err.message||err);
+      renderToolExecDash();
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+function edReset(){
+  state.ed = { file:null, data:null, tab:"summary", err:null, monthFilter:"all", drill:null };
+  renderToolExecDash();
+}
+function edForceShow(){
+  // ข้าม validation
+  if(!state.ed.data) return;
+  state.ed.data.errors = [];
+  renderToolExecDash();
+}
+function edSetTab(tab){ state.ed.tab = tab; edRenderDashboard(); }
+function edSetMonth(m){ state.ed.monthFilter = m; edRenderDashboard(); }
+
+/* ---------- Render dashboard with 6 tabs ---------- */
+function edRenderDashboard(){
+  const t = TOOLS.find(x=>x.id==="execdash");
+  const co = COMPANIES.find(c=>c.id===state.company);
+  const d = state.ed;
+  const data = d.data;
+  const main = document.getElementById("main");
+
+  // ทำลาย charts เก่าก่อน re-render
+  Object.keys(_edCharts).forEach(edDestroyChart);
+
+  const monthOptions = `<option value="all">รวมทั้งปี (${data.months.length} เดือน)</option>` +
+    data.months.map(m => `<option value="${m.key}" ${d.monthFilter===m.key?'selected':''}>${m.key}</option>`).join("");
+
+  const tabs = [
+    { id:"summary",  l:"Executive Summary" },
+    { id:"activity", l:"Cash Flow by Activity" },
+    { id:"category", l:"Category Analysis" },
+    { id:"banks",    l:"Bank Accounts" },
+    { id:"explorer", l:"Transaction Explorer" },
+    { id:"stmt",     l:"งบกระแสเงินสด" },
+  ];
+
+  main.innerHTML = `
+    <div class="page-head" style="display:flex;justify-content:space-between;align-items:flex-end;gap:14px;flex-wrap:wrap">
+      <div>
+        <h1>${t.name} <span class="badge">${esc(co.name)}</span></h1>
+        <div class="sub">${esc(data.company||"—")} · ${data.transactions.length.toLocaleString()} รายการ · ${Object.keys(data.accounts).length} บัญชี · ${data.months.length} เดือน · <span style="color:var(--ok)">กระทบยอดผ่านทุกบัญชี ✓</span></div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <label style="font-size:12px;color:var(--ink-3);font-weight:600">ช่วงเวลา</label>
+        <select onchange="edSetMonth(this.value)" style="padding:6px 10px;border:1px solid var(--line);border-radius:7px;font-size:13px;background:#fff">${monthOptions}</select>
+        <button class="btn ghost btn sm" onclick="edReset()">อัปไฟล์ใหม่</button>
+      </div>
+    </div>
+
+    <div class="tabs" style="background:#dbeafe">
+      ${tabs.map(tb => `<button class="${d.tab===tb.id?'active':''}" onclick="edSetTab('${tb.id}')">${tb.l}</button>`).join("")}
+    </div>
+
+    <div id="edContent"></div>
+  `;
+
+  if(d.tab==="summary")  edRenderSummary();
+  else if(d.tab==="activity") edRenderActivity();
+  else if(d.tab==="category") edRenderCategory();
+  else if(d.tab==="banks")    edRenderBanks();
+  else if(d.tab==="explorer") edRenderExplorer();
+  else if(d.tab==="stmt")     edRenderStmt();
+}
+
+/* ---------- Tab 1: Executive Summary ---------- */
+function edRenderSummary(){
+  const d = state.ed;
+  const A = edAgg(d.data, d.monthFilter);
+
+  const kpiCard = (label, value, color, sub) => `
+    <div style="background:rgba(255,255,255,.85);backdrop-filter:blur(6px);border:1px solid #c3dafe;border-radius:14px;padding:16px 18px">
+      <div style="font-size:10.5px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:.5px">${label}</div>
+      <div style="font-size:22px;font-weight:800;color:${color};margin-top:4px;letter-spacing:-.3px">${value}</div>
+      ${sub?`<div style="font-size:11.5px;color:#64748b;margin-top:2px">${sub}</div>`:""}
+    </div>`;
+
+  document.getElementById("edContent").innerHTML = `
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:16px">
+      ${kpiCard("เงินสดต้นงวด", edFmt(A.opening), "#0f172a", "")}
+      ${kpiCard("เงินรับรวม",   edFmt(A.totalIn), ED_COLORS.in, A.txs.filter(t=>t.in>0).length+" รายการ")}
+      ${kpiCard("เงินจ่ายรวม",  edFmt(A.totalOut), ED_COLORS.out, A.txs.filter(t=>t.out>0).length+" รายการ")}
+      ${kpiCard("กระแสเงินสุทธิ", edFmt(A.net), A.net>=0?ED_COLORS.in:ED_COLORS.out, A.net>=0?"เป็นบวก":"เป็นลบ — งวดนี้")}
+      ${kpiCard("เงินสดปลายงวด", edFmt(A.closing), "#0f172a", "")}
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px">
+      ${kpiCard("ดำเนินงาน (สุทธิ)", edFmt(A.byAct.operating.in - A.byAct.operating.out), A.byAct.operating.in>=A.byAct.operating.out?ED_COLORS.in:ED_COLORS.out, edFmt(A.byAct.operating.in)+" / "+edFmt(A.byAct.operating.out))}
+      ${kpiCard("ลงทุน (สุทธิ)",    edFmt(A.byAct.investing.in - A.byAct.investing.out), A.byAct.investing.in>=A.byAct.investing.out?ED_COLORS.in:ED_COLORS.out, edFmt(A.byAct.investing.in)+" / "+edFmt(A.byAct.investing.out))}
+      ${kpiCard("จัดหาเงิน (สุทธิ)", edFmt(A.byAct.financing.in - A.byAct.financing.out), A.byAct.financing.in>=A.byAct.financing.out?ED_COLORS.in:ED_COLORS.out, edFmt(A.byAct.financing.in)+" / "+edFmt(A.byAct.financing.out))}
+    </div>
+
+    <div style="display:grid;grid-template-columns:2fr 1fr;gap:12px;margin-bottom:16px">
+      <div class="card" style="margin-bottom:0">
+        <h3>กระแสเงินสดรายเดือน (รวมทุกบัญชี)</h3>
+        <div style="position:relative;height:280px"><canvas id="edChartMonthly"></canvas></div>
+      </div>
+      <div class="card" style="margin-bottom:0">
+        <h3>สัดส่วน รับ vs จ่าย</h3>
+        <div style="position:relative;height:280px"><canvas id="edChartIO"></canvas></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Top 5 หมวด รายรับ / รายจ่าย</h3>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px">
+        ${edTopList(A.byCat,"in")}
+        ${edTopList(A.byCat,"out")}
+      </div>
+    </div>
+  `;
+
+  // monthly line+bar
+  const months = state.ed.data.months.map(m=>m.key);
+  const inData  = months.map(m => (state.ed.data.transactions.filter(t=>t.month===m).reduce((s,t)=>s+t.in,0)));
+  const outData = months.map(m => (state.ed.data.transactions.filter(t=>t.month===m).reduce((s,t)=>s+t.out,0)));
+  const netData = inData.map((v,i)=>v-outData[i]);
+
+  edMakeChart("edChartMonthly", {
+    type:"bar",
+    data:{ labels:months, datasets:[
+      { label:"เงินรับ",   data:inData,  backgroundColor:ED_COLORS.in,  borderRadius:6, order:2 },
+      { label:"เงินจ่าย",  data:outData, backgroundColor:ED_COLORS.out, borderRadius:6, order:2 },
+      { label:"สุทธิ", type:"line", data:netData, borderColor:ED_COLORS.brand, backgroundColor:ED_COLORS.brand, tension:.3, pointRadius:4, order:1 }
+    ]},
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{ position:"bottom" }, tooltip:{ callbacks:{ label:c=>c.dataset.label+": "+edFmt(c.parsed.y) } }, title:{ display:false } },
+      scales:{ y:{ ticks:{ callback:v=>edFmtCompact(v) } } },
+      onClick: (e, els) => {
+        if(els && els.length){
+          const i = els[0].index;
+          edSetMonth(months[i]); edSetTab("explorer");
+        }
+      }
+    }
+  });
+  edMakeChart("edChartIO", {
+    type:"doughnut",
+    data:{ labels:["เงินรับ","เงินจ่าย"], datasets:[{ data:[A.totalIn, A.totalOut], backgroundColor:[ED_COLORS.in, ED_COLORS.out] }] },
+    options:{ responsive:true, maintainAspectRatio:false, plugins:{ legend:{position:"bottom"}, tooltip:{ callbacks:{ label:c=>c.label+": "+edFmt(c.parsed) } } } }
+  });
+}
+function edTopList(byCat, dir){
+  const arr = Object.entries(byCat).map(([k,v])=>({k, v:v[dir]})).filter(x=>x.v>0).sort((a,b)=>b.v-a.v).slice(0,5);
+  const total = arr.reduce((s,x)=>s+x.v,0);
+  const color = dir==="in" ? ED_COLORS.in : ED_COLORS.out;
+  const title = dir==="in" ? "หมวดรายรับ" : "หมวดรายจ่าย";
+  if(!arr.length) return `<div><div style="font-weight:700;font-size:13px;color:${color};margin-bottom:6px">${title}</div><div class="empty" style="padding:14px">ไม่มีข้อมูล</div></div>`;
+  return `<div>
+    <div style="font-weight:700;font-size:13px;color:${color};margin-bottom:8px">${title}</div>
+    ${arr.map(x => {
+      const pct = total ? (x.v/total*100).toFixed(1) : 0;
+      return `<div style="margin-bottom:7px;cursor:pointer" onclick="edDrillCat(${JSON.stringify(x.k).replace(/"/g,'&quot;')},'${dir}')">
+        <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:2px"><span style="color:var(--ink-2)">${esc(x.k)}</span><span style="color:${color};font-weight:700">${edFmt(x.v)}</span></div>
+        <div style="height:6px;background:#e2e8f0;border-radius:999px;overflow:hidden"><div style="height:100%;background:${color};width:${pct}%"></div></div>
+      </div>`;
+    }).join("")}
+  </div>`;
+}
+
+/* ---------- Tab 2: Activity ---------- */
+function edRenderActivity(){
+  const d = state.ed;
+  const data = d.data;
+  const months = data.months.map(m=>m.key);
+  // per month per activity (net)
+  const series = ["op","inv","fin"].map((k,idx)=>{
+    const lbls = { op:"ดำเนินงาน", inv:"ลงทุน", fin:"จัดหาเงิน" };
+    const col  = { op:ED_COLORS.op, inv:ED_COLORS.inv, fin:ED_COLORS.fin };
+    return {
+      label: lbls[k],
+      backgroundColor: col[k],
+      data: months.map(m=>{
+        const txs = data.transactions.filter(t=>t.month===m);
+        const aKey = ({op:"operating",inv:"investing",fin:"financing"})[k];
+        return txs.reduce((s,t)=> s + (t.activityKey===aKey ? (t.in - t.out) : 0), 0);
+      })
+    };
+  });
+
+  const totalNetByAct = {};
+  for(const k of ["operating","investing","financing","other"]){
+    const tx = data.transactions.filter(t=>t.activityKey===k && (d.monthFilter==="all"||t.month===d.monthFilter));
+    totalNetByAct[k] = tx.reduce((s,t)=>s+t.in-t.out,0);
+  }
+
+  document.getElementById("edContent").innerHTML = `
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px">
+      ${["operating","investing","financing","other"].map(k=>{
+        const v = totalNetByAct[k];
+        const colors = { operating:ED_COLORS.op, investing:ED_COLORS.inv, financing:ED_COLORS.fin, other:ED_COLORS.neutral };
+        return `<div style="background:rgba(255,255,255,.85);border:1px solid #c3dafe;border-radius:12px;padding:12px 14px;cursor:pointer" onclick="edDrillActivity('${k}')">
+          <div style="font-size:10.5px;font-weight:700;color:#475569;text-transform:uppercase">${edActivityLabel(k)}</div>
+          <div style="font-size:18px;font-weight:800;color:${colors[k]};margin-top:3px">${edFmt(v)}</div>
+        </div>`;
+      }).join("")}
+    </div>
+    <div class="card">
+      <h3>Stacked Bar — กระแสเงินสดสุทธิรายเดือน แยกตามกิจกรรม</h3>
+      <div class="note">คลิกแท่งเดือนใด ๆ → ลงไปดูรายการต้นทาง</div>
+      <div style="position:relative;height:320px"><canvas id="edActivityChart"></canvas></div>
+    </div>
+  `;
+
+  edMakeChart("edActivityChart", {
+    type:"bar",
+    data:{ labels:months, datasets:series },
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      scales:{ x:{ stacked:true }, y:{ stacked:true, ticks:{ callback:v=>edFmtCompact(v) } } },
+      plugins:{ legend:{position:"bottom"}, tooltip:{ callbacks:{ label:c=>c.dataset.label+": "+edFmt(c.parsed.y) } } },
+      onClick:(e,els)=>{
+        if(els && els.length){
+          const m = months[els[0].index];
+          edSetMonth(m); edSetTab("explorer");
+        }
+      }
+    }
+  });
+}
+
+/* ---------- Tab 3: Category ---------- */
+function edRenderCategory(){
+  const d = state.ed;
+  const A = edAgg(d.data, d.monthFilter);
+  const cats = Object.entries(A.byCat).map(([k,v])=>({ k, ...v, abs:Math.abs(v.net) })).sort((a,b)=>b.abs-a.abs);
+  const top20 = cats.slice(0,20);
+
+  document.getElementById("edContent").innerHTML = `
+    <div class="card">
+      <h3>Treemap — สัดส่วนหมวดที่สำคัญ (ตามมูลค่าสุทธิ)</h3>
+      <div style="position:relative;height:380px"><canvas id="edTreemap"></canvas></div>
+    </div>
+    <div class="card">
+      <h3>Pareto Top 20 — หมวดที่กระทบเงินสดมากสุด</h3>
+      <div style="position:relative;height:320px"><canvas id="edPareto"></canvas></div>
+    </div>
+    <div class="card">
+      <h3>ตารางจัดอันดับ</h3>
+      <div class="table-wrap"><table>
+        <thead><tr><th>#</th><th>หมวด</th><th style="text-align:right">รายการ</th><th style="text-align:right;color:var(--ok)">รับ</th><th style="text-align:right;color:var(--bad)">จ่าย</th><th style="text-align:right">สุทธิ</th></tr></thead>
+        <tbody>${cats.map((c,i)=>`<tr style="cursor:pointer" onclick="edDrillCat(${JSON.stringify(c.k).replace(/"/g,'&quot;')},'all')">
+          <td>${i+1}</td><td>${esc(c.k)}</td>
+          <td style="text-align:right">${c.count}</td>
+          <td style="text-align:right;color:var(--ok)">${c.in>0?edFmt(c.in):"—"}</td>
+          <td style="text-align:right;color:var(--bad)">${c.out>0?edFmt(c.out):"—"}</td>
+          <td style="text-align:right;font-weight:700;color:${c.net>=0?ED_COLORS.in:ED_COLORS.out}">${edFmt(c.net)}</td>
+        </tr>`).join("")}</tbody>
+      </table></div>
+    </div>
+  `;
+
+  // Treemap
+  try{
+    edMakeChart("edTreemap", {
+      type:"treemap",
+      data:{ datasets:[{
+        tree: cats.filter(c=>c.abs>0).map(c=>({ name:c.k, value:c.abs, net:c.net })),
+        key:"value",
+        labels:{ display:true, formatter:(ctx)=>{ const n=ctx.raw._data.name||""; return n.length>22?n.slice(0,20)+"…":n; }, color:"#fff", font:{ size:11, weight:700 } },
+        backgroundColor:(ctx)=>{ const n=ctx.raw && ctx.raw._data ? ctx.raw._data.net : 0; return n>=0 ? ED_COLORS.in : ED_COLORS.out; },
+        borderColor:"#fff", borderWidth:2, spacing:1
+      }]},
+      options:{ responsive:true, maintainAspectRatio:false,
+        plugins:{ legend:{display:false}, tooltip:{ callbacks:{ label:(c)=>{ const d=c.raw._data; return [d.name, "สุทธิ: "+edFmt(d.net)]; } } } } }
+    });
+  }catch(e){
+    document.getElementById("edTreemap").parentElement.innerHTML = '<div class="empty">โหลด Treemap ไม่สำเร็จ — '+esc(e.message)+'</div>';
+  }
+
+  // Pareto
+  const par = top20;
+  let cum = 0; const total = par.reduce((s,x)=>s+x.abs,0);
+  const cumPct = par.map(x=>{ cum += x.abs; return total ? (cum/total*100) : 0; });
+  edMakeChart("edPareto", {
+    data:{
+      labels: par.map(x=>x.k.length>20?x.k.slice(0,18)+"…":x.k),
+      datasets:[
+        { type:"bar", label:"มูลค่า (Abs)", data:par.map(x=>x.abs), backgroundColor:par.map(x=>x.net>=0?ED_COLORS.in:ED_COLORS.out), order:2, yAxisID:"y" },
+        { type:"line", label:"% สะสม", data:cumPct, borderColor:ED_COLORS.brand, backgroundColor:ED_COLORS.brand, tension:.2, yAxisID:"y1", order:1 }
+      ]
+    },
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      scales:{ y:{ position:"left", ticks:{ callback:v=>edFmtCompact(v) } }, y1:{ position:"right", min:0, max:100, ticks:{ callback:v=>v+"%" }, grid:{ display:false } } },
+      plugins:{ legend:{ position:"bottom" } }
+    }
+  });
+}
+
+/* ---------- Tab 4: Banks ---------- */
+function edRenderBanks(){
+  const d = state.ed;
+  const A = edAgg(d.data, d.monthFilter);
+  const acctEntries = Object.entries(A.byAcct).sort((a,b)=>b[1].in - a[1].in);
+
+  document.getElementById("edContent").innerHTML = `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
+      <div class="card" style="margin-bottom:0">
+        <h3>สัดส่วนเงินสด (ปลายงวด) ตามบัญชี</h3>
+        <div style="position:relative;height:300px"><canvas id="edAcctDonut"></canvas></div>
+      </div>
+      <div class="card" style="margin-bottom:0">
+        <h3>เปรียบเทียบ รับ vs จ่าย ต่อบัญชี</h3>
+        <div style="position:relative;height:300px"><canvas id="edAcctBars"></canvas></div>
+      </div>
+    </div>
+    <div class="card">
+      <h3>สรุปยอดต่อบัญชี (${acctEntries.length} บัญชี)</h3>
+      <div class="table-wrap"><table>
+        <thead><tr><th>ธนาคาร</th><th>เลขบัญชี</th><th>ฝ่าย</th><th style="text-align:right">รายการ</th><th style="text-align:right;color:var(--ok)">รับ</th><th style="text-align:right;color:var(--bad)">จ่าย</th><th style="text-align:right">สุทธิ</th><th style="text-align:right">ยอดล่าสุด</th></tr></thead>
+        <tbody>${acctEntries.map(([k,v])=>{
+          const last = d.data.accounts[k] ? d.data.accounts[k].lastClose : null;
+          return `<tr style="cursor:pointer" onclick="edDrillAcct(${JSON.stringify(k).replace(/"/g,'&quot;')})">
+            <td><b>${esc(v.bank)}</b></td><td><code>${esc(v.no)}</code></td><td style="font-size:12px;color:var(--ink-3)">${esc(v.nick||"")}</td>
+            <td style="text-align:right">${v.count}</td>
+            <td style="text-align:right;color:var(--ok)">${edFmt(v.in)}</td>
+            <td style="text-align:right;color:var(--bad)">${edFmt(v.out)}</td>
+            <td style="text-align:right;font-weight:700;color:${v.net>=0?ED_COLORS.in:ED_COLORS.out}">${edFmt(v.net)}</td>
+            <td style="text-align:right;font-weight:700">${edFmt(last)}</td>
+          </tr>`;
+        }).join("")}</tbody>
+      </table></div>
+    </div>
+  `;
+
+  const palette = ["#4F8AF7","#A6C8FF","#16a34a","#f59e0b","#8b5cf6","#dc2626","#0ea5e9","#84cc16"];
+  edMakeChart("edAcctDonut", {
+    type:"doughnut",
+    data:{
+      labels: acctEntries.map(([k,v])=>v.bank+" "+v.no),
+      datasets:[{
+        data: acctEntries.map(([k,v])=> Math.max(0, d.data.accounts[k] ? d.data.accounts[k].lastClose : 0)),
+        backgroundColor: acctEntries.map((_,i)=>palette[i%palette.length])
+      }]
+    },
+    options:{ responsive:true, maintainAspectRatio:false, plugins:{ legend:{ position:"bottom", labels:{ font:{ size:11 } } }, tooltip:{ callbacks:{ label:c=>c.label+": "+edFmt(c.parsed) } } } }
+  });
+  edMakeChart("edAcctBars", {
+    type:"bar",
+    data:{
+      labels: acctEntries.map(([k,v])=>v.bank+" "+v.no.slice(-5)),
+      datasets:[
+        { label:"รับ",  data: acctEntries.map(([k,v])=>v.in),  backgroundColor: ED_COLORS.in, borderRadius:6 },
+        { label:"จ่าย", data: acctEntries.map(([k,v])=>v.out), backgroundColor: ED_COLORS.out, borderRadius:6 }
+      ]
+    },
+    options:{
+      responsive:true, maintainAspectRatio:false, indexAxis:"y",
+      scales:{ x:{ ticks:{ callback:v=>edFmtCompact(v) } } },
+      plugins:{ legend:{position:"bottom"}, tooltip:{ callbacks:{ label:c=>c.dataset.label+": "+edFmt(c.parsed.x) } } }
+    }
+  });
+}
+
+/* ---------- Tab 5: Transaction Explorer ---------- */
+state.ed.explorer = state.ed.explorer || { q:"", acct:"all", act:"all", dir:"all", sort:"date", desc:true };
+function edExpSet(k,v){ state.ed.explorer[k]=v; edRenderExplorer(); }
+function edExpSort(c){ const e=state.ed.explorer; if(e.sort===c) e.desc=!e.desc; else { e.sort=c; e.desc=true; } edRenderExplorer(); }
+
+function edRenderExplorer(){
+  const d = state.ed;
+  const A = edAgg(d.data, d.monthFilter);
+  const e = d.explorer;
+
+  let txs = A.txs.slice();
+  if(e.q){
+    const q = e.q.toLowerCase();
+    txs = txs.filter(t => (t.note||"").toLowerCase().includes(q) || (t.ref||"").toLowerCase().includes(q) || (t.category||"").toLowerCase().includes(q));
+  }
+  if(e.acct!=="all") txs = txs.filter(t=>t.accountKey===e.acct);
+  if(e.act!=="all")  txs = txs.filter(t=>t.activityKey===e.act);
+  if(e.dir==="in")   txs = txs.filter(t=>t.in>0);
+  if(e.dir==="out")  txs = txs.filter(t=>t.out>0);
+
+  txs.sort((a,b)=>{
+    let av=a[e.sort], bv=b[e.sort];
+    if(e.sort==="date"){ av=a.date.getTime(); bv=b.date.getTime(); }
+    if(av < bv) return e.desc?1:-1;
+    if(av > bv) return e.desc?-1:1;
+    return 0;
+  });
+
+  const acctOpts = Object.entries(d.data.accounts).map(([k,v])=>`<option value="${esc(k)}" ${e.acct===k?'selected':''}>${esc(v.bank)} ${esc(v.no)}</option>`).join("");
+  const sortIcon = c => e.sort===c ? (e.desc?" ↓":" ↑") : "";
+
+  document.getElementById("edContent").innerHTML = `
+    <div class="card">
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+        <input type="text" placeholder="ค้นหา หมายเหตุ / เลขที่ / หมวด" value="${esc(e.q)}" oninput="edExpSet('q',this.value)"
+          style="flex:1;min-width:200px;padding:7px 11px;border:1px solid var(--line);border-radius:7px;font-size:13px">
+        <select onchange="edExpSet('acct',this.value)" style="padding:7px 10px;border:1px solid var(--line);border-radius:7px;font-size:13px"><option value="all">ทุกบัญชี</option>${acctOpts}</select>
+        <select onchange="edExpSet('act',this.value)" style="padding:7px 10px;border:1px solid var(--line);border-radius:7px;font-size:13px">
+          <option value="all" ${e.act==="all"?"selected":""}>ทุกกิจกรรม</option>
+          <option value="operating" ${e.act==="operating"?"selected":""}>ดำเนินงาน</option>
+          <option value="investing" ${e.act==="investing"?"selected":""}>ลงทุน</option>
+          <option value="financing" ${e.act==="financing"?"selected":""}>จัดหาเงิน</option>
+          <option value="other" ${e.act==="other"?"selected":""}>อื่น ๆ</option>
+        </select>
+        <select onchange="edExpSet('dir',this.value)" style="padding:7px 10px;border:1px solid var(--line);border-radius:7px;font-size:13px">
+          <option value="all" ${e.dir==="all"?"selected":""}>รับ + จ่าย</option>
+          <option value="in"  ${e.dir==="in"?"selected":""}>รับเท่านั้น</option>
+          <option value="out" ${e.dir==="out"?"selected":""}>จ่ายเท่านั้น</option>
+        </select>
+        <button class="btn ghost btn sm" onclick="edExportTxs('xlsx')">Export Excel</button>
+        <button class="btn ghost btn sm" onclick="edExportTxs('csv')">Export CSV</button>
+      </div>
+      <div style="font-size:12px;color:var(--ink-3);margin-bottom:8px">${txs.length.toLocaleString()} รายการ · รับรวม <span style="color:var(--ok);font-weight:700">${edFmt(txs.reduce((s,t)=>s+t.in,0))}</span> · จ่ายรวม <span style="color:var(--bad);font-weight:700">${edFmt(txs.reduce((s,t)=>s+t.out,0))}</span></div>
+      <div class="table-wrap" style="max-height:550px"><table>
+        <thead><tr>
+          <th onclick="edExpSort('date')" style="cursor:pointer">วันที่${sortIcon("date")}</th>
+          <th>MNE</th><th>เลขที่</th>
+          <th onclick="edExpSort('bank')" style="cursor:pointer">บัญชี${sortIcon("bank")}</th>
+          <th>หมวด</th>
+          <th onclick="edExpSort('in')" style="text-align:right;cursor:pointer;color:var(--ok)">รับ${sortIcon("in")}</th>
+          <th onclick="edExpSort('out')" style="text-align:right;cursor:pointer;color:var(--bad)">จ่าย${sortIcon("out")}</th>
+          <th style="text-align:right">คงเหลือ</th>
+          <th>หมายเหตุ</th>
+        </tr></thead>
+        <tbody>${txs.slice(0,500).map(t=>`<tr>
+          <td>${t.dateISO}</td>
+          <td style="font-size:11px">${esc(t.mne)}</td>
+          <td><code style="font-size:11px">${esc(t.ref)}</code></td>
+          <td style="font-size:12px"><b>${esc(t.bank)}</b> ${esc(t.accountNo.slice(-5))}</td>
+          <td style="font-size:12px">${esc(t.category)}</td>
+          <td style="text-align:right;color:var(--ok)">${t.in>0?edFmt(t.in):"—"}</td>
+          <td style="text-align:right;color:var(--bad)">${t.out>0?edFmt(t.out):"—"}</td>
+          <td style="text-align:right;font-size:12px;color:var(--ink-3)">${edFmt(t.balance)}</td>
+          <td style="font-size:12px;color:var(--ink-2);max-width:300px;white-space:normal">${esc(t.note)}</td>
+        </tr>`).join("")}</tbody>
+      </table></div>
+      ${txs.length>500?`<div style="font-size:12px;color:var(--ink-3);margin-top:8px">แสดง 500 แถวแรก — Export เพื่อดูทั้งหมด</div>`:""}
+    </div>
+  `;
+}
+function edExportTxs(fmt){
+  const d = state.ed;
+  const A = edAgg(d.data, d.monthFilter);
+  const rows = [["วันที่","MNE","เลขที่","ธนาคาร","เลขบัญชี","ฝ่าย","หมวด","กิจกรรม","รับ","จ่าย","คงเหลือ","สถานะ","หมายเหตุ"]];
+  for(const t of A.txs){
+    rows.push([t.dateISO, t.mne, t.ref, t.bank, t.accountNo, t.accountNick, t.category, t.activity, t.in, t.out, t.balance, t.status, t.note]);
+  }
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  const base = "CashFlow_"+(d.data.company||"").slice(0,20).replace(/\s+/g,"_")+"_"+stamp();
+  if(fmt==="csv"){
+    const csv = XLSX.utils.sheet_to_csv(ws);
+    download("﻿"+csv, base+".csv", "text/csv;charset=utf-8");
+  } else {
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Transactions");
+    XLSX.writeFile(wb, base+".xlsx");
+  }
+}
+
+/* ---------- Tab 6: Statement (งบกระแสเงินสด) ---------- */
+state.ed.stmtAcct = state.ed.stmtAcct || "all";
+function edStmtAcct(v){ state.ed.stmtAcct = v; edRenderStmt(); }
+
+function edRenderStmt(){
+  const d = state.ed;
+  const months = d.data.months.map(m=>m.key);
+  const filterAcct = d.stmtAcct;
+
+  // build per category × month grid (filtered by account if not "all")
+  const cats = {};   // catKey → { in:[m], out:[m] }
+  for(const t of d.data.transactions){
+    if(filterAcct!=="all" && t.accountKey!==filterAcct) continue;
+    const k = t.category + "|" + t.activityKey;
+    if(!cats[k]){
+      cats[k] = { cat:t.category, act:t.activityKey, in:Array(months.length).fill(0), out:Array(months.length).fill(0) };
+    }
+    const mi = months.indexOf(t.month);
+    if(mi>=0){
+      cats[k].in[mi]  += t.in;
+      cats[k].out[mi] += t.out;
+    }
+  }
+  // group by activity
+  const groups = { operating:[], investing:[], financing:[], other:[] };
+  for(const k in cats){
+    groups[cats[k].act].push(cats[k]);
+  }
+
+  // opening/closing per month (across selected scope)
+  const openings = months.map(m => {
+    let o = 0;
+    const mObj = d.data.months.find(x=>x.key===m);
+    if(!mObj) return 0;
+    for(const a of mObj.accounts){
+      if(filterAcct==="all" || a.accountKey===filterAcct) o += a.opening;
+    }
+    return o;
+  });
+  const closings = months.map(m => {
+    let c = 0;
+    const mObj = d.data.months.find(x=>x.key===m);
+    if(!mObj) return 0;
+    for(const a of mObj.accounts){
+      if(filterAcct==="all" || a.accountKey===filterAcct) c += (a.closing || a.computed);
+    }
+    return c;
+  });
+
+  const acctOpts = Object.entries(d.data.accounts).map(([k,v])=>`<option value="${esc(k)}" ${filterAcct===k?'selected':''}>${esc(v.bank)} ${esc(v.no)}</option>`).join("");
+
+  let html = `
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px">
+        <h3 style="margin:0">งบกระแสเงินสด — รายเดือน</h3>
+        <select onchange="edStmtAcct(this.value)" style="padding:6px 10px;border:1px solid var(--line);border-radius:7px;font-size:13px">
+          <option value="all" ${filterAcct==="all"?"selected":""}>รวมทุกบัญชี</option>${acctOpts}
+        </select>
+      </div>
+      <div class="table-wrap" style="max-height:600px"><table>
+        <thead><tr><th>หมวด</th>${months.map(m=>`<th style="text-align:right">${esc(m)}</th>`).join("")}<th style="text-align:right;background:#dbeafe">รวม</th></tr></thead>
+        <tbody>
+          <tr style="background:#f8fafc;font-weight:700"><td>เงินสดต้นงวด</td>
+            ${openings.map(v=>`<td style="text-align:right">${edFmt(v)}</td>`).join("")}
+            <td style="text-align:right;background:#dbeafe">${edFmt(openings[0])}</td></tr>
+  `;
+  const actLabels = { operating:"กระแสเงินสดจากกิจกรรมดำเนินงาน", investing:"กระแสเงินสดจากกิจกรรมลงทุน", financing:"กระแสเงินสดจากกิจกรรมจัดหาเงิน", other:"อื่น ๆ" };
+  for(const act of ["operating","investing","financing","other"]){
+    if(!groups[act].length) continue;
+    html += `<tr style="background:#eff6ff"><td colspan="${months.length+2}" style="font-weight:700;color:#1e40af;padding:8px 12px">${actLabels[act]}</td></tr>`;
+    const subtotalNet = Array(months.length).fill(0);
+    for(const c of groups[act].sort((a,b)=> (b.in.reduce((s,x)=>s+x,0)+b.out.reduce((s,x)=>s+x,0)) - (a.in.reduce((s,x)=>s+x,0)+a.out.reduce((s,x)=>s+x,0)))){
+      const nets = c.in.map((v,i)=> v - c.out[i]);
+      nets.forEach((v,i)=> subtotalNet[i]+=v);
+      const total = nets.reduce((s,v)=>s+v,0);
+      html += `<tr><td style="padding-left:20px">${esc(c.cat)}</td>${nets.map(v=>`<td style="text-align:right;color:${v>=0?ED_COLORS.in:ED_COLORS.out}">${v?edFmt(v):"—"}</td>`).join("")}<td style="text-align:right;background:#dbeafe;font-weight:700;color:${total>=0?ED_COLORS.in:ED_COLORS.out}">${edFmt(total)}</td></tr>`;
+    }
+    const subTotal = subtotalNet.reduce((s,v)=>s+v,0);
+    html += `<tr style="background:#f0f9ff;font-weight:700"><td>รวม${actLabels[act].replace("กระแสเงินสดจาก","")}</td>${subtotalNet.map(v=>`<td style="text-align:right;color:${v>=0?ED_COLORS.in:ED_COLORS.out}">${edFmt(v)}</td>`).join("")}<td style="text-align:right;background:#bfdbfe;color:${subTotal>=0?ED_COLORS.in:ED_COLORS.out}">${edFmt(subTotal)}</td></tr>`;
+  }
+  // net change row
+  const netChange = months.map((m,i)=> closings[i]-openings[i]);
+  const totalNet = netChange.reduce((s,v)=>s+v,0);
+  html += `
+    <tr style="background:#e0e7ff;font-weight:800"><td>เปลี่ยนแปลงเงินสดสุทธิ</td>${netChange.map(v=>`<td style="text-align:right;color:${v>=0?ED_COLORS.in:ED_COLORS.out}">${edFmt(v)}</td>`).join("")}<td style="text-align:right;background:#a5b4fc;color:${totalNet>=0?ED_COLORS.in:ED_COLORS.out}">${edFmt(totalNet)}</td></tr>
+    <tr style="background:#f8fafc;font-weight:700"><td>เงินสดปลายงวด</td>${closings.map(v=>`<td style="text-align:right">${edFmt(v)}</td>`).join("")}<td style="text-align:right;background:#dbeafe">${edFmt(closings[closings.length-1])}</td></tr>
+  </tbody></table></div>
+  <div class="soon-note" style="margin-top:12px"><b>หมายเหตุ:</b> ค่าติดลบ = กระแสเงินสดสุทธิติดลบในงวด ไม่ใช่ยอดคงเหลือติดลบ · รายการโอนระหว่างบัญชีของบริษัทเดียวกัน เมื่อรวมทั้งบริษัทควรหักลบกันเป็นศูนย์</div>
+  </div>`;
+
+  document.getElementById("edContent").innerHTML = html;
+}
+
+/* ---------- Drill modals ---------- */
+function edDrillCat(cat, dir){
+  const d = state.ed;
+  const A = edAgg(d.data, d.monthFilter);
+  let txs = A.txs.filter(t=>t.category===cat);
+  if(dir==="in")  txs = txs.filter(t=>t.in>0);
+  if(dir==="out") txs = txs.filter(t=>t.out>0);
+  edShowDrillModal("หมวด: "+cat, txs);
+}
+function edDrillActivity(actKey){
+  const d = state.ed;
+  const A = edAgg(d.data, d.monthFilter);
+  const txs = A.txs.filter(t=>t.activityKey===actKey);
+  edShowDrillModal("กิจกรรม: "+edActivityLabel(actKey), txs);
+}
+function edDrillAcct(key){
+  const d = state.ed;
+  const A = edAgg(d.data, d.monthFilter);
+  const txs = A.txs.filter(t=>t.accountKey===key);
+  edShowDrillModal("บัญชี: "+key, txs);
+}
+function edShowDrillModal(title, txs){
+  const wrap = document.createElement("div");
+  wrap.id = "edDrillModal";
+  wrap.style.cssText = "position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:1000;display:flex;align-items:center;justify-content:center;padding:20px";
+  const totalIn = txs.reduce((s,t)=>s+t.in,0);
+  const totalOut = txs.reduce((s,t)=>s+t.out,0);
+  wrap.innerHTML = `
+    <div style="background:#fff;border-radius:14px;padding:24px;max-width:1000px;width:100%;max-height:85vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.3)">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <h3 style="margin:0;font-size:16px">${esc(title)} <span style="color:var(--ink-3);font-size:13px;font-weight:500">— ${txs.length} รายการ · รับ ${edFmt(totalIn)} · จ่าย ${edFmt(totalOut)}</span></h3>
+        <button onclick="document.getElementById('edDrillModal').remove()" style="padding:6px 12px;border:1px solid var(--line);background:#fff;border-radius:7px;font-size:13px;cursor:pointer">ปิด</button>
+      </div>
+      <div style="overflow:auto;flex:1"><table style="font-size:12px;width:100%">
+        <thead><tr><th>วันที่</th><th>เลขที่</th><th>บัญชี</th><th style="text-align:right">รับ</th><th style="text-align:right">จ่าย</th><th>หมายเหตุ</th></tr></thead>
+        <tbody>${txs.map(t=>`<tr>
+          <td>${t.dateISO}</td><td><code style="font-size:11px">${esc(t.ref)}</code></td>
+          <td><b>${esc(t.bank)}</b> ${esc(t.accountNo.slice(-5))}</td>
+          <td style="text-align:right;color:var(--ok)">${t.in>0?edFmt(t.in):"—"}</td>
+          <td style="text-align:right;color:var(--bad)">${t.out>0?edFmt(t.out):"—"}</td>
+          <td style="color:var(--ink-2)">${esc(t.note)}</td>
+        </tr>`).join("")}</tbody>
+      </table></div>
+    </div>`;
+  document.body.appendChild(wrap);
+  wrap.onclick = (e)=>{ if(e.target===wrap) wrap.remove(); };
 }
 
 function renderToolSoon(t){

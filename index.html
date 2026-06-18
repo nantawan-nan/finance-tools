@@ -5262,7 +5262,6 @@ function edRenderStmt(){
     <tr style="background:#e0e7ff;font-weight:800"><td>เปลี่ยนแปลงเงินสดสุทธิ</td>${netChange.map(v=>`<td style="text-align:right;color:${v>=0?ED_COLORS.in:ED_COLORS.out}">${edFmt(v)}</td>`).join("")}<td style="text-align:right;background:#a5b4fc;color:${totalNet>=0?ED_COLORS.in:ED_COLORS.out}">${edFmt(totalNet)}</td></tr>
     <tr style="background:#f8fafc;font-weight:700"><td>เงินสดปลายงวด</td>${closings.map(v=>`<td style="text-align:right">${edFmt(v)}</td>`).join("")}<td style="text-align:right;background:#dbeafe">${edFmt(closings[closings.length-1])}</td></tr>
   </tbody></table></div>
-  <div class="soon-note" style="margin-top:12px"><b>หมายเหตุ:</b> ค่าติดลบ = กระแสเงินสดสุทธิติดลบในงวด ไม่ใช่ยอดคงเหลือติดลบ · รายการโอนระหว่างบัญชีของบริษัทเดียวกัน เมื่อรวมทั้งบริษัทควรหักลบกันเป็นศูนย์</div>
   </div>`;
 
   document.getElementById("edContent").innerHTML = html;

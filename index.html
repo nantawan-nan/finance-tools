@@ -6083,6 +6083,38 @@ async function renderToolApOutstanding(){
   if(window.lucide && window.lucide.createIcons){ try{ window.lucide.createIcons(); }catch(e){} }
 }
 
+/* helper: parse ตัวเลขที่มี comma เช่น "500,000.00" → 500000 */
+function apoNum(v){
+  if(v == null || v === "") return 0;
+  const n = parseFloat(String(v).replace(/[,\s]/g,""));
+  return isNaN(n) ? 0 : n;
+}
+
+/* 8 ประเภท AP — ตามทะเบียนของผู้ใช้ */
+const APO_CATEGORIES = [
+  "เงินมัดจำ/เงินเบิกล่วงหน้า",
+  "เงินสำรองจ่าย",
+  "เงินสดย่อย",
+  "เจ้าหนี้การค้า",
+  "ค่าใช้จ่ายประจำ",
+  "เงินกู้ยืมและดอกเบี้ย",
+  "เงินเดือนและค่าที่ปรึกษา",
+  "ประมาณการเงินสำรองจ่าย"
+];
+
+/* classify จาก remark + vendor name + invoice_no */
+function apoClassify(remark, vendor, invNo){
+  const t = ((remark||"") + " " + (vendor||"") + " " + (invNo||"")).toLowerCase();
+  if(/เงินกู้|กู้ยืม|ดอกเบี้ย|loan|interest/.test(t)) return "เงินกู้ยืมและดอกเบี้ย";
+  if(/เงินเดือน|salary|ที่ปรึกษา|consult|payroll/.test(t)) return "เงินเดือนและค่าที่ปรึกษา";
+  if(/เงินสดย่อย|petty/.test(t)) return "เงินสดย่อย";
+  if(/มัดจำ|เบิกล่วงหน้า|เบิกทดรอง|ทดรอง|advance|deposit/.test(t)) return "เงินมัดจำ/เงินเบิกล่วงหน้า";
+  if(/ประมาณการ.*สำรอง|forecast/.test(t)) return "ประมาณการเงินสำรองจ่าย";
+  if(/สำรองจ่าย|สำรองเงิน|reserve/.test(t)) return "เงินสำรองจ่าย";
+  if(/ค่าโทร|อินเตอร์เน็ต|truemove|true\b|ais|dtac|ค่าน้ำ|ค่าไฟ|ค่าเช่า|ภาษี|สรรพากร|ประกันสังคม|sso|กองทุน.*สำรอง|กบช|รายเดือน|subscription|license/.test(t)) return "ค่าใช้จ่ายประจำ";
+  return "เจ้าหนี้การค้า";  // default
+}
+
 /* parse Excel XML 2003 (Express AP report) → array of invoices */
 function apoParseExpressXml(xmlText){
   const dom = new DOMParser().parseFromString(xmlText, "text/xml");
@@ -6138,10 +6170,11 @@ function apoParseExpressXml(xmlText){
       const billAmt = amtMatch ? parseFloat(amtMatch[1].replace(/,/g,"")) : 0;
       const billNo = (amtMatch ? billText.slice(0, amtMatch.index) : billText).trim();
 
-      // amount_outstanding = max ของ col 5, col 6 หรือ aging buckets (col 7-13)
-      const c5 = parseFloat((cells[5]||{}).v || "0") || 0;
-      const c6 = parseFloat((cells[6]||{}).v || "0") || 0;
-      const aging = [7,8,9,10,11,12,13].reduce((s,k) => s + (parseFloat((cells[k]||{}).v || "0") || 0), 0);
+      // amount_outstanding = aging buckets (col 7-13) หรือ col 5/6
+      // ★ ใช้ apoNum() เพื่อ strip comma ก่อน parseFloat (500,000.00 → 500000)
+      const c5 = apoNum((cells[5]||{}).v);
+      const c6 = apoNum((cells[6]||{}).v);
+      const aging = [7,8,9,10,11,12,13].reduce((s,k) => s + apoNum((cells[k]||{}).v), 0);
       const outstanding = aging > 0 ? aging : (c6 || c5 || billAmt);
       const total = billAmt || outstanding;
 
@@ -6175,6 +6208,7 @@ function apoParseExpressXml(xmlText){
         amount_outstanding: outstanding,
         due_date: dueDate,
         po, remark,
+        category: apoClassify(remark, curVendor.name, billNo || docNo),
         is_overdue: dueDate < new Date().toISOString().slice(0,10)
       });
     }
@@ -6207,7 +6241,7 @@ async function apoHandleXml(file){
       </div>
       <div style="overflow:auto;flex:1">
         <table style="font-size:11.5px;width:100%">
-          <thead><tr style="position:sticky;top:0;background:#f8fafc"><th><input type="checkbox" id="apoXAll" checked onclick="document.querySelectorAll('.apo-x-cb').forEach(c=>c.checked=this.checked)"></th><th>เจ้าหนี้</th><th>เลขที่บิล</th><th>วันที่บิล</th><th>ครบกำหนด</th><th style="text-align:right">ยอดรวม</th><th style="text-align:right">คงค้าง</th><th>หมายเหตุ</th></tr></thead>
+          <thead><tr style="position:sticky;top:0;background:#f8fafc"><th><input type="checkbox" id="apoXAll" checked onclick="document.querySelectorAll('.apo-x-cb').forEach(c=>c.checked=this.checked)"></th><th>เจ้าหนี้</th><th>เลขที่บิล</th><th>วันที่บิล</th><th>ครบกำหนด</th><th style="text-align:right">ยอดรวม</th><th style="text-align:right">คงค้าง</th><th>ประเภท</th><th>หมายเหตุ</th></tr></thead>
           <tbody>${invoices.map((it,i)=>`<tr ${it.is_overdue?'class="warning-row"':''}>
             <td><input type="checkbox" class="apo-x-cb" data-i="${i}" checked></td>
             <td><b>${esc(it.vendor_name)}</b> ${it.vendor_code?`<span style="color:var(--ink-3);font-size:10px">/${esc(it.vendor_code)}</span>`:""}</td>
@@ -6216,6 +6250,9 @@ async function apoHandleXml(file){
             <td style="${it.is_overdue?'color:var(--out-ink);font-weight:700':''}">${fopDate(it.due_date)}</td>
             <td style="text-align:right">${fopFmt(it.amount_total)}</td>
             <td style="text-align:right;font-weight:700;color:var(--out-ink)">${fopFmt(it.amount_outstanding)}</td>
+            <td><select class="apo-x-cat" data-i="${i}" style="font-size:11px;padding:3px 6px;border:1px solid var(--line);border-radius:6px;background:#fff;min-width:140px">
+              ${APO_CATEGORIES.map(c => `<option value="${esc(c)}" ${c===it.category?'selected':''}>${esc(c)}</option>`).join("")}
+            </select></td>
             <td style="font-size:11px;color:var(--ink-2);max-width:200px;white-space:normal">${esc(it.remark||"")}</td>
           </tr>`).join("")}</tbody>
         </table>
@@ -6260,7 +6297,9 @@ async function apoHandleXml(file){
       }).select().single();
       if(impErr) throw impErr;
 
-      // 3) build ap_invoices rows
+      // 3) build ap_invoices rows — อ่าน category จาก dropdown ของแต่ละ row
+      const catByIdx = {};
+      document.querySelectorAll(".apo-x-cat").forEach(s => { catByIdx[s.dataset.i] = s.value; });
       const rows = sel.map(i => {
         const it = invoices[i];
         return {
@@ -6271,6 +6310,7 @@ async function apoHandleXml(file){
           invoice_date: it.invoice_date,
           due_date: it.due_date,
           amount_total: it.amount_total,
+          category: catByIdx[i] || it.category || "เจ้าหนี้การค้า",
           remark: [it.remark, it.po ? "PO:"+it.po : null, it.doc_no ? "Express:"+it.doc_no : null].filter(Boolean).join(" · ") || null,
           csv_import_id: imp.id,
           source_row_no: i + 1,

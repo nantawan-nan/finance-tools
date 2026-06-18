@@ -4507,7 +4507,18 @@ async function edExportPDF(){
 
     const logoData = await edLoadImg(co.logo);
 
-    // วน slice
+    // เก็บ y-coordinates ของขอบล่างทุก element ที่ไม่ควรตัด — tr, card, h3
+    // เพื่อ snap slice ไปที่ boundary นี้ ไม่ตัดกลางตัวหนังสือ
+    const wrapTopY = cloneWrap.getBoundingClientRect().top;
+    const rowBounds = [];
+    clone.querySelectorAll("tr, .card, .ed-card, h3, .page-head").forEach(el => {
+      const r = el.getBoundingClientRect();
+      const yBottom = Math.round((r.bottom - wrapTopY) * 2);    // scale 2
+      if(yBottom > 0 && yBottom <= canvas.height) rowBounds.push(yBottom);
+    });
+    rowBounds.sort((a,b) => a - b);
+
+    // วน slice — snap ที่ row boundary ใกล้ slicePxMax แต่ไม่เกิน
     let yPx = 0;
     const totalPx = canvas.height;
     const pdfPages = [];
@@ -4517,7 +4528,19 @@ async function edExportPDF(){
       const showThead = (pageIdx > 0 && theadImg);
       if(showThead) avail -= (theadHmm + 1);
       const slicePxMax = (avail * canvas.width) / imgW;
-      const slicePx = Math.min(slicePxMax, totalPx - yPx);
+
+      let slicePx = Math.min(slicePxMax, totalPx - yPx);
+      // snap: หา row boundary ระหว่าง yPx + slicePxMin .. yPx + slicePxMax → ใช้ค่าสูงสุด
+      if(yPx + slicePx < totalPx){
+        // อย่าให้ slice เล็กเกิน 60% ของ avail (ป้องกัน infinite loop ถ้า boundary น้อยมาก)
+        const minSlice = slicePxMax * 0.6;
+        const candidates = rowBounds.filter(b => b > yPx + minSlice && b <= yPx + slicePxMax);
+        if(candidates.length){
+          slicePx = candidates[candidates.length - 1] - yPx;
+        }
+      }
+      if(slicePx < 1) slicePx = Math.min(slicePxMax, totalPx - yPx);   // safety
+
       pdfPages.push({ yPx, slicePx, showThead });
       yPx += slicePx;
     }

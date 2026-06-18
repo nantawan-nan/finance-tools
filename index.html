@@ -5701,7 +5701,12 @@ async function renderToolBankBalance(){
     <div class="card">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px">
         <h3 style="margin:0">ยอดล่าสุดต่อบัญชี</h3>
-        ${canWrite ? `<div style="display:flex;gap:8px"><button class="btn ghost btn sm" onclick="bbOpenAccountModal()">+ เพิ่มบัญชี</button><button class="btn" onclick="bbOpenEntryModal()">+ บันทึกยอด</button></div>` : ""}
+        ${canWrite ? `<div style="display:flex;gap:8px">
+          <input id="bbImportFile" type="file" accept=".xlsx,.xls" style="display:none" onchange="bbImportExcel(this.files[0])">
+          <button class="btn ghost btn sm" onclick="document.getElementById('bbImportFile').click()">⬆ นำเข้า Excel</button>
+          <button class="btn ghost btn sm" onclick="bbOpenAccountModal()">+ เพิ่มบัญชี</button>
+          <button class="btn" onclick="bbOpenEntryModal()">+ บันทึกยอด</button>
+        </div>` : ""}
       </div>
       <div class="table-wrap" style="max-height:none">
         <table>
@@ -5861,6 +5866,109 @@ async function bbSaveBalance(){
     err.textContent=fopErr(e); err.style.display="";
   }
 }
+/* import bank balance จาก Excel sheet "Bank_balance" */
+function bbParseAcctHeader(s){
+  // "SCB # 136-268488-9" or "SCB #417-0771640" or "BBL # 865-0-980405"
+  s = String(s||"").trim();
+  const m = s.match(/^([A-Z]+)\s*#\s*([\d\-\s]+)$/i);
+  if(!m) return null;
+  const bank = m[1].toUpperCase();
+  const no = m[2].replace(/\s/g,"");
+  return { bank_code: bank, account_no: no };
+}
+async function bbImportExcel(file){
+  if(!file) return;
+  try{
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, { type:"array", cellDates:true });
+    const sheetName = wb.SheetNames.find(n => /bank.?balance/i.test(n)) || "Bank_balance";
+    if(!wb.Sheets[sheetName]){ alert("ไม่พบ sheet 'Bank_balance' ในไฟล์"); return; }
+    const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header:1, defval:"", blankrows:false });
+    if(rows.length < 3){ alert("ข้อมูลใน sheet ว่าง"); return; }
+
+    // r0 = header (วันที่, เลขที่บัญชี,...)
+    // r1 = account labels (col B,C,D... = "SCB # ...")
+    // r2+ = data
+    const accountCols = [];   // [{col, bank_code, account_no}]
+    for(let c = 1; c < rows[1].length; c++){
+      const label = rows[1][c];
+      if(!label || /^รวม$|^หมายเหต/.test(String(label).trim())) continue;
+      const parsed = bbParseAcctHeader(label);
+      if(parsed) accountCols.push({ col:c, ...parsed, raw: label });
+    }
+    if(!accountCols.length){ alert("parse ชื่อบัญชีไม่ได้ — ต้องเป็น 'SCB # xxx-xxx-x'"); return; }
+
+    // parse data rows
+    const balances = [];   // {col index in accountCols, date, amount, note}
+    for(let r = 2; r < rows.length; r++){
+      const dRaw = rows[r][0];
+      if(!dRaw) continue;
+      let dateISO = null;
+      if(dRaw instanceof Date) dateISO = dRaw.toISOString().slice(0,10);
+      else if(typeof dRaw === "string"){
+        const m = dRaw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+        if(m) dateISO = `${m[1]}-${m[2]}-${m[3]}`;
+      }
+      if(!dateISO) continue;
+      const note = String(rows[r][rows[r].length - 1] || "").trim();   // last col often = หมายเหตุ
+      for(const ac of accountCols){
+        const v = rows[r][ac.col];
+        const amt = Number(v);
+        if(!isNaN(amt) && amt > 0){
+          balances.push({ accountIdx: accountCols.indexOf(ac), date: dateISO, amount: amt, note: /รอถอน|หมาย/i.test(note) ? note : null });
+        }
+      }
+    }
+    if(!balances.length){ alert("ไม่พบยอดเงินที่ valid"); return; }
+
+    // confirm
+    const summary = accountCols.map(a => {
+      const cnt = balances.filter(b => b.accountIdx === accountCols.indexOf(a)).length;
+      return `  ${a.bank_code} ${a.account_no} — ${cnt} วัน`;
+    }).join("\n");
+    if(!confirm(`พบ ${accountCols.length} บัญชี · ${balances.length} แถวยอด:\n\n${summary}\n\nนำเข้า?`)) return;
+
+    const cid = await fopCompanyId();
+    // 1) upsert bank_accounts
+    const acctRows = accountCols.map(a => ({
+      company_id: cid, bank_code: a.bank_code, account_no: a.account_no,
+      nickname: null, account_type: "savings", is_active: true,
+      created_by: AUTH.user ? AUTH.user.id : null
+    }));
+    const { data: insertedAccts, error: aErr } = await sb.from("bank_accounts")
+      .upsert(acctRows, { onConflict: "company_id,bank_code,account_no" })
+      .select("id, bank_code, account_no");
+    if(aErr){ alert("สร้างบัญชีไม่สำเร็จ: " + fopErr(aErr)); return; }
+
+    // map account → id
+    const acctIdMap = {};
+    for(const r of insertedAccts){
+      acctIdMap[r.bank_code + "·" + r.account_no] = r.id;
+    }
+
+    // 2) insert balances (skip if duplicate date+account+amount)
+    const balRows = [];
+    for(const b of balances){
+      const a = accountCols[b.accountIdx];
+      const key = a.bank_code + "·" + a.account_no;
+      const bankId = acctIdMap[key];
+      if(!bankId) continue;
+      balRows.push({
+        company_id: cid, bank_account_id: bankId,
+        balance_date: b.date, amount: b.amount, hold_amount: 0,
+        source: "excel_import", note: b.note || null,
+        created_by: AUTH.user ? AUTH.user.id : null
+      });
+    }
+    const { error: bErr } = await sb.from("bank_balances").insert(balRows);
+    if(bErr){ alert("บันทึก balances ไม่สำเร็จ: " + fopErr(bErr)); return; }
+
+    alert(`สำเร็จ — ${insertedAccts.length} บัญชี + ${balRows.length} รายการยอด`);
+    state.bb[state.company] = null;
+    renderToolBankBalance();
+  }catch(e){ alert("Import error: " + fopErr(e)); }
+}
+
 async function bbSoftDelete(id){
   if(!confirm("ลบรายการนี้? (soft-delete · audit log จะเก็บไว้)")) return;
   try{
@@ -6195,7 +6303,9 @@ async function renderToolRecurring(){
       <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px">
         <h3 style="margin:0">ทะเบียนค่าใช้จ่ายประจำ</h3>
         ${canWrite ? `<div style="display:flex;gap:8px">
-          <button class="btn ghost btn sm" onclick="recMaterialise()">⟳ Materialise งวดล่วงหน้า 6 เดือน</button>
+          <input id="recImportFile" type="file" accept=".xlsx,.xls" style="display:none" onchange="recImportExcel(this.files[0])">
+          <button class="btn ghost btn sm" onclick="document.getElementById('recImportFile').click()">⬆ นำเข้า Excel</button>
+          <button class="btn ghost btn sm" onclick="recMaterialise()">⟳ Materialise งวด 6 เดือน</button>
           <button class="btn btn sm" onclick="recOpenAdd()">+ เพิ่มรายการ</button>
         </div>` : ""}
       </div>
@@ -6311,6 +6421,143 @@ async function recSave(){
     err.textContent=fopErr(e); err.style.display="";
   }
 }
+/* parse "วันที่03 ของเดือนถัดไป" / "เข้ารอบ 15 ของเดือน" / "ตัดบัญชี 25" / "ทุกวันที่สิ้นเดือน" → day_of_month */
+function recParseDay(text){
+  const s = String(text||"").trim();
+  if(!s) return null;
+  if(/สิ้นเดือน|สิ้นเดือน|last/i.test(s)) return -1;
+  const m = s.match(/(\d{1,2})/);
+  if(m){
+    const d = parseInt(m[1], 10);
+    if(d >= 1 && d <= 31) return d;
+  }
+  return null;
+}
+/* map ประเภทค่าใช้จ่าย → schema category enum */
+function recMapCategory(thaiCat, vendor){
+  const txt = (thaiCat + " " + (vendor||"")).toLowerCase();
+  if(/เงินเดือน|payroll|salary/.test(txt)) return "payroll";
+  if(/สำรองเลี้ยงชีพ|provident/.test(txt)) return "provident_fund";
+  if(/ประกันสังคม|sso|social/.test(txt)) return "social_security";
+  if(/ภาษี|tax|สรรพากร/.test(txt)) return "tax";
+  if(/โทรศัพท์|อินเตอร์เน็ต|internet|true|ais|dtac/.test(txt)) return "utility";
+  if(/ค่าเช่า|rent|เช่า/.test(txt)) return "rent";
+  if(/ประกัน|insurance/.test(txt)) return "insurance";
+  if(/subscription|saas|software/.test(txt)) return "subscription";
+  if(/น้ำ|ไฟฟ้า|electric|water/.test(txt)) return "utility";
+  if(/กู้|loan/.test(txt)) return "loan";
+  return "other";
+}
+
+async function recImportExcel(file){
+  if(!file) return;
+  try{
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, { type:"array", cellDates:true });
+    const sheetName = wb.SheetNames.find(n => n.indexOf("ค่าใช้จ่ายประจำ") >= 0);
+    if(!sheetName){ alert("ไม่พบ sheet 'ค่าใช้จ่ายประจำ' ในไฟล์"); return; }
+    const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header:1, defval:"", blankrows:false });
+
+    // header row = 6 (0-indexed: 5)
+    // col 1=ประเภท, 2=สั่งจ่าย, 3=ประเภทค่าใช้จ่าย, 5=กำหนดจ่าย, 6=กำหนดจ่ายทุกวันที่,
+    // 9=จำนวนเงิน, 22=หมายเหตุ
+    const items = [];
+    for(let r = 6; r < rows.length; r++){
+      const row = rows[r];
+      const type = String(row[0]||"").trim();    // ฝันแปร/คงที่
+      const vendor = String(row[1]||"").trim();
+      const catText = String(row[2]||"").trim();
+      if(!vendor || !catText) continue;
+      const dueText = String(row[4]||"").trim() + " " + String(row[5]||"").trim();
+      const amount = Number(row[8]);
+      if(isNaN(amount) || amount <= 0) continue;
+      const remark = String(row[21]||"").trim();
+      const day = recParseDay(dueText);
+      const cat = recMapCategory(catText, vendor);
+      items.push({
+        name: vendor + " — " + catText,
+        category: cat,
+        expected_amount: amount,
+        amount_variance_pct: type === "คงที่" ? 0 : 10,   // ฝันแปร = ± 10%
+        frequency: "monthly",   // ทุกรายการในไฟล์เป็นเดือน
+        day_of_month: day,
+        start_date: new Date().toISOString().slice(0,10),
+        end_date: null,
+        is_active: true,
+        remark: (remark || dueText) || null,
+        _vendor_raw: vendor,
+        _cat_raw: catText
+      });
+    }
+    if(!items.length){ alert("ไม่พบรายการที่ valid"); return; }
+
+    // preview modal
+    const m = document.createElement("div");
+    m.id = "fopModal";
+    m.style.cssText = "position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:1000;display:flex;align-items:center;justify-content:center;padding:20px";
+    m.innerHTML = `
+      <div style="background:#fff;border-radius:14px;padding:24px;max-width:900px;width:100%;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.3)">
+        <h3 style="margin:0 0 6px;font-size:16px;font-weight:800">นำเข้าค่าใช้จ่ายประจำ จาก Excel</h3>
+        <div style="color:var(--ink-3);font-size:12.5px;margin-bottom:12px">${items.length} รายการที่จะเพิ่ม · กดติ๊กเพื่อเลือก (default ติ๊กหมด)</div>
+        <div style="overflow:auto;flex:1">
+          <table style="font-size:12px;width:100%">
+            <thead><tr><th style="position:sticky;top:0;background:#f8fafc"><input type="checkbox" id="recImpAll" checked onclick="document.querySelectorAll('.rec-imp-cb').forEach(c=>c.checked=this.checked)"></th><th>ผู้รับ</th><th>หมวด</th><th>วัน</th><th style="text-align:right">ยอด</th><th>variance</th><th>หมายเหตุ</th></tr></thead>
+            <tbody>${items.map((it,i)=>`<tr>
+              <td><input type="checkbox" class="rec-imp-cb" data-i="${i}" checked></td>
+              <td><b>${esc(it._vendor_raw)}</b></td>
+              <td style="font-size:11px">${esc(it.category)} <span style="color:var(--ink-3)">/ ${esc(it._cat_raw)}</span></td>
+              <td>${it.day_of_month === -1 ? "สิ้นเดือน" : (it.day_of_month || "—")}</td>
+              <td style="text-align:right;font-weight:700">${fopFmt(it.expected_amount)}</td>
+              <td style="font-size:11px;color:var(--ink-3)">${it.amount_variance_pct}%</td>
+              <td style="font-size:11px;color:var(--ink-2);max-width:200px;white-space:normal">${esc(it.remark||"")}</td>
+            </tr>`).join("")}</tbody>
+          </table>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:14px;justify-content:flex-end">
+          <button onclick="document.getElementById('fopModal').remove()" class="btn ghost btn sm">ยกเลิก</button>
+          <button id="recImpBtn" class="btn">นำเข้าทั้งหมดที่ติ๊ก</button>
+        </div>
+      </div>`;
+    document.body.appendChild(m);
+    m.onclick = e=>{ if(e.target===m) m.remove(); };
+    document.getElementById("recImpBtn").onclick = async () => {
+      const checked = Array.from(document.querySelectorAll(".rec-imp-cb:checked")).map(c => parseInt(c.dataset.i, 10));
+      if(!checked.length){ alert("ไม่ได้ติ๊กรายการใด"); return; }
+      const btn = document.getElementById("recImpBtn");
+      btn.disabled = true; btn.textContent = "กำลังบันทึก...";
+      try{
+        const cid = await fopCompanyId();
+        const rows = checked.map(i => {
+          const it = items[i];
+          return {
+            company_id: cid,
+            name: it.name,
+            category: it.category,
+            expected_amount: it.expected_amount,
+            amount_variance_pct: it.amount_variance_pct,
+            frequency: it.frequency,
+            day_of_month: it.day_of_month,
+            start_date: it.start_date,
+            end_date: it.end_date,
+            is_active: it.is_active,
+            remark: it.remark,
+            created_by: AUTH.user ? AUTH.user.id : null
+          };
+        });
+        const { error } = await sb.from("recurring_expenses").insert(rows);
+        if(error) throw error;
+        document.getElementById("fopModal").remove();
+        alert(`สำเร็จ — เพิ่ม ${rows.length} รายการ\n\nกด '⟳ Materialise งวด 6 เดือน' เพื่อสร้างปฏิทินงวดจ่ายล่วงหน้า`);
+        state.rec[state.company] = null;
+        renderToolRecurring();
+      }catch(e){
+        btn.disabled = false; btn.textContent = "นำเข้าทั้งหมดที่ติ๊ก";
+        alert("Import error: " + fopErr(e));
+      }
+    };
+  }catch(e){ alert("Read file error: " + fopErr(e)); }
+}
+
 async function recToggle(id, newActive){
   try{
     const { error } = await sb.from("recurring_expenses").update({ is_active: newActive }).eq("id", id);

@@ -50,22 +50,32 @@ CREATE TABLE IF NOT EXISTS users_profile (
 );
 
 -- Auto-sync เมื่อ Supabase Auth สร้าง user ใหม่
+-- ⚠️ SAFE VERSION: AFTER INSERT only + exception handler — ไม่ block login
 CREATE OR REPLACE FUNCTION fn_sync_user_profile()
-RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER AS $$
+RETURNS trigger LANGUAGE plpgsql
+SECURITY DEFINER SET search_path = public
+AS $$
 BEGIN
-  INSERT INTO users_profile (id, email, display_name)
-  VALUES (NEW.id, NEW.email, NEW.raw_user_meta_data->>'display_name')
-  ON CONFLICT (id) DO UPDATE
-    SET email        = EXCLUDED.email,
-        display_name = COALESCE(EXCLUDED.display_name, users_profile.display_name),
-        updated_at   = now();
+  BEGIN
+    INSERT INTO public.users_profile (id, email, display_name)
+    VALUES (NEW.id, NEW.email,
+            COALESCE(NEW.raw_user_meta_data->>'display_name', split_part(NEW.email,'@',1)))
+    ON CONFLICT (id) DO UPDATE
+      SET email        = EXCLUDED.email,
+          display_name = COALESCE(EXCLUDED.display_name, public.users_profile.display_name),
+          updated_at   = now();
+  EXCEPTION WHEN OTHERS THEN
+    NULL;  -- ห้าม block login เด็ดขาด
+  END;
   RETURN NEW;
 END;
 $$;
 
+GRANT EXECUTE ON FUNCTION fn_sync_user_profile() TO supabase_auth_admin;
+
 DROP TRIGGER IF EXISTS trg_sync_user_profile ON auth.users;
 CREATE TRIGGER trg_sync_user_profile
-  AFTER INSERT OR UPDATE ON auth.users
+  AFTER INSERT ON auth.users   -- ★ INSERT only — UPDATE (login last_sign_in) จะไม่ fire
   FOR EACH ROW EXECUTE FUNCTION fn_sync_user_profile();
 
 -- Backfill users ที่มีอยู่แล้ว

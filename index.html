@@ -8,6 +8,8 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-treemap@2.3.0/dist/chartjs-chart-treemap.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700;800&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet">
@@ -4263,10 +4265,197 @@ function edNowStr(){
   const mi = String(d.getMinutes()).padStart(2,"0");
   return `${dd} ${mm} ${yy} เวลา ${hh}:${mi} น.`;
 }
-function edPrint(){
-  // resize charts before print so they fit page
-  setTimeout(()=>window.print(), 50);
+/* PDF export ผ่าน html2canvas + jsPDF (รองรับฟอนต์ไทย + landscape A4) */
+async function edExportPDF(){
+  const co = COMPANIES.find(c=>c.id===state.company);
+  const t  = TOOLS.find(x=>x.id==="execdash");
+  const d  = edState();
+  const tabs = [
+    { id:"summary",  l:"Executive Summary" },
+    { id:"activity", l:"Cash Flow by Activity" },
+    { id:"category", l:"Category Analysis" },
+    { id:"banks",    l:"Bank Accounts" },
+    { id:"explorer", l:"Transaction Explorer" },
+    { id:"stmt",     l:"งบกระแสเงินสด" },
+  ];
+  const curTab = tabs.find(x=>x.id===d.tab) || tabs[0];
+
+  if(!window.html2canvas || !window.jspdf){
+    alert("PDF library โหลดยังไม่เสร็จ — รอสักครู่แล้วลองใหม่"); return;
+  }
+
+  // overlay loading
+  const ov = document.createElement("div");
+  ov.id = "edPdfOv";
+  ov.style.cssText = "position:fixed;inset:0;background:rgba(15,23,42,.6);z-index:9999;display:flex;align-items:center;justify-content:center;flex-direction:column;color:#fff;font-family:'Sarabun',sans-serif";
+  ov.innerHTML = `<div style="background:#fff;color:#0f172a;padding:24px 36px;border-radius:14px;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.3)">
+    <div style="font-size:16px;font-weight:700;margin-bottom:8px">กำลังสร้าง PDF...</div>
+    <div style="color:#64748b;font-size:13px">โปรดรอ — อาจใช้เวลา 5–10 วินาที</div>
+  </div>`;
+  document.body.appendChild(ov);
+
+  try{
+    await new Promise(r => setTimeout(r, 100));
+
+    // capture #edContent as canvas
+    const content = document.getElementById("edContent");
+    if(!content) throw new Error("ไม่พบ content");
+
+    // เพิ่ม background ขาวระหว่าง capture เพื่อความคมชัด
+    const canvas = await window.html2canvas(content, {
+      scale: 2,
+      backgroundColor: "#ffffff",
+      useCORS: true,
+      logging: false,
+      windowWidth: content.scrollWidth,
+      windowHeight: content.scrollHeight
+    });
+
+    // สร้าง PDF landscape A4 (297 × 210 mm)
+    const { jsPDF } = window.jspdf;
+    const pdf = new jsPDF({ orientation:"landscape", unit:"mm", format:"a4" });
+    const pageW = 297, pageH = 210;
+    const margin = 8;
+    const headerH = 22;          // พื้นที่หัวเอกสาร (mm)
+    const footerH = 6;           // เลขหน้า
+    const contentW = pageW - 2*margin;
+    const contentH = pageH - headerH - footerH - margin;
+
+    // โหลดโลโก้
+    const logoData = await edLoadImg(co.logo);
+
+    // scale image: ใช้ width เต็ม contentW
+    const imgW = contentW;
+    const imgH = (canvas.height * imgW) / canvas.width;
+
+    // จำนวนหน้าที่ต้องใช้
+    const pages = Math.ceil(imgH / contentH);
+    const fullImg = canvas.toDataURL("image/png");
+
+    for(let p=0; p<pages; p++){
+      if(p > 0) pdf.addPage();
+      drawPdfHeader(pdf, co, t, curTab, d, logoData, pageW, headerH, margin);
+
+      // crop slice ของ canvas สำหรับหน้าน this
+      const sliceTopPx = p * (contentH * canvas.width / imgW);
+      const sliceHeightPx = Math.min(contentH * canvas.width / imgW, canvas.height - sliceTopPx);
+
+      const sliceCanvas = document.createElement("canvas");
+      sliceCanvas.width = canvas.width;
+      sliceCanvas.height = sliceHeightPx;
+      const ctx = sliceCanvas.getContext("2d");
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, sliceCanvas.width, sliceCanvas.height);
+      ctx.drawImage(canvas, 0, -sliceTopPx);
+
+      const sliceImg = sliceCanvas.toDataURL("image/png");
+      const sliceImgH = (sliceHeightPx * imgW) / canvas.width;
+      pdf.addImage(sliceImg, "PNG", margin, headerH + margin/2, imgW, sliceImgH);
+
+      // footer page number
+      pdf.setFont("helvetica","normal");
+      pdf.setFontSize(8);
+      pdf.setTextColor(150,150,150);
+      pdf.text(`${p+1} / ${pages}`, pageW - margin, pageH - 3, { align:"right" });
+    }
+
+    const fname = `${co.name.replace(/\s+/g,"_")}_${curTab.id}_${stamp()}.pdf`;
+    pdf.save(fname);
+  }catch(err){
+    console.error(err);
+    alert("สร้าง PDF ไม่สำเร็จ: " + (err.message||err));
+  }finally{
+    const o = document.getElementById("edPdfOv");
+    if(o) o.remove();
+  }
 }
+
+/* draw custom PDF header — logo + company + tab + period + datetime */
+function drawPdfHeader(pdf, co, tool, tab, d, logoData, pageW, headerH, margin){
+  // top border accent line (gradient mimic: just a colored bar)
+  pdf.setFillColor(79, 138, 247);   // ED brand
+  pdf.rect(0, 0, pageW, 1.5, "F");
+
+  // logo (ซ้าย)
+  if(logoData){
+    try{ pdf.addImage(logoData, "PNG", margin, 4, 16, 16); }catch(e){}
+  }
+
+  // company text (ใช้ Helvetica - jsPDF default; Thai จะแสดงผ่าน image canvas ของเนื้อหา แต่ header ต้อง draw ตรง)
+  // เนื่องจาก jsPDF ไม่รองรับฟอนต์ไทย default → เราจะ render text header เป็นภาพแทน
+  // วิธี: สร้าง offscreen canvas → วาด text ไทย → addImage
+  // (เก็บไว้เป็นทางเลือก — ตอนนี้ใช้ Helvetica + Latin name)
+  const xText = logoData ? margin + 20 : margin;
+
+  // ใช้ EN name สำหรับฟอนต์ default
+  pdf.setFont("helvetica","bold");
+  pdf.setFontSize(13);
+  pdf.setTextColor(15, 23, 42);
+  const enName = (co.fullName||co.name).split("·")[1] ? (co.fullName||co.name).split("·")[1].trim() : co.name;
+  pdf.text(enName, xText, 10);
+
+  pdf.setFont("helvetica","normal");
+  pdf.setFontSize(8.5);
+  pdf.setTextColor(100, 116, 139);
+  pdf.text((co.brand||"").toUpperCase(), xText, 14);
+
+  // tab + period + datetime (ขวา) — ใช้ image canvas เพื่อรองรับไทย
+  const rightImg = edRenderHeaderRight(tab.l, edPeriodLabel(d.data, d.monthFilter), edNowStr());
+  if(rightImg){
+    pdf.addImage(rightImg, "PNG", pageW - margin - 100, 3, 100, 17);
+  }
+
+  // bottom border ของ header
+  pdf.setDrawColor(79, 138, 247);
+  pdf.setLineWidth(0.4);
+  pdf.line(margin, headerH, pageW - margin, headerH);
+}
+
+/* render Thai header right-side as image (because jsPDF doesn't have Thai font) */
+function edRenderHeaderRight(tabName, periodLabel, dateStr){
+  const w = 800, h = 136;
+  const cv = document.createElement("canvas");
+  cv.width = w; cv.height = h;
+  const ctx = cv.getContext("2d");
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, w, h);
+  ctx.textAlign = "right";
+
+  ctx.font = "700 32px 'Sarabun','Plus Jakarta Sans',sans-serif";
+  ctx.fillStyle = "#1e40af";
+  ctx.fillText(tabName, w - 8, 36);
+
+  ctx.font = "700 38px 'Plus Jakarta Sans','Sarabun',sans-serif";
+  ctx.fillStyle = "#0f172a";
+  ctx.fillText(periodLabel, w - 8, 84);
+
+  ctx.font = "italic 22px 'Sarabun',sans-serif";
+  ctx.fillStyle = "#94a3b8";
+  ctx.fillText("พิมพ์เมื่อ " + dateStr, w - 8, 122);
+
+  return cv.toDataURL("image/png");
+}
+
+/* load image as base64 for PDF embed */
+function edLoadImg(src){
+  return new Promise(resolve => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      const cv = document.createElement("canvas");
+      cv.width = img.naturalWidth || 256;
+      cv.height = img.naturalHeight || 256;
+      const ctx = cv.getContext("2d");
+      ctx.drawImage(img, 0, 0);
+      try{ resolve(cv.toDataURL("image/png")); } catch(e){ resolve(null); }
+    };
+    img.onerror = () => resolve(null);
+    img.src = src;
+  });
+}
+
+/* alias เดิม — keep backward compat */
+function edPrint(){ edExportPDF(); }
 
 /* ---------- Render dashboard with 6 tabs ---------- */
 function edRenderDashboard(){

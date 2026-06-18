@@ -267,37 +267,59 @@ async function authSignOut(){
 
 /* ---------- Login screen ---------- */
 function renderLogin(msg){
+  const SVG_EYE = '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>';
+  const SVG_EYE_OFF = '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/><path d="m2 2 20 20"/></svg>';
   document.body.innerHTML = `
-    <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:#f4f6f9;font-family:'IBM Plex Sans Thai','IBM Plex Sans',ui-sans-serif,sans-serif">
-      <div style="width:100%;max-width:400px;padding:20px">
-        <div style="text-align:center;margin-bottom:32px">
-          <div style="display:inline-flex;width:48px;height:48px;border-radius:13px;background:linear-gradient(135deg,#1e3a8a,#2563eb);align-items:center;justify-content:center;color:#fff;font-weight:900;font-size:20px;margin-bottom:14px">F</div>
-          <div style="font-size:22px;font-weight:800;color:#0f172a;letter-spacing:-.4px">Finance Tools</div>
-          <div style="color:#94a3b8;font-size:13px;margin-top:4px">ระบบบริหารงานการเงิน</div>
-        </div>
-        <div style="background:#fff;border-radius:14px;box-shadow:0 2px 8px rgba(15,23,42,.07),0 12px 32px rgba(15,23,42,.07);padding:32px 28px">
-          <form id="lf" style="display:flex;flex-direction:column;gap:14px">
+    <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:linear-gradient(180deg,#F5F9FF 0%,#DBEAFE 100%);padding:24px;font-family:'IBM Plex Sans Thai','IBM Plex Sans',ui-sans-serif,sans-serif">
+      <div style="width:100%;max-width:440px">
+        <div style="background:#fff;border-radius:24px;box-shadow:0 24px 70px rgba(15,23,42,.10),0 2px 8px rgba(15,23,42,.04);padding:44px 40px">
+          <!-- โลโก้สองบริษัท -->
+          <div style="display:flex;align-items:center;justify-content:center;gap:28px;margin-bottom:14px">
+            <img src="logos/mbark.png" alt="M Bark" style="height:64px;width:auto;object-fit:contain" onerror="this.style.display='none'">
+            <div style="width:1px;height:52px;background:linear-gradient(180deg,transparent,#cbd5e1 30%,#cbd5e1 70%,transparent)"></div>
+            <img src="logos/benya.png" alt="Benya" style="height:64px;width:auto;object-fit:contain" onerror="this.style.display='none'">
+          </div>
+          <div style="text-align:center;color:#64748b;font-size:14px;font-weight:500;margin-bottom:34px;letter-spacing:.3px">Financial Console</div>
+
+          <form id="lf" style="display:flex;flex-direction:column;gap:18px">
             <div>
-              <label style="display:block;font-size:12px;font-weight:700;color:#475569;margin-bottom:5px;letter-spacing:.3px;text-transform:uppercase">อีเมล</label>
+              <label style="display:block;font-size:13px;font-weight:600;color:#334155;margin-bottom:7px">อีเมล</label>
               <input id="lfEmail" type="email" required autofocus placeholder="you@company.com"
-                style="display:block;width:100%;padding:10px 13px;border:1px solid #e2e8f0;border-radius:8px;font-size:14px;font-family:inherit;color:#0f172a;outline:none;transition:.15s"
-                onfocus="this.style.borderColor='#2563eb'" onblur="this.style.borderColor='#e2e8f0'">
+                style="display:block;width:100%;padding:12px 14px;border:1.5px solid #e2e8f0;border-radius:11px;font-size:14px;font-family:inherit;background:#F8FAFC;color:#0f172a;outline:none;transition:.15s"
+                onfocus="this.style.borderColor='#4F8AF7';this.style.background='#fff'"
+                onblur="this.style.borderColor='#e2e8f0';this.style.background='#F8FAFC'">
             </div>
             <div>
-              <label style="display:block;font-size:12px;font-weight:700;color:#475569;margin-bottom:5px;letter-spacing:.3px;text-transform:uppercase">รหัสผ่าน</label>
-              <input id="lfPwd" type="password" required placeholder="••••••••"
-                style="display:block;width:100%;padding:10px 13px;border:1px solid #e2e8f0;border-radius:8px;font-size:14px;font-family:inherit;color:#0f172a;outline:none;transition:.15s"
-                onfocus="this.style.borderColor='#2563eb'" onblur="this.style.borderColor='#e2e8f0'">
+              <label style="display:block;font-size:13px;font-weight:600;color:#334155;margin-bottom:7px">รหัสผ่าน</label>
+              <div style="position:relative">
+                <input id="lfPwd" type="password" required placeholder="••••••••"
+                  style="display:block;width:100%;padding:12px 46px 12px 14px;border:1.5px solid #e2e8f0;border-radius:11px;font-size:14px;font-family:inherit;background:#F8FAFC;color:#0f172a;outline:none;transition:.15s"
+                  onfocus="this.style.borderColor='#4F8AF7';this.style.background='#fff'"
+                  onblur="this.style.borderColor='#e2e8f0';this.style.background='#F8FAFC'">
+                <button type="button" id="lfEye" onclick="loginToggleEye()" aria-label="แสดงรหัสผ่าน"
+                  style="position:absolute;right:8px;top:50%;transform:translateY(-50%);background:transparent;border:none;cursor:pointer;color:#94a3b8;padding:8px;line-height:0;border-radius:8px;display:flex;align-items:center;justify-content:center;transition:.12s"
+                  onmouseover="this.style.color='#475569';this.style.background='#f1f5f9'"
+                  onmouseout="this.style.color='#94a3b8';this.style.background='transparent'">${SVG_EYE}</button>
+              </div>
             </div>
-            ${msg ? `<div style="color:#dc2626;font-size:12.5px;background:#fef2f2;border:1px solid #fecaca;padding:9px 12px;border-radius:7px">${esc(msg)}</div>` : ""}
-            <button type="submit" id="lfBtn" style="margin-top:4px;padding:11px;background:#1e3a8a;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;transition:.15s;letter-spacing:.2px"
-              onmouseover="this.style.background='#172554'" onmouseout="this.style.background='#1e3a8a'">เข้าสู่ระบบ</button>
+            ${msg ? `<div style="color:#dc2626;font-size:12.5px;background:#fef2f2;border:1px solid #fecaca;padding:10px 14px;border-radius:9px">${esc(msg)}</div>` : ""}
+            <button type="submit" id="lfBtn"
+              style="margin-top:10px;padding:13px;background:linear-gradient(135deg,#4F8AF7 0%,#2563eb 100%);color:#fff;border:none;border-radius:11px;font-size:14.5px;font-weight:700;cursor:pointer;transition:.18s;letter-spacing:.4px;box-shadow:0 6px 18px rgba(37,99,235,.28);font-family:inherit"
+              onmouseover="this.style.transform='translateY(-1px)';this.style.boxShadow='0 8px 24px rgba(37,99,235,.4)'"
+              onmouseout="this.style.transform='none';this.style.boxShadow='0 6px 18px rgba(37,99,235,.28)'">เข้าสู่ระบบ</button>
           </form>
         </div>
-        <div style="text-align:center;margin-top:18px;font-size:11.5px;color:#94a3b8">ระบบเฉพาะพนักงาน M Bark &amp; Benya</div>
+        <div style="text-align:center;margin-top:20px;font-size:11.5px;color:#94a3b8;letter-spacing:.2px">ระบบเฉพาะพนักงาน M Bark &amp; Benya</div>
       </div>
     </div>
   `;
+  // eye toggle
+  window.loginToggleEye = function(){
+    const i = document.getElementById("lfPwd");
+    const b = document.getElementById("lfEye");
+    if(i.type === "password"){ i.type = "text"; b.innerHTML = SVG_EYE_OFF; b.setAttribute("aria-label","ซ่อนรหัสผ่าน"); }
+    else { i.type = "password"; b.innerHTML = SVG_EYE; b.setAttribute("aria-label","แสดงรหัสผ่าน"); }
+  };
   document.getElementById("lf").onsubmit = async (e) => {
     e.preventDefault();
     const btn = document.getElementById("lfBtn");

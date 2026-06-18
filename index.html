@@ -6042,9 +6042,11 @@ async function renderToolApOutstanding(){
     <div class="card">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px">
         <h3 style="margin:0">เจ้าหนี้คงค้าง</h3>
-        ${canWrite ? `<div style="display:flex;gap:8px">
+        ${canWrite ? `<div style="display:flex;gap:8px;flex-wrap:wrap">
+          <input id="apoXmlFile" type="file" accept=".xml" style="display:none" onchange="apoHandleXml(this.files[0])">
           <input id="apoCsvFile" type="file" accept=".csv" style="display:none" onchange="apoHandleCsv(this.files[0])">
-          <button class="btn ghost btn sm" onclick="document.getElementById('apoCsvFile').click()">⬆ Upload CSV</button>
+          <button class="btn ghost btn sm" onclick="document.getElementById('apoXmlFile').click()" title="ไฟล์ Express XML">⬆ Express XML</button>
+          <button class="btn ghost btn sm" onclick="document.getElementById('apoCsvFile').click()">⬆ CSV</button>
           <button class="btn btn sm" onclick="apoOpenAdd()">+ เพิ่มเอง</button>
         </div>` : ""}
       </div>
@@ -6078,6 +6080,221 @@ async function renderToolApOutstanding(){
     </div>
   `;
   if(window.lucide && window.lucide.createIcons){ try{ window.lucide.createIcons(); }catch(e){} }
+}
+
+/* parse Excel XML 2003 (Express AP report) → array of invoices */
+function apoParseExpressXml(xmlText){
+  const dom = new DOMParser().parseFromString(xmlText, "text/xml");
+  if(dom.querySelector("parsererror")) throw new Error("XML parse error");
+  const rows = dom.getElementsByTagNameNS("urn:schemas-microsoft-com:office:spreadsheet", "Row");
+  const invoices = [];
+  const vendors = new Map();   // code → name
+  let curVendor = null;
+
+  for(const row of rows){
+    // collect cells by ss:Index (default = previous+1)
+    const cells = {};
+    let idx = 0;
+    for(const cell of row.children){
+      if(cell.localName !== "Cell") continue;
+      const ix = cell.getAttributeNS("urn:schemas-microsoft-com:office:spreadsheet","Index");
+      if(ix) idx = parseInt(ix, 10); else idx++;
+      const data = cell.getElementsByTagNameNS("urn:schemas-microsoft-com:office:spreadsheet","Data")[0];
+      if(data){
+        const t = data.getAttributeNS("urn:schemas-microsoft-com:office:spreadsheet","Type");
+        cells[idx] = { v: data.textContent, t,
+          style: cell.getAttributeNS("urn:schemas-microsoft-com:office:spreadsheet","StyleID") };
+      }
+    }
+    if(!Object.keys(cells).length) continue;
+    const c1 = cells[1];
+    if(!c1) continue;
+
+    // vendor header (style A10 on col 1)
+    if(c1.style === "A10" && c1.v){
+      const txt = c1.v.trim();
+      if(txt.startsWith("รวม")) { curVendor = null; continue; }  // skip "รวมตามประเภท..."
+      const m = txt.match(/^(.+?)\s*\/\s*([^\/\s]+)\s*$/);
+      if(m){
+        curVendor = { name: m[1].trim(), code: m[2].trim() };
+      } else {
+        curVendor = { name: txt, code: null };
+      }
+      if(curVendor.code) vendors.set(curVendor.code, curVendor.name);
+      continue;
+    }
+
+    // skip "รวมเจ้าหนี้" rows
+    if(c1.v && c1.v.startsWith("รวม")) continue;
+
+    // invoice row: col 1 = DateTime
+    if(c1.t === "DateTime" && curVendor){
+      const invDate = c1.v.slice(0,10);
+      const docNo = (cells[2] && cells[2].v || "").trim();
+      const billText = (cells[3] && cells[3].v || "").trim();
+      // "MEMO.2026-06-16        4,000.00" → bill_no + amount
+      const amtMatch = billText.match(/([\d,]+\.\d{2})\s*$/);
+      const billAmt = amtMatch ? parseFloat(amtMatch[1].replace(/,/g,"")) : 0;
+      const billNo = (amtMatch ? billText.slice(0, amtMatch.index) : billText).trim();
+
+      // amount_outstanding = max ของ col 5, col 6 หรือ aging buckets (col 7-13)
+      const c5 = parseFloat((cells[5]||{}).v || "0") || 0;
+      const c6 = parseFloat((cells[6]||{}).v || "0") || 0;
+      const aging = [7,8,9,10,11,12,13].reduce((s,k) => s + (parseFloat((cells[k]||{}).v || "0") || 0), 0);
+      const outstanding = aging > 0 ? aging : (c6 || c5 || billAmt);
+      const total = billAmt || outstanding;
+
+      // due_date: col 14 — DateTime หรือ string "    449  26/03/68"
+      let dueDate = null;
+      const c14 = cells[14];
+      if(c14){
+        if(c14.t === "DateTime") dueDate = c14.v.slice(0,10);
+        else if(typeof c14.v === "string"){
+          const dm = c14.v.match(/(\d{1,2})\/(\d{1,2})\/(\d{2,4})\s*$/);
+          if(dm){
+            let y = parseInt(dm[3],10);
+            if(y < 100) y += 2500;       // 68 → 2568 (พ.ศ.)
+            if(y >= 2400) y -= 543;       // → 2025
+            dueDate = `${y}-${dm[2].padStart(2,'0')}-${dm[1].padStart(2,'0')}`;
+          }
+        }
+      }
+      if(!dueDate) dueDate = invDate;
+
+      const po = (cells[15] && cells[15].v || "").trim() || null;
+      const remark = (cells[16] && cells[16].v || "").trim() || null;
+
+      invoices.push({
+        vendor_name: curVendor.name,
+        vendor_code: curVendor.code,
+        invoice_date: invDate,
+        invoice_no: billNo || docNo,
+        doc_no: docNo,
+        amount_total: total,
+        amount_outstanding: outstanding,
+        due_date: dueDate,
+        po, remark,
+        is_overdue: dueDate < new Date().toISOString().slice(0,10)
+      });
+    }
+  }
+  return { invoices, vendors };
+}
+
+async function apoHandleXml(file){
+  if(!file) return;
+  let parsed;
+  try{
+    const text = await file.text();
+    parsed = apoParseExpressXml(text);
+  }catch(e){ alert("อ่าน XML ไม่สำเร็จ: " + fopErr(e)); return; }
+  const { invoices, vendors } = parsed;
+  if(!invoices.length){ alert("ไม่พบ invoice ใน XML"); return; }
+
+  // preview modal
+  const total = invoices.reduce((s,i) => s + Number(i.amount_outstanding||0), 0);
+  const overdue = invoices.filter(i => i.is_overdue).length;
+  const m = document.createElement("div");
+  m.id = "fopModal";
+  m.style.cssText = "position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:1000;display:flex;align-items:center;justify-content:center;padding:20px";
+  m.innerHTML = `
+    <div style="background:#fff;border-radius:14px;padding:24px;max-width:1100px;width:100%;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.3)">
+      <h3 style="margin:0 0 6px;font-size:16px;font-weight:800">นำเข้า Express AP XML</h3>
+      <div style="color:var(--ink-3);font-size:12.5px;margin-bottom:12px">
+        ${vendors.size} เจ้าหนี้ · ${invoices.length} บิล · ยอดคงค้างรวม <b style="color:var(--out-ink)">${fopFmt(total)}</b>
+        ${overdue ? ` · <b style="color:var(--warn-ink)">${overdue} บิลเกินกำหนด</b>` : ""}
+      </div>
+      <div style="overflow:auto;flex:1">
+        <table style="font-size:11.5px;width:100%">
+          <thead><tr style="position:sticky;top:0;background:#f8fafc"><th><input type="checkbox" id="apoXAll" checked onclick="document.querySelectorAll('.apo-x-cb').forEach(c=>c.checked=this.checked)"></th><th>เจ้าหนี้</th><th>เลขที่บิล</th><th>วันที่บิล</th><th>ครบกำหนด</th><th style="text-align:right">ยอดรวม</th><th style="text-align:right">คงค้าง</th><th>หมายเหตุ</th></tr></thead>
+          <tbody>${invoices.map((it,i)=>`<tr ${it.is_overdue?'class="warning-row"':''}>
+            <td><input type="checkbox" class="apo-x-cb" data-i="${i}" checked></td>
+            <td><b>${esc(it.vendor_name)}</b> ${it.vendor_code?`<span style="color:var(--ink-3);font-size:10px">/${esc(it.vendor_code)}</span>`:""}</td>
+            <td><code style="font-size:11px">${esc(it.invoice_no)}</code></td>
+            <td>${fopDate(it.invoice_date)}</td>
+            <td style="${it.is_overdue?'color:var(--out-ink);font-weight:700':''}">${fopDate(it.due_date)}</td>
+            <td style="text-align:right">${fopFmt(it.amount_total)}</td>
+            <td style="text-align:right;font-weight:700;color:var(--out-ink)">${fopFmt(it.amount_outstanding)}</td>
+            <td style="font-size:11px;color:var(--ink-2);max-width:200px;white-space:normal">${esc(it.remark||"")}</td>
+          </tr>`).join("")}</tbody>
+        </table>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:14px;justify-content:space-between;align-items:center">
+        <div style="font-size:11.5px;color:var(--ink-3)">หากบิลเลขเดียวกันมีอยู่แล้ว ระบบจะอัปเดต (upsert ตาม company_id + invoice_no)</div>
+        <div style="display:flex;gap:8px">
+          <button onclick="document.getElementById('fopModal').remove()" class="btn ghost btn sm">ยกเลิก</button>
+          <button id="apoXBtn" class="btn">นำเข้าทั้งหมดที่ติ๊ก</button>
+        </div>
+      </div>
+    </div>`;
+  document.body.appendChild(m);
+  m.onclick = e=>{ if(e.target===m) m.remove(); };
+
+  document.getElementById("apoXBtn").onclick = async () => {
+    const sel = Array.from(document.querySelectorAll(".apo-x-cb:checked")).map(c => parseInt(c.dataset.i, 10));
+    if(!sel.length){ alert("ไม่ได้ติ๊กรายการใด"); return; }
+    const btn = document.getElementById("apoXBtn");
+    btn.disabled = true; btn.textContent = "กำลังบันทึก...";
+    try{
+      const cid = await fopCompanyId();
+      // 1) upsert vendors (by external_code)
+      const vendorPayload = Array.from(vendors.entries()).map(([code, name]) => ({
+        company_id: cid, external_code: code, name,
+        created_by: AUTH.user ? AUTH.user.id : null
+      }));
+      let vendorMap = {};
+      if(vendorPayload.length){
+        const { data: vs, error: vErr } = await sb.from("vendors")
+          .upsert(vendorPayload, { onConflict: "company_id,external_code" })
+          .select("id, external_code, name");
+        if(vErr) throw vErr;
+        for(const v of vs) vendorMap[v.external_code] = v.id;
+      }
+
+      // 2) create import record
+      const { data: imp, error: impErr } = await sb.from("csv_imports").insert({
+        company_id: cid, target_table: "ap_invoices",
+        file_name: file.name, row_count: sel.length, status: "validating",
+        uploaded_by: AUTH.user ? AUTH.user.id : null
+      }).select().single();
+      if(impErr) throw impErr;
+
+      // 3) build ap_invoices rows
+      const rows = sel.map(i => {
+        const it = invoices[i];
+        return {
+          company_id: cid,
+          vendor_id: it.vendor_code ? vendorMap[it.vendor_code] : null,
+          vendor_name_raw: it.vendor_name,
+          invoice_no: it.invoice_no,
+          invoice_date: it.invoice_date,
+          due_date: it.due_date,
+          amount_total: it.amount_total,
+          remark: [it.remark, it.po ? "PO:"+it.po : null, it.doc_no ? "Express:"+it.doc_no : null].filter(Boolean).join(" · ") || null,
+          csv_import_id: imp.id,
+          source_row_no: i + 1,
+          created_by: AUTH.user ? AUTH.user.id : null
+        };
+      });
+
+      const { error: insErr } = await sb.from("ap_invoices")
+        .upsert(rows, { onConflict: "company_id,invoice_no" });
+      if(insErr) throw insErr;
+
+      await sb.from("csv_imports").update({
+        status: "committed", ok_count: rows.length, error_count: 0,
+        committed_at: new Date().toISOString(), committed_by: AUTH.user?AUTH.user.id:null
+      }).eq("id", imp.id);
+
+      document.getElementById("fopModal").remove();
+      alert(`สำเร็จ — ${rows.length} บิล (จาก ${vendors.size} เจ้าหนี้)`);
+      state.apo[state.company] = null;
+      renderToolApOutstanding();
+    }catch(e){
+      btn.disabled = false; btn.textContent = "นำเข้าทั้งหมดที่ติ๊ก";
+      alert("Import error: " + fopErr(e));
+    }
+  };
 }
 
 async function apoHandleCsv(file){

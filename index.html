@@ -3994,15 +3994,40 @@ function edFmtCompact(n){
   if(v >= 1e3) return (n/1e3).toFixed(1) + "K";
   return n.toFixed(0);
 }
-function edParseAcctHeader(s){
-  // "S/A #BBL 865-0-98040-5 (ฝ่าย ออนไลน์)"
+function edParseAcctHeader(s, accNoFromRow){
+  // รองรับ 2 รูปแบบ:
+  //  Benya: "S/A #BBL 865-0-98040-5 (ฝ่าย ออนไลน์)"
+  //  M Bark: "เงินฝากออมทรัพย์-SBC#136-270928-1 (สัมมากร)" + บรรทัดถัดมามี "สมุดบัญชีเลขที่"
   s = String(s||"").trim();
   let bank = "—", no = "", nick = "";
+
+  // bank: ลอง BANK_KEYS ก่อน + alias พิเศษ
+  const BANK_ALIAS = { "SBC":"SCB", "KBNK":"KBANK", "TMB":"TTB" };
+  const U = s.toUpperCase();
   for(const k of BANK_KEYS){
-    if(s.toUpperCase().includes(k)){ bank = k; break; }
+    if(U.includes(k)){ bank = k; break; }
   }
-  const m = s.match(/#\s*[A-Z]+\s+([\d\-]+)/);
-  if(m) no = m[1];
+  if(bank === "—"){
+    for(const a in BANK_ALIAS){
+      if(U.includes(a)){ bank = BANK_ALIAS[a]; break; }
+    }
+  }
+
+  // เลขบัญชี: ถ้ามี accNoFromRow (M Bark) ใช้เลย — ไม่งั้น parse จาก string
+  if(accNoFromRow != null && String(accNoFromRow).trim()){
+    no = String(accNoFromRow).trim();
+    // format ถ้าเป็นเลขล้วน 9-10 หลัก → "XXX-XXXXXX-X"
+    if(/^\d{9,12}$/.test(no)){
+      no = no.slice(0,3) + "-" + no.slice(3, no.length-1) + "-" + no.slice(-1);
+    }
+  } else {
+    // Benya: หาแบบ #BBL 865-0-98040-5
+    let m = s.match(/#\s*[A-Z]+\s+([\d\-]+)/);
+    if(!m) m = s.match(/#\s*([\d][\d\-]*\d)/);   // #136-270928-1 ติดกัน
+    if(!m) m = s.match(/(\d[\d\-]{4,}\d)/);      // fallback: เลข+dash ที่ยาวพอ
+    if(m) no = m[1];
+  }
+
   const p = s.match(/\(([^)]+)\)/);
   if(p) nick = p[1].trim();
   return { bank, no, nick, raw:s };
@@ -4052,11 +4077,26 @@ function edParse(book){
 
     for(let r=0;r<rows.length;r++){
       const row = rows[r] || [];
-      // detect new account: column D (idx 3) มี "S/A" หรือ "SA #" หรือเริ่มด้วย "#"
       const cell0 = String(row[0]||"").trim();
       const cell3 = String(row[3]||"").trim();
-      if(cell3.toUpperCase().startsWith("S/A") || cell3.toUpperCase().startsWith("SA #") || /^#[A-Z]/.test(cell3)){
-        const info = edParseAcctHeader(cell3);
+      // detect new account row: col A == "รายการเคลื่อนไหวบัญชีธนาคาร" (เหมือนกันทุก format)
+      // หรือ legacy: col D ขึ้นต้น S/A / SA # / #X
+      const isAcctHeader =
+        cell0 === "รายการเคลื่อนไหวบัญชีธนาคาร" ||
+        cell3.toUpperCase().startsWith("S/A") ||
+        cell3.toUpperCase().startsWith("SA #") ||
+        /^#[A-Z]/.test(cell3);
+      if(isAcctHeader){
+        // M Bark format: บรรทัดถัดมา (col B) มี "สมุดบัญชีเลขที่" + col D = เลขบัญชี
+        let accNoFromRow = null;
+        const nextRow = rows[r+1];
+        if(nextRow){
+          const nc1 = String(nextRow[1]||"").trim();
+          if(nc1.includes("สมุดบัญชีเลขที่") || nc1.includes("เลขที่บัญชี")){
+            accNoFromRow = nextRow[3];
+          }
+        }
+        const info = edParseAcctHeader(cell3, accNoFromRow);
         const accountKey = info.bank + "·" + info.no;
         curAcct = {
           header: info,

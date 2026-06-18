@@ -528,9 +528,9 @@ const TOOLS = [
 
   // ───── 6. กระแสเงินสด ─────
   { id:"cashflow", stage:"กระแสเงินสด", ic:"~", icon:"waves",
-    name:"Cash Flow Forecast", desc:"คาดการณ์ 7/30/90 วัน",
-    long:"รายรับจาก AR + เงินรอถอน + คาดรับ · รายจ่ายจาก AP + ค่าใช้จ่ายประจำ → คาดการณ์เงินสดล่วงหน้า",
-    multiInput:true, status:"soon" },
+    name:"Cash Flow Forecast", desc:"Real-time projection + KPI",
+    long:"Opening Cash + Forecast Receipts − Forecast Payments = Projected Cash · KPI 10 ตัว · timeline + drill-down · snapshot mode",
+    multiInput:true, status:"live" },
   { id:"bank_balance", stage:"กระแสเงินสด", ic:"$", icon:"landmark",
     name:"ยอดเงินคงเหลือธนาคาร", desc:"บันทึกยอดรายวัน · history",
     long:"กรอกยอดเงินคงเหลือแต่ละบัญชีทุกวัน · เก็บประวัติย้อนหลังครบ · ไม่ทับข้อมูลเดิม (append-only)",
@@ -695,6 +695,7 @@ function renderTool(){
     if (t.id==="bank_balance")   return renderToolBankBalance();
     if (t.id==="ap_outstanding") return renderToolApOutstanding();
     if (t.id==="recurring")      return renderToolRecurring();
+    if (t.id==="cashflow")       return renderToolCashflowForecast();
     if (t.id==="ar")       return renderToolAr();
     if (t.id==="armap") return renderToolArmap();
     if (t.id==="bigseller") return renderToolBigSeller();
@@ -7101,6 +7102,524 @@ async function recMaterialise(){
     state.rec[state.company] = null;
     renderToolRecurring();
   }catch(e){ alert("ไม่สำเร็จ: " + fopErr(e)); }
+}
+
+/* ============================================================
+   MODULE 5: CASH FLOW FORECAST + EXECUTIVE DASHBOARD
+   ============================================================ */
+state.cff = state.cff || {};
+function cffGet(){
+  if(!state.cff[state.company]){
+    state.cff[state.company] = {
+      data:null, busy:false,
+      horizon: 30,                 // 7 / 15 / 30 / month_end / custom
+      customFrom: null, customTo: null,
+      snapshot: false
+    };
+  }
+  return state.cff[state.company];
+}
+function cffSetHorizon(h){
+  const d = cffGet();
+  d.horizon = h;
+  if(h !== "custom"){ d.customFrom = null; d.customTo = null; }
+  renderToolCashflowForecast();
+}
+function cffEndDate(d){
+  const today = new Date(); today.setHours(0,0,0,0);
+  if(d.horizon === "custom" && d.customTo) return new Date(d.customTo);
+  if(d.horizon === "month_end"){
+    const e = new Date(today.getFullYear(), today.getMonth()+1, 0);
+    return e;
+  }
+  const days = Number(d.horizon) || 30;
+  const e = new Date(today); e.setDate(today.getDate()+days);
+  return e;
+}
+function cffStartDate(d){
+  if(d.horizon === "custom" && d.customFrom) return new Date(d.customFrom);
+  const today = new Date(); today.setHours(0,0,0,0);
+  return today;
+}
+
+/* load = bank balances (latest) + AP outstanding + recurring occurrences */
+async function cffLoad(){
+  const d = cffGet();
+  const cid = await fopCompanyId();
+  if(!cid){ d.err = "หา company_id ไม่เจอ"; return; }
+  d.companyId = cid;
+  const startISO = cffStartDate(d).toISOString().slice(0,10);
+  const endISO = cffEndDate(d).toISOString().slice(0,10);
+  const todayISO = new Date().toISOString().slice(0,10);
+
+  const [balRes, apRes, recRes, recExpRes] = await Promise.all([
+    sb.rpc("fn_balance_as_of", { p_company: cid, p_as_of: todayISO }),
+    sb.from("ap_invoices").select("id,vendor_name_raw,vendors(name),invoice_no,due_date,amount_outstanding,amount_total,amount_paid,status,category,remark")
+      .eq("company_id", cid).is("deleted_at", null)
+      .neq("status","paid").neq("status","void"),
+    sb.from("recurring_occurrences").select("id,due_date,expected_amount,status,recurring_expenses(name,category)")
+      .eq("company_id", cid).is("deleted_at", null)
+      .eq("status","forecast")
+      .gte("due_date", startISO).lte("due_date", endISO),
+    sb.from("recurring_expenses").select("id,name,category,expected_amount,frequency,day_of_month,is_active")
+      .eq("company_id", cid).is("deleted_at", null).eq("is_active", true)
+  ]);
+  d.data = {
+    balances: balRes.data || [],
+    aps: apRes.data || [],
+    recOccs: recRes.data || [],
+    recurring: recExpRes.data || [],
+    startISO, endISO, todayISO
+  };
+}
+
+/* build forecast timeline + breakdowns */
+function cffCompute(){
+  const d = cffGet();
+  const dt = d.data;
+  if(!dt) return null;
+  const startD = new Date(dt.startISO);
+  const endD   = new Date(dt.endISO);
+  const todayD = new Date(dt.todayISO);
+
+  // opening cash = sum of latest bank balances (amount - hold)
+  const openingCash = dt.balances.reduce((s,b) => s + Number(b.amount||0) - Number(b.hold||0), 0);
+  const bankTotal = dt.balances.reduce((s,b) => s + Number(b.amount||0), 0);
+  const holdTotal = dt.balances.reduce((s,b) => s + Number(b.hold||0), 0);
+
+  // build day buckets startD..endD
+  const days = [];
+  for(let d = new Date(startD); d <= endD; d.setDate(d.getDate()+1)){
+    days.push(new Date(d).toISOString().slice(0,10));
+  }
+  const buckets = {};
+  days.forEach(k => buckets[k] = { in:0, out:0, payments:[], receipts:[] });
+
+  // === PAYMENTS ===
+  // 1) AP outstanding (use planned_payment_date or due_date)
+  for(const ap of dt.aps){
+    const due = ap.due_date;
+    const k = due >= dt.startISO ? (due <= dt.endISO ? due : null) : dt.startISO;
+    if(k && buckets[k] !== undefined){
+      const amt = Number(ap.amount_outstanding||0);
+      buckets[k].out += amt;
+      buckets[k].payments.push({
+        type:"ap", amount: amt, vendor: (ap.vendors&&ap.vendors.name) || ap.vendor_name_raw || "—",
+        category: ap.category || "เจ้าหนี้การค้า", ref: ap.invoice_no, due_date: due,
+        id: ap.id, status: ap.status
+      });
+    }
+  }
+  // 2) Recurring occurrences (already materialised)
+  for(const r of dt.recOccs){
+    const k = r.due_date;
+    if(buckets[k] !== undefined){
+      const amt = Number(r.expected_amount||0);
+      buckets[k].out += amt;
+      buckets[k].payments.push({
+        type:"recurring", amount: amt,
+        vendor: (r.recurring_expenses&&r.recurring_expenses.name)||"—",
+        category: (r.recurring_expenses&&r.recurring_expenses.category)||"other",
+        ref: "งวด " + r.due_date, due_date: r.due_date, id: r.id
+      });
+    }
+  }
+  // 3) Recurring expenses ที่ยังไม่ materialise (auto-forecast)
+  //    ถ้า day_of_month กำหนด & ตกในช่วง → ใส่ใน bucket (ถ้ายังไม่ซ้ำกับ occ)
+  const occKeys = new Set(dt.recOccs.map(r => r.recurring_expenses ? `${r.due_date}|` + (r.recurring_expenses.name||"") : ""));
+  for(const r of dt.recurring){
+    if(r.frequency !== "monthly") continue;
+    if(!r.day_of_month) continue;
+    for(let m = new Date(startD); m <= endD; m.setMonth(m.getMonth()+1)){
+      const lastDay = new Date(m.getFullYear(), m.getMonth()+1, 0).getDate();
+      const dom = r.day_of_month === -1 ? lastDay : Math.min(r.day_of_month, lastDay);
+      const dd = new Date(m.getFullYear(), m.getMonth(), dom);
+      const k = dd.toISOString().slice(0,10);
+      if(k < dt.startISO || k > dt.endISO) continue;
+      if(occKeys.has(`${k}|${r.name}`)) continue;     // ซ้ำกับ occ จริง
+      const amt = Number(r.expected_amount||0);
+      buckets[k].out += amt;
+      buckets[k].payments.push({
+        type:"recurring_auto", amount: amt,
+        vendor: r.name, category: r.category||"other",
+        ref:"forecast", due_date: k, id: r.id
+      });
+    }
+  }
+
+  // === RECEIPTS === (manual forecast only for now — Phase 2.1 จะใส่ AR + Settlement)
+  // ผู้ใช้สามารถใส่ "manual receipt" ทีหลัง
+
+  // running cash + lowest
+  let running = openingCash, lowestBal = openingCash, lowestDate = dt.startISO;
+  const series = days.map(k => {
+    const b = buckets[k];
+    running += b.in - b.out;
+    if(running < lowestBal){ lowestBal = running; lowestDate = k; }
+    return { date: k, in: b.in, out: b.out, net: b.in - b.out, balance: running };
+  });
+
+  const totalIn  = days.reduce((s,k) => s + buckets[k].in, 0);
+  const totalOut = days.reduce((s,k) => s + buckets[k].out, 0);
+  const endingCash = openingCash + totalIn - totalOut;
+
+  // breakdowns
+  const payByCat = {}, payByVendor = {};
+  for(const k of days){
+    for(const p of buckets[k].payments){
+      payByCat[p.category] = (payByCat[p.category]||0) + p.amount;
+      payByVendor[p.vendor] = (payByVendor[p.vendor]||0) + p.amount;
+    }
+  }
+
+  // upcoming major payments (next 14 days, sorted by amount desc)
+  const next14 = new Date(todayD); next14.setDate(next14.getDate()+14);
+  const next14ISO = next14.toISOString().slice(0,10);
+  const upcomingMajor = [];
+  for(const k of days){
+    if(k > next14ISO) break;
+    for(const p of buckets[k].payments) upcomingMajor.push(p);
+  }
+  upcomingMajor.sort((a,b)=> b.amount - a.amount);
+
+  // alerts
+  const alerts = [];
+  if(endingCash < 0) alerts.push({ sev:"high", text:"⚠ Projected ending cash ติดลบ (" + fopFmt(endingCash) + ")" });
+  if(lowestBal < 0) alerts.push({ sev:"high", text:`⚠ Lowest cash ติดลบ ${fopFmt(lowestBal)} วันที่ ${fopDate(lowestDate)}` });
+  else if(lowestBal < openingCash * 0.2) alerts.push({ sev:"med", text:`⚠ Lowest cash ต่ำ ${fopFmt(lowestBal)} วันที่ ${fopDate(lowestDate)}` });
+  const overdueAp = dt.aps.filter(a => a.due_date < dt.todayISO).reduce((s,a) => s + Number(a.amount_outstanding||0), 0);
+  if(overdueAp > 0) alerts.push({ sev:"med", text:`AP เกินกำหนด ${fopFmt(overdueAp)}` });
+  // upcoming payroll within 5 days
+  const next5 = new Date(todayD); next5.setDate(next5.getDate()+5);
+  const next5ISO = next5.toISOString().slice(0,10);
+  const upcomingPayroll = upcomingMajor.filter(p => p.category === "payroll" && p.due_date <= next5ISO).reduce((s,p)=>s+p.amount,0);
+  if(upcomingPayroll > 0) alerts.push({ sev:"med", text:`เงินเดือนภายใน 5 วัน ${fopFmt(upcomingPayroll)}` });
+
+  return {
+    openingCash, bankTotal, holdTotal, endingCash, lowestBal, lowestDate,
+    totalIn, totalOut, days, series, buckets,
+    payByCat, payByVendor, upcomingMajor, alerts, overdueAp
+  };
+}
+
+async function renderToolCashflowForecast(){
+  const t = TOOLS.find(x=>x.id==="cashflow");
+  const co = COMPANIES.find(c=>c.id===state.company);
+  const main = document.getElementById("main");
+  const d = cffGet();
+  main.innerHTML = `
+    <div class="page-head">
+      <h1>${esc(t.name)} <span class="badge">${esc(co.name)}</span></h1>
+      <div class="sub">${esc(t.long)}</div>
+    </div>
+    <div class="card"><div class="empty">กำลังโหลด...</div></div>`;
+  try{ await cffLoad(); }catch(e){
+    main.innerHTML += `<div class="card"><div style="color:var(--out-ink)">โหลดไม่สำเร็จ: ${esc(fopErr(e))}</div></div>`;
+    return;
+  }
+
+  const R = cffCompute();
+  if(!R){ main.innerHTML += `<div class="card"><div class="empty">ไม่มีข้อมูลพอที่จะคำนวณ — ลองกรอก Bank Balance + AP/Recurring ก่อน</div></div>`; return; }
+
+  const horizonLabel = ({"7":"7 วัน","15":"15 วัน","30":"30 วัน","month_end":"สิ้นเดือน","custom":"กำหนดเอง"})[d.horizon] || (d.horizon+" วัน");
+  const cashHealthCol = R.endingCash < 0 ? "var(--out-ink)" : (R.endingCash < R.openingCash * 0.3 ? "var(--warn-ink)" : "var(--in-ink)");
+  const cashHealth    = R.endingCash < 0 ? "เสี่ยง" : (R.endingCash < R.openingCash * 0.3 ? "ระวัง" : "ปกติ");
+
+  const kpiCard = (label, value, sub, color, click) => `
+    <div class="stat ${color||''}" ${click?`onclick="${click}" style="cursor:pointer"`:""}>
+      <div class="l">${esc(label)}</div>
+      <div class="n">${value}</div>
+      ${sub?`<div style="font-size:11px;color:var(--ink-3);margin-top:2px">${sub}</div>`:""}
+    </div>`;
+
+  main.innerHTML = `
+    <div class="page-head" style="display:flex;justify-content:space-between;align-items:flex-end;gap:14px;flex-wrap:wrap">
+      <div>
+        <h1>${esc(t.name)} <span class="badge">${esc(co.name)}</span></h1>
+        <div class="sub">ข้อมูล ณ ${fopDate(R.days[0])} → ${fopDate(R.days[R.days.length-1])} · ${R.days.length} วัน · ${horizonLabel}</div>
+      </div>
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+        ${["7","15","30","month_end","custom"].map(h => `<button class="btn ${d.horizon==h?'':'ghost'} btn sm" onclick="cffSetHorizon('${h}')">${({"7":"7 วัน","15":"15 วัน","30":"30 วัน","month_end":"สิ้นเดือน","custom":"Custom"})[h]}</button>`).join("")}
+        <button class="btn ghost btn sm" onclick="cffOpenSnapshot()">📷 Snapshot</button>
+      </div>
+    </div>
+
+    ${R.alerts.length ? `
+    <div class="card" style="border-left:4px solid var(--warn);padding:12px 16px;background:var(--warn-soft)">
+      <div style="font-size:12px;font-weight:700;color:var(--warn-ink);margin-bottom:6px">🔔 Alert Center</div>
+      ${R.alerts.map(a => `<div style="font-size:13px;color:${a.sev==='high'?'var(--out-ink)':'var(--warn-ink)'};margin:3px 0">${esc(a.text)}</div>`).join("")}
+    </div>` : ""}
+
+    <!-- KPI Cards -->
+    <div class="pill-stat" style="margin-bottom:14px">
+      ${kpiCard("เงินสดปัจจุบัน", fopFmt(R.openingCash), `${dt0(R.bankTotal)} − HOLD ${dt0(R.holdTotal)}`, "in", "cffDrill('opening')")}
+      ${kpiCard("รับคาดการณ์", fopFmt(R.totalIn), R.days.length+" วัน", "in", R.totalIn>0?"cffDrill('receipts')":null)}
+      ${kpiCard("จ่ายคาดการณ์", fopFmt(R.totalOut), R.days.length+" วัน", "out", "cffDrill('payments')")}
+      ${kpiCard("เงินสดปลายงวด", fopFmt(R.endingCash), cashHealth, R.endingCash<0?"out":"in", "cffDrill('ending')")}
+      ${kpiCard("Lowest Cash", fopFmt(R.lowestBal), fopDate(R.lowestDate), R.lowestBal<0?"out":"warn", `cffDrill('lowest','${R.lowestDate}')`)}
+      ${kpiCard("AP เกินกำหนด", fopFmt(R.overdueAp), R.overdueAp>0?"ต้องดำเนินการ":"ไม่มี", R.overdueAp>0?"out":"in", "cffDrill('overdue')")}
+    </div>
+
+    <!-- Cash Timeline -->
+    <div class="card">
+      <h3>Cash Timeline — Opening + Receipts − Payments = Running Balance</h3>
+      <div class="note">คลิกแท่งวันที่ใดๆ ดูรายการที่กระทบวันนั้น</div>
+      <div style="position:relative;height:340px"><canvas id="cffChart"></canvas></div>
+    </div>
+
+    <!-- Payment breakdown + Bank position -->
+    <div style="display:grid;grid-template-columns:1.5fr 1fr;gap:12px;margin-bottom:14px">
+      <div class="card" style="margin:0">
+        <h3>Payment Breakdown — แยกตามประเภท</h3>
+        ${Object.keys(R.payByCat).length===0 ? `<div class="empty">ไม่มีรายจ่ายในช่วงนี้</div>` : `
+        <table style="font-size:12.5px">
+          <thead><tr><th>หมวด</th><th style="text-align:right">ยอด</th><th style="text-align:right">%</th></tr></thead>
+          <tbody>${Object.entries(R.payByCat).sort((a,b)=>b[1]-a[1]).map(([cat,amt])=>{
+            const pct = R.totalOut ? (amt/R.totalOut*100).toFixed(1) : "0";
+            return `<tr style="cursor:pointer" onclick="cffDrill('payByCat',${JSON.stringify(cat).replace(/"/g,'&quot;')})">
+              <td>${esc(cat)}</td>
+              <td style="text-align:right;font-weight:700;color:var(--out-ink)">${fopFmt(amt)}</td>
+              <td style="text-align:right;color:var(--ink-3)">${pct}%</td>
+            </tr>`;
+          }).join("")}</tbody>
+        </table>`}
+      </div>
+      <div class="card" style="margin:0">
+        <h3>Bank Position</h3>
+        ${R.bankTotal === 0 ? `<div class="empty">ยังไม่มียอดธนาคาร</div>` : `
+        <table style="font-size:12.5px">
+          <thead><tr><th>ธนาคาร</th><th style="text-align:right">ยอด</th></tr></thead>
+          <tbody>${state.cff[state.company].data.balances.map(b => `<tr>
+            <td><b>${esc(b.bank_code)}</b> <code style="font-size:11px;color:var(--ink-3)">${esc(b.account_no)}</code></td>
+            <td style="text-align:right;font-weight:700;color:var(--in-ink)">${fopFmt(b.amount)}</td>
+          </tr>`).join("")}</tbody>
+        </table>`}
+      </div>
+    </div>
+
+    <!-- Top upcoming payments -->
+    <div class="card">
+      <h3>Top Upcoming Payments (14 วันข้างหน้า)</h3>
+      ${R.upcomingMajor.length === 0 ? `<div class="empty">ไม่มีรายการ</div>` : `
+      <table style="font-size:12.5px">
+        <thead><tr><th>วันที่</th><th>ผู้รับ</th><th>หมวด</th><th>อ้างอิง</th><th style="text-align:right">ยอด</th></tr></thead>
+        <tbody>${R.upcomingMajor.slice(0,10).map(p => `<tr>
+          <td>${fopDate(p.due_date)}</td>
+          <td><b>${esc(p.vendor)}</b></td>
+          <td style="font-size:11.5px;color:var(--ink-2)">${esc(p.category)}</td>
+          <td style="font-size:11px;color:var(--ink-3)"><code>${esc(p.ref||"")}</code></td>
+          <td style="text-align:right;font-weight:700;color:var(--out-ink)">${fopFmt(p.amount)}</td>
+        </tr>`).join("")}</tbody>
+      </table>`}
+    </div>
+  `;
+
+  // Chart
+  if(window.Chart){
+    const ctx = document.getElementById("cffChart");
+    if(ctx){
+      if(window._cffChartInst){ try{ window._cffChartInst.destroy(); }catch(e){} }
+      window._cffChartInst = new Chart(ctx.getContext("2d"), {
+        type:"bar",
+        data:{
+          labels: R.days.map(k => fopDate(k)),
+          datasets:[
+            { type:"bar", label:"รับ", data: R.series.map(s=>s.in), backgroundColor:"rgba(20,184,166,.7)", stack:"flow" },
+            { type:"bar", label:"จ่าย", data: R.series.map(s=>-s.out), backgroundColor:"rgba(225,138,170,.7)", stack:"flow" },
+            { type:"line", label:"คงเหลือ", data: R.series.map(s=>s.balance), borderColor:"var(--brand)", backgroundColor:"rgba(30,58,138,.1)", tension:.25, pointRadius:3, yAxisID:"y1" }
+          ]
+        },
+        options:{
+          responsive:true, maintainAspectRatio:false,
+          interaction:{ mode:"index", intersect:false },
+          scales:{
+            y:{ stacked:true, ticks:{ callback:v=>fopFmtCompact(v) } },
+            y1:{ position:"right", ticks:{ callback:v=>fopFmtCompact(v) }, grid:{ display:false } }
+          },
+          plugins:{ legend:{ position:"bottom" }, tooltip:{ callbacks:{ label:c=>c.dataset.label+": "+fopFmt(c.parsed.y) } } },
+          onClick:(e,els)=>{
+            if(els && els.length){
+              cffDrill("day", R.days[els[0].index]);
+            }
+          }
+        }
+      });
+    }
+  }
+}
+
+function dt0(n){ return fopFmt(n); }
+function fopFmtCompact(n){
+  if(!n) return "0";
+  const v = Math.abs(n);
+  if(v >= 1e6) return (n/1e6).toFixed(1)+"M";
+  if(v >= 1e3) return (n/1e3).toFixed(0)+"K";
+  return n.toFixed(0);
+}
+
+/* drill-down modal */
+function cffDrill(kind, arg){
+  const d = cffGet();
+  const R = cffCompute();
+  if(!R) return;
+  let title = "", rows = [];
+  if(kind === "opening"){
+    title = "เงินสดปัจจุบัน — แยกตามบัญชี";
+    rows = d.data.balances.map(b => ({ left: `${b.bank_code} ${b.account_no}`, mid: b.nickname||"", right: fopFmt(Number(b.amount)-Number(b.hold||0)) }));
+  } else if(kind === "payments" || kind === "ending"){
+    title = "รายการจ่ายในช่วง (รวม " + fopFmt(R.totalOut) + ")";
+    const arr = [];
+    for(const k of R.days) for(const p of R.buckets[k].payments) arr.push({ left: fopDate(p.due_date), mid: `${p.vendor} · ${p.category}`, right: fopFmt(p.amount) });
+    rows = arr.sort((a,b)=> b.right.length - a.right.length);
+  } else if(kind === "receipts"){
+    title = "รายการรับในช่วง";
+    const arr = [];
+    for(const k of R.days) for(const r of R.buckets[k].receipts) arr.push({ left: fopDate(k), mid: r.source||"manual", right: fopFmt(r.amount) });
+    rows = arr;
+  } else if(kind === "lowest"){
+    title = `Lowest Cash · ${fopDate(arg)} · ${fopFmt(R.lowestBal)}`;
+    const idx = R.days.indexOf(arg);
+    if(idx >= 0){
+      for(const p of R.buckets[arg].payments) rows.push({ left:"จ่าย", mid:`${p.vendor} · ${p.category}`, right: fopFmt(p.amount) });
+      for(const r of R.buckets[arg].receipts) rows.push({ left:"รับ", mid: r.source||"manual", right: fopFmt(r.amount) });
+    }
+  } else if(kind === "overdue"){
+    title = "AP เกินกำหนด";
+    const today = d.data.todayISO;
+    for(const ap of d.data.aps){
+      if(ap.due_date < today){
+        rows.push({ left: fopDate(ap.due_date), mid: `${(ap.vendors&&ap.vendors.name)||ap.vendor_name_raw||"—"} · ${ap.invoice_no}`, right: fopFmt(ap.amount_outstanding) });
+      }
+    }
+  } else if(kind === "payByCat"){
+    title = "Payment Breakdown — " + arg;
+    for(const k of R.days) for(const p of R.buckets[k].payments){
+      if(p.category === arg) rows.push({ left: fopDate(p.due_date), mid: `${p.vendor} · ${p.ref||""}`, right: fopFmt(p.amount) });
+    }
+  } else if(kind === "day"){
+    title = "รายการวันที่ " + fopDate(arg);
+    const b = R.buckets[arg];
+    if(b){
+      for(const p of b.payments) rows.push({ left:"จ่าย", mid:`${p.vendor} · ${p.category}`, right: fopFmt(p.amount) });
+      for(const r of b.receipts) rows.push({ left:"รับ", mid: r.source||"manual", right: fopFmt(r.amount) });
+    }
+  }
+  const m = document.createElement("div");
+  m.id = "fopModal";
+  m.style.cssText = "position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:1000;display:flex;align-items:center;justify-content:center;padding:20px";
+  m.innerHTML = `
+    <div style="background:#fff;border-radius:14px;padding:24px;max-width:760px;width:100%;max-height:85vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.3)">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <h3 style="margin:0;font-size:15px">${esc(title)}</h3>
+        <button onclick="document.getElementById('fopModal').remove()" class="btn ghost btn sm">ปิด</button>
+      </div>
+      <div style="overflow:auto;flex:1">
+        ${rows.length === 0 ? `<div class="empty">ไม่มีรายการ</div>` : `
+        <table style="font-size:12.5px;width:100%">
+          <thead><tr><th>วันที่/ประเภท</th><th>รายละเอียด</th><th style="text-align:right">ยอด</th></tr></thead>
+          <tbody>${rows.map(r => `<tr><td>${esc(r.left)}</td><td>${esc(r.mid)}</td><td style="text-align:right;font-weight:700">${r.right}</td></tr>`).join("")}</tbody>
+        </table>`}
+      </div>
+    </div>`;
+  document.body.appendChild(m);
+  m.onclick = e=>{ if(e.target===m) m.remove(); };
+}
+
+/* Snapshot mode — generate 1-page PNG/PDF for LINE/Executive */
+async function cffOpenSnapshot(){
+  const R = cffCompute();
+  if(!R){ alert("ไม่มีข้อมูลพอ"); return; }
+  const d = cffGet();
+  const co = COMPANIES.find(c=>c.id===state.company);
+  const horizonLabel = ({"7":"7 วัน","15":"15 วัน","30":"30 วัน","month_end":"สิ้นเดือน","custom":"กำหนดเอง"})[d.horizon] || (d.horizon+" วัน");
+  const cashHealth = R.endingCash < 0 ? "🔴 เสี่ยง" : (R.endingCash < R.openingCash * 0.3 ? "🟡 ระวัง" : "🟢 ปกติ");
+  const topPayments = R.upcomingMajor.slice(0,5);
+  const todayStr = new Date().toLocaleDateString("th-TH",{day:"2-digit",month:"long",year:"numeric"});
+
+  const m = document.createElement("div");
+  m.id = "fopModal";
+  m.style.cssText = "position:fixed;inset:0;background:rgba(15,23,42,.7);z-index:1000;display:flex;align-items:center;justify-content:center;padding:20px;overflow:auto";
+  m.innerHTML = `
+    <div style="background:#fff;border-radius:14px;padding:18px;max-width:920px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.4)">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <h3 style="margin:0;font-size:15px">Executive Snapshot — สำหรับแชร์ LINE / Export</h3>
+        <div style="display:flex;gap:6px">
+          <button class="btn ghost btn sm" onclick="cffExportSnap('png')">⬇ PNG</button>
+          <button class="btn ghost btn sm" onclick="cffExportSnap('pdf')">⬇ PDF</button>
+          <button class="btn ghost btn sm" onclick="document.getElementById('fopModal').remove()">ปิด</button>
+        </div>
+      </div>
+      <div id="cffSnap" style="background:linear-gradient(135deg,${co.gradient[0]},${co.gradient[1]});padding:24px;border-radius:12px;color:#fff;font-family:'IBM Plex Sans Thai','IBM Plex Sans',sans-serif">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px">
+          <div>
+            <div style="font-size:11px;opacity:.8;font-weight:700;letter-spacing:.6px;text-transform:uppercase">${esc(co.brand)}</div>
+            <div style="font-size:22px;font-weight:800;letter-spacing:-.4px;margin-top:4px">Executive Snapshot</div>
+            <div style="font-size:12.5px;opacity:.85;margin-top:2px">${esc(todayStr)} · ช่วง ${esc(horizonLabel)}</div>
+          </div>
+          <div style="text-align:right">
+            <div style="font-size:11px;opacity:.7;text-transform:uppercase;letter-spacing:.5px">Cash Health</div>
+            <div style="font-size:18px;font-weight:800;margin-top:2px">${cashHealth}</div>
+          </div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px">
+          ${[
+            ["เงินสดปัจจุบัน", fopFmt(R.openingCash)],
+            ["รับคาดการณ์", fopFmt(R.totalIn)],
+            ["จ่ายคาดการณ์", fopFmt(R.totalOut)],
+            ["เงินสดปลายงวด", fopFmt(R.endingCash)]
+          ].map(([l,v]) => `<div style="background:rgba(255,255,255,.15);backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,.2);border-radius:10px;padding:11px 13px">
+            <div style="font-size:10px;font-weight:700;opacity:.85;text-transform:uppercase;letter-spacing:.4px">${l}</div>
+            <div style="font-size:17px;font-weight:800;margin-top:3px;letter-spacing:-.3px">${v}</div>
+          </div>`).join("")}
+        </div>
+
+        <div style="background:rgba(255,255,255,.92);color:#0f172a;border-radius:10px;padding:14px 16px;margin-bottom:10px">
+          <div style="font-size:12px;font-weight:700;color:#475569;margin-bottom:8px">💰 Cash Bridge</div>
+          <table style="width:100%;font-size:13px"><tbody>
+            <tr><td>เปิดต้น (Opening)</td><td style="text-align:right;font-weight:700">${fopFmt(R.openingCash)}</td></tr>
+            <tr><td style="color:#14B8A6">+ รับ (Receipts)</td><td style="text-align:right;font-weight:700;color:#14B8A6">${fopFmt(R.totalIn)}</td></tr>
+            <tr><td style="color:#E18AAA">− จ่าย (Payments)</td><td style="text-align:right;font-weight:700;color:#E18AAA">(${fopFmt(R.totalOut)})</td></tr>
+            <tr style="border-top:2px solid #cbd5e1;font-weight:800"><td>= เงินสดปลายงวด</td><td style="text-align:right;color:${R.endingCash<0?'#dc2626':'#0d7c70'}">${fopFmt(R.endingCash)}</td></tr>
+            <tr><td style="color:#64748b;font-size:12px">Lowest: ${fopDate(R.lowestDate)}</td><td style="text-align:right;color:${R.lowestBal<0?'#dc2626':'#92400e'};font-size:12px">${fopFmt(R.lowestBal)}</td></tr>
+          </tbody></table>
+        </div>
+
+        ${topPayments.length ? `<div style="background:rgba(255,255,255,.92);color:#0f172a;border-radius:10px;padding:14px 16px;margin-bottom:10px">
+          <div style="font-size:12px;font-weight:700;color:#475569;margin-bottom:8px">⏰ Top Upcoming Payments</div>
+          <table style="width:100%;font-size:12px"><tbody>
+            ${topPayments.map(p => `<tr><td>${fopDate(p.due_date)}</td><td>${esc(p.vendor)}</td><td style="text-align:right;font-weight:700;color:#E18AAA">${fopFmt(p.amount)}</td></tr>`).join("")}
+          </tbody></table>
+        </div>` : ""}
+
+        ${R.alerts.length ? `<div style="background:rgba(255,255,255,.92);color:#0f172a;border-radius:10px;padding:12px 16px">
+          <div style="font-size:12px;font-weight:700;color:#475569;margin-bottom:6px">🔔 Key Alerts</div>
+          ${R.alerts.map(a => `<div style="font-size:12.5px;color:${a.sev==='high'?'#dc2626':'#92400e'};margin:3px 0">${esc(a.text)}</div>`).join("")}
+        </div>` : ""}
+      </div>
+    </div>`;
+  document.body.appendChild(m);
+  m.onclick = e=>{ if(e.target===m) m.remove(); };
+}
+async function cffExportSnap(fmt){
+  const el = document.getElementById("cffSnap");
+  if(!el){ alert("ไม่พบ snapshot"); return; }
+  if(!window.html2canvas){ alert("html2canvas ยังโหลดไม่เสร็จ"); return; }
+  const canvas = await window.html2canvas(el, { scale: 2, backgroundColor: null, useCORS: true });
+  const co = COMPANIES.find(c=>c.id===state.company);
+  const fname = `CashFlow_${co.name.replace(/\s+/g,'_')}_${stamp()}.${fmt}`;
+  if(fmt === "png"){
+    const a = document.createElement("a");
+    a.href = canvas.toDataURL("image/png");
+    a.download = fname;
+    a.click();
+  } else {
+    const { jsPDF } = window.jspdf;
+    const pdf = new jsPDF({ orientation:"landscape", unit:"mm", format:"a4" });
+    const imgW = 280, imgH = canvas.height * imgW / canvas.width;
+    pdf.addImage(canvas.toDataURL("image/png"), "PNG", 8, 8, imgW, imgH);
+    pdf.save(fname);
+  }
 }
 
 function renderToolSoon(t){

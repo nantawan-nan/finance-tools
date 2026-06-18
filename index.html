@@ -6312,9 +6312,9 @@ async function renderToolRecurring(){
       ${list.length===0 ? `<div class="empty">ยังไม่มีรายการ — กด '+ เพิ่มรายการ'</div>` : `
       <div class="table-wrap">
         <table>
-          <thead><tr><th>ชื่อ</th><th>หมวด</th><th>ความถี่</th><th>วันจ่าย</th><th style="text-align:right">ยอด</th><th>เริ่ม</th><th>สิ้นสุด</th><th>สถานะ</th>${canWrite?'<th></th>':''}</tr></thead>
-          <tbody>${list.map(r=>`<tr style="${r.is_active?'':'opacity:.5'}">
-            <td><b>${esc(r.name)}</b></td>
+          <thead><tr><th>ชื่อ</th><th>หมวด</th><th>ความถี่</th><th>วันจ่าย</th><th style="text-align:right">ยอด</th><th>เริ่ม</th><th>สิ้นสุด</th><th>สถานะ</th>${canWrite?'<th style="text-align:right">จัดการ</th>':''}</tr></thead>
+          <tbody>${list.map(r=>`<tr style="${r.is_active?'':'opacity:.55'}">
+            <td><div style="display:flex;align-items:center;gap:9px">${recRowIconHtml(r.name, r.category)}<b style="font-size:13px">${esc(r.name)}</b></div></td>
             <td style="font-size:12px;color:var(--ink-2)">${esc(r.category)}</td>
             <td><span class="matchchip">${r.frequency}</span></td>
             <td>${r.day_of_month === -1 ? "สิ้นเดือน" : (r.day_of_month || "—")}</td>
@@ -6322,7 +6322,11 @@ async function renderToolRecurring(){
             <td style="font-size:12px">${fopDate(r.start_date)}</td>
             <td style="font-size:12px">${r.end_date ? fopDate(r.end_date) : "ต่อเนื่อง"}</td>
             <td><span class="urole ${r.is_active?'finance_mgr':'viewer'}">${r.is_active?'active':'inactive'}</span></td>
-            ${canWrite?`<td><button class="btn ghost btn sm" onclick="recToggle('${r.id}',${!r.is_active})">${r.is_active?'ปิด':'เปิด'}</button></td>`:''}
+            ${canWrite?`<td style="text-align:right;white-space:nowrap">
+              <button class="btn ghost btn sm" onclick="recOpenEdit('${r.id}')" title="แก้ไข">✎ แก้</button>
+              <button class="btn ghost btn sm" onclick="recToggle('${r.id}',${!r.is_active})" title="${r.is_active?'ปิด':'เปิด'}">${r.is_active?'ปิด':'เปิด'}</button>
+              <button class="btn ghost btn sm" style="color:var(--out-ink);border-color:var(--out)" onclick="recSoftDelete('${r.id}')" title="ลบ">ลบ</button>
+            </td>`:''}
           </tr>`).join("")}</tbody>
         </table>
       </div>`}
@@ -6352,46 +6356,59 @@ async function renderToolRecurring(){
   if(window.lucide && window.lucide.createIcons){ try{ window.lucide.createIcons(); }catch(e){} }
 }
 
-function recOpenAdd(){
+function recOpenAdd(){ recOpenForm(null); }
+function recOpenEdit(id){
+  const d = recGet();
+  const r = (d.list||[]).find(x => x.id === id);
+  if(!r){ alert("ไม่พบรายการ"); return; }
+  recOpenForm(r);
+}
+function recOpenForm(existing){
+  const isEdit = !!existing;
+  const today = new Date().toISOString().slice(0,10);
+  const v = existing || { name:"", category:"payroll", expected_amount:"", frequency:"monthly",
+                          day_of_month:1, start_date: today, end_date:"", remark:"" };
   const m = document.createElement("div");
   m.id = "fopModal";
   m.style.cssText = "position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:1000;display:flex;align-items:center;justify-content:center;padding:20px";
-  const today = new Date().toISOString().slice(0,10);
   m.innerHTML = `
     <div style="background:#fff;border-radius:14px;padding:24px;max-width:480px;width:100%;max-height:90vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.3)">
-      <h3 style="margin:0 0 14px;font-size:16px;font-weight:800">+ เพิ่มค่าใช้จ่ายประจำ</h3>
+      <h3 style="margin:0 0 14px;font-size:16px;font-weight:800">${isEdit ? '✎ แก้ไขค่าใช้จ่ายประจำ' : '+ เพิ่มค่าใช้จ่ายประจำ'}</h3>
       <div style="display:grid;gap:10px">
-        <label><div style="font-size:12px;font-weight:700;color:var(--ink-2);margin-bottom:4px">ชื่อ *</div><input id="recName" class="input" style="width:100%" placeholder="เช่น เงินเดือนพนักงาน"></label>
+        <label><div style="font-size:12px;font-weight:700;color:var(--ink-2);margin-bottom:4px">ชื่อ *</div><input id="recName" class="input" style="width:100%" placeholder="เช่น เงินเดือนพนักงาน" value="${esc(v.name)}"></label>
         <label><div style="font-size:12px;font-weight:700;color:var(--ink-2);margin-bottom:4px">หมวด *</div><select id="recCat" class="input" style="width:100%">
-          <option value="payroll">เงินเดือน</option><option value="rent">ค่าเช่า</option><option value="utility">สาธารณูปโภค</option>
-          <option value="subscription">Subscription</option><option value="insurance">ประกัน</option><option value="provident_fund">กองทุนสำรอง</option>
-          <option value="social_security">ประกันสังคม</option><option value="other">อื่น ๆ</option>
+          ${[
+            ['payroll','เงินเดือน'],['rent','ค่าเช่า'],['utility','สาธารณูปโภค'],
+            ['subscription','Subscription'],['insurance','ประกัน'],['provident_fund','กองทุนสำรอง'],
+            ['social_security','ประกันสังคม'],['tax','ภาษี'],['loan','สินเชื่อ'],['other','อื่น ๆ']
+          ].map(([k,l])=>`<option value="${k}" ${v.category===k?'selected':''}>${l}</option>`).join("")}
         </select></label>
-        <label><div style="font-size:12px;font-weight:700;color:var(--ink-2);margin-bottom:4px">ยอดประมาณ *</div><input id="recAmt" type="number" step="0.01" min="0.01" class="input" style="width:100%"></label>
+        <label><div style="font-size:12px;font-weight:700;color:var(--ink-2);margin-bottom:4px">ยอดประมาณ *</div><input id="recAmt" type="number" step="0.01" min="0.01" class="input" style="width:100%" value="${v.expected_amount||""}"></label>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
           <label><div style="font-size:12px;font-weight:700;color:var(--ink-2);margin-bottom:4px">ความถี่ *</div><select id="recFreq" class="input" style="width:100%">
-            <option value="monthly">ทุกเดือน</option><option value="quarterly">ทุก 3 เดือน</option><option value="yearly">ทุกปี</option><option value="one_time">ครั้งเดียว</option>
+            ${[['monthly','ทุกเดือน'],['quarterly','ทุก 3 เดือน'],['yearly','ทุกปี'],['one_time','ครั้งเดียว']].map(([k,l])=>`<option value="${k}" ${v.frequency===k?'selected':''}>${l}</option>`).join("")}
           </select></label>
           <label><div style="font-size:12px;font-weight:700;color:var(--ink-2);margin-bottom:4px">วันที่จ่าย</div><select id="recDay" class="input" style="width:100%">
-            ${Array.from({length:31},(_,i)=>`<option value="${i+1}">${i+1}</option>`).join("")}<option value="-1">สิ้นเดือน</option>
+            ${Array.from({length:31},(_,i)=>`<option value="${i+1}" ${Number(v.day_of_month)===i+1?'selected':''}>${i+1}</option>`).join("")}
+            <option value="-1" ${Number(v.day_of_month)===-1?'selected':''}>สิ้นเดือน</option>
           </select></label>
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-          <label><div style="font-size:12px;font-weight:700;color:var(--ink-2);margin-bottom:4px">เริ่ม *</div><input id="recStart" type="date" class="input" style="width:100%" value="${today}"></label>
-          <label><div style="font-size:12px;font-weight:700;color:var(--ink-2);margin-bottom:4px">สิ้นสุด (ไม่ใส่=ต่อเนื่อง)</div><input id="recEnd" type="date" class="input" style="width:100%"></label>
+          <label><div style="font-size:12px;font-weight:700;color:var(--ink-2);margin-bottom:4px">เริ่ม *</div><input id="recStart" type="date" class="input" style="width:100%" value="${v.start_date||today}"></label>
+          <label><div style="font-size:12px;font-weight:700;color:var(--ink-2);margin-bottom:4px">สิ้นสุด (ไม่ใส่=ต่อเนื่อง)</div><input id="recEnd" type="date" class="input" style="width:100%" value="${v.end_date||""}"></label>
         </div>
-        <label><div style="font-size:12px;font-weight:700;color:var(--ink-2);margin-bottom:4px">หมายเหตุ</div><input id="recRemark" class="input" style="width:100%"></label>
+        <label><div style="font-size:12px;font-weight:700;color:var(--ink-2);margin-bottom:4px">หมายเหตุ</div><input id="recRemark" class="input" style="width:100%" value="${esc(v.remark||"")}"></label>
         <div id="recErr" style="color:var(--out-ink);font-size:12px;display:none"></div>
       </div>
       <div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end">
         <button onclick="document.getElementById('fopModal').remove()" class="btn ghost btn sm">ยกเลิก</button>
-        <button id="recBtn" class="btn" onclick="recSave()">บันทึก</button>
+        <button id="recBtn" class="btn" onclick="recSave(${isEdit?`'${existing.id}'`:'null'})">${isEdit?'อัปเดต':'บันทึก'}</button>
       </div>
     </div>`;
   document.body.appendChild(m);
   m.onclick = e=>{ if(e.target===m) m.remove(); };
 }
-async function recSave(){
+async function recSave(id){
   const err = document.getElementById("recErr");
   const btn = document.getElementById("recBtn");
   const name = document.getElementById("recName").value.trim();
@@ -6401,7 +6418,7 @@ async function recSave(){
   btn.disabled=true; btn.textContent="กำลังบันทึก...";
   try{
     const cid = await fopCompanyId();
-    const { error } = await sb.from("recurring_expenses").insert({
+    const payload = {
       company_id: cid, name,
       category: document.getElementById("recCat").value,
       expected_amount: amt,
@@ -6409,18 +6426,110 @@ async function recSave(){
       day_of_month: parseInt(document.getElementById("recDay").value, 10),
       start_date: start,
       end_date: document.getElementById("recEnd").value || null,
-      remark: document.getElementById("recRemark").value.trim() || null,
-      created_by: AUTH.user ? AUTH.user.id : null
-    });
+      remark: document.getElementById("recRemark").value.trim() || null
+    };
+    let error;
+    if(id){
+      payload.updated_by = AUTH.user ? AUTH.user.id : null;
+      const r = await sb.from("recurring_expenses").update(payload).eq("id", id);
+      error = r.error;
+    } else {
+      payload.created_by = AUTH.user ? AUTH.user.id : null;
+      const r = await sb.from("recurring_expenses").insert(payload);
+      error = r.error;
+    }
     if(error) throw error;
     document.getElementById("fopModal").remove();
     state.rec[state.company] = null;
     renderToolRecurring();
   }catch(e){
-    btn.disabled=false; btn.textContent="บันทึก";
+    btn.disabled=false; btn.textContent=id?"อัปเดต":"บันทึก";
     err.textContent=fopErr(e); err.style.display="";
   }
 }
+async function recSoftDelete(id){
+  if(!confirm("ลบรายการนี้? (soft-delete — recover ได้จาก audit log)")) return;
+  try{
+    const { error } = await sb.from("recurring_expenses")
+      .update({ deleted_at: new Date().toISOString(), deleted_by: AUTH.user?AUTH.user.id:null, is_active: false })
+      .eq("id", id);
+    if(error) throw error;
+    state.rec[state.company] = null;
+    renderToolRecurring();
+  }catch(e){ alert("ลบไม่สำเร็จ: " + fopErr(e)); }
+}
+/* favicon จาก Google s2 service — match vendor name → domain */
+function recVendorIcon(name){
+  const n = String(name||"").toLowerCase();
+  const map = [
+    [/true/i, 'true.th'],
+    [/ais|advanced.info/i, 'ais.th'],
+    [/dtac/i, 'dtac.co.th'],
+    [/nt|tot|cat\b/i, 'ntplc.co.th'],
+    [/กรมสรรพากร|สรรพากร|revenue/i, 'rd.go.th'],
+    [/ประกันสังคม|sso\b|social.security/i, 'sso.go.th'],
+    [/กสล\.|กองทุนสำรอง.*ไทยพาณิชย์|scbam/i, 'scbam.com'],
+    [/กยศ|กองทุนเงินให้กู้/i, 'studentloan.or.th'],
+    [/scb|ไทยพาณิชย์/i, 'scb.co.th'],
+    [/bbl|กรุงเทพ/i, 'bangkokbank.com'],
+    [/kbank|กสิกร/i, 'kasikornbank.com'],
+    [/ktb|กรุงไทย/i, 'krungthai.com'],
+    [/bay|กรุงศรี/i, 'krungsri.com'],
+    [/ttb|tmb/i, 'ttbbank.com'],
+    [/uob/i, 'uob.co.th'],
+    [/microsoft|office.365/i, 'microsoft.com'],
+    [/google|gsuite|workspace/i, 'google.com'],
+    [/zoom/i, 'zoom.us'],
+    [/canva/i, 'canva.com'],
+    [/openai|chatgpt/i, 'openai.com'],
+    [/anthropic|claude/i, 'anthropic.com'],
+    [/figma/i, 'figma.com'],
+    [/notion/i, 'notion.so'],
+    [/aws|amazon/i, 'aws.amazon.com'],
+    [/supabase/i, 'supabase.com'],
+    [/vercel/i, 'vercel.com'],
+    [/shopify/i, 'shopify.com'],
+    [/shopee/i, 'shopee.co.th'],
+    [/lazada/i, 'lazada.co.th'],
+    [/tiktok/i, 'tiktok.com'],
+    [/facebook|meta/i, 'facebook.com'],
+    [/adobe/i, 'adobe.com'],
+    [/cloudflare/i, 'cloudflare.com'],
+    [/github/i, 'github.com'],
+    [/youtube/i, 'youtube.com'],
+    [/line\b/i, 'line.me'],
+  ];
+  for(const [re, domain] of map){
+    if(re.test(n)) return `https://www.google.com/s2/favicons?domain=${domain}&sz=64`;
+  }
+  return null;
+}
+/* category → Lucide icon (fallback ถ้า favicon ไม่มี) */
+function recCatIcon(cat){
+  return ({
+    payroll: 'users',
+    rent: 'home',
+    utility: 'phone',
+    subscription: 'credit-card',
+    insurance: 'shield',
+    provident_fund: 'piggy-bank',
+    social_security: 'shield-check',
+    tax: 'landmark',
+    loan: 'banknote',
+    other: 'circle-dot-dashed'
+  })[cat] || 'tag';
+}
+function recRowIconHtml(name, cat){
+  const url = recVendorIcon(name);
+  const luc = recCatIcon(cat);
+  if(url){
+    return `<img src="${esc(url)}" alt="" style="width:22px;height:22px;border-radius:5px;object-fit:contain;background:#fff;flex-shrink:0"
+              onerror="this.style.display='none';this.nextElementSibling.style.display='inline-flex'">
+            <span style="display:none;align-items:center;justify-content:center;width:22px;height:22px;border-radius:5px;background:var(--brand-soft);color:var(--brand)"><i data-lucide="${luc}" style="width:14px;height:14px"></i></span>`;
+  }
+  return `<span style="display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:5px;background:var(--brand-soft);color:var(--brand);flex-shrink:0"><i data-lucide="${luc}" style="width:14px;height:14px"></i></span>`;
+}
+
 /* parse "วันที่03 ของเดือนถัดไป" / "เข้ารอบ 15 ของเดือน" / "ตัดบัญชี 25" / "ทุกวันที่สิ้นเดือน" → day_of_month */
 function recParseDay(text){
   const s = String(text||"").trim();

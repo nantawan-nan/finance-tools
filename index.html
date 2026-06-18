@@ -56,10 +56,11 @@
   .company-switch button{flex:1;border:1px solid var(--line);background:#fff;color:var(--ink-3);padding:5px 8px;border-radius:7px;font-weight:600;font-size:11.5px;transition:.15s}
   .company-switch button.active{background:var(--brand);color:#fff;border-color:var(--brand)}
   .sb-nav{flex:1;overflow-y:auto;padding:8px 6px 16px;scrollbar-width:thin;scrollbar-color:var(--line) transparent}
-  .stage-label{display:flex;align-items:center;justify-content:space-between;font-size:11px;font-weight:700;color:var(--ink-2);letter-spacing:.4px;padding:12px 10px 6px;cursor:pointer;user-select:none;border-radius:6px;transition:.12s}
-  .stage-label:hover{color:var(--ink)}
-  .stage-label .chev{color:var(--ink-3);transition:transform .18s ease}
-  .stage-label .chev svg{width:14px;height:14px;stroke-width:2}
+  .stage-label{display:flex;align-items:center;justify-content:space-between;font-size:11.5px;font-weight:700;color:var(--ink-2);letter-spacing:.4px;padding:12px 10px 6px;cursor:pointer;user-select:none;border-radius:6px;transition:.12s}
+  .stage-label:hover{color:var(--brand);background:#f1f5f9}
+  .stage-label .chev{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;color:#475569;transition:transform .2s ease}
+  .stage-label .chev svg{width:16px;height:16px;stroke-width:2.4}
+  .stage-label:hover .chev{color:var(--brand)}
   .stage-group.collapsed .stage-label .chev{transform:rotate(-90deg)}
   .stage-items{display:flex;flex-direction:column;overflow:hidden;transition:max-height .2s ease}
   .stage-group.collapsed .stage-items{max-height:0!important;display:none}
@@ -279,12 +280,12 @@ function renderLogin(msg){
       <div style="width:100%;max-width:440px">
         <div style="background:#fff;border-radius:24px;box-shadow:0 24px 70px rgba(15,23,42,.10),0 2px 8px rgba(15,23,42,.04);padding:44px 40px">
           <!-- โลโก้สองบริษัท -->
-          <div style="display:flex;align-items:center;justify-content:center;gap:28px;margin-bottom:14px">
-            <img src="logos/mbark.png" alt="M Bark" style="height:64px;width:auto;object-fit:contain" onerror="this.style.display='none'">
-            <div style="width:1px;height:52px;background:linear-gradient(180deg,transparent,#cbd5e1 30%,#cbd5e1 70%,transparent)"></div>
-            <img src="logos/benya.png" alt="Benya" style="height:64px;width:auto;object-fit:contain" onerror="this.style.display='none'">
+          <div style="display:flex;align-items:center;justify-content:center;gap:36px;margin-bottom:18px">
+            <img src="logos/mbark.png" alt="M Bark" style="height:100px;width:auto;object-fit:contain" onerror="this.style.display='none'">
+            <div style="width:1px;height:80px;background:linear-gradient(180deg,transparent,#cbd5e1 30%,#cbd5e1 70%,transparent)"></div>
+            <img src="logos/benya.png" alt="Benya" style="height:100px;width:auto;object-fit:contain" onerror="this.style.display='none'">
           </div>
-          <div style="text-align:center;color:#64748b;font-size:14px;font-weight:500;margin-bottom:34px;letter-spacing:.3px">Financial Console</div>
+          <div style="text-align:center;color:#64748b;font-size:15px;font-weight:500;margin-bottom:36px;letter-spacing:.3px">Financial Console</div>
 
           <form id="lf" style="display:flex;flex-direction:column;gap:18px">
             <div>

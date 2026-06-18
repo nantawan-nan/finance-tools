@@ -4420,63 +4420,71 @@ async function edExportPDF(){
   </div>`;
   document.body.appendChild(ov);
 
-  // restore list สำหรับ undo ทุกการเปลี่ยน style ก่อนคืน
-  const restoreList = [];
-  const setStyle = (el, prop, val) => { restoreList.push({el, prop, val: el.style[prop]}); el.style[prop] = val; };
+  // ใช้ DEEP CLONE strategy: clone #edContent ไปไว้ off-screen แล้ว modify
+  // แทนการแก้ DOM จริง (กัน html2canvas อ่าน style เดิมที่ยัง cache)
+  const original = document.getElementById("edContent");
+  if(!original){ alert("ไม่พบ content"); return; }
 
-  // 1) hide elements ที่ทำเครื่องหมาย data-pdf-hide
-  document.querySelectorAll("#edContent [data-pdf-hide='1']").forEach(el => setStyle(el, "display", "none"));
-  // 2) show elements ที่ทำเครื่องหมาย data-pdf-only
-  document.querySelectorAll("#edContent [data-pdf-only='1']").forEach(el => setStyle(el, "display", "block"));
-  // 3) ปลด max-height + overflow ของ scrollable wrapper
-  document.querySelectorAll("#edContent .table-wrap, #edContent [style*='max-height'], #edContent [style*='overflow:auto']").forEach(el => {
-    setStyle(el, "maxHeight", "none");
-    setStyle(el, "overflow", "visible");
-    setStyle(el, "overflowY", "visible");
+  const captureWidth = 1280;   // กว้างพอดี A4 landscape (281mm)
+  const cloneWrap = document.createElement("div");
+  cloneWrap.style.cssText =
+    `position:absolute;left:-99999px;top:0;width:${captureWidth}px;background:#fff;` +
+    `font-family:'IBM Plex Sans Thai','IBM Plex Sans',ui-sans-serif,sans-serif;color:#0f172a;` +
+    `padding:24px;box-sizing:border-box;line-height:1.5`;
+  const clone = original.cloneNode(true);
+  clone.style.width = "100%";
+  clone.style.maxWidth = "none";
+  cloneWrap.appendChild(clone);
+  document.body.appendChild(cloneWrap);
+
+  // 1) ลบ elements ที่ทำเครื่องหมาย data-pdf-hide ออกจาก clone
+  clone.querySelectorAll("[data-pdf-hide='1']").forEach(el => el.remove());
+  // 2) แสดง elements ที่ทำเครื่องหมาย data-pdf-only
+  clone.querySelectorAll("[data-pdf-only='1']").forEach(el => { el.style.display = "block"; });
+  // 3) ลบ select / input / button (กันโผล่ใน PDF)
+  clone.querySelectorAll("select, input, button").forEach(el => el.remove());
+  // 4) ปลด max-height + overflow บน table-wrap (ให้ capture เห็นครบ)
+  clone.querySelectorAll(".table-wrap").forEach(el => {
+    el.style.maxHeight = "none";
+    el.style.overflow = "visible";
+    el.style.overflowY = "visible";
   });
-
-  // 4) set fixed width ให้ #edContent — ทำให้ตารางขยายเต็ม PDF ไม่เว้นขวา
-  const content = document.getElementById("edContent");
-  if(!content){ alert("ไม่พบ content"); return; }
-  const captureWidth = 1400;
-  setStyle(content, "width", captureWidth + "px");
-  setStyle(content, "maxWidth", "none");
+  // 5) ปลด max-height ของ chart wrappers (chart canvas ใน clone จะว่าง — ไม่เป็นไร summary tab อาจไม่มี chart ที่ render)
 
   try{
-    await new Promise(r => setTimeout(r, 200));   // รอ layout settle
+    await new Promise(r => setTimeout(r, 250));   // รอ layout settle ของ clone
 
-    const canvas = await window.html2canvas(content, {
+    const cloneFullH = cloneWrap.scrollHeight;
+    const canvas = await window.html2canvas(cloneWrap, {
       scale: 2,
       backgroundColor: "#ffffff",
       useCORS: true,
       logging: false,
       width: captureWidth,
       windowWidth: captureWidth,
-      height: content.scrollHeight,
-      windowHeight: content.scrollHeight
+      height: cloneFullH,
+      windowHeight: cloneFullH
     });
 
-    // capture <thead> ของตารางหลักแยกเป็น image — สำหรับ repeat ทุกหน้า
+    // หา thead bounding rect ใน clone — ตัด pixel range ออกจาก canvas เดียวกัน
+    // (ดังนั้น width ของ thead จะตรงกับ width body 100%)
     let theadImg = null, theadHmm = 0;
-    const tableEl = content.querySelector("table");
-    if(tableEl){
-      const thead = tableEl.querySelector("thead");
-      if(thead){
-        const cloneTbl = document.createElement("table");
-        cloneTbl.style.cssText = "width:100%;border-collapse:collapse;font-family:'IBM Plex Sans Thai','IBM Plex Sans',sans-serif";
-        cloneTbl.appendChild(thead.cloneNode(true));
-        const wrap = document.createElement("div");
-        wrap.style.cssText = `position:absolute;left:-99999px;top:0;width:${captureWidth - 40}px;background:#fff;padding:0`;
-        wrap.appendChild(cloneTbl);
-        document.body.appendChild(wrap);
-        try{
-          const hCanvas = await window.html2canvas(wrap, {
-            scale: 2, backgroundColor:"#fff", useCORS:true, logging:false,
-            width: captureWidth - 40, windowWidth: captureWidth - 40
-          });
-          theadImg = hCanvas.toDataURL("image/png");
-        }catch(e){ console.warn("capture thead:", e); }
-        wrap.remove();
+    const cloneThead = clone.querySelector("table thead");
+    if(cloneThead){
+      const wrapRect  = cloneWrap.getBoundingClientRect();
+      const theadRect = cloneThead.getBoundingClientRect();
+      const sc = 2;   // html2canvas scale
+      const theadYPx = Math.max(0, Math.round((theadRect.top - wrapRect.top) * sc));
+      const theadHPx = Math.round(theadRect.height * sc);
+      if(theadHPx > 0 && theadYPx + theadHPx <= canvas.height){
+        const tc = document.createElement("canvas");
+        tc.width = canvas.width;
+        tc.height = theadHPx;
+        const ctx = tc.getContext("2d");
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, tc.width, tc.height);
+        ctx.drawImage(canvas, 0, -theadYPx);
+        theadImg = tc.toDataURL("image/png");
       }
     }
 
@@ -4502,14 +4510,12 @@ async function edExportPDF(){
     // วน slice
     let yPx = 0;
     const totalPx = canvas.height;
-    const pdfPages = [];   // เก็บ snapshots สำหรับ render
+    const pdfPages = [];
     while(yPx < totalPx){
-      const pageIdx = pdfPages.length;   // 0-based
-      // available content height ตามหน้า
+      const pageIdx = pdfPages.length;
       let avail = yEnd - yStart;
       const showThead = (pageIdx > 0 && theadImg);
       if(showThead) avail -= (theadHmm + 1);
-      // slice px
       const slicePxMax = (avail * canvas.width) / imgW;
       const slicePx = Math.min(slicePxMax, totalPx - yPx);
       pdfPages.push({ yPx, slicePx, showThead });
@@ -4554,8 +4560,8 @@ async function edExportPDF(){
     console.error(err);
     alert("สร้าง PDF ไม่สำเร็จ: " + (err.message||err));
   }finally{
-    // restore ทุกค่า style ที่เปลี่ยน
-    restoreList.forEach(r => { r.el.style[r.prop] = r.val; });
+    // ลบ clone wrapper ทิ้ง
+    if(cloneWrap.parentNode) cloneWrap.remove();
     const o = document.getElementById("edPdfOv");
     if(o) o.remove();
   }

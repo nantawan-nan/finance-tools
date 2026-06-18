@@ -7168,16 +7168,25 @@ function cffGet(){
 }
 function cffSetView(v){ cffGet().viewMode = v; renderToolCashflowForecast(); }
 function cffSetStaffDate(d){ cffGet().staffDate = d; renderToolCashflowForecast(); }
-/* bank logo: ใช้ Clearbit → fallback Google s2 → fallback bank code text */
+/* bank logo: ใช้ไฟล์ local ใน logos bank/ ก่อน → fallback Clearbit → fallback bank code text */
 function cffBankLogo(bankCode){
-  const map = {
-    BBL:'bangkokbank.com', SCB:'scb.co.th', KBANK:'kasikornbank.com',
-    KTB:'krungthai.com', BAY:'krungsri.com', TTB:'ttbbank.com',
-    UOB:'uob.co.th', CIMB:'cimbthai.com', KKP:'kkpfg.com', GSB:'gsb.or.th'
+  const code = String(bankCode||"").toUpperCase();
+  // local files (Thai filename) — ผู้ใช้วางไว้ใน logos bank/
+  const local = {
+    BBL: encodeURI('logos bank/กรุงเทพ.png'),
+    SCB: encodeURI('logos bank/ไทยพาณิช.png')
+    // เพิ่ม mapping เมื่อ user อัปไฟล์อื่นๆ:
+    // KBANK: encodeURI('logos bank/กสิกร.png'),
+    // KTB:   encodeURI('logos bank/กรุงไทย.png'),
+    // BAY:   encodeURI('logos bank/กรุงศรี.png'),
+    // TTB:   encodeURI('logos bank/ทหารไทยธนชาต.png'),
   };
-  const dom = map[String(bankCode||"").toUpperCase()];
-  if(!dom) return null;
-  return `https://logo.clearbit.com/${dom}`;
+  if(local[code]) return local[code];
+  // fallback: Clearbit
+  const dom = ({BBL:'bangkokbank.com', SCB:'scb.co.th', KBANK:'kasikornbank.com',
+    KTB:'krungthai.com', BAY:'krungsri.com', TTB:'ttbbank.com',
+    UOB:'uob.co.th', CIMB:'cimbthai.com', KKP:'kkpfg.com', GSB:'gsb.or.th'})[code];
+  return dom ? `https://logo.clearbit.com/${dom}` : null;
 }
 function cffBankName(code){
   return ({BBL:'กรุงเทพ', SCB:'ไทยพาณิชย์', KBANK:'กสิกร', KTB:'กรุงไทย', BAY:'กรุงศรี', TTB:'ทหารไทยธนชาต', UOB:'ยูโอบี', CIMB:'ซีไอเอ็มบี', KKP:'เกียรตินาคิน', GSB:'ออมสิน'})[String(code||'').toUpperCase()] || code;

@@ -10,9 +10,10 @@
 <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-treemap@2.3.0/dist/chartjs-chart-treemap.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+<script src="https://unpkg.com/lucide@0.474.0/dist/umd/lucide.min.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700;800&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@300;400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
   :root{
     --brand:#1e3a8a; --brand-dark:#172554; --brand-soft:#eff6ff;
@@ -28,8 +29,8 @@
   body[data-co="benya"]{ --brand:#0d9488; --brand-dark:#115e59; --brand-soft:#ccfbf1;
     --gradient-1:#0d9488; --gradient-2:#14b8a6; }
   *{box-sizing:border-box}
-  body{margin:0;font-family:"Sarabun","Plus Jakarta Sans","Segoe UI",sans-serif;background:var(--bg);color:var(--ink);font-size:14.5px;line-height:1.6;-webkit-font-smoothing:antialiased}
-  .page-head h1,.card h3{font-family:"Plus Jakarta Sans","Sarabun",sans-serif;letter-spacing:-.3px}
+  body{margin:0;font-family:"IBM Plex Sans Thai","IBM Plex Sans",ui-sans-serif,system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--ink);font-size:14.5px;line-height:1.6;-webkit-font-smoothing:antialiased}
+  .page-head h1,.card h3{font-family:"IBM Plex Sans","IBM Plex Sans Thai",ui-sans-serif,sans-serif;letter-spacing:-.3px}
   button{font-family:inherit;cursor:pointer}
 
   /* ---- topbar ---- */
@@ -61,8 +62,10 @@
   .nav-item:hover{background:var(--brand-soft);color:var(--ink)}
   .nav-item.active{background:var(--brand-soft);color:var(--brand-dark);font-weight:600}
   .nav-item.active{border-left:2.5px solid var(--brand);padding-left:8px}
-  .nav-item .ic{font-size:14px;width:18px;text-align:center;flex-shrink:0;opacity:.7}
-  .nav-item.active .ic{opacity:1}
+  .nav-item .ic{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;flex-shrink:0;color:#64748b}
+  .nav-item .ic svg{width:16px;height:16px;stroke-width:1.7}
+  .nav-item.active .ic{color:var(--brand)}
+  .nav-item:hover .ic{color:var(--brand)}
   .nav-item .t{font-size:12.5px;font-weight:500}
   .nav-item.active .t{font-weight:700;color:var(--brand-dark)}
   .nav-item .badge-mini{margin-left:auto;font-size:9px;background:#fef3c7;color:#92400e;padding:1px 6px;border-radius:999px;font-weight:700;letter-spacing:.2px}
@@ -178,7 +181,7 @@
   /* ---- Executive Dashboard styling ---- */
   .ed-page{background:linear-gradient(180deg,#f5f9ff 0%,#eef5ff 100%);min-height:calc(100vh - 54px);margin:-24px -28px;padding:24px 28px}
   .ed-card{background:rgba(255,255,255,.85);backdrop-filter:blur(8px);border:1px solid #d6e4ff;border-radius:14px;box-shadow:0 1px 3px rgba(30,58,138,.06),0 4px 16px rgba(30,58,138,.05);padding:18px 20px;margin-bottom:14px}
-  .ed-card h3{margin:0 0 10px;font-family:"Plus Jakarta Sans","Sarabun",sans-serif;font-size:14.5px;font-weight:700;color:#1e3a8a;letter-spacing:-.2px}
+  .ed-card h3{margin:0 0 10px;font-family:"IBM Plex Sans","IBM Plex Sans Thai",ui-sans-serif,sans-serif;font-size:14.5px;font-weight:700;color:#1e3a8a;letter-spacing:-.2px}
   .ed-tabs{display:flex;gap:4px;background:rgba(99,179,237,.12);padding:4px;border-radius:11px;margin-bottom:16px;flex-wrap:wrap}
   .ed-tabs button{flex:1;min-width:120px;border:none;background:transparent;padding:9px 14px;font-size:12.5px;font-weight:600;color:#475569;border-radius:8px;cursor:pointer;transition:.15s;font-family:inherit}
   .ed-tabs button:hover{background:rgba(255,255,255,.5)}
@@ -197,7 +200,7 @@
     #printHeader .ph-row{display:flex;align-items:center;justify-content:space-between;gap:14px}
     #printHeader .ph-co{display:flex;align-items:center;gap:14px}
     #printHeader .ph-logo{width:62px;height:62px;object-fit:contain}
-    #printHeader .ph-co-name{font-family:"Plus Jakarta Sans","Sarabun",sans-serif;font-size:18px;font-weight:800;color:#0f172a;letter-spacing:-.4px}
+    #printHeader .ph-co-name{font-family:"IBM Plex Sans","IBM Plex Sans Thai",ui-sans-serif,sans-serif;font-size:18px;font-weight:800;color:#0f172a;letter-spacing:-.4px}
     #printHeader .ph-co-sub{font-size:11px;color:#64748b;margin-top:2px;text-transform:uppercase;letter-spacing:.7px;font-weight:600}
     #printHeader .ph-meta{text-align:right;font-size:11.5px;color:#475569;line-height:1.7}
     #printHeader .ph-title{font-size:13px;font-weight:700;color:#1e40af;letter-spacing:.3px;text-transform:uppercase}
@@ -265,7 +268,7 @@ async function authSignOut(){
 /* ---------- Login screen ---------- */
 function renderLogin(msg){
   document.body.innerHTML = `
-    <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:#f4f6f9;font-family:'Segoe UI','Sarabun',sans-serif">
+    <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:#f4f6f9;font-family:'IBM Plex Sans Thai','IBM Plex Sans',ui-sans-serif,sans-serif">
       <div style="width:100%;max-width:400px;padding:20px">
         <div style="text-align:center;margin-bottom:32px">
           <div style="display:inline-flex;width:48px;height:48px;border-radius:13px;background:linear-gradient(135deg,#1e3a8a,#2563eb);align-items:center;justify-content:center;color:#fff;font-weight:900;font-size:20px;margin-bottom:14px">F</div>
@@ -385,85 +388,85 @@ function applyCompanyTheme(id){
    ============================================================ */
 const TOOLS = [
   // ───── 1. ภาพรวม ─────
-  { id:"home", stage:"ภาพรวม", ic:"◈",
+  { id:"home", stage:"ภาพรวม", ic:"◈", icon:"home",
     name:"หน้าหลัก", desc:"Hub ของบริษัท",
     long:"ภาพรวม KPI · ทางลัดไปแต่ละโมดูล · สถานะระบบ",
     multiInput:true, status:"live" },
-  { id:"execdash", stage:"ภาพรวม", ic:"↗",
+  { id:"execdash", stage:"ภาพรวม", ic:"↗", icon:"trending-up",
     name:"Executive Cash Flow", desc:"แดชบอร์ดผู้บริหาร",
     long:"อัปไฟล์ \"รายละเอียดเงินรับ-เงินจ่าย\" → 6 แดชบอร์ด: Summary · Activity · Category · Bank · Explorer · Statement",
     multiInput:true, status:"live", adminOnly:true },
 
   // ───── 2. การขาย ─────
-  { id:"dashboard", stage:"การขาย", ic:"◉",
+  { id:"dashboard", stage:"การขาย", ic:"◉", icon:"bar-chart-3",
     name:"Sales Dashboard", desc:"สรุปออเดอร์รายวัน",
     long:"คีย์ IV ถึงวันไหน · ยังค้างกี่ใบ · แยกตามช่องทาง — ข้อมูลจาก Supabase",
     multiInput:true, status:"live" },
-  { id:"bigseller", stage:"การขาย", ic:"↑",
+  { id:"bigseller", stage:"การขาย", ic:"↑", icon:"file-spreadsheet",
     name:"BigSeller → IV", desc:"อัป BigSeller รายวัน",
     long:"อัปไฟล์ Big Seller → ตรวจ SKU · ลบออเดอร์ที่ไม่เอา · บันทึกลง Supabase พร้อมเทมเพลตคีย์ AutoKey",
     multiInput:true, status:"live" },
-  { id:"expressmatch", stage:"การขาย", ic:"⇌",
+  { id:"expressmatch", stage:"การขาย", ic:"⇌", icon:"link-2",
     name:"แมพ IV จาก Express", desc:"CSV → ผูก IV/SR",
     long:"อัป CSV รายงานขายแบบเห็นออเดอร์ → แมพเลข IV + SR (ใบลดหนี้/ยกเลิก) ให้ออเดอร์ใน Supabase",
     multiInput:true, status:"live" },
-  { id:"exportkey", stage:"การขาย", ic:"↓",
+  { id:"exportkey", stage:"การขาย", ic:"↓", icon:"download",
     name:"ส่งออกคีย์ AutoKey", desc:"Filter → CSV",
     long:"เลือกออเดอร์ที่ยังไม่คีย์ → รัน IV + ดาวน์โหลด CSV เพื่อนำไปคีย์ออโต้คีย์",
     multiInput:true, status:"live" },
 
   // ───── 3. ลูกหนี้ ─────
-  { id:"ar", stage:"ลูกหนี้ (AR)", ic:"◷",
+  { id:"ar", stage:"ลูกหนี้ (AR)", ic:"◷", icon:"wallet",
     name:"AR Outstanding", desc:"ลูกหนี้คงค้าง + Aging",
     long:"ลูกหนี้คงค้าง · AR จริง vs AR บัญชี · Aging 0-30 / 31-60 / 61-90 / >90 · บันทึกรับเงิน",
     multiInput:true, status:"live" },
-  { id:"armap", stage:"ลูกหนี้ (AR)", ic:"⇌",
+  { id:"armap", stage:"ลูกหนี้ (AR)", ic:"⇌", icon:"git-merge",
     name:"Map ลูกหนี้ → เงินเข้า", desc:"3 ไฟล์ → พร้อมคีย์ RE",
     long:"วาง 3 ไฟล์ — ลูกหนี้คงค้าง · รายงานขาย · หลังบ้าน Shopee/TikTok → แมพ IV กับเงินเข้า แล้วออกเป็น 3 ชีตพร้อมคีย์ AutoKey",
     multiInput:true, status:"live" },
-  { id:"settle", stage:"ลูกหนี้ (AR)", ic:"≡",
+  { id:"settle", stage:"ลูกหนี้ (AR)", ic:"≡", icon:"list-checks",
     name:"จับยอด Settlement", desc:"Shopee / TikTok / Lazada",
     long:"อัปรายงานเงินเข้ากระเป๋าจากแพลตฟอร์ม → จับคู่ออเดอร์ ว่าเงินเข้าจริงกี่บาท วันไหน + คำนวณส่วนต่าง",
     sheetHints:{ contains:["settlement","income","รายได้","รายละเอียด"], exclude:["สรุป","summary"] }, status:"live" },
 
   // ───── 4. ธนาคาร ─────
-  { id:"bankrec", stage:"ธนาคาร", ic:"⇆",
+  { id:"bankrec", stage:"ธนาคาร", ic:"⇆", icon:"refresh-ccw",
     name:"Bank Reconciliation", desc:"กระทบ Statement",
     long:"อัป Statement → match รายการอัตโนมัติ · แสดงรายการไม่ match · ซ้ำ · ยังไม่บันทึก",
     multiInput:true, status:"soon" },
-  { id:"withdraw", stage:"ธนาคาร", ic:"↙",
+  { id:"withdraw", stage:"ธนาคาร", ic:"↙", icon:"arrow-down-left",
     name:"กระทบยอดถอนเงิน", desc:"แพลตฟอร์ม → แบงค์",
     long:"อัปรายงานถอนเงินจากแพลตฟอร์ม → จับว่ายอดเข้าบัญชีบริษัทมีออเดอร์ไหนบ้าง + สร้างรายการผ่านเช็ค",
     sheetHints:{ contains:["withdraw","ถอน","payout","transfer"], exclude:["สรุป","summary"] }, status:"live" },
 
   // ───── 5. เจ้าหนี้ ─────
-  { id:"ap", stage:"เจ้าหนี้ (AP)", ic:"◁",
+  { id:"ap", stage:"เจ้าหนี้ (AP)", ic:"◁", icon:"file-warning",
     name:"AP Outstanding", desc:"เจ้าหนี้ค้างจ่าย",
     long:"เจ้าหนี้คงค้าง · วันครบกำหนด · ใกล้ครบกำหนด · ประวัติการจ่าย",
     multiInput:true, status:"soon" },
 
   // ───── 6. กระแสเงินสด ─────
-  { id:"cashflow", stage:"กระแสเงินสด", ic:"~",
+  { id:"cashflow", stage:"กระแสเงินสด", ic:"~", icon:"waves",
     name:"Cash Flow Forecast", desc:"คาดการณ์ 7/30/90 วัน",
     long:"รายรับจาก AR + เงินรอถอน + คาดรับ · รายจ่ายจาก AP + ค่าใช้จ่ายประจำ → คาดการณ์เงินสดล่วงหน้า",
     multiInput:true, status:"soon" },
 
   // ───── 7. งาน / เอกสาร ─────
-  { id:"tasks", stage:"งาน & เอกสาร", ic:"☐",
+  { id:"tasks", stage:"งาน & เอกสาร", ic:"☐", icon:"check-square",
     name:"Task Management", desc:"งานที่ต้องทำ",
     long:"ติดตามงาน — ออก IV · ติดตามลูกหนี้ · ตรวจเอกสาร · ผู้รับผิดชอบ · Due Date",
     multiInput:true, status:"soon" },
-  { id:"docs", stage:"งาน & เอกสาร", ic:"▤",
+  { id:"docs", stage:"งาน & เอกสาร", ic:"▤", icon:"folder-open",
     name:"Document Center", desc:"เก็บเอกสาร",
     long:"เก็บ IV · PO · สัญญา · Statement — ค้นหา + เปิดดูได้ทันที",
     multiInput:true, status:"soon" },
 
   // ───── 8. ตั้งค่า ─────
-  { id:"users", stage:"ตั้งค่า", ic:"◉",
+  { id:"users", stage:"ตั้งค่า", ic:"◉", icon:"users",
     name:"จัดการผู้ใช้", desc:"เพิ่ม / แก้สิทธิ์ / ลบ",
     long:"จัดการผู้ใช้ระบบ — เพิ่มอีเมล · ตั้งรหัสผ่าน · กำหนด role + สิทธิ์เข้าบริษัท",
     multiInput:true, status:"live", adminOnly:true },
-  { id:"audit", stage:"ตั้งค่า", ic:"≣",
+  { id:"audit", stage:"ตั้งค่า", ic:"≣", icon:"scroll-text",
     name:"Audit Trail", desc:"ประวัติการแก้ไข",
     long:"ใครแก้อะไร เมื่อไหร่ — เพื่อตรวจสอบย้อนหลัง",
     multiInput:true, status:"soon" },
@@ -525,8 +528,9 @@ function renderSidebar(){
     if(t.adminOnly && AUTH.role!=="admin") return;
     if(t.stage!==lastStage){ navHtml+=`<div class="stage-label">${t.stage}</div>`; lastStage=t.stage; }
     const soon = t.status==="soon" ? `<span class="badge-mini">เร็วๆนี้</span>` : "";
+    const ic = t.icon ? `<i data-lucide="${t.icon}"></i>` : (t.ic || "");
     navHtml+=`<div class="nav-item ${t.id===state.tool?'active':''}" onclick="setTool('${t.id}')">
-        <div class="ic">${t.ic}</div>
+        <div class="ic">${ic}</div>
         <div class="t">${t.name}</div>${soon}
       </div>`;
   });
@@ -540,6 +544,7 @@ function renderSidebar(){
     <div class="sb-footer"><span class="dot"></span>Finance Tools v2 · ${esc(AUTH.role||"")}</div>
   `;
   renderCompanies();
+  if(window.lucide && window.lucide.createIcons){ try{ window.lucide.createIcons(); }catch(e){} }
 }
 function setTool(id){
   state.tool=id;
@@ -2996,21 +3001,24 @@ function renderToolHome(){
       <div class="card" style="padding:16px 18px;margin-bottom:12px">
         <div style="font-size:10.5px;font-weight:700;color:var(--ink-3);text-transform:uppercase;letter-spacing:.7px;margin-bottom:12px">${stage}</div>
         <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px">
-          ${groups[stage].map(t => `
-            <button onclick="setTool('${t.id}')" style="text-align:left;padding:13px 14px;border:1px solid var(--line);background:#fff;border-radius:9px;cursor:pointer;transition:.12s;position:relative;display:flex;align-items:flex-start;gap:10px"
+          ${groups[stage].map(t => {
+            const ic = t.icon ? `<i data-lucide="${t.icon}" style="width:18px;height:18px;stroke-width:1.7"></i>` : (t.ic || "");
+            return `<button onclick="setTool('${t.id}')" style="text-align:left;padding:13px 14px;border:1px solid var(--line);background:#fff;border-radius:9px;cursor:pointer;transition:.12s;position:relative;display:flex;align-items:flex-start;gap:10px"
               onmouseover="this.style.background='var(--brand-soft)';this.style.borderColor='var(--brand)'"
               onmouseout="this.style.background='#fff';this.style.borderColor='var(--line)'">
-              <span style="font-size:16px;color:var(--brand);font-weight:700;flex-shrink:0;margin-top:1px;line-height:1.2">${t.ic}</span>
+              <span style="display:inline-flex;align-items:center;justify-content:center;color:var(--brand);flex-shrink:0;margin-top:2px;width:20px;height:20px">${ic}</span>
               <span>
                 <span style="display:block;font-weight:700;font-size:13px;color:var(--ink)">${t.name}</span>
                 <span style="font-size:11.5px;color:var(--ink-3);margin-top:2px;display:block">${t.desc}</span>
               </span>
               ${t.status==="soon" ? `<span style="position:absolute;top:8px;right:8px;font-size:9px;background:#fef3c7;color:#92400e;padding:2px 6px;border-radius:999px;font-weight:700;letter-spacing:.2px">เร็วๆนี้</span>` : ""}
-            </button>`).join("")}
+            </button>`;
+          }).join("")}
         </div>
       </div>
     `).join("")}
   `;
+  if(window.lucide && window.lucide.createIcons){ try{ window.lucide.createIcons(); }catch(e){} }
 }
 
 /* Placeholder page สำหรับ module ที่ยังไม่เสร็จ */
@@ -4329,26 +4337,38 @@ async function edExportPDF(){
   // overlay loading
   const ov = document.createElement("div");
   ov.id = "edPdfOv";
-  ov.style.cssText = "position:fixed;inset:0;background:rgba(15,23,42,.6);z-index:9999;display:flex;align-items:center;justify-content:center;flex-direction:column;color:#fff;font-family:'Sarabun',sans-serif";
+  ov.style.cssText = "position:fixed;inset:0;background:rgba(15,23,42,.6);z-index:9999;display:flex;align-items:center;justify-content:center;flex-direction:column;color:#fff;font-family:'IBM Plex Sans Thai',sans-serif";
   ov.innerHTML = `<div style="background:#fff;color:#0f172a;padding:24px 36px;border-radius:14px;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.3)">
     <div style="font-size:16px;font-weight:700;margin-bottom:8px">กำลังสร้าง PDF...</div>
     <div style="color:#64748b;font-size:13px">โปรดรอ — อาจใช้เวลา 5–10 วินาที</div>
   </div>`;
   document.body.appendChild(ov);
 
+  // ปลด max-height + overflow ของทุก scrollable wrapper ชั่วคราว
+  // (ไม่งั้น html2canvas จะ capture แค่ส่วนที่ visible — แถวที่ scroll หายไม่ขึ้น PDF)
+  const scrollables = document.querySelectorAll("#edContent .table-wrap, #edContent [style*='max-height'], #edContent [style*='overflow:auto']");
+  const restoreList = [];
+  scrollables.forEach(el => {
+    restoreList.push({ el, maxHeight: el.style.maxHeight, overflow: el.style.overflow, overflowY: el.style.overflowY });
+    el.style.maxHeight = "none";
+    el.style.overflow = "visible";
+    el.style.overflowY = "visible";
+  });
+
   try{
-    await new Promise(r => setTimeout(r, 100));
+    await new Promise(r => setTimeout(r, 150));   // รอ layout settle หลังเปิด scroll
 
     // capture #edContent as canvas
     const content = document.getElementById("edContent");
     if(!content) throw new Error("ไม่พบ content");
 
-    // เพิ่ม background ขาวระหว่าง capture เพื่อความคมชัด
     const canvas = await window.html2canvas(content, {
       scale: 2,
       backgroundColor: "#ffffff",
       useCORS: true,
       logging: false,
+      width: content.scrollWidth,
+      height: content.scrollHeight,
       windowWidth: content.scrollWidth,
       windowHeight: content.scrollHeight
     });
@@ -4407,6 +4427,12 @@ async function edExportPDF(){
     console.error(err);
     alert("สร้าง PDF ไม่สำเร็จ: " + (err.message||err));
   }finally{
+    // restore scrollable styles
+    restoreList.forEach(s => {
+      s.el.style.maxHeight = s.maxHeight;
+      s.el.style.overflow = s.overflow;
+      s.el.style.overflowY = s.overflowY;
+    });
     const o = document.getElementById("edPdfOv");
     if(o) o.remove();
   }
@@ -4463,15 +4489,15 @@ function edRenderHeaderRight(tabName, periodLabel, dateStr){
   ctx.fillRect(0, 0, w, h);
   ctx.textAlign = "right";
 
-  ctx.font = "700 32px 'Sarabun','Plus Jakarta Sans',sans-serif";
+  ctx.font = "600 32px 'IBM Plex Sans Thai','IBM Plex Sans',sans-serif";
   ctx.fillStyle = "#1e40af";
   ctx.fillText(tabName, w - 8, 36);
 
-  ctx.font = "700 38px 'Plus Jakarta Sans','Sarabun',sans-serif";
+  ctx.font = "700 38px 'IBM Plex Sans','IBM Plex Sans Thai',sans-serif";
   ctx.fillStyle = "#0f172a";
   ctx.fillText(periodLabel, w - 8, 84);
 
-  ctx.font = "italic 22px 'Sarabun',sans-serif";
+  ctx.font = "italic 22px 'IBM Plex Sans Thai',sans-serif";
   ctx.fillStyle = "#94a3b8";
   ctx.fillText("พิมพ์เมื่อ " + dateStr, w - 8, 122);
 

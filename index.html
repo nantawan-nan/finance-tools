@@ -2100,7 +2100,7 @@ function bsResultHTML(R){
       if(l[k] && !seenOrder[k].has(l.orderNo)){ ct[k]++; seenOrder[k].add(l.orderNo); }
     });
   }
-  const unknownBlock = R.summary.unknownShops.length ? bsUnknownShopsHTML(R.summary.unknownShops) : "";
+  const unknownBlock = R.summary.unknownShops.length ? bsUnknownShopsHTML(R.summary.unknownShops, d.raw && d.raw.items) : "";
   const newSkuBlock = R.summary.newSkus.length ? `
     <div class="note" style="background:#fef2f2;color:#991b1b;padding:10px 14px;border-radius:8px;margin-bottom:10px;display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap">
       <div style="flex:1;min-width:280px">
@@ -2242,26 +2242,64 @@ function bsClearFilter(){
   renderTool();
 }
 
-function bsUnknownShopsHTML(shops){
+function bsUnknownShopsHTML(shops, items){
+  // build map: shop → { orderNos:Set, platforms:Set, rowNums:[], sampleRows:[] }
+  const info = {};
+  if(items && items.length){
+    items.forEach((it, idx) => {
+      if(!shops.includes(it.shop)) return;
+      const k = it.shop;
+      if(!info[k]) info[k] = { orderNos:new Set(), platforms:new Set(), rowNums:[], samples:[] };
+      info[k].orderNos.add(it.orderNo);
+      if(it.platform) info[k].platforms.add(it.platform);
+      info[k].rowNums.push(idx + 2);   // +2: header row + 1-based
+      if(info[k].samples.length < 3){
+        info[k].samples.push({ orderNo: it.orderNo, sku: it.sku, row: idx + 2, platform: it.platform });
+      }
+    });
+  }
   return `
     <div class="note" style="background:#fef3c7;color:#92400e;padding:12px 14px;border-radius:8px;margin-bottom:10px">
-      ⚠️ <b>เจอร้าน ${shops.length} ร้าน</b>ที่ยังไม่รู้ว่าเป็นแบรนด์ไหน — เลือกแบรนด์ให้ก่อน:
-      <div style="display:flex;flex-direction:column;gap:6px;margin-top:8px">
-        ${shops.map(s=>`
-          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-            <code style="background:#fde68a;padding:3px 8px;border-radius:4px;font-size:13px">${esc(s)}</code> →
-            <select id="bs-brand-${esc(s)}" style="padding:4px 8px;font-family:inherit;border-radius:6px;border:1px solid #d4a574">
-              <option value="">— เลือกแบรนด์ —</option>
-              ${state.company==="benya"?'<option value="BT">BT (Betra)</option><option value="QI">QI (QI Care)</option>':'<option value="MB">MB (M Bark)</option>'}
-            </select>
-            <select id="bs-chan-${esc(s)}" style="padding:4px 8px;font-family:inherit;border-radius:6px;border:1px solid #d4a574">
-              <option value="">— ช่องทาง —</option>
-              <option value="SP">SP (Shopee)</option>
-              <option value="TT">TT (TikTok)</option>
-              <option value="LZ">LZ (Lazada)</option>
-            </select>
-            <button class="btn" style="font-size:12px;padding:4px 10px" onclick="bsAssignShop(${JSON.stringify(s)}, document.getElementById('bs-brand-'+${JSON.stringify(s)}).value, document.getElementById('bs-chan-'+${JSON.stringify(s)}).value)">บันทึก</button>
-          </div>`).join("")}
+      <div style="font-weight:700;margin-bottom:4px">⚠️ เจอร้าน ${shops.length} ร้าน ที่ยังไม่รู้ว่าเป็นแบรนด์ไหน</div>
+      <div style="font-size:12px;color:#78350f;margin-bottom:10px">เลือกแบรนด์ + ช่องทางให้ก่อนแล้วกดบันทึก · ตัวอย่างออเดอร์ช่วยให้รู้ว่าคือร้านไหน</div>
+      <div style="display:flex;flex-direction:column;gap:10px;margin-top:8px">
+        ${shops.map(s=>{
+          const inf = info[s] || { orderNos:new Set(), platforms:new Set(), rowNums:[], samples:[] };
+          const orderCount = inf.orderNos.size;
+          const platforms = Array.from(inf.platforms).join(", ") || "—";
+          const minRow = inf.rowNums.length ? Math.min(...inf.rowNums) : null;
+          const maxRow = inf.rowNums.length ? Math.max(...inf.rowNums) : null;
+          const rowRange = minRow ? (minRow===maxRow ? `แถว ${minRow}` : `แถว ${minRow}–${maxRow}`) : "";
+          return `
+          <div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:10px 12px">
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+              <code style="background:#fde68a;padding:4px 10px;border-radius:5px;font-size:13.5px;font-weight:700">${esc(s)}</code>
+              <span style="font-size:12px;color:#92400e">${orderCount} ออเดอร์ · ${esc(platforms)}${rowRange?` · ${rowRange}`:""}</span>
+            </div>
+            ${inf.samples.length ? `
+              <div style="font-size:11.5px;color:#78350f;background:#fff;border:1px dashed #fde68a;border-radius:6px;padding:6px 10px;margin-bottom:8px">
+                <div style="font-weight:700;margin-bottom:3px;color:#92400e">ตัวอย่างออเดอร์ในไฟล์:</div>
+                ${inf.samples.map(sm=>`
+                  <div style="font-family:monospace;font-size:11px;color:#451a03">
+                    แถว <b>${sm.row}</b> · ${esc(sm.orderNo)}${sm.sku?' · SKU '+esc(sm.sku):''}${sm.platform?' · '+esc(sm.platform):''}
+                  </div>`).join("")}
+                ${orderCount > inf.samples.length ? `<div style="font-size:10.5px;color:#78350f;margin-top:3px;opacity:.7">…และอีก ${orderCount - inf.samples.length} ออเดอร์</div>` : ""}
+              </div>` : ""}
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+              <select id="bs-brand-${esc(s)}" style="padding:5px 10px;font-family:inherit;border-radius:6px;border:1px solid #d4a574;font-size:13px;background:#fff">
+                <option value="">— เลือกแบรนด์ —</option>
+                ${state.company==="benya"?'<option value="BT">BT (Betra)</option><option value="QI">QI (QI Care)</option>':'<option value="MB">MB (M Bark)</option>'}
+              </select>
+              <select id="bs-chan-${esc(s)}" style="padding:5px 10px;font-family:inherit;border-radius:6px;border:1px solid #d4a574;font-size:13px;background:#fff">
+                <option value="">— ช่องทาง —</option>
+                <option value="SP">SP (Shopee)</option>
+                <option value="TT">TT (TikTok)</option>
+                <option value="LZ">LZ (Lazada)</option>
+              </select>
+              <button class="btn" style="font-size:12px;padding:5px 14px" onclick="bsAssignShop(${JSON.stringify(s)}, document.getElementById('bs-brand-'+${JSON.stringify(s)}).value, document.getElementById('bs-chan-'+${JSON.stringify(s)}).value)">บันทึก</button>
+            </div>
+          </div>`;
+        }).join("")}
       </div>
     </div>`;
 }

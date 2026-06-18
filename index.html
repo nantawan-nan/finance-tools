@@ -570,8 +570,10 @@ function renderSidebar(){
   for(const stage of stageOrder){
     const tools = stages[stage];
     const hasActive = tools.some(t => t.id === state.tool);
-    // active tool อยู่ใน stage นี้ → บังคับขยาย ไม่ว่า user เคย collapse ไว้
-    const collapsed = !!state.sbCollapse[stage] && !hasActive;
+    // default = ปิดไว้ก่อน. user expand แล้วเก็บไว้. active tool stage → บังคับขยาย
+    const tracked = stage in state.sbCollapse;
+    let collapsed = tracked ? !!state.sbCollapse[stage] : true;
+    if(hasActive) collapsed = false;
     const items = tools.map(t => {
       const soon = t.status==="soon" ? `<span class="badge-mini">เร็วๆนี้</span>` : "";
       const ic = t.icon ? `<i data-lucide="${t.icon}"></i>` : (t.ic || "");
@@ -604,7 +606,9 @@ function renderSidebar(){
 
 function toggleStage(stage){
   if(!state.sbCollapse) state.sbCollapse = {};
-  state.sbCollapse[stage] = !state.sbCollapse[stage];
+  // default คือ collapsed (true) ถ้ายังไม่ tracked
+  const cur = (stage in state.sbCollapse) ? state.sbCollapse[stage] : true;
+  state.sbCollapse[stage] = !cur;
   try{ localStorage.setItem("ft-sb-collapse", JSON.stringify(state.sbCollapse)); }catch(e){}
   renderSidebar();
 }

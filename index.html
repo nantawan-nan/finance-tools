@@ -129,6 +129,53 @@
   .stat.warn{background:var(--warn-soft);border-color:rgba(245,158,11,.25)}.stat.warn .n{color:var(--warn-ink)}
   .stat.in{background:var(--in-soft);border-color:rgba(20,184,166,.3)}.stat.in .n{color:var(--in-ink)}
   .stat.out{background:var(--out-soft);border-color:rgba(225,138,170,.4)}.stat.out .n{color:var(--out-ink)}
+
+  /* Cash Flow Staff view */
+  .cf-chips{display:flex;gap:6px;flex-wrap:wrap}
+  .cf-chips button{border:1px solid var(--glass-border);background:rgba(255,255,255,.6);color:var(--ink-2);padding:5px 13px;border-radius:999px;font-size:12px;font-weight:600;transition:.14s}
+  .cf-chips button:hover{border-color:var(--brand);color:var(--brand-dark)}
+  .cf-chips button.active{background:linear-gradient(135deg,var(--brand),var(--brand-dark));color:#fff;border-color:var(--brand);box-shadow:0 3px 10px rgba(var(--brand-rgb),.26)}
+  .kpigrid{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:16px}
+  @media(max-width:1100px){.kpigrid{grid-template-columns:repeat(3,1fr)}.bankgrid{grid-template-columns:1fr!important}}
+  @media(max-width:760px){.kpigrid{grid-template-columns:repeat(2,1fr)}}
+  .kpi{background:var(--glass);backdrop-filter:blur(10px);border:1px solid var(--glass-border);border-radius:14px;box-shadow:var(--shadow);padding:14px 16px;display:flex;flex-direction:column;gap:3px;transition:transform .16s ease,box-shadow .16s ease;cursor:pointer;font-family:inherit;text-align:left}
+  .kpi:hover{transform:translateY(-3px);box-shadow:var(--lift)}
+  .kpi .kpi-ic{width:32px;height:32px;border-radius:9px;display:flex;align-items:center;justify-content:center;margin-bottom:4px;background:var(--brand-soft);color:var(--brand)}
+  .kpi .kpi-ic svg{width:17px;height:17px}
+  .kpi .kpi-l{font-size:11.5px;color:var(--ink-2);font-weight:600}
+  .kpi .kpi-n{font-size:21px;font-weight:800;color:var(--brand-dark);letter-spacing:-.3px;font-family:"IBM Plex Sans","IBM Plex Sans Thai",sans-serif}
+  .kpi .kpi-d{font-size:10.5px;color:var(--ink-3);font-weight:500}
+  .kpi.in .kpi-ic{background:var(--in-soft);color:var(--in-ink)} .kpi.in .kpi-n{color:var(--in-ink)}
+  .kpi.out .kpi-ic{background:var(--out-soft);color:var(--out-ink)} .kpi.out .kpi-n{color:var(--out-ink)}
+  .kpi.warn .kpi-ic{background:var(--warn-soft);color:var(--warn-ink)} .kpi.warn .kpi-n{color:var(--warn-ink)}
+  .bridge{display:flex;align-items:stretch;gap:10px;flex-wrap:wrap}
+  .br-item{flex:1;min-width:140px;background:rgba(255,255,255,.6);border:1px solid var(--glass-border);border-radius:12px;padding:14px 16px;display:flex;flex-direction:column;gap:5px;justify-content:center}
+  .br-item .br-l{font-size:11.5px;color:var(--ink-2);font-weight:600}
+  .br-item .br-v{font-size:19px;font-weight:800;color:var(--brand-dark);font-family:"IBM Plex Sans","IBM Plex Sans Thai",sans-serif}
+  .br-item.in{background:var(--in-soft);border-color:rgba(20,184,166,.3)} .br-item.in .br-v{color:var(--in-ink)}
+  .br-item.out{background:var(--out-soft);border-color:rgba(225,138,170,.4)} .br-item.out .br-v{color:var(--out-ink)}
+  .br-item.total{background:linear-gradient(135deg,var(--brand),var(--brand-dark));border:none;box-shadow:0 6px 18px rgba(var(--brand-rgb),.28)}.br-item.total .br-l{color:rgba(255,255,255,.85)}.br-item.total .br-v{color:#fff}
+  .br-op{display:flex;align-items:center;font-size:24px;font-weight:300;color:var(--ink-3)}
+  .bankgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+  .bankcard{background:var(--glass);backdrop-filter:blur(10px);border:1px solid var(--glass-border);border-radius:13px;padding:16px;display:flex;flex-direction:column;gap:9px;transition:transform .16s ease,box-shadow .16s ease}
+  .bankcard:hover{transform:translateY(-2px);box-shadow:var(--lift)}
+  .bankcard.neg{border-color:rgba(225,138,170,.5);background:var(--out-soft)}
+  .bankcard .bk-top{display:flex;align-items:center;gap:10px}
+  .bankcard .bk-logo{width:38px;height:38px;border-radius:9px;flex-shrink:0;display:flex;align-items:center;justify-content:center;background:#fff;border:1px solid var(--glass-border);overflow:hidden}
+  .bankcard .bk-logo img{width:100%;height:100%;object-fit:contain;padding:3px}
+  .bankcard .bk-logo .bk-fb{font-weight:800;font-size:11px;color:var(--brand-dark)}
+  .bankcard .bk-name{font-weight:700;font-size:13px;color:var(--ink);line-height:1.2}
+  .bankcard .bk-acc{font-size:11px;color:var(--ink-3);font-variant-numeric:tabular-nums}
+  .bankcard .bk-net{font-size:22px;font-weight:800;color:var(--brand-dark);letter-spacing:-.4px;font-family:"IBM Plex Sans","IBM Plex Sans Thai",sans-serif}
+  .bankcard.neg .bk-net{color:var(--out-ink)}
+  .bankcard .bk-rows{display:flex;flex-direction:column;gap:3px;font-size:11.5px;color:var(--ink-2);border-top:1px dashed var(--glass-border);padding-top:8px}
+  .bankcard .bk-rows .r{display:flex;justify-content:space-between}
+  .bankcard .bk-rows .r b{font-variant-numeric:tabular-nums;color:var(--ink)}
+  .cat-row td{background:rgba(var(--brand-rgb),.07);font-weight:700;color:var(--brand-dark)!important;text-transform:none!important;letter-spacing:0!important}
+  .sub-row td:first-child{padding-left:30px;color:var(--ink-2)}
+  .tot-row td{border-top:2px solid var(--glass-border);font-weight:800;color:var(--ink);background:rgba(255,255,255,.5)}
+  td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+  .muted{color:var(--ink-3)}
   .toolgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px}
   @media(max-width:1100px){.charts{grid-template-columns:1fr!important}}
   .toolcard{background:var(--glass);backdrop-filter:blur(10px);border:1px solid var(--glass-border);border-radius:11px;box-shadow:var(--shadow);padding:12px 14px;cursor:pointer;transition:transform .15s ease,box-shadow .15s ease,border-color .15s;display:flex;align-items:center;gap:11px;position:relative;text-align:left;font-family:inherit}
@@ -7112,12 +7159,28 @@ function cffGet(){
   if(!state.cff[state.company]){
     state.cff[state.company] = {
       data:null, busy:false,
-      horizon: 30,                 // 7 / 15 / 30 / month_end / custom
-      customFrom: null, customTo: null,
-      snapshot: false
+      viewMode: 'staff',             // 'staff' = daily LINE report, 'executive' = 30d forecast
+      staffDate: 'all',              // 'all' | 'YYYY-MM-DD'
+      horizon: 30, customFrom: null, customTo: null, snapshot: false
     };
   }
   return state.cff[state.company];
+}
+function cffSetView(v){ cffGet().viewMode = v; renderToolCashflowForecast(); }
+function cffSetStaffDate(d){ cffGet().staffDate = d; renderToolCashflowForecast(); }
+/* bank logo: ใช้ Clearbit → fallback Google s2 → fallback bank code text */
+function cffBankLogo(bankCode){
+  const map = {
+    BBL:'bangkokbank.com', SCB:'scb.co.th', KBANK:'kasikornbank.com',
+    KTB:'krungthai.com', BAY:'krungsri.com', TTB:'ttbbank.com',
+    UOB:'uob.co.th', CIMB:'cimbthai.com', KKP:'kkpfg.com', GSB:'gsb.or.th'
+  };
+  const dom = map[String(bankCode||"").toUpperCase()];
+  if(!dom) return null;
+  return `https://logo.clearbit.com/${dom}`;
+}
+function cffBankName(code){
+  return ({BBL:'กรุงเทพ', SCB:'ไทยพาณิชย์', KBANK:'กสิกร', KTB:'กรุงไทย', BAY:'กรุงศรี', TTB:'ทหารไทยธนชาต', UOB:'ยูโอบี', CIMB:'ซีไอเอ็มบี', KKP:'เกียรตินาคิน', GSB:'ออมสิน'})[String(code||'').toUpperCase()] || code;
 }
 function cffSetHorizon(h){
   const d = cffGet();
@@ -7302,7 +7365,206 @@ function cffCompute(){
   };
 }
 
+/* router: staff (daily LINE) หรือ executive (30d) */
 async function renderToolCashflowForecast(){
+  const d = cffGet();
+  if(d.viewMode === "staff") return renderToolCashflowStaff();
+  return renderToolCashflowExec();
+}
+
+/* ============================
+   STAFF VIEW — daily LINE-ready report
+   filter pills = วันชำระเงิน (unique due dates) · KPI 5 · Bank cards (โลโก้จริง) · Pivot
+   ============================ */
+async function renderToolCashflowStaff(){
+  const t = TOOLS.find(x=>x.id==="cashflow");
+  const co = COMPANIES.find(c=>c.id===state.company);
+  const main = document.getElementById("main");
+  const d = cffGet();
+
+  main.innerHTML = `
+    <div class="page-head"><h1>${esc(t.name)} <span class="badge">${esc(co.name)}</span></h1><div class="sub">กำลังโหลด...</div></div>
+    <div class="card"><div class="empty">กำลังโหลด...</div></div>`;
+  try{ await cffLoad(); }catch(e){
+    main.innerHTML += `<div class="card"><div style="color:var(--out-ink)">โหลดไม่สำเร็จ: ${esc(fopErr(e))}</div></div>`;
+    return;
+  }
+  const dt = d.data;
+  if(!dt){ return; }
+
+  // กลุ่ม payments ทั้งหมด (ap+recurring occurrences) ใน 90 วันข้างหน้า
+  const todayISO = dt.todayISO;
+  const horizon = new Date(Date.now()+90*86400000).toISOString().slice(0,10);
+  const payments = [];
+  for(const ap of dt.aps){
+    if(Number(ap.amount_outstanding||0) <= 0) continue;
+    const due = ap.due_date < todayISO ? todayISO : ap.due_date;   // overdue → today bucket
+    payments.push({
+      type:"ap", category: ap.category || "เจ้าหนี้การค้า",
+      vendor: (ap.vendors&&ap.vendors.name) || ap.vendor_name_raw || "—",
+      detail: ap.invoice_no, due_date: due, original_due: ap.due_date,
+      amount: Number(ap.amount_outstanding||0), remark: ap.remark
+    });
+  }
+  for(const r of (dt.recOccs||[])){
+    if(r.due_date > horizon) continue;
+    payments.push({
+      type:"recurring", category: (r.recurring_expenses&&r.recurring_expenses.category) || "other",
+      vendor: (r.recurring_expenses&&r.recurring_expenses.name) || "—",
+      detail: "งวด "+r.due_date, due_date: r.due_date, original_due: r.due_date,
+      amount: Number(r.expected_amount||0)
+    });
+  }
+
+  // unique dates สำหรับ filter pills
+  const upcomingDates = Array.from(new Set(payments.map(p => p.due_date))).sort();
+
+  // apply filter
+  const f = d.staffDate || "all";
+  const filtered = f === "all" ? payments : payments.filter(p => p.due_date === f);
+  const totalDue = filtered.reduce((s,p) => s + p.amount, 0);
+
+  // opening cash = ยอดเงินคงเหลือใช้ได้ทั้งหมด
+  const openingCash = dt.balances.reduce((s,b) => s + Number(b.amount||0) - Number(b.hold||0), 0);
+  const forecastIn = 0;   // Phase 2.1
+  const netCash = openingCash + forecastIn - totalDue;
+
+  // per-bank distribution — ถ้า payment ไม่ระบุ bank → กระจายเป็น default (ใช้บัญชีแรกที่มียอดมากสุด)
+  const bankMap = {};
+  for(const b of dt.balances){
+    bankMap[b.bank_account_id] = {
+      bank_code: b.bank_code, account_no: b.account_no, nickname: b.nickname,
+      amount: Number(b.amount||0), hold: Number(b.hold||0),
+      avail: Number(b.amount||0) - Number(b.hold||0),
+      due: 0
+    };
+  }
+  // ถ้ามี > 1 บัญชี ให้ "บัญชีหลัก" = บัญชีที่ amount มากสุด (สมมุติ — UI ให้แก้เองได้ทีหลัง)
+  const sortedBanks = Object.values(bankMap).sort((a,b)=> b.amount - a.amount);
+  if(sortedBanks.length){
+    // assign payments ทั้งหมดไปบัญชีหลัก (ที่ 2 ในรายการ = main operating)
+    const mainBank = sortedBanks[1] || sortedBanks[0];
+    for(const b of Object.values(bankMap)){
+      if(b.account_no === mainBank.account_no) b.due = totalDue;
+    }
+  }
+  const negCount = Object.values(bankMap).filter(b => (b.avail - b.due) < 0).length;
+  const negBanks = Object.values(bankMap).filter(b => (b.avail - b.due) < 0).map(b => `${b.bank_code} ${b.account_no}`).join(", ");
+
+  // group payments by category
+  const byCat = {};
+  for(const p of filtered){
+    if(!byCat[p.category]) byCat[p.category] = { total: 0, items: [] };
+    byCat[p.category].total += p.amount;
+    byCat[p.category].items.push(p);
+  }
+  const cats = Object.entries(byCat).sort((a,b) => b[1].total - a[1].total);
+
+  const fmtDate = (iso) => new Date(iso).toLocaleDateString("th-TH", { day:"2-digit", month:"short" });
+  const fmt = (n) => "฿" + Math.abs(Number(n||0)).toLocaleString("th-TH", { minimumFractionDigits:2, maximumFractionDigits:2 });
+  const fmtParen = (n) => Number(n||0) < 0 ? "(" + fmt(n) + ")" : fmt(n);
+
+  main.innerHTML = `
+    <div class="page-head" style="display:flex;justify-content:space-between;align-items:flex-end;gap:14px;flex-wrap:wrap">
+      <div>
+        <h1>${esc(t.name)} <span class="badge">${esc(co.name)}</span></h1>
+        <div class="sub">ประมาณการรายรับ-รายจ่าย · รอบจ่ายวันที่ ${f==='all'?(upcomingDates[0]?fmtDate(upcomingDates[0]):'-'):fmtDate(f)} · ยอดธนาคาร ณ ${fmtDate(todayISO)}</div>
+      </div>
+      <div style="display:flex;gap:6px;align-items:center">
+        <div class="cf-chips" style="background:rgba(var(--brand-rgb),.08);padding:3px;border-radius:9px">
+          <button class="${d.viewMode==='staff'?'active':''}" onclick="cffSetView('staff')">📋 พนักงาน</button>
+          <button class="${d.viewMode==='executive'?'active':''}" onclick="cffSetView('executive')">📊 ผู้บริหาร</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- filter pills: วันชำระเงิน -->
+    <div class="card" style="padding:13px 16px;margin-bottom:16px">
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <span style="font-size:12px;font-weight:700;color:var(--ink-2);display:inline-flex;align-items:center;gap:6px"><i data-lucide="calendar-clock" style="width:15px;height:15px;color:var(--brand)"></i>วันชำระเงิน</span>
+        <div class="cf-chips">
+          <button class="${f==='all'?'active':''}" onclick="cffSetStaffDate('all')">ทั้งหมด</button>
+          ${upcomingDates.slice(0,12).map(dd => `<button class="${f===dd?'active':''}" onclick="cffSetStaffDate('${dd}')">${esc(fmtDate(dd))}</button>`).join("")}
+        </div>
+      </div>
+    </div>
+
+    <!-- KPI 5 cards -->
+    <div class="kpigrid">
+      <div class="kpi in" onclick="cffDrill('opening')"><div class="kpi-ic"><i data-lucide="wallet"></i></div><div class="kpi-l">เงินคงเหลือใช้ได้</div><div class="kpi-n">${fmt(openingCash)}</div><div class="kpi-d">รวม ${dt.balances.length} บัญชี</div></div>
+      <div class="kpi out" onclick="cffDrill('payments')"><div class="kpi-ic"><i data-lucide="arrow-down-circle"></i></div><div class="kpi-l">ค่าใช้จ่ายถึงกำหนด</div><div class="kpi-n">${fmt(totalDue)}</div><div class="kpi-d">${filtered.length} รายการ</div></div>
+      <div class="kpi" onclick="cffDrill('receipts')"><div class="kpi-ic"><i data-lucide="arrow-up-circle"></i></div><div class="kpi-l">ประมาณการเงินรับ</div><div class="kpi-n">${fmt(forecastIn)}</div><div class="kpi-d">ยังไม่มีข้อมูล</div></div>
+      <div class="kpi"><div class="kpi-ic"><i data-lucide="banknote"></i></div><div class="kpi-l">เงินคงเหลือสุทธิ</div><div class="kpi-n" style="color:${netCash<0?'var(--out-ink)':'var(--brand-dark)'}">${fmtParen(netCash)}</div><div class="kpi-d">หลังหักถึงกำหนด</div></div>
+      <div class="kpi ${negCount>0?'warn':'in'}"><div class="kpi-ic"><i data-lucide="${negCount>0?'alert-triangle':'check-circle'}"></i></div><div class="kpi-l">บัญชีติดลบ</div><div class="kpi-n">${negCount}</div><div class="kpi-d">${esc(negBanks||"ไม่มี")}</div></div>
+    </div>
+
+    <!-- Cash Bridge -->
+    <div class="card">
+      <h3><i data-lucide="git-fork"></i>Cash Bridge</h3>
+      <div class="note">เงินคงเหลือต้นงวด + ประมาณการเงินรับ − ค่าใช้จ่ายถึงกำหนด = ประมาณการเงินคงเหลือ</div>
+      <div class="bridge">
+        <div class="br-item"><div class="br-l">เงินคงเหลือต้นงวด</div><div class="br-v">${fmt(openingCash)}</div></div>
+        <div class="br-op">+</div>
+        <div class="br-item in"><div class="br-l">ประมาณการเงินรับ</div><div class="br-v">${fmt(forecastIn)}</div></div>
+        <div class="br-op">−</div>
+        <div class="br-item out"><div class="br-l">ค่าใช้จ่ายถึงกำหนด</div><div class="br-v">${fmt(totalDue)}</div></div>
+        <div class="br-op">=</div>
+        <div class="br-item total"><div class="br-l">ประมาณการเงินคงเหลือ</div><div class="br-v">${fmtParen(netCash)}</div></div>
+      </div>
+    </div>
+
+    <!-- Bank cards with real logos -->
+    <div class="card">
+      <h3><i data-lucide="landmark"></i>สถานะแต่ละธนาคาร</h3>
+      <div class="bankgrid">
+        ${Object.values(bankMap).map(b => {
+          const net = b.avail - b.due;
+          const isNeg = net < 0;
+          const logoUrl = cffBankLogo(b.bank_code);
+          return `<div class="bankcard ${isNeg?'neg':''}">
+            <div class="bk-top">
+              <span class="bk-logo">${logoUrl ? `<img src="${logoUrl}" alt="${esc(b.bank_code)}" onerror="this.outerHTML='<span class=\\'bk-fb\\'>${esc(b.bank_code)}</span>'">` : `<span class="bk-fb">${esc(b.bank_code)}</span>`}</span>
+              <div><div class="bk-name">${esc(cffBankName(b.bank_code))}</div><div class="bk-acc">${esc(b.account_no)}</div></div>
+            </div>
+            <div class="bk-net">${fmtParen(net)}</div>
+            <div class="bk-rows">
+              <div class="r"><span>คงเหลือใช้ได้</span><b>${b.avail.toLocaleString("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2})}</b></div>
+              <div class="r"><span>ถึงกำหนดชำระ</span><b class="${b.due>0?'neg':'muted'}">${b.due>0?b.due.toLocaleString("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2}):'–'}</b></div>
+            </div>
+          </div>`;
+        }).join("")}
+      </div>
+    </div>
+
+    <!-- Pivot: ค่าใช้จ่ายถึงกำหนดชำระ แยกตามหมวด -->
+    <div class="card">
+      <h3><i data-lucide="list-tree"></i>ค่าใช้จ่ายถึงกำหนดชำระ</h3>
+      <div class="note">แยกตามหมวด · ${f==='all'?'ทุกวัน':'วันที่ '+fmtDate(f)}</div>
+      ${cats.length === 0 ? `<div class="empty">ไม่มีรายการ</div>` : `
+      <div class="table-wrap" style="margin-top:4px">
+        <table>
+          <thead><tr><th>หมวด / รายการ</th><th>ครบกำหนด</th><th class="num">จำนวน (บาท)</th></tr></thead>
+          <tbody>
+            ${cats.map(([cat, info]) => `
+              <tr class="cat-row"><td>${esc(cat)}</td><td></td><td class="num">${info.total.toLocaleString("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2})}</td></tr>
+              ${info.items.map(p => `<tr class="sub-row"><td>${esc(p.vendor)} ${p.detail?`/ ${esc(p.detail)}`:''}${p.remark?` — ${esc(p.remark)}`:''}</td><td>${esc(fmtDate(p.original_due))}</td><td class="num">${p.amount.toLocaleString("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2})}</td></tr>`).join("")}
+            `).join("")}
+            <tr class="tot-row"><td>รวมทั้งสิ้น</td><td></td><td class="num">${totalDue.toLocaleString("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2})}</td></tr>
+          </tbody>
+        </table>
+      </div>`}
+      <div class="btnrow">
+        <button class="btn" onclick="cffOpenSnapshot()"><i data-lucide="image"></i>Snapshot PNG / PDF</button>
+      </div>
+    </div>
+  `;
+  if(window.lucide && window.lucide.createIcons){ try{ window.lucide.createIcons(); }catch(e){} }
+}
+
+/* ============================
+   EXECUTIVE VIEW — 30d forecast + timeline + drill (ของเดิม)
+   ============================ */
+async function renderToolCashflowExec(){
   const t = TOOLS.find(x=>x.id==="cashflow");
   const co = COMPANIES.find(c=>c.id===state.company);
   const main = document.getElementById("main");
@@ -7339,6 +7601,10 @@ async function renderToolCashflowForecast(){
         <div class="sub">ข้อมูล ณ ${fopDate(R.days[0])} → ${fopDate(R.days[R.days.length-1])} · ${R.days.length} วัน · ${horizonLabel}</div>
       </div>
       <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+        <div class="cf-chips" style="background:rgba(var(--brand-rgb),.08);padding:3px;border-radius:9px;margin-right:6px">
+          <button class="${d.viewMode==='staff'?'active':''}" onclick="cffSetView('staff')">📋 พนักงาน</button>
+          <button class="${d.viewMode==='executive'?'active':''}" onclick="cffSetView('executive')">📊 ผู้บริหาร</button>
+        </div>
         ${["7","15","30","month_end","custom"].map(h => `<button class="btn ${d.horizon==h?'':'ghost'} btn sm" onclick="cffSetHorizon('${h}')">${({"7":"7 วัน","15":"15 วัน","30":"30 วัน","month_end":"สิ้นเดือน","custom":"Custom"})[h]}</button>`).join("")}
         <button class="btn ghost btn sm" onclick="cffOpenSnapshot()">📷 Snapshot</button>
       </div>

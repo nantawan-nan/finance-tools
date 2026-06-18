@@ -5987,8 +5987,19 @@ async function bbSoftDelete(id){
    ---------------------------------------------------------------- */
 state.apo = state.apo || {};
 function apoGet(){
-  if(!state.apo[state.company]) state.apo[state.company] = { invoices:null, vendors:null, busy:false };
+  if(!state.apo[state.company]) state.apo[state.company] = {
+    invoices:null, vendors:null, busy:false,
+    filter:{ search:"", vendor:"all", category:"all", age:"all", status:"all", overdueOnly:false },
+    sort:{ key:"due_date", desc:false }
+  };
   return state.apo[state.company];
+}
+function apoSetFilter(k, v){ const d = apoGet(); d.filter[k] = v; renderToolApOutstanding(); }
+function apoSetSort(k){ const d = apoGet(); if(d.sort.key === k) d.sort.desc = !d.sort.desc; else { d.sort.key = k; d.sort.desc = false; } renderToolApOutstanding(); }
+function apoClearFilter(){
+  const d = apoGet();
+  d.filter = { search:"", vendor:"all", category:"all", age:"all", status:"all", overdueOnly:false };
+  renderToolApOutstanding();
 }
 async function apoLoad(){
   const d = apoGet();
@@ -6020,13 +6031,52 @@ async function renderToolApOutstanding(){
     return;
   }
 
-  const inv = d.invoices || [];
+  const rawInv = d.invoices || [];
   const today = new Date().toISOString().slice(0,10);
-  const overdue = inv.filter(r => r.due_date < today && Number(r.amount_outstanding) > 0);
-  const due30   = inv.filter(r => r.due_date >= today && r.due_date <= new Date(Date.now()+30*86400000).toISOString().slice(0,10) && Number(r.amount_outstanding) > 0);
-  const totalOut = inv.reduce((s,r)=>s+Number(r.amount_outstanding||0), 0);
+
+  // enrich with age bucket
+  const enriched = rawInv.map(r => ({ ...r, age_bucket: apoAgeBucket(r.due_date, r.status) }));
+
+  // apply filters
+  const f = d.filter;
+  let inv = enriched;
+  if(f.search){
+    const q = f.search.toLowerCase();
+    inv = inv.filter(r => (r.invoice_no||"").toLowerCase().includes(q)
+      || (r.vendor_name_raw||"").toLowerCase().includes(q)
+      || ((r.vendors&&r.vendors.name)||"").toLowerCase().includes(q)
+      || (r.remark||"").toLowerCase().includes(q)
+      || (r.category||"").toLowerCase().includes(q));
+  }
+  if(f.vendor !== "all")   inv = inv.filter(r => ((r.vendors&&r.vendors.name) || r.vendor_name_raw) === f.vendor);
+  if(f.category !== "all") inv = inv.filter(r => r.category === f.category);
+  if(f.age !== "all")      inv = inv.filter(r => r.age_bucket === f.age);
+  if(f.status !== "all")   inv = inv.filter(r => r.status === f.status);
+  if(f.overdueOnly)        inv = inv.filter(r => r.due_date < today && Number(r.amount_outstanding) > 0);
+
+  // sort
+  const s = d.sort;
+  inv = inv.slice().sort((a,b) => {
+    let av = a[s.key], bv = b[s.key];
+    if(s.key === "vendor_name") { av = (a.vendors&&a.vendors.name) || a.vendor_name_raw || ""; bv = (b.vendors&&b.vendors.name) || b.vendor_name_raw || ""; }
+    if(typeof av === "number" || /amount/.test(s.key)){ av = Number(av||0); bv = Number(bv||0); }
+    if(av < bv) return s.desc ? 1 : -1;
+    if(av > bv) return s.desc ? -1 : 1;
+    return 0;
+  });
+
+  const overdue = enriched.filter(r => r.due_date < today && Number(r.amount_outstanding) > 0);
+  const due30   = enriched.filter(r => r.due_date >= today && r.due_date <= new Date(Date.now()+30*86400000).toISOString().slice(0,10) && Number(r.amount_outstanding) > 0);
+  const totalOut = enriched.reduce((s,r)=>s+Number(r.amount_outstanding||0), 0);
   const totalOverdue = overdue.reduce((s,r)=>s+Number(r.amount_outstanding||0), 0);
   const canWrite = fopCanWrite();
+
+  // dropdown options
+  const vendors = Array.from(new Set(enriched.map(r => (r.vendors&&r.vendors.name) || r.vendor_name_raw || "—"))).filter(Boolean).sort();
+  const cats = Array.from(new Set(enriched.map(r => r.category).filter(Boolean))).sort();
+  const ages = ["อยู่ในกำหนดจ่าย","เกินกำหนดจ่ายไม่ถึง 30 วัน","เกินกำหนดจ่าย 30วัน","เกินกำหนดจ่าย 60วัน","เกินกำหนดจ่าย 90วัน","เกินกำหนดจ่าย 120 วันขึ้นไป","ยังไม่มีกำหนดจ่าย"];
+  const sortArrow = (k) => s.key === k ? (s.desc ? " ↓" : " ↑") : "";
+  const hasFilter = f.search || f.vendor!=="all" || f.category!=="all" || f.age!=="all" || f.status!=="all" || f.overdueOnly;
 
   main.innerHTML = `
     <div class="page-head">
@@ -6052,15 +6102,51 @@ async function renderToolApOutstanding(){
         </div>` : ""}
       </div>
 
-      ${inv.length===0 ? `<div class="empty">ยังไม่มีข้อมูล — Upload CSV หรือเพิ่มเอง</div>` : `
-      <div class="table-wrap">
+      <!-- Filter bar -->
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;align-items:center;padding:10px;background:rgba(255,255,255,.5);border:1px solid var(--glass-border);border-radius:9px">
+        <input type="text" class="input" placeholder="ค้นหา เลขบิล / ผู้ขาย / หมายเหตุ" value="${esc(f.search)}"
+          oninput="apoSetFilter('search', this.value)" style="flex:1;min-width:200px;font-size:12.5px">
+        <select class="input" onchange="apoSetFilter('vendor', this.value)" style="font-size:12px;min-width:130px">
+          <option value="all">ทุกผู้ขาย</option>
+          ${vendors.map(v => `<option value="${esc(v)}" ${f.vendor===v?'selected':''}>${esc(v)}</option>`).join("")}
+        </select>
+        <select class="input" onchange="apoSetFilter('category', this.value)" style="font-size:12px;min-width:130px">
+          <option value="all">ทุกประเภท</option>
+          ${cats.map(c => `<option value="${esc(c)}" ${f.category===c?'selected':''}>${esc(c)}</option>`).join("")}
+        </select>
+        <select class="input" onchange="apoSetFilter('age', this.value)" style="font-size:12px;min-width:160px">
+          <option value="all">ทุกอายุหนี้</option>
+          ${ages.map(a => `<option value="${esc(a)}" ${f.age===a?'selected':''}>${esc(a)}</option>`).join("")}
+        </select>
+        <select class="input" onchange="apoSetFilter('status', this.value)" style="font-size:12px;min-width:100px">
+          <option value="all">ทุกสถานะ</option>
+          <option value="open" ${f.status==='open'?'selected':''}>open</option>
+          <option value="partial" ${f.status==='partial'?'selected':''}>partial</option>
+          <option value="paid" ${f.status==='paid'?'selected':''}>paid</option>
+        </select>
+        <label class="opt" style="font-size:12px"><input type="checkbox" ${f.overdueOnly?'checked':''} onchange="apoSetFilter('overdueOnly', this.checked)">เฉพาะเกินกำหนด</label>
+        ${hasFilter ? `<button class="btn ghost btn sm" onclick="apoClearFilter()">ล้าง</button>` : ''}
+        <div style="margin-left:auto;font-size:11.5px;color:var(--ink-3)">${inv.length} จาก ${enriched.length} รายการ</div>
+      </div>
+
+      ${inv.length===0 ? `<div class="empty">${hasFilter?'ไม่เจอตามตัวกรอง':'ยังไม่มีข้อมูล — Upload CSV / XML หรือเพิ่มเอง'}</div>` : `
+      <div class="table-wrap" style="max-height:600px">
         <table>
-          <thead><tr><th>เลขที่บิล</th><th>ผู้ขาย</th><th>วันที่บิล</th><th>ครบกำหนด</th><th style="text-align:right">รวม</th><th style="text-align:right">จ่ายแล้ว</th><th style="text-align:right">คงค้าง</th><th>อายุ</th><th>สถานะ</th>${canWrite?'<th></th>':''}</tr></thead>
+          <thead><tr>
+            <th onclick="apoSetSort('invoice_no')" style="cursor:pointer">เลขที่บิล${sortArrow('invoice_no')}</th>
+            <th onclick="apoSetSort('vendor_name')" style="cursor:pointer">ผู้ขาย${sortArrow('vendor_name')}</th>
+            <th onclick="apoSetSort('invoice_date')" style="cursor:pointer">วันที่บิล${sortArrow('invoice_date')}</th>
+            <th onclick="apoSetSort('due_date')" style="cursor:pointer">ครบกำหนด${sortArrow('due_date')}</th>
+            <th onclick="apoSetSort('amount_total')" style="cursor:pointer;text-align:right">รวม${sortArrow('amount_total')}</th>
+            <th onclick="apoSetSort('amount_paid')" style="cursor:pointer;text-align:right">จ่ายแล้ว${sortArrow('amount_paid')}</th>
+            <th onclick="apoSetSort('amount_outstanding')" style="cursor:pointer;text-align:right">คงค้าง${sortArrow('amount_outstanding')}</th>
+            <th onclick="apoSetSort('age_bucket')" style="cursor:pointer">อายุหนี้${sortArrow('age_bucket')}</th>
+            <th onclick="apoSetSort('category')" style="cursor:pointer">ประเภท${sortArrow('category')}</th>
+            <th onclick="apoSetSort('status')" style="cursor:pointer">สถานะ${sortArrow('status')}</th>
+            ${canWrite?'<th></th>':''}
+          </tr></thead>
           <tbody>${inv.map(r=>{
-            const dueDays = Math.floor((new Date(r.due_date) - new Date(today))/86400000);
-            const isOverdue = dueDays < 0;
-            const ageLabel = isOverdue ? `+${-dueDays} วัน` : (dueDays === 0 ? "วันนี้" : `${dueDays} วัน`);
-            const ageCol = isOverdue ? "var(--out-ink)" : (dueDays<=7 ? "var(--warn-ink)" : "var(--ink-2)");
+            const isOverdue = r.due_date < today && r.status !== 'paid';
             const statusBadge = `<span class="matchchip ${r.status==='paid'?'ok':r.status==='partial'?'warn':'bad'}">${r.status}</span>`;
             return `<tr ${isOverdue?'class="warning-row"':''}>
               <td><code style="font-size:11px">${esc(r.invoice_no)}</code></td>
@@ -6070,14 +6156,15 @@ async function renderToolApOutstanding(){
               <td style="text-align:right">${fopFmt(r.amount_total)}</td>
               <td style="text-align:right;color:var(--in-ink)">${Number(r.amount_paid)>0?fopFmt(r.amount_paid):"—"}</td>
               <td style="text-align:right;font-weight:700;color:var(--out-ink)">${fopFmt(r.amount_outstanding)}</td>
-              <td style="font-size:12px;font-weight:700;color:${ageCol}">${ageLabel}</td>
+              <td style="font-size:11.5px;font-weight:600;color:${apoAgeColor(r.age_bucket)};white-space:nowrap">${esc(r.age_bucket)}</td>
+              <td style="font-size:11.5px;color:var(--ink-2)">${esc(r.category||"—")}</td>
               <td>${statusBadge}</td>
-              ${canWrite?`<td><button class="btn ghost btn sm" onclick="apoOpenPay('${r.id}',${Number(r.amount_outstanding)})">💵 จ่าย</button></td>`:''}
+              ${canWrite?`<td><button class="btn ghost btn sm" onclick="apoOpenPay('${r.id}',${Number(r.amount_outstanding)})">จ่าย</button></td>`:''}
             </tr>`;
           }).join("")}</tbody>
         </table>
       </div>`}
-      <div class="soon-note">CSV ต้องมี header: <b>vendor_name, invoice_no, invoice_date, due_date, amount_total</b> (ยอด ไม่ใส่คอมม่า · วันที่ YYYY-MM-DD)</div>
+      <div class="soon-note">CSV ต้องมี header: <b>vendor_name, invoice_no, invoice_date, due_date, amount_total</b> · XML จาก Express upload ได้ตรงๆ · คลิกหัวคอลัมน์เพื่อ sort</div>
     </div>
   `;
   if(window.lucide && window.lucide.createIcons){ try{ window.lucide.createIcons(); }catch(e){} }
@@ -6115,88 +6202,140 @@ function apoClassify(remark, vendor, invNo){
   return "เจ้าหนี้การค้า";  // default
 }
 
-/* parse Excel XML 2003 (Express AP report) → array of invoices */
+/* parse Excel XML 2003 (Express AP report) — auto-detect MBark vs Benya layout */
 function apoParseExpressXml(xmlText){
+  const NS = "urn:schemas-microsoft-com:office:spreadsheet";
   const dom = new DOMParser().parseFromString(xmlText, "text/xml");
   if(dom.querySelector("parsererror")) throw new Error("XML parse error");
-  const rows = dom.getElementsByTagNameNS("urn:schemas-microsoft-com:office:spreadsheet", "Row");
-  const invoices = [];
-  const vendors = new Map();   // code → name
-  let curVendor = null;
+  const rows = Array.from(dom.getElementsByTagNameNS(NS, "Row"));
 
-  for(const row of rows){
-    // collect cells by ss:Index (default = previous+1)
+  function getCells(row){
     const cells = {};
     let idx = 0;
     for(const cell of row.children){
       if(cell.localName !== "Cell") continue;
-      const ix = cell.getAttributeNS("urn:schemas-microsoft-com:office:spreadsheet","Index");
+      const ix = cell.getAttributeNS(NS, "Index");
       if(ix) idx = parseInt(ix, 10); else idx++;
-      const data = cell.getElementsByTagNameNS("urn:schemas-microsoft-com:office:spreadsheet","Data")[0];
+      const data = cell.getElementsByTagNameNS(NS, "Data")[0];
       if(data){
-        const t = data.getAttributeNS("urn:schemas-microsoft-com:office:spreadsheet","Type");
-        cells[idx] = { v: data.textContent, t,
-          style: cell.getAttributeNS("urn:schemas-microsoft-com:office:spreadsheet","StyleID") };
+        cells[idx] = { v: data.textContent, t: data.getAttributeNS(NS,"Type"),
+                       style: cell.getAttributeNS(NS,"StyleID") };
       }
     }
-    if(!Object.keys(cells).length) continue;
-    const c1 = cells[1];
+    return cells;
+  }
+
+  // PASS 1: find header row → map column names → indexes (รองรับทั้ง MBark + Benya)
+  const col = {};
+  for(const row of rows){
+    const cs = getCells(row);
+    const labels = Object.entries(cs).map(([i,c]) => [parseInt(i,10), String(c.v||"").trim()]);
+    if(labels.some(([_,v]) => v === "ยอดในบิล")){
+      for(const [i, v] of labels){
+        if(v === "วันที่") col.date = i;
+        else if(v === "เอกสาร#" || v === "เอกสาร") col.doc = i;
+        else if(v === "เลขที่บิล") col.billNo = i;
+        else if(v === "ยอดในบิล") col.total = i;
+        else if(v === "ยอดชำระ") col.paid = i;
+        else if(v === "ยอดคงค้าง") col.outstanding = i;
+      }
+      break;
+    }
+  }
+  if(!col.outstanding) throw new Error("หา column 'ยอดคงค้าง' ไม่เจอ — รูปแบบไฟล์อาจไม่รองรับ");
+
+  // PASS 2: scan rows
+  const invoices = [];
+  const vendors = new Map();
+  let curVendor = null;
+  const todayISO = new Date().toISOString().slice(0,10);
+
+  for(const row of rows){
+    const cs = getCells(row);
+    if(Object.keys(cs).length === 0) continue;
+    const c1 = cs[1];
     if(!c1) continue;
 
-    // vendor header (style A10 on col 1)
-    if(c1.style === "A10" && c1.v){
-      const txt = c1.v.trim();
-      if(txt.startsWith("รวม")) { curVendor = null; continue; }  // skip "รวมตามประเภท..."
-      const m = txt.match(/^(.+?)\s*\/\s*([^\/\s]+)\s*$/);
+    const text1 = String(c1.v||"").trim();
+    // skip non-vendor labels
+    if(/^ประเภทผู้จำหน่าย|^ตัดยอด|^ถึง|^วันที่|^เลือกแผนก|^บริษัท|^เจ้าหนี้คงค้าง|^ณ วันที่|^หมายเหตุ/.test(text1)) continue;
+    if(text1.startsWith("รวม")) continue;   // รวมเจ้าหนี้ / รวมตามประเภท / รวมท้ายรายงาน
+
+    // vendor row: col 1 = String + มี "/CODE" — ไม่ใช่ date
+    if(c1.t !== "DateTime" && text1){
+      const m = text1.match(/^(.+?)\s*\/\s*([A-Z0-9_-]+)\s*$/i);
       if(m){
         curVendor = { name: m[1].trim(), code: m[2].trim() };
-      } else {
-        curVendor = { name: txt, code: null };
+        vendors.set(curVendor.code, curVendor.name);
+        continue;
       }
-      if(curVendor.code) vendors.set(curVendor.code, curVendor.name);
-      continue;
+      // text-only header without code — ใช้เป็น vendor name ก็ได้
+      if(text1.length > 1 && !text1.match(/^\d/)){
+        curVendor = { name: text1, code: null };
+        continue;
+      }
     }
-
-    // skip "รวมเจ้าหนี้" rows
-    if(c1.v && c1.v.startsWith("รวม")) continue;
 
     // invoice row: col 1 = DateTime
     if(c1.t === "DateTime" && curVendor){
       const invDate = c1.v.slice(0,10);
-      const docNo = (cells[2] && cells[2].v || "").trim();
-      const billText = (cells[3] && cells[3].v || "").trim();
-      // "MEMO.2026-06-16        4,000.00" → bill_no + amount
-      const amtMatch = billText.match(/([\d,]+\.\d{2})\s*$/);
-      const billAmt = amtMatch ? parseFloat(amtMatch[1].replace(/,/g,"")) : 0;
-      const billNo = (amtMatch ? billText.slice(0, amtMatch.index) : billText).trim();
+      const docNo = String((cs[col.doc]||{}).v || "").trim();
 
-      // amount_outstanding = aging buckets (col 7-13) หรือ col 5/6
-      // ★ ใช้ apoNum() เพื่อ strip comma ก่อน parseFloat (500,000.00 → 500000)
-      const c5 = apoNum((cells[5]||{}).v);
-      const c6 = apoNum((cells[6]||{}).v);
-      const aging = [7,8,9,10,11,12,13].reduce((s,k) => s + apoNum((cells[k]||{}).v), 0);
-      const outstanding = aging > 0 ? aging : (c6 || c5 || billAmt);
-      const total = billAmt || outstanding;
+      // billNo: MBark = "INV-NO  AMOUNT" / Benya = "INV-NO" only
+      let billNo = "", billAmtFromText = 0;
+      const cBill = cs[col.billNo];
+      if(cBill){
+        const billText = String(cBill.v||"").trim();
+        const amtMatch = billText.match(/([\d,]+\.\d{2})\s*$/);
+        if(amtMatch){
+          billAmtFromText = apoNum(amtMatch[1]);
+          billNo = billText.slice(0, amtMatch.index).trim();
+        } else billNo = billText;
+      }
 
-      // due_date: col 14 — DateTime หรือ string "    449  26/03/68"
+      const totalCell = apoNum((cs[col.total]||{}).v);
+      const paidCell  = apoNum((cs[col.paid]||{}).v);
+      const outCell   = apoNum((cs[col.outstanding]||{}).v);
+
+      // aging buckets = cols after outstanding, up to last numeric col before due/remark
+      let agingSum = 0;
+      for(let k = col.outstanding + 1; k <= 18; k++){
+        const c = cs[k];
+        if(c && c.t === "Number") agingSum += apoNum(c.v);
+      }
+
+      const outstanding = outCell || agingSum || paidCell || billAmtFromText;
+      const total = totalCell || billAmtFromText || outstanding;
+
+      // due date: scan cells from col.outstanding+1 to end → first DateTime or date-string
       let dueDate = null;
-      const c14 = cells[14];
-      if(c14){
-        if(c14.t === "DateTime") dueDate = c14.v.slice(0,10);
-        else if(typeof c14.v === "string"){
-          const dm = c14.v.match(/(\d{1,2})\/(\d{1,2})\/(\d{2,4})\s*$/);
+      for(let k = col.outstanding + 1; k <= 20; k++){
+        const c = cs[k];
+        if(!c) continue;
+        if(c.t === "DateTime"){ dueDate = c.v.slice(0,10); break; }
+        if(typeof c.v === "string"){
+          const dm = c.v.match(/(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
           if(dm){
             let y = parseInt(dm[3],10);
-            if(y < 100) y += 2500;       // 68 → 2568 (พ.ศ.)
-            if(y >= 2400) y -= 543;       // → 2025
+            if(y < 100) y += 2500;
+            if(y >= 2400) y -= 543;
             dueDate = `${y}-${dm[2].padStart(2,'0')}-${dm[1].padStart(2,'0')}`;
+            break;
           }
         }
       }
       if(!dueDate) dueDate = invDate;
 
-      const po = (cells[15] && cells[15].v || "").trim() || null;
-      const remark = (cells[16] && cells[16].v || "").trim() || null;
+      // remark = last text cell
+      let remark = "";
+      const allCols = Object.keys(cs).map(n=>parseInt(n,10)).sort((a,b)=>b-a);
+      for(const k of allCols){
+        const c = cs[k];
+        if(c && c.t === "String" && k > col.outstanding && !/^\s*\d+\s*\d{1,2}\/\d{1,2}\/\d{2,4}/.test(c.v||"")){
+          remark = String(c.v||"").trim();
+          if(remark) break;
+        }
+      }
 
       invoices.push({
         vendor_name: curVendor.name,
@@ -6207,13 +6346,33 @@ function apoParseExpressXml(xmlText){
         amount_total: total,
         amount_outstanding: outstanding,
         due_date: dueDate,
-        po, remark,
+        po: null,
+        remark,
         category: apoClassify(remark, curVendor.name, billNo || docNo),
-        is_overdue: dueDate < new Date().toISOString().slice(0,10)
+        is_overdue: dueDate < todayISO
       });
     }
   }
   return { invoices, vendors };
+}
+
+/* อายุหนี้ตามสูตร Excel ของผู้ใช้ */
+function apoAgeBucket(dueDate, status){
+  if(status === "paid" || status === "void") return "—";
+  if(!dueDate) return "ยังไม่มีกำหนดจ่าย";
+  const days = Math.floor((new Date() - new Date(dueDate)) / 86400000);  // วันที่เกิน
+  if(days < 0)   return "อยู่ในกำหนดจ่าย";
+  if(days < 30)  return "เกินกำหนดจ่ายไม่ถึง 30 วัน";
+  if(days < 60)  return "เกินกำหนดจ่าย 30วัน";
+  if(days < 90)  return "เกินกำหนดจ่าย 60วัน";
+  if(days < 120) return "เกินกำหนดจ่าย 90วัน";
+  return "เกินกำหนดจ่าย 120 วันขึ้นไป";
+}
+function apoAgeColor(bucket){
+  if(bucket === "อยู่ในกำหนดจ่าย") return "var(--in-ink)";
+  if(bucket === "เกินกำหนดจ่ายไม่ถึง 30 วัน") return "var(--warn-ink)";
+  if(bucket === "ยังไม่มีกำหนดจ่าย") return "var(--ink-3)";
+  return "var(--out-ink)";
 }
 
 async function apoHandleXml(file){

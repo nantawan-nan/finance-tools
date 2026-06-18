@@ -531,6 +531,18 @@ const TOOLS = [
     name:"Cash Flow Forecast", desc:"คาดการณ์ 7/30/90 วัน",
     long:"รายรับจาก AR + เงินรอถอน + คาดรับ · รายจ่ายจาก AP + ค่าใช้จ่ายประจำ → คาดการณ์เงินสดล่วงหน้า",
     multiInput:true, status:"soon" },
+  { id:"bank_balance", stage:"กระแสเงินสด", ic:"$", icon:"landmark",
+    name:"ยอดเงินคงเหลือธนาคาร", desc:"บันทึกยอดรายวัน · history",
+    long:"กรอกยอดเงินคงเหลือแต่ละบัญชีทุกวัน · เก็บประวัติย้อนหลังครบ · ไม่ทับข้อมูลเดิม (append-only)",
+    multiInput:true, status:"live" },
+  { id:"ap_outstanding", stage:"กระแสเงินสด", ic:"!", icon:"file-warning",
+    name:"AP Outstanding", desc:"เจ้าหนี้คงค้าง · upload CSV",
+    long:"นำเข้าเจ้าหนี้คงค้างจาก CSV ระบบบัญชี · แสดงครบกำหนด · บันทึกการจ่าย",
+    multiInput:true, status:"live" },
+  { id:"recurring", stage:"กระแสเงินสด", ic:"@", icon:"repeat",
+    name:"ค่าใช้จ่ายประจำ", desc:"ทะเบียนคุม · ประมาณการ",
+    long:"ทะเบียนค่าใช้จ่ายประจำ (เงินเดือน · ค่าเช่า · ประกันสังคม ฯลฯ) · materialise งวดจ่ายล่วงหน้า",
+    multiInput:true, status:"live" },
 
   // ───── 7. งาน / เอกสาร ─────
   { id:"tasks", stage:"งาน & เอกสาร", ic:"☐", icon:"check-square",
@@ -680,6 +692,9 @@ function renderTool(){
   if (t.multiInput) {
     if (t.id==="users")    return renderToolUsers();
     if (t.id==="execdash") return renderToolExecDash();
+    if (t.id==="bank_balance")   return renderToolBankBalance();
+    if (t.id==="ap_outstanding") return renderToolApOutstanding();
+    if (t.id==="recurring")      return renderToolRecurring();
     if (t.id==="ar")       return renderToolAr();
     if (t.id==="armap") return renderToolArmap();
     if (t.id==="bigseller") return renderToolBigSeller();
@@ -5594,6 +5609,725 @@ function edShowDrillModal(title, txs){
     </div>`;
   document.body.appendChild(wrap);
   wrap.onclick = (e)=>{ if(e.target===wrap) wrap.remove(); };
+}
+
+/* ============================================================
+   FINOPS PHASE 1 — Bank Balance · AP Outstanding · Recurring Expenses
+   ============================================================ */
+
+const FOP_ROLES_WRITE = ["admin","finance_mgr","accountant","treasury"];
+function fopFmt(n){
+  if(n==null || isNaN(n)) return "—";
+  const v = Number(n);
+  const s = "฿" + Math.abs(v).toLocaleString("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2});
+  return v < 0 ? "(" + s + ")" : s;
+}
+function fopDate(s){
+  if(!s) return "—";
+  const d = new Date(s);
+  if(isNaN(d)) return s;
+  return d.toLocaleDateString("th-TH",{day:"2-digit",month:"short",year:"numeric"});
+}
+async function fopCompanyId(){
+  const code = state.company === "mbark" ? "MBARC" : "BENYA";
+  const { data, error } = await sb.from("companies").select("id").eq("code", code).limit(1);
+  if(error || !data || !data.length) return null;
+  return data[0].id;
+}
+function fopCanWrite(){
+  return AUTH.role && (AUTH.role==="admin" || FOP_ROLES_WRITE.includes(AUTH.role));
+}
+function fopErr(err){
+  return (err && (err.message || err.error_description || JSON.stringify(err))) || "เกิดข้อผิดพลาด";
+}
+
+/* ----------------------------------------------------------------
+   MODULE: BANK BALANCE
+   ---------------------------------------------------------------- */
+state.bb = state.bb || {};
+function bbGet(){
+  if(!state.bb[state.company]) state.bb[state.company] = { accounts:null, balances:null, busy:false };
+  return state.bb[state.company];
+}
+async function bbLoad(){
+  const d = bbGet();
+  d.busy = true;
+  const cid = await fopCompanyId();
+  if(!cid){ d.busy=false; d.err="หา company_id ไม่เจอ"; return; }
+  d.companyId = cid;
+  const [accRes, balRes, latestRes] = await Promise.all([
+    sb.from("bank_accounts").select("*").eq("company_id", cid).is("deleted_at", null).order("display_order").order("bank_code"),
+    sb.from("bank_balances").select("*,bank_accounts(bank_code,account_no,nickname)")
+      .eq("company_id", cid).is("deleted_at", null)
+      .order("balance_date",{ascending:false}).limit(100),
+    sb.rpc("fn_balance_as_of", { p_company: cid, p_as_of: new Date().toISOString().slice(0,10) })
+  ]);
+  d.accounts = accRes.data || [];
+  d.balances = balRes.data || [];
+  d.latest   = latestRes.data || [];
+  d.busy = false;
+}
+async function renderToolBankBalance(){
+  const t = TOOLS.find(x=>x.id==="bank_balance");
+  const co = COMPANIES.find(c=>c.id===state.company);
+  const main = document.getElementById("main");
+  const d = bbGet();
+  main.innerHTML = `
+    <div class="page-head">
+      <h1>${esc(t.name)} <span class="badge">${esc(co.name)}</span></h1>
+      <div class="sub">${esc(t.long)}</div>
+    </div>
+    <div class="card"><div class="empty">กำลังโหลด...</div></div>`;
+  try{ await bbLoad(); }catch(e){
+    main.innerHTML += `<div class="card"><div style="color:var(--out-ink)">โหลดไม่สำเร็จ: ${esc(fopErr(e))}</div></div>`;
+    return;
+  }
+  const totalLatest = (d.latest||[]).reduce((s,r)=>s+Number(r.amount||0),0);
+  const totalHold   = (d.latest||[]).reduce((s,r)=>s+Number(r.hold||0),0);
+  const canWrite = fopCanWrite();
+
+  main.innerHTML = `
+    <div class="page-head">
+      <h1>${esc(t.name)} <span class="badge">${esc(co.name)}</span></h1>
+      <div class="sub">${esc(t.long)}</div>
+    </div>
+    <div class="pill-stat" style="margin-bottom:14px">
+      <div class="stat in"><div class="n">${fopFmt(totalLatest)}</div><div class="l">ยอดรวมล่าสุด</div></div>
+      <div class="stat warn"><div class="n">${fopFmt(totalHold)}</div><div class="l">HOLD รวม</div></div>
+      <div class="stat"><div class="n">${(d.accounts||[]).length}</div><div class="l">บัญชี</div></div>
+      <div class="stat"><div class="n">${(d.balances||[]).length}</div><div class="l">รายการล่าสุด</div></div>
+    </div>
+
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px">
+        <h3 style="margin:0">ยอดล่าสุดต่อบัญชี</h3>
+        ${canWrite ? `<div style="display:flex;gap:8px"><button class="btn ghost btn sm" onclick="bbOpenAccountModal()">+ เพิ่มบัญชี</button><button class="btn" onclick="bbOpenEntryModal()">+ บันทึกยอด</button></div>` : ""}
+      </div>
+      <div class="table-wrap" style="max-height:none">
+        <table>
+          <thead><tr><th>ธนาคาร</th><th>เลขบัญชี</th><th>ฝ่าย</th><th style="text-align:right">ยอด</th><th style="text-align:right">HOLD</th><th style="text-align:right">ใช้ได้</th><th>วันที่ข้อมูล</th></tr></thead>
+          <tbody>${(d.latest||[]).length===0 ? `<tr><td colspan="7" class="empty">ยังไม่มีข้อมูล — กด '+ เพิ่มบัญชี' เพื่อเริ่ม</td></tr>` :
+            d.latest.map(r=>`<tr>
+              <td><b>${esc(r.bank_code)}</b></td>
+              <td><code style="font-size:11px">${esc(r.account_no)}</code></td>
+              <td style="color:var(--ink-3);font-size:12px">${esc(r.nickname||"—")}</td>
+              <td style="text-align:right;font-weight:700">${fopFmt(r.amount)}</td>
+              <td style="text-align:right;color:var(--warn-ink)">${fopFmt(r.hold)}</td>
+              <td style="text-align:right;color:var(--in-ink);font-weight:700">${fopFmt(Number(r.amount)-Number(r.hold||0))}</td>
+              <td style="font-size:12px;color:var(--ink-3)">${fopDate(r.dated_at)}</td>
+            </tr>`).join("")}</tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>ประวัติการบันทึก (100 รายการล่าสุด)</h3>
+      <div class="note">Append-only — แก้ผิดให้บันทึกใหม่ ระบบจะใช้ค่าล่าสุดของวันนั้น</div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>วันที่</th><th>บัญชี</th><th style="text-align:right">ยอด</th><th style="text-align:right">HOLD</th><th>ที่มา</th><th>หมายเหตุ</th><th>บันทึกเมื่อ</th>${canWrite?'<th></th>':''}</tr></thead>
+          <tbody>${(d.balances||[]).map(r=>{
+            const acc = r.bank_accounts || {};
+            return `<tr>
+              <td>${fopDate(r.balance_date)}</td>
+              <td><b>${esc(acc.bank_code||"")}</b> <code style="font-size:11px">${esc(acc.account_no||"")}</code></td>
+              <td style="text-align:right">${fopFmt(r.amount)}</td>
+              <td style="text-align:right;color:var(--warn-ink)">${fopFmt(r.hold_amount)}</td>
+              <td style="font-size:11px;color:var(--ink-3)">${esc(r.source||"manual")}</td>
+              <td style="font-size:12px;color:var(--ink-2);max-width:200px;white-space:normal">${esc(r.note||"")}</td>
+              <td style="font-size:11px;color:var(--ink-3)">${new Date(r.created_at).toLocaleString("th-TH",{dateStyle:"short",timeStyle:"short"})}</td>
+              ${canWrite?`<td><button class="btn ghost btn sm" style="color:var(--out-ink);border-color:var(--out)" onclick="bbSoftDelete('${r.id}')">ลบ</button></td>`:''}
+            </tr>`;
+          }).join("")}</tbody>
+        </table>
+      </div>
+    </div>
+  `;
+  if(window.lucide && window.lucide.createIcons){ try{ window.lucide.createIcons(); }catch(e){} }
+}
+
+function bbOpenAccountModal(){
+  const m = document.createElement("div");
+  m.id = "fopModal";
+  m.style.cssText = "position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:1000;display:flex;align-items:center;justify-content:center;padding:20px";
+  m.innerHTML = `
+    <div style="background:#fff;border-radius:14px;padding:24px;max-width:440px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.3)">
+      <h3 style="margin:0 0 14px;font-size:16px;font-weight:800">+ เพิ่มบัญชีธนาคาร</h3>
+      <div style="display:grid;gap:10px">
+        <label><div style="font-size:12px;font-weight:700;color:var(--ink-2);margin-bottom:4px">ธนาคาร *</div><select id="bbaBank" class="input" style="width:100%">
+          <option value="">— เลือก —</option>
+          ${["SCB","BBL","KBANK","KTB","BAY","TTB","UOB","CIMB","KKP","GSB"].map(b=>`<option value="${b}">${b}</option>`).join("")}
+        </select></label>
+        <label><div style="font-size:12px;font-weight:700;color:var(--ink-2);margin-bottom:4px">เลขบัญชี *</div><input id="bbaNo" class="input" style="width:100%" placeholder="เช่น 136-268483-9"></label>
+        <label><div style="font-size:12px;font-weight:700;color:var(--ink-2);margin-bottom:4px">ชื่อย่อ / ฝ่าย</div><input id="bbaNick" class="input" style="width:100%" placeholder="เช่น สาขาออนไลน์"></label>
+        <label><div style="font-size:12px;font-weight:700;color:var(--ink-2);margin-bottom:4px">ประเภท</div><select id="bbaType" class="input" style="width:100%">
+          <option value="savings">ออมทรัพย์</option><option value="current">กระแสรายวัน</option>
+        </select></label>
+        <div id="bbaErr" style="color:var(--out-ink);font-size:12px;display:none"></div>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end">
+        <button onclick="document.getElementById('fopModal').remove()" class="btn ghost btn sm">ยกเลิก</button>
+        <button id="bbaBtn" class="btn" onclick="bbSaveAccount()">บันทึก</button>
+      </div>
+    </div>`;
+  document.body.appendChild(m);
+  m.onclick = e=>{ if(e.target===m) m.remove(); };
+}
+async function bbSaveAccount(){
+  const err = document.getElementById("bbaErr");
+  const btn = document.getElementById("bbaBtn");
+  const bank = document.getElementById("bbaBank").value.trim();
+  const no   = document.getElementById("bbaNo").value.trim();
+  if(!bank || !no){ err.textContent="ต้องเลือกธนาคาร + เลขบัญชี"; err.style.display=""; return; }
+  btn.disabled=true; btn.textContent="กำลังบันทึก...";
+  try{
+    const cid = await fopCompanyId();
+    const { error } = await sb.from("bank_accounts").insert({
+      company_id: cid, bank_code: bank, account_no: no,
+      nickname: document.getElementById("bbaNick").value.trim() || null,
+      account_type: document.getElementById("bbaType").value,
+      created_by: AUTH.user ? AUTH.user.id : null
+    });
+    if(error) throw error;
+    document.getElementById("fopModal").remove();
+    state.bb[state.company] = null;   // force reload
+    renderToolBankBalance();
+  }catch(e){
+    btn.disabled=false; btn.textContent="บันทึก";
+    err.textContent=fopErr(e); err.style.display="";
+  }
+}
+
+function bbOpenEntryModal(){
+  const d = bbGet();
+  if(!d.accounts || !d.accounts.length){ alert("ยังไม่มีบัญชี — เพิ่มบัญชีก่อน"); return; }
+  const today = new Date().toISOString().slice(0,10);
+  const m = document.createElement("div");
+  m.id = "fopModal";
+  m.style.cssText = "position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:1000;display:flex;align-items:center;justify-content:center;padding:20px";
+  m.innerHTML = `
+    <div style="background:#fff;border-radius:14px;padding:24px;max-width:540px;width:100%;max-height:90vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.3)">
+      <h3 style="margin:0 0 14px;font-size:16px;font-weight:800">+ บันทึกยอดเงินคงเหลือ</h3>
+      <div style="display:grid;gap:10px">
+        <label><div style="font-size:12px;font-weight:700;color:var(--ink-2);margin-bottom:4px">วันที่ *</div><input id="bbDate" type="date" class="input" style="width:100%" value="${today}"></label>
+        <div style="font-size:12px;font-weight:700;color:var(--ink-2);margin-bottom:4px">ยอดแต่ละบัญชี</div>
+        <div style="display:flex;flex-direction:column;gap:8px;max-height:340px;overflow-y:auto;padding:4px">
+          ${d.accounts.map(a=>`
+            <div style="display:grid;grid-template-columns:1.4fr 1fr 1fr;gap:8px;align-items:center;padding:8px 10px;background:var(--bg);border-radius:8px">
+              <div><b style="font-size:13px">${esc(a.bank_code)}</b> <code style="font-size:11px;color:var(--ink-3)">${esc(a.account_no)}</code><br><span style="font-size:11px;color:var(--ink-3)">${esc(a.nickname||"")}</span></div>
+              <input id="bb-amt-${a.id}" type="number" step="0.01" min="0" class="input" placeholder="ยอด" style="min-width:0">
+              <input id="bb-hold-${a.id}" type="number" step="0.01" min="0" class="input" placeholder="HOLD" style="min-width:0">
+            </div>`).join("")}
+        </div>
+        <label><div style="font-size:12px;font-weight:700;color:var(--ink-2);margin-bottom:4px">หมายเหตุ (ใช้กับทุกบัญชี)</div><input id="bbNote" class="input" style="width:100%" placeholder="ไม่บังคับ"></label>
+        <div id="bbErr" style="color:var(--out-ink);font-size:12px;display:none"></div>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end">
+        <button onclick="document.getElementById('fopModal').remove()" class="btn ghost btn sm">ยกเลิก</button>
+        <button id="bbBtn" class="btn" onclick="bbSaveBalance()">บันทึกทั้งหมด</button>
+      </div>
+    </div>`;
+  document.body.appendChild(m);
+  m.onclick = e=>{ if(e.target===m) m.remove(); };
+}
+async function bbSaveBalance(){
+  const d = bbGet();
+  const err = document.getElementById("bbErr");
+  const btn = document.getElementById("bbBtn");
+  const date = document.getElementById("bbDate").value;
+  const note = document.getElementById("bbNote").value.trim();
+  if(!date){ err.textContent="ต้องระบุวันที่"; err.style.display=""; return; }
+  const rows = [];
+  const cid = await fopCompanyId();
+  for(const a of d.accounts){
+    const amt = parseFloat(document.getElementById("bb-amt-"+a.id).value);
+    const hold = parseFloat(document.getElementById("bb-hold-"+a.id).value) || 0;
+    if(!isNaN(amt) && amt >= 0){
+      rows.push({ company_id: cid, bank_account_id: a.id, balance_date: date,
+                  amount: amt, hold_amount: hold, note: note || null,
+                  created_by: AUTH.user ? AUTH.user.id : null });
+    }
+  }
+  if(!rows.length){ err.textContent="ไม่มียอดที่จะบันทึก (กรอกอย่างน้อย 1 บัญชี)"; err.style.display=""; return; }
+  btn.disabled=true; btn.textContent="กำลังบันทึก...";
+  try{
+    const { error } = await sb.from("bank_balances").insert(rows);
+    if(error) throw error;
+    document.getElementById("fopModal").remove();
+    state.bb[state.company] = null;
+    renderToolBankBalance();
+  }catch(e){
+    btn.disabled=false; btn.textContent="บันทึกทั้งหมด";
+    err.textContent=fopErr(e); err.style.display="";
+  }
+}
+async function bbSoftDelete(id){
+  if(!confirm("ลบรายการนี้? (soft-delete · audit log จะเก็บไว้)")) return;
+  try{
+    const { error } = await sb.from("bank_balances")
+      .update({ deleted_at: new Date().toISOString(), deleted_by: AUTH.user?AUTH.user.id:null })
+      .eq("id", id);
+    if(error) throw error;
+    state.bb[state.company] = null;
+    renderToolBankBalance();
+  }catch(e){ alert("ลบไม่สำเร็จ: " + fopErr(e)); }
+}
+
+/* ----------------------------------------------------------------
+   MODULE: AP OUTSTANDING (CSV upload + list)
+   ---------------------------------------------------------------- */
+state.apo = state.apo || {};
+function apoGet(){
+  if(!state.apo[state.company]) state.apo[state.company] = { invoices:null, vendors:null, busy:false };
+  return state.apo[state.company];
+}
+async function apoLoad(){
+  const d = apoGet();
+  const cid = await fopCompanyId();
+  if(!cid) return;
+  d.companyId = cid;
+  const [invRes, venRes] = await Promise.all([
+    sb.from("ap_invoices").select("*,vendors(name)").eq("company_id", cid).is("deleted_at", null)
+      .neq("status","void").order("due_date").limit(500),
+    sb.from("vendors").select("id,name,external_code").eq("company_id", cid).is("deleted_at", null).order("name")
+  ]);
+  d.invoices = invRes.data || [];
+  d.vendors  = venRes.data || [];
+}
+
+async function renderToolApOutstanding(){
+  const t = TOOLS.find(x=>x.id==="ap_outstanding");
+  const co = COMPANIES.find(c=>c.id===state.company);
+  const main = document.getElementById("main");
+  const d = apoGet();
+  main.innerHTML = `
+    <div class="page-head">
+      <h1>${esc(t.name)} <span class="badge">${esc(co.name)}</span></h1>
+      <div class="sub">${esc(t.long)}</div>
+    </div>
+    <div class="card"><div class="empty">กำลังโหลด...</div></div>`;
+  try{ await apoLoad(); }catch(e){
+    main.innerHTML += `<div class="card"><div style="color:var(--out-ink)">โหลดไม่สำเร็จ: ${esc(fopErr(e))}</div></div>`;
+    return;
+  }
+
+  const inv = d.invoices || [];
+  const today = new Date().toISOString().slice(0,10);
+  const overdue = inv.filter(r => r.due_date < today && Number(r.amount_outstanding) > 0);
+  const due30   = inv.filter(r => r.due_date >= today && r.due_date <= new Date(Date.now()+30*86400000).toISOString().slice(0,10) && Number(r.amount_outstanding) > 0);
+  const totalOut = inv.reduce((s,r)=>s+Number(r.amount_outstanding||0), 0);
+  const totalOverdue = overdue.reduce((s,r)=>s+Number(r.amount_outstanding||0), 0);
+  const canWrite = fopCanWrite();
+
+  main.innerHTML = `
+    <div class="page-head">
+      <h1>${esc(t.name)} <span class="badge">${esc(co.name)}</span></h1>
+      <div class="sub">${esc(t.long)}</div>
+    </div>
+    <div class="pill-stat" style="margin-bottom:14px">
+      <div class="stat out"><div class="n">${fopFmt(totalOut)}</div><div class="l">คงค้างรวม</div></div>
+      <div class="stat warn"><div class="n">${fopFmt(totalOverdue)}</div><div class="l">เกินกำหนด</div></div>
+      <div class="stat"><div class="n">${overdue.length}</div><div class="l">บิลเกินกำหนด</div></div>
+      <div class="stat in"><div class="n">${due30.length}</div><div class="l">ครบใน 30 วัน</div></div>
+    </div>
+
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px">
+        <h3 style="margin:0">เจ้าหนี้คงค้าง</h3>
+        ${canWrite ? `<div style="display:flex;gap:8px">
+          <input id="apoCsvFile" type="file" accept=".csv" style="display:none" onchange="apoHandleCsv(this.files[0])">
+          <button class="btn ghost btn sm" onclick="document.getElementById('apoCsvFile').click()">⬆ Upload CSV</button>
+          <button class="btn btn sm" onclick="apoOpenAdd()">+ เพิ่มเอง</button>
+        </div>` : ""}
+      </div>
+
+      ${inv.length===0 ? `<div class="empty">ยังไม่มีข้อมูล — Upload CSV หรือเพิ่มเอง</div>` : `
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>เลขที่บิล</th><th>ผู้ขาย</th><th>วันที่บิล</th><th>ครบกำหนด</th><th style="text-align:right">รวม</th><th style="text-align:right">จ่ายแล้ว</th><th style="text-align:right">คงค้าง</th><th>อายุ</th><th>สถานะ</th>${canWrite?'<th></th>':''}</tr></thead>
+          <tbody>${inv.map(r=>{
+            const dueDays = Math.floor((new Date(r.due_date) - new Date(today))/86400000);
+            const isOverdue = dueDays < 0;
+            const ageLabel = isOverdue ? `+${-dueDays} วัน` : (dueDays === 0 ? "วันนี้" : `${dueDays} วัน`);
+            const ageCol = isOverdue ? "var(--out-ink)" : (dueDays<=7 ? "var(--warn-ink)" : "var(--ink-2)");
+            const statusBadge = `<span class="matchchip ${r.status==='paid'?'ok':r.status==='partial'?'warn':'bad'}">${r.status}</span>`;
+            return `<tr ${isOverdue?'class="warning-row"':''}>
+              <td><code style="font-size:11px">${esc(r.invoice_no)}</code></td>
+              <td>${esc((r.vendors&&r.vendors.name) || r.vendor_name_raw || "—")}</td>
+              <td style="font-size:12px">${fopDate(r.invoice_date)}</td>
+              <td style="font-size:12px">${fopDate(r.due_date)}</td>
+              <td style="text-align:right">${fopFmt(r.amount_total)}</td>
+              <td style="text-align:right;color:var(--in-ink)">${Number(r.amount_paid)>0?fopFmt(r.amount_paid):"—"}</td>
+              <td style="text-align:right;font-weight:700;color:var(--out-ink)">${fopFmt(r.amount_outstanding)}</td>
+              <td style="font-size:12px;font-weight:700;color:${ageCol}">${ageLabel}</td>
+              <td>${statusBadge}</td>
+              ${canWrite?`<td><button class="btn ghost btn sm" onclick="apoOpenPay('${r.id}',${Number(r.amount_outstanding)})">💵 จ่าย</button></td>`:''}
+            </tr>`;
+          }).join("")}</tbody>
+        </table>
+      </div>`}
+      <div class="soon-note">CSV ต้องมี header: <b>vendor_name, invoice_no, invoice_date, due_date, amount_total</b> (ยอด ไม่ใส่คอมม่า · วันที่ YYYY-MM-DD)</div>
+    </div>
+  `;
+  if(window.lucide && window.lucide.createIcons){ try{ window.lucide.createIcons(); }catch(e){} }
+}
+
+async function apoHandleCsv(file){
+  if(!file) return;
+  const text = await file.text();
+  const rows = csvParse(text);
+  if(rows.length < 2){ alert("CSV ว่าง"); return; }
+  const header = rows[0].map(h => String(h||"").trim().toLowerCase());
+  const need = ["vendor_name","invoice_no","invoice_date","due_date","amount_total"];
+  const idx = {};
+  for(const n of need){
+    idx[n] = header.indexOf(n);
+    if(idx[n] < 0){ alert("CSV header ไม่ครบ ต้องมี: " + need.join(", ")); return; }
+  }
+  const cid = await fopCompanyId();
+  // create import record
+  const { data: imp, error: impErr } = await sb.from("csv_imports").insert({
+    company_id: cid, target_table: "ap_invoices",
+    file_name: file.name, row_count: rows.length-1, status: "validating",
+    uploaded_by: AUTH.user ? AUTH.user.id : null
+  }).select().single();
+  if(impErr){ alert("สร้าง import record ไม่ได้: " + fopErr(impErr)); return; }
+
+  // build invoices (upsert by invoice_no)
+  const invoices = [];
+  let errs = 0;
+  for(let i=1; i<rows.length; i++){
+    const r = rows[i];
+    if(!r[idx.invoice_no]) continue;
+    const amt = parseFloat(String(r[idx.amount_total]).replace(/[, ]/g,""));
+    if(isNaN(amt) || amt < 0){ errs++; continue; }
+    invoices.push({
+      company_id: cid,
+      vendor_name_raw: String(r[idx.vendor_name]||"").trim() || null,
+      invoice_no: String(r[idx.invoice_no]).trim(),
+      invoice_date: String(r[idx.invoice_date]).trim(),
+      due_date: String(r[idx.due_date]).trim(),
+      amount_total: amt,
+      csv_import_id: imp.id,
+      source_row_no: i+1,
+      created_by: AUTH.user ? AUTH.user.id : null
+    });
+  }
+  if(!invoices.length){ alert("ไม่มีแถวที่ valid"); return; }
+  if(!confirm(`พบ ${invoices.length} แถว valid (skip ${errs}) — บันทึก?`)) return;
+
+  const { error: insErr } = await sb.from("ap_invoices").upsert(invoices, { onConflict: "company_id,invoice_no" });
+  if(insErr){ alert("Upload ไม่สำเร็จ: " + fopErr(insErr)); return; }
+  await sb.from("csv_imports").update({
+    status: "committed", ok_count: invoices.length, error_count: errs,
+    committed_at: new Date().toISOString(), committed_by: AUTH.user?AUTH.user.id:null
+  }).eq("id", imp.id);
+  alert(`สำเร็จ — ${invoices.length} บิล`);
+  state.apo[state.company] = null;
+  renderToolApOutstanding();
+}
+
+function apoOpenAdd(){
+  const m = document.createElement("div");
+  m.id = "fopModal";
+  m.style.cssText = "position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:1000;display:flex;align-items:center;justify-content:center;padding:20px";
+  const today = new Date().toISOString().slice(0,10);
+  m.innerHTML = `
+    <div style="background:#fff;border-radius:14px;padding:24px;max-width:480px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.3)">
+      <h3 style="margin:0 0 14px;font-size:16px;font-weight:800">+ เพิ่ม AP Invoice</h3>
+      <div style="display:grid;gap:10px">
+        <label><div style="font-size:12px;font-weight:700;color:var(--ink-2);margin-bottom:4px">ผู้ขาย *</div><input id="apoVendor" class="input" style="width:100%" placeholder="ชื่อผู้ขาย"></label>
+        <label><div style="font-size:12px;font-weight:700;color:var(--ink-2);margin-bottom:4px">เลขที่บิล *</div><input id="apoNo" class="input" style="width:100%"></label>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+          <label><div style="font-size:12px;font-weight:700;color:var(--ink-2);margin-bottom:4px">วันที่บิล *</div><input id="apoIvDate" type="date" class="input" style="width:100%" value="${today}"></label>
+          <label><div style="font-size:12px;font-weight:700;color:var(--ink-2);margin-bottom:4px">ครบกำหนด *</div><input id="apoDue" type="date" class="input" style="width:100%" value="${today}"></label>
+        </div>
+        <label><div style="font-size:12px;font-weight:700;color:var(--ink-2);margin-bottom:4px">ยอด *</div><input id="apoAmt" type="number" step="0.01" min="0" class="input" style="width:100%"></label>
+        <label><div style="font-size:12px;font-weight:700;color:var(--ink-2);margin-bottom:4px">หมวด</div><input id="apoCat" class="input" style="width:100%" placeholder="เช่น utility, payroll"></label>
+        <div id="apoErr" style="color:var(--out-ink);font-size:12px;display:none"></div>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end">
+        <button onclick="document.getElementById('fopModal').remove()" class="btn ghost btn sm">ยกเลิก</button>
+        <button id="apoBtn" class="btn" onclick="apoSaveInvoice()">บันทึก</button>
+      </div>
+    </div>`;
+  document.body.appendChild(m);
+  m.onclick = e=>{ if(e.target===m) m.remove(); };
+}
+async function apoSaveInvoice(){
+  const err = document.getElementById("apoErr");
+  const btn = document.getElementById("apoBtn");
+  const v = document.getElementById("apoVendor").value.trim();
+  const no = document.getElementById("apoNo").value.trim();
+  const ivd = document.getElementById("apoIvDate").value;
+  const due = document.getElementById("apoDue").value;
+  const amt = parseFloat(document.getElementById("apoAmt").value);
+  if(!v || !no || !ivd || !due || !amt || amt<=0){ err.textContent="กรอกให้ครบ + ยอด > 0"; err.style.display=""; return; }
+  btn.disabled=true; btn.textContent="กำลังบันทึก...";
+  try{
+    const cid = await fopCompanyId();
+    const { error } = await sb.from("ap_invoices").insert({
+      company_id: cid, vendor_name_raw: v, invoice_no: no,
+      invoice_date: ivd, due_date: due, amount_total: amt,
+      category: document.getElementById("apoCat").value.trim() || null,
+      created_by: AUTH.user ? AUTH.user.id : null
+    });
+    if(error) throw error;
+    document.getElementById("fopModal").remove();
+    state.apo[state.company] = null;
+    renderToolApOutstanding();
+  }catch(e){
+    btn.disabled=false; btn.textContent="บันทึก";
+    err.textContent=fopErr(e); err.style.display="";
+  }
+}
+
+function apoOpenPay(invId, outstanding){
+  const today = new Date().toISOString().slice(0,10);
+  const m = document.createElement("div");
+  m.id = "fopModal";
+  m.style.cssText = "position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:1000;display:flex;align-items:center;justify-content:center;padding:20px";
+  m.innerHTML = `
+    <div style="background:#fff;border-radius:14px;padding:24px;max-width:420px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.3)">
+      <h3 style="margin:0 0 14px;font-size:16px;font-weight:800">💵 บันทึกการจ่าย</h3>
+      <div style="color:var(--ink-3);font-size:12.5px;margin-bottom:14px">คงค้าง <b style="color:var(--out-ink)">${fopFmt(outstanding)}</b></div>
+      <div style="display:grid;gap:10px">
+        <label><div style="font-size:12px;font-weight:700;color:var(--ink-2);margin-bottom:4px">วันที่จ่าย *</div><input id="payDate" type="date" class="input" style="width:100%" value="${today}"></label>
+        <label><div style="font-size:12px;font-weight:700;color:var(--ink-2);margin-bottom:4px">จำนวน *</div><input id="payAmt" type="number" step="0.01" min="0" class="input" style="width:100%" value="${outstanding.toFixed(2)}"></label>
+        <label><div style="font-size:12px;font-weight:700;color:var(--ink-2);margin-bottom:4px">เลข PV / อ้างอิง</div><input id="payPv" class="input" style="width:100%"></label>
+        <label><div style="font-size:12px;font-weight:700;color:var(--ink-2);margin-bottom:4px">วิธี</div><select id="payMethod" class="input" style="width:100%"><option value="transfer">โอน</option><option value="cheque">เช็ค</option><option value="cash">เงินสด</option></select></label>
+        <div id="payErr" style="color:var(--out-ink);font-size:12px;display:none"></div>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end">
+        <button onclick="document.getElementById('fopModal').remove()" class="btn ghost btn sm">ยกเลิก</button>
+        <button id="payBtn" class="btn" onclick="apoSavePayment('${invId}')">บันทึก</button>
+      </div>
+    </div>`;
+  document.body.appendChild(m);
+  m.onclick = e=>{ if(e.target===m) m.remove(); };
+}
+async function apoSavePayment(invId){
+  const err = document.getElementById("payErr");
+  const btn = document.getElementById("payBtn");
+  const dateStr = document.getElementById("payDate").value;
+  const amt = parseFloat(document.getElementById("payAmt").value);
+  if(!dateStr || !amt || amt<=0){ err.textContent="วันที่ + ยอด > 0"; err.style.display=""; return; }
+  btn.disabled=true; btn.textContent="กำลังบันทึก...";
+  try{
+    const cid = await fopCompanyId();
+    const { error } = await sb.from("ap_payments").insert({
+      company_id: cid, ap_invoice_id: invId,
+      paid_date: dateStr, amount: amt,
+      pv_no: document.getElementById("payPv").value.trim() || null,
+      method: document.getElementById("payMethod").value,
+      created_by: AUTH.user ? AUTH.user.id : null
+    });
+    if(error) throw error;
+    document.getElementById("fopModal").remove();
+    state.apo[state.company] = null;
+    renderToolApOutstanding();
+  }catch(e){
+    btn.disabled=false; btn.textContent="บันทึก";
+    err.textContent=fopErr(e); err.style.display="";
+  }
+}
+
+/* ----------------------------------------------------------------
+   MODULE: RECURRING EXPENSES
+   ---------------------------------------------------------------- */
+state.rec = state.rec || {};
+function recGet(){
+  if(!state.rec[state.company]) state.rec[state.company] = { list:null, occ:null, busy:false };
+  return state.rec[state.company];
+}
+async function recLoad(){
+  const d = recGet();
+  const cid = await fopCompanyId();
+  if(!cid) return;
+  d.companyId = cid;
+  const horizon = new Date(Date.now()+90*86400000).toISOString().slice(0,10);
+  const [recRes, occRes] = await Promise.all([
+    sb.from("recurring_expenses").select("*").eq("company_id", cid).is("deleted_at", null).order("category").order("name"),
+    sb.from("recurring_occurrences").select("*,recurring_expenses(name,category)")
+      .eq("company_id", cid).is("deleted_at", null)
+      .gte("due_date", new Date(Date.now()-30*86400000).toISOString().slice(0,10))
+      .lte("due_date", horizon)
+      .order("due_date")
+  ]);
+  d.list = recRes.data || [];
+  d.occ  = occRes.data || [];
+}
+
+async function renderToolRecurring(){
+  const t = TOOLS.find(x=>x.id==="recurring");
+  const co = COMPANIES.find(c=>c.id===state.company);
+  const main = document.getElementById("main");
+  const d = recGet();
+  main.innerHTML = `
+    <div class="page-head">
+      <h1>${esc(t.name)} <span class="badge">${esc(co.name)}</span></h1>
+      <div class="sub">${esc(t.long)}</div>
+    </div>
+    <div class="card"><div class="empty">กำลังโหลด...</div></div>`;
+  try{ await recLoad(); }catch(e){
+    main.innerHTML += `<div class="card"><div style="color:var(--out-ink)">โหลดไม่สำเร็จ: ${esc(fopErr(e))}</div></div>`;
+    return;
+  }
+  const list = d.list || [];
+  const occ = d.occ || [];
+  const activeList = list.filter(r => r.is_active);
+  const monthlyTotal = activeList.filter(r=>r.frequency==='monthly').reduce((s,r)=>s+Number(r.expected_amount),0);
+  const canWrite = fopCanWrite();
+
+  main.innerHTML = `
+    <div class="page-head">
+      <h1>${esc(t.name)} <span class="badge">${esc(co.name)}</span></h1>
+      <div class="sub">${esc(t.long)}</div>
+    </div>
+    <div class="pill-stat" style="margin-bottom:14px">
+      <div class="stat out"><div class="n">${fopFmt(monthlyTotal)}</div><div class="l">รวมรายเดือน</div></div>
+      <div class="stat"><div class="n">${activeList.length}</div><div class="l">รายการ active</div></div>
+      <div class="stat in"><div class="n">${occ.filter(o=>o.status==='forecast').length}</div><div class="l">งวดที่จะจ่าย</div></div>
+      <div class="stat warn"><div class="n">${occ.filter(o=>o.status==='matched'||o.status==='paid').length}</div><div class="l">จ่ายแล้ว/จับคู่</div></div>
+    </div>
+
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px">
+        <h3 style="margin:0">ทะเบียนค่าใช้จ่ายประจำ</h3>
+        ${canWrite ? `<div style="display:flex;gap:8px">
+          <button class="btn ghost btn sm" onclick="recMaterialise()">⟳ Materialise งวดล่วงหน้า 6 เดือน</button>
+          <button class="btn btn sm" onclick="recOpenAdd()">+ เพิ่มรายการ</button>
+        </div>` : ""}
+      </div>
+      ${list.length===0 ? `<div class="empty">ยังไม่มีรายการ — กด '+ เพิ่มรายการ'</div>` : `
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>ชื่อ</th><th>หมวด</th><th>ความถี่</th><th>วันจ่าย</th><th style="text-align:right">ยอด</th><th>เริ่ม</th><th>สิ้นสุด</th><th>สถานะ</th>${canWrite?'<th></th>':''}</tr></thead>
+          <tbody>${list.map(r=>`<tr style="${r.is_active?'':'opacity:.5'}">
+            <td><b>${esc(r.name)}</b></td>
+            <td style="font-size:12px;color:var(--ink-2)">${esc(r.category)}</td>
+            <td><span class="matchchip">${r.frequency}</span></td>
+            <td>${r.day_of_month === -1 ? "สิ้นเดือน" : (r.day_of_month || "—")}</td>
+            <td style="text-align:right;font-weight:700">${fopFmt(r.expected_amount)}</td>
+            <td style="font-size:12px">${fopDate(r.start_date)}</td>
+            <td style="font-size:12px">${r.end_date ? fopDate(r.end_date) : "ต่อเนื่อง"}</td>
+            <td><span class="urole ${r.is_active?'finance_mgr':'viewer'}">${r.is_active?'active':'inactive'}</span></td>
+            ${canWrite?`<td><button class="btn ghost btn sm" onclick="recToggle('${r.id}',${!r.is_active})">${r.is_active?'ปิด':'เปิด'}</button></td>`:''}
+          </tr>`).join("")}</tbody>
+        </table>
+      </div>`}
+    </div>
+
+    ${occ.length ? `
+    <div class="card">
+      <h3>งวดที่จะจ่าย (90 วันข้างหน้า)</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>วันที่จ่าย</th><th>รายการ</th><th>หมวด</th><th style="text-align:right">ยอด</th><th>สถานะ</th></tr></thead>
+          <tbody>${occ.map(o=>{
+            const r = o.recurring_expenses || {};
+            const days = Math.floor((new Date(o.due_date) - new Date())/86400000);
+            return `<tr ${days<0&&o.status==='forecast'?'class="warning-row"':''}>
+              <td>${fopDate(o.due_date)} <span style="font-size:11px;color:var(--ink-3)">${days===0?'(วันนี้)':days>0?'(อีก '+days+' วัน)':'(เกิน '+(-days)+' วัน)'}</span></td>
+              <td><b>${esc(r.name||"")}</b></td>
+              <td style="font-size:12px;color:var(--ink-2)">${esc(r.category||"")}</td>
+              <td style="text-align:right;font-weight:700">${fopFmt(o.expected_amount)}</td>
+              <td><span class="matchchip ${o.status==='paid'?'ok':o.status==='matched'?'warn':'bad'}">${o.status}</span></td>
+            </tr>`;
+          }).join("")}</tbody>
+        </table>
+      </div>
+    </div>` : ""}
+  `;
+  if(window.lucide && window.lucide.createIcons){ try{ window.lucide.createIcons(); }catch(e){} }
+}
+
+function recOpenAdd(){
+  const m = document.createElement("div");
+  m.id = "fopModal";
+  m.style.cssText = "position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:1000;display:flex;align-items:center;justify-content:center;padding:20px";
+  const today = new Date().toISOString().slice(0,10);
+  m.innerHTML = `
+    <div style="background:#fff;border-radius:14px;padding:24px;max-width:480px;width:100%;max-height:90vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.3)">
+      <h3 style="margin:0 0 14px;font-size:16px;font-weight:800">+ เพิ่มค่าใช้จ่ายประจำ</h3>
+      <div style="display:grid;gap:10px">
+        <label><div style="font-size:12px;font-weight:700;color:var(--ink-2);margin-bottom:4px">ชื่อ *</div><input id="recName" class="input" style="width:100%" placeholder="เช่น เงินเดือนพนักงาน"></label>
+        <label><div style="font-size:12px;font-weight:700;color:var(--ink-2);margin-bottom:4px">หมวด *</div><select id="recCat" class="input" style="width:100%">
+          <option value="payroll">เงินเดือน</option><option value="rent">ค่าเช่า</option><option value="utility">สาธารณูปโภค</option>
+          <option value="subscription">Subscription</option><option value="insurance">ประกัน</option><option value="provident_fund">กองทุนสำรอง</option>
+          <option value="social_security">ประกันสังคม</option><option value="other">อื่น ๆ</option>
+        </select></label>
+        <label><div style="font-size:12px;font-weight:700;color:var(--ink-2);margin-bottom:4px">ยอดประมาณ *</div><input id="recAmt" type="number" step="0.01" min="0.01" class="input" style="width:100%"></label>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+          <label><div style="font-size:12px;font-weight:700;color:var(--ink-2);margin-bottom:4px">ความถี่ *</div><select id="recFreq" class="input" style="width:100%">
+            <option value="monthly">ทุกเดือน</option><option value="quarterly">ทุก 3 เดือน</option><option value="yearly">ทุกปี</option><option value="one_time">ครั้งเดียว</option>
+          </select></label>
+          <label><div style="font-size:12px;font-weight:700;color:var(--ink-2);margin-bottom:4px">วันที่จ่าย</div><select id="recDay" class="input" style="width:100%">
+            ${Array.from({length:31},(_,i)=>`<option value="${i+1}">${i+1}</option>`).join("")}<option value="-1">สิ้นเดือน</option>
+          </select></label>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+          <label><div style="font-size:12px;font-weight:700;color:var(--ink-2);margin-bottom:4px">เริ่ม *</div><input id="recStart" type="date" class="input" style="width:100%" value="${today}"></label>
+          <label><div style="font-size:12px;font-weight:700;color:var(--ink-2);margin-bottom:4px">สิ้นสุด (ไม่ใส่=ต่อเนื่อง)</div><input id="recEnd" type="date" class="input" style="width:100%"></label>
+        </div>
+        <label><div style="font-size:12px;font-weight:700;color:var(--ink-2);margin-bottom:4px">หมายเหตุ</div><input id="recRemark" class="input" style="width:100%"></label>
+        <div id="recErr" style="color:var(--out-ink);font-size:12px;display:none"></div>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end">
+        <button onclick="document.getElementById('fopModal').remove()" class="btn ghost btn sm">ยกเลิก</button>
+        <button id="recBtn" class="btn" onclick="recSave()">บันทึก</button>
+      </div>
+    </div>`;
+  document.body.appendChild(m);
+  m.onclick = e=>{ if(e.target===m) m.remove(); };
+}
+async function recSave(){
+  const err = document.getElementById("recErr");
+  const btn = document.getElementById("recBtn");
+  const name = document.getElementById("recName").value.trim();
+  const amt = parseFloat(document.getElementById("recAmt").value);
+  const start = document.getElementById("recStart").value;
+  if(!name || !amt || amt<=0 || !start){ err.textContent="กรอกชื่อ + ยอด + วันเริ่ม"; err.style.display=""; return; }
+  btn.disabled=true; btn.textContent="กำลังบันทึก...";
+  try{
+    const cid = await fopCompanyId();
+    const { error } = await sb.from("recurring_expenses").insert({
+      company_id: cid, name,
+      category: document.getElementById("recCat").value,
+      expected_amount: amt,
+      frequency: document.getElementById("recFreq").value,
+      day_of_month: parseInt(document.getElementById("recDay").value, 10),
+      start_date: start,
+      end_date: document.getElementById("recEnd").value || null,
+      remark: document.getElementById("recRemark").value.trim() || null,
+      created_by: AUTH.user ? AUTH.user.id : null
+    });
+    if(error) throw error;
+    document.getElementById("fopModal").remove();
+    state.rec[state.company] = null;
+    renderToolRecurring();
+  }catch(e){
+    btn.disabled=false; btn.textContent="บันทึก";
+    err.textContent=fopErr(e); err.style.display="";
+  }
+}
+async function recToggle(id, newActive){
+  try{
+    const { error } = await sb.from("recurring_expenses").update({ is_active: newActive }).eq("id", id);
+    if(error) throw error;
+    state.rec[state.company] = null;
+    renderToolRecurring();
+  }catch(e){ alert(fopErr(e)); }
+}
+async function recMaterialise(){
+  try{
+    const cid = await fopCompanyId();
+    const { data, error } = await sb.rpc("fn_materialise_recurring", { p_company: cid, p_months: 6 });
+    if(error) throw error;
+    alert(`เรียบร้อย — เพิ่ม ${data||0} งวด`);
+    state.rec[state.company] = null;
+    renderToolRecurring();
+  }catch(e){ alert("ไม่สำเร็จ: " + fopErr(e)); }
 }
 
 function renderToolSoon(t){

@@ -4420,81 +4420,132 @@ async function edExportPDF(){
   </div>`;
   document.body.appendChild(ov);
 
-  // ปลด max-height + overflow ของทุก scrollable wrapper ชั่วคราว
-  // (ไม่งั้น html2canvas จะ capture แค่ส่วนที่ visible — แถวที่ scroll หายไม่ขึ้น PDF)
-  const scrollables = document.querySelectorAll("#edContent .table-wrap, #edContent [style*='max-height'], #edContent [style*='overflow:auto']");
+  // restore list สำหรับ undo ทุกการเปลี่ยน style ก่อนคืน
   const restoreList = [];
-  scrollables.forEach(el => {
-    restoreList.push({ el, maxHeight: el.style.maxHeight, overflow: el.style.overflow, overflowY: el.style.overflowY });
-    el.style.maxHeight = "none";
-    el.style.overflow = "visible";
-    el.style.overflowY = "visible";
+  const setStyle = (el, prop, val) => { restoreList.push({el, prop, val: el.style[prop]}); el.style[prop] = val; };
+
+  // 1) hide elements ที่ทำเครื่องหมาย data-pdf-hide
+  document.querySelectorAll("#edContent [data-pdf-hide='1']").forEach(el => setStyle(el, "display", "none"));
+  // 2) show elements ที่ทำเครื่องหมาย data-pdf-only
+  document.querySelectorAll("#edContent [data-pdf-only='1']").forEach(el => setStyle(el, "display", "block"));
+  // 3) ปลด max-height + overflow ของ scrollable wrapper
+  document.querySelectorAll("#edContent .table-wrap, #edContent [style*='max-height'], #edContent [style*='overflow:auto']").forEach(el => {
+    setStyle(el, "maxHeight", "none");
+    setStyle(el, "overflow", "visible");
+    setStyle(el, "overflowY", "visible");
   });
 
-  try{
-    await new Promise(r => setTimeout(r, 150));   // รอ layout settle หลังเปิด scroll
+  // 4) set fixed width ให้ #edContent — ทำให้ตารางขยายเต็ม PDF ไม่เว้นขวา
+  const content = document.getElementById("edContent");
+  if(!content){ alert("ไม่พบ content"); return; }
+  const captureWidth = 1400;
+  setStyle(content, "width", captureWidth + "px");
+  setStyle(content, "maxWidth", "none");
 
-    // capture #edContent as canvas
-    const content = document.getElementById("edContent");
-    if(!content) throw new Error("ไม่พบ content");
+  try{
+    await new Promise(r => setTimeout(r, 200));   // รอ layout settle
 
     const canvas = await window.html2canvas(content, {
       scale: 2,
       backgroundColor: "#ffffff",
       useCORS: true,
       logging: false,
-      width: content.scrollWidth,
+      width: captureWidth,
+      windowWidth: captureWidth,
       height: content.scrollHeight,
-      windowWidth: content.scrollWidth,
       windowHeight: content.scrollHeight
     });
 
-    // สร้าง PDF landscape A4 (297 × 210 mm)
+    // capture <thead> ของตารางหลักแยกเป็น image — สำหรับ repeat ทุกหน้า
+    let theadImg = null, theadHmm = 0;
+    const tableEl = content.querySelector("table");
+    if(tableEl){
+      const thead = tableEl.querySelector("thead");
+      if(thead){
+        const cloneTbl = document.createElement("table");
+        cloneTbl.style.cssText = "width:100%;border-collapse:collapse;font-family:'IBM Plex Sans Thai','IBM Plex Sans',sans-serif";
+        cloneTbl.appendChild(thead.cloneNode(true));
+        const wrap = document.createElement("div");
+        wrap.style.cssText = `position:absolute;left:-99999px;top:0;width:${captureWidth - 40}px;background:#fff;padding:0`;
+        wrap.appendChild(cloneTbl);
+        document.body.appendChild(wrap);
+        try{
+          const hCanvas = await window.html2canvas(wrap, {
+            scale: 2, backgroundColor:"#fff", useCORS:true, logging:false,
+            width: captureWidth - 40, windowWidth: captureWidth - 40
+          });
+          theadImg = hCanvas.toDataURL("image/png");
+        }catch(e){ console.warn("capture thead:", e); }
+        wrap.remove();
+      }
+    }
+
+    // PDF setup
     const { jsPDF } = window.jspdf;
     const pdf = new jsPDF({ orientation:"landscape", unit:"mm", format:"a4" });
     const pageW = 297, pageH = 210;
     const margin = 8;
-    const headerH = 22;          // พื้นที่หัวเอกสาร (mm)
-    const footerH = 6;           // เลขหน้า
-    const contentW = pageW - 2*margin;
-    const contentH = pageH - headerH - footerH - margin;
+    const headerH = 22;          // print header (logo + period)
+    const footerH = 6;
+    const imgW = pageW - 2*margin;
+    const yStart = headerH + margin/2;
+    const yEnd   = pageH - footerH - margin;
 
-    // โหลดโลโก้
+    if(theadImg){
+      const _hImg = new Image(); _hImg.src = theadImg;
+      await new Promise(r => { _hImg.onload = r; });
+      theadHmm = (_hImg.naturalHeight * imgW) / _hImg.naturalWidth;
+    }
+
     const logoData = await edLoadImg(co.logo);
 
-    // scale image: ใช้ width เต็ม contentW
-    const imgW = contentW;
-    const imgH = (canvas.height * imgW) / canvas.width;
+    // วน slice
+    let yPx = 0;
+    const totalPx = canvas.height;
+    const pdfPages = [];   // เก็บ snapshots สำหรับ render
+    while(yPx < totalPx){
+      const pageIdx = pdfPages.length;   // 0-based
+      // available content height ตามหน้า
+      let avail = yEnd - yStart;
+      const showThead = (pageIdx > 0 && theadImg);
+      if(showThead) avail -= (theadHmm + 1);
+      // slice px
+      const slicePxMax = (avail * canvas.width) / imgW;
+      const slicePx = Math.min(slicePxMax, totalPx - yPx);
+      pdfPages.push({ yPx, slicePx, showThead });
+      yPx += slicePx;
+    }
 
-    // จำนวนหน้าที่ต้องใช้
-    const pages = Math.ceil(imgH / contentH);
-    const fullImg = canvas.toDataURL("image/png");
-
-    for(let p=0; p<pages; p++){
-      if(p > 0) pdf.addPage();
+    // render ทุกหน้า
+    for(let i=0; i<pdfPages.length; i++){
+      if(i > 0) pdf.addPage();
+      const pg = pdfPages[i];
       drawPdfHeader(pdf, co, t, curTab, d, logoData, pageW, headerH, margin);
 
-      // crop slice ของ canvas สำหรับหน้าน this
-      const sliceTopPx = p * (contentH * canvas.width / imgW);
-      const sliceHeightPx = Math.min(contentH * canvas.width / imgW, canvas.height - sliceTopPx);
+      let yMM = yStart;
+      if(pg.showThead && theadImg){
+        pdf.addImage(theadImg, "PNG", margin, yMM, imgW, theadHmm);
+        yMM += theadHmm + 1;
+      }
 
+      // crop slice
       const sliceCanvas = document.createElement("canvas");
       sliceCanvas.width = canvas.width;
-      sliceCanvas.height = sliceHeightPx;
+      sliceCanvas.height = pg.slicePx;
       const ctx = sliceCanvas.getContext("2d");
       ctx.fillStyle = "#ffffff";
       ctx.fillRect(0, 0, sliceCanvas.width, sliceCanvas.height);
-      ctx.drawImage(canvas, 0, -sliceTopPx);
+      ctx.drawImage(canvas, 0, -pg.yPx);
 
-      const sliceImg = sliceCanvas.toDataURL("image/png");
-      const sliceImgH = (sliceHeightPx * imgW) / canvas.width;
-      pdf.addImage(sliceImg, "PNG", margin, headerH + margin/2, imgW, sliceImgH);
+      const sliceImgData = sliceCanvas.toDataURL("image/png");
+      const sliceHmm = (pg.slicePx * imgW) / canvas.width;
+      pdf.addImage(sliceImgData, "PNG", margin, yMM, imgW, sliceHmm);
 
-      // footer page number
+      // footer
       pdf.setFont("helvetica","normal");
       pdf.setFontSize(8);
       pdf.setTextColor(150,150,150);
-      pdf.text(`${p+1} / ${pages}`, pageW - margin, pageH - 3, { align:"right" });
+      pdf.text(`หน้า ${i+1} / ${pdfPages.length}`, pageW - margin, pageH - 3, { align:"right" });
     }
 
     const fname = `${co.name.replace(/\s+/g,"_")}_${curTab.id}_${stamp()}.pdf`;
@@ -4503,12 +4554,8 @@ async function edExportPDF(){
     console.error(err);
     alert("สร้าง PDF ไม่สำเร็จ: " + (err.message||err));
   }finally{
-    // restore scrollable styles
-    restoreList.forEach(s => {
-      s.el.style.maxHeight = s.maxHeight;
-      s.el.style.overflow = s.overflow;
-      s.el.style.overflowY = s.overflowY;
-    });
+    // restore ทุกค่า style ที่เปลี่ยน
+    restoreList.forEach(r => { r.el.style[r.prop] = r.val; });
     const o = document.getElementById("edPdfOv");
     if(o) o.remove();
   }
@@ -5120,11 +5167,14 @@ function edRenderStmt(){
 
   let html = `
     <div class="card">
-      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px" data-pdf-hide="1">
         <h3 style="margin:0">งบกระแสเงินสด — รายเดือน</h3>
         <select onchange="edStmtAcct(this.value)" style="padding:6px 10px;border:1px solid var(--line);border-radius:7px;font-size:13px">
           <option value="all" ${filterAcct==="all"?"selected":""}>รวมทุกบัญชี</option>${acctOpts}
         </select>
+      </div>
+      <div data-pdf-only="1" style="display:none;margin-bottom:10px">
+        <h3 style="margin:0;color:#1e40af">งบกระแสเงินสด — รายเดือน${filterAcct!=="all"?` · ${esc((d.data.accounts[filterAcct]&&d.data.accounts[filterAcct].bank)||'')} ${esc((d.data.accounts[filterAcct]&&d.data.accounts[filterAcct].no)||'')}`:" · รวมทุกบัญชี"}</h3>
       </div>
       <div class="table-wrap" style="max-height:600px"><table>
         <thead><tr><th>หมวด</th>${months.map(m=>`<th style="text-align:right">${esc(m)}</th>`).join("")}<th style="text-align:right;background:#dbeafe">รวม</th></tr></thead>

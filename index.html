@@ -3903,6 +3903,77 @@ function edSave(){
   }
 }
 
+/* ---- Cloud (Supabase) persistence ---- */
+async function edCompanyId(){
+  const code = state.company === "mbark" ? "MBARC" : "BENYA";
+  const { data, error } = await sb.from("companies").select("id").eq("code", code).limit(1);
+  if(error || !data || !data.length) return null;
+  return data[0].id;
+}
+
+async function edSaveCloud(){
+  const d = edState();
+  if(!d.data || !AUTH.user) return;
+  try{
+    const cid = await edCompanyId();
+    if(!cid) return;
+    const { error } = await sb.from("exec_cashflow").upsert({
+      company_id: cid,
+      data: d.data,
+      file_name: d.file,
+      updated_at: new Date().toISOString(),
+      updated_by: AUTH.user.id
+    }, { onConflict:"company_id" });
+    if(error){ console.warn("cloud save:", error); return; }
+    d.cloudSavedAt = new Date().toISOString();
+    edSave();   // sync local cache ด้วย
+  }catch(e){ console.warn("edSaveCloud:", e); }
+}
+
+async function edDeleteCloud(){
+  if(!AUTH.user) return;
+  try{
+    const cid = await edCompanyId();
+    if(!cid) return;
+    await sb.from("exec_cashflow").delete().eq("company_id", cid);
+  }catch(e){ console.warn("edDeleteCloud:", e); }
+}
+
+async function edSyncFromCloud(){
+  if(!AUTH.user) return;
+  const co = state.company;
+  try{
+    const cid = await edCompanyId();
+    if(!cid) return;
+    const { data:rows, error } = await sb.from("exec_cashflow")
+      .select("data, file_name, updated_at").eq("company_id", cid).limit(1);
+    if(error || !rows || !rows.length) return;
+    const remote = rows[0];
+    const local = edState();
+    const localTs  = local.savedAt ? new Date(local.savedAt).getTime() : 0;
+    const remoteTs = remote.updated_at ? new Date(remote.updated_at).getTime() : 0;
+    // remote ใหม่กว่า → load มา
+    if(remoteTs > localTs + 1000){
+      const dataObj = remote.data;
+      if(dataObj && dataObj.transactions){
+        dataObj.transactions.forEach(t => { if(typeof t.date === "string") t.date = new Date(t.date); });
+        (dataObj.months||[]).forEach(m => (m.accounts||[]).forEach(a => (a.items||[]).forEach(it => {
+          if(typeof it.date === "string") it.date = new Date(it.date);
+        })));
+      }
+      local.data = dataObj;
+      local.file = remote.file_name;
+      local.savedAt = remote.updated_at;
+      try{ localStorage.setItem("ft-ed-data-"+co, JSON.stringify({
+        file: local.file, data: local.data, tab: local.tab,
+        monthFilter: local.monthFilter, explorer: local.explorer, stmtAcct: local.stmtAcct,
+        savedAt: local.savedAt
+      })); }catch(e){}
+      if(state.tool === "execdash" && state.company === co) renderToolExecDash();
+    }
+  }catch(e){ console.warn("edSyncFromCloud:", e); }
+}
+
 const ED_COLORS = {
   brand:"#4F8AF7", brand2:"#A6C8FF", bg:"#EEF5FF",
   in:"#16a34a", out:"#dc2626", neutral:"#64748b",
@@ -4173,6 +4244,9 @@ function renderToolExecDash(){
   const co = COMPANIES.find(c=>c.id===state.company);
   const main = document.getElementById("main");
 
+  // sync จาก Supabase ใน background (ถ้ามีของใหม่จะ re-render เอง)
+  edSyncFromCloud();
+
   if(AUTH.role !== "admin"){
     main.innerHTML = `
       <div class="page-head"><h1>${t.name}</h1></div>
@@ -4263,7 +4337,8 @@ function edHandleFile(file){
         d.data = null;
         d.err = "ไม่พบชีตในรูปแบบ YYYY.MM (เช่น 2026.01)";
       } else {
-        edSave();   // เก็บลง localStorage — refresh แล้วยังอยู่
+        edSave();         // เก็บลง localStorage
+        edSaveCloud();    // เก็บขึ้น Supabase (shared ทุกอุปกรณ์)
       }
       renderToolExecDash();
     }catch(err){
@@ -4276,6 +4351,7 @@ function edHandleFile(file){
 function edReset(){
   const co = state.company;
   try{ localStorage.removeItem("ft-ed-data-" + co); }catch(e){}
+  edDeleteCloud();   // ลบจากเซิร์ฟเวอร์ด้วย
   state.ed[co] = null;
   edState();   // re-init
   renderToolExecDash();
@@ -5058,18 +5134,47 @@ function edRenderStmt(){
             <td style="text-align:right;background:#dbeafe">${edFmt(openings[0])}</td></tr>
   `;
   const actLabels = { operating:"กระแสเงินสดจากกิจกรรมดำเนินงาน", investing:"กระแสเงินสดจากกิจกรรมลงทุน", financing:"กระแสเงินสดจากกิจกรรมจัดหาเงิน", other:"อื่น ๆ" };
+  const actShort  = { operating:"กิจกรรมดำเนินงาน", investing:"กิจกรรมลงทุน", financing:"กิจกรรมจัดหาเงิน", other:"อื่น ๆ" };
+  const sumArr = a => a.reduce((s,v)=>s+v,0);
+  const ncols = months.length + 2;
+
   for(const act of ["operating","investing","financing","other"]){
     if(!groups[act].length) continue;
-    html += `<tr style="background:#eff6ff"><td colspan="${months.length+2}" style="font-weight:700;color:#1e40af;padding:8px 12px">${actLabels[act]}</td></tr>`;
-    const subtotalNet = Array(months.length).fill(0);
-    for(const c of groups[act].sort((a,b)=> (b.in.reduce((s,x)=>s+x,0)+b.out.reduce((s,x)=>s+x,0)) - (a.in.reduce((s,x)=>s+x,0)+a.out.reduce((s,x)=>s+x,0)))){
-      const nets = c.in.map((v,i)=> v - c.out[i]);
-      nets.forEach((v,i)=> subtotalNet[i]+=v);
-      const total = nets.reduce((s,v)=>s+v,0);
-      html += `<tr><td style="padding-left:20px">${esc(c.cat)}</td>${nets.map(v=>`<td style="text-align:right;color:${v>=0?ED_COLORS.in:ED_COLORS.out}">${v?edFmt(v):"—"}</td>`).join("")}<td style="text-align:right;background:#dbeafe;font-weight:700;color:${total>=0?ED_COLORS.in:ED_COLORS.out}">${edFmt(total)}</td></tr>`;
+    // หัวกิจกรรม
+    html += `<tr style="background:#eff6ff"><td colspan="${ncols}" style="font-weight:800;color:#1e40af;padding:9px 12px;font-size:13.5px">${actLabels[act]}</td></tr>`;
+
+    // ==== เงินสดรับ ====
+    const inCats = groups[act].filter(c => c.in.some(v => v > 0))
+      .sort((a,b) => sumArr(b.in) - sumArr(a.in));
+    const inSub = Array(months.length).fill(0);
+    if(inCats.length){
+      html += `<tr style="background:#dcfce7"><td colspan="${ncols}" style="font-weight:700;color:#166534;padding:6px 12px;font-size:12.5px">เงินสดรับจาก${actShort[act]}</td></tr>`;
+      for(const c of inCats){
+        c.in.forEach((v,i) => inSub[i] += v);
+        const total = sumArr(c.in);
+        html += `<tr><td style="padding-left:24px;color:#0f172a">${esc(c.cat)}</td>${c.in.map(v=>`<td style="text-align:right;color:${v>0?ED_COLORS.in:"var(--ink-3)"}">${v>0?edFmt(v):"—"}</td>`).join("")}<td style="text-align:right;background:#dbeafe;font-weight:700;color:${ED_COLORS.in}">${edFmt(total)}</td></tr>`;
+      }
+      html += `<tr style="background:#f0fdf4;font-weight:700"><td style="padding-left:18px;color:#166534">รวมเงินสดรับ</td>${inSub.map(v=>`<td style="text-align:right;color:${ED_COLORS.in}">${edFmt(v)}</td>`).join("")}<td style="text-align:right;background:#bbf7d0;color:${ED_COLORS.in}">${edFmt(sumArr(inSub))}</td></tr>`;
     }
-    const subTotal = subtotalNet.reduce((s,v)=>s+v,0);
-    html += `<tr style="background:#f0f9ff;font-weight:700"><td>รวม${actLabels[act].replace("กระแสเงินสดจาก","")}</td>${subtotalNet.map(v=>`<td style="text-align:right;color:${v>=0?ED_COLORS.in:ED_COLORS.out}">${edFmt(v)}</td>`).join("")}<td style="text-align:right;background:#bfdbfe;color:${subTotal>=0?ED_COLORS.in:ED_COLORS.out}">${edFmt(subTotal)}</td></tr>`;
+
+    // ==== เงินสดจ่าย ====
+    const outCats = groups[act].filter(c => c.out.some(v => v > 0))
+      .sort((a,b) => sumArr(b.out) - sumArr(a.out));
+    const outSub = Array(months.length).fill(0);
+    if(outCats.length){
+      html += `<tr style="background:#fee2e2"><td colspan="${ncols}" style="font-weight:700;color:#991b1b;padding:6px 12px;font-size:12.5px">เงินสดจ่ายจาก${actShort[act]}</td></tr>`;
+      for(const c of outCats){
+        c.out.forEach((v,i) => outSub[i] += v);
+        const total = sumArr(c.out);
+        html += `<tr><td style="padding-left:24px;color:#0f172a">${esc(c.cat)}</td>${c.out.map(v=>`<td style="text-align:right;color:${v>0?ED_COLORS.out:"var(--ink-3)"}">${v>0?"("+edFmt(v).replace("฿","฿")+")":"—"}</td>`).join("")}<td style="text-align:right;background:#dbeafe;font-weight:700;color:${ED_COLORS.out}">(${edFmt(total)})</td></tr>`;
+      }
+      html += `<tr style="background:#fef2f2;font-weight:700"><td style="padding-left:18px;color:#991b1b">รวมเงินสดจ่าย</td>${outSub.map(v=>`<td style="text-align:right;color:${ED_COLORS.out}">(${edFmt(v)})</td>`).join("")}<td style="text-align:right;background:#fecaca;color:${ED_COLORS.out}">(${edFmt(sumArr(outSub))})</td></tr>`;
+    }
+
+    // ==== สุทธิของกิจกรรม ====
+    const netByMonth = inSub.map((v,i) => v - outSub[i]);
+    const netTotal = sumArr(netByMonth);
+    html += `<tr style="background:#dbeafe;font-weight:800;border-top:2px solid #93c5fd"><td style="color:#1e40af">กระแสเงินสดสุทธิจาก${actShort[act]}</td>${netByMonth.map(v=>`<td style="text-align:right;color:${v>=0?ED_COLORS.in:ED_COLORS.out}">${edFmt(v)}</td>`).join("")}<td style="text-align:right;background:#a5b4fc;color:${netTotal>=0?ED_COLORS.in:ED_COLORS.out}">${edFmt(netTotal)}</td></tr>`;
   }
   // net change row
   const netChange = months.map((m,i)=> closings[i]-openings[i]);

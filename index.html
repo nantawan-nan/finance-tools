@@ -8,6 +8,9 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-treemap@2.3.0/dist/chartjs-chart-treemap.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700;800&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet">
 <style>
   :root{
     --brand:#1e3a8a; --brand-dark:#172554; --brand-soft:#eff6ff;
@@ -23,7 +26,8 @@
   body[data-co="benya"]{ --brand:#0d9488; --brand-dark:#115e59; --brand-soft:#ccfbf1;
     --gradient-1:#0d9488; --gradient-2:#14b8a6; }
   *{box-sizing:border-box}
-  body{margin:0;font-family:"Segoe UI","Inter","Sarabun",sans-serif;background:var(--bg);color:var(--ink);font-size:14.5px;line-height:1.6}
+  body{margin:0;font-family:"Sarabun","Plus Jakarta Sans","Segoe UI",sans-serif;background:var(--bg);color:var(--ink);font-size:14.5px;line-height:1.6;-webkit-font-smoothing:antialiased}
+  .page-head h1,.card h3{font-family:"Plus Jakarta Sans","Sarabun",sans-serif;letter-spacing:-.3px}
   button{font-family:inherit;cursor:pointer}
 
   /* ---- topbar ---- */
@@ -168,6 +172,45 @@
     .menu-toggle{display:inline-block!important}
   }
   .menu-toggle{display:none;border:1px solid var(--line);background:#fff;border-radius:7px;padding:5px 10px;font-size:18px;line-height:1;color:var(--ink-2)}
+
+  /* ---- Executive Dashboard styling ---- */
+  .ed-page{background:linear-gradient(180deg,#f5f9ff 0%,#eef5ff 100%);min-height:calc(100vh - 54px);margin:-24px -28px;padding:24px 28px}
+  .ed-card{background:rgba(255,255,255,.85);backdrop-filter:blur(8px);border:1px solid #d6e4ff;border-radius:14px;box-shadow:0 1px 3px rgba(30,58,138,.06),0 4px 16px rgba(30,58,138,.05);padding:18px 20px;margin-bottom:14px}
+  .ed-card h3{margin:0 0 10px;font-family:"Plus Jakarta Sans","Sarabun",sans-serif;font-size:14.5px;font-weight:700;color:#1e3a8a;letter-spacing:-.2px}
+  .ed-tabs{display:flex;gap:4px;background:rgba(99,179,237,.12);padding:4px;border-radius:11px;margin-bottom:16px;flex-wrap:wrap}
+  .ed-tabs button{flex:1;min-width:120px;border:none;background:transparent;padding:9px 14px;font-size:12.5px;font-weight:600;color:#475569;border-radius:8px;cursor:pointer;transition:.15s;font-family:inherit}
+  .ed-tabs button:hover{background:rgba(255,255,255,.5)}
+  .ed-tabs button.active{background:#fff;color:#1e40af;box-shadow:0 2px 8px rgba(79,138,247,.18);font-weight:700}
+
+  /* Print header (visible only when printing) */
+  #printHeader{display:none}
+  @media print{
+    body{background:#fff!important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    .sidebar,.topbar,#exportDD,.ed-tabs,.menu-toggle,.btn,button{display:none!important}
+    .main{padding:0!important;max-width:none!important;overflow:visible!important}
+    .ed-page{background:#fff!important;margin:0!important;padding:14mm!important;min-height:auto!important}
+    .wrap{display:block!important}
+    .ed-card,.card{box-shadow:none!important;border:1px solid #cbd5e1!important;backdrop-filter:none!important;background:#fff!important;page-break-inside:avoid;margin-bottom:10px!important}
+    #printHeader{display:block;border-bottom:3px solid #4F8AF7;padding:0 0 14px;margin-bottom:18px}
+    #printHeader .ph-row{display:flex;align-items:center;justify-content:space-between;gap:14px}
+    #printHeader .ph-co{display:flex;align-items:center;gap:14px}
+    #printHeader .ph-logo{width:62px;height:62px;object-fit:contain}
+    #printHeader .ph-co-name{font-family:"Plus Jakarta Sans","Sarabun",sans-serif;font-size:18px;font-weight:800;color:#0f172a;letter-spacing:-.4px}
+    #printHeader .ph-co-sub{font-size:11px;color:#64748b;margin-top:2px;text-transform:uppercase;letter-spacing:.7px;font-weight:600}
+    #printHeader .ph-meta{text-align:right;font-size:11.5px;color:#475569;line-height:1.7}
+    #printHeader .ph-title{font-size:13px;font-weight:700;color:#1e40af;letter-spacing:.3px;text-transform:uppercase}
+    #printHeader .ph-period{font-size:14.5px;font-weight:700;color:#0f172a;margin-top:1px}
+    #printHeader .ph-ts{color:#94a3b8;font-size:10.5px;margin-top:2px;font-style:italic}
+    .page-head,h1{break-after:avoid}
+    .table-wrap{max-height:none!important;overflow:visible!important;border:none!important}
+    table{font-size:10px!important}
+    th,td{padding:5px 7px!important}
+    th{background:#eff6ff!important;color:#1e40af!important;border-bottom:1.5px solid #4F8AF7!important}
+    .ed-print-only{display:block!important}
+    canvas{max-width:100%!important;height:auto!important}
+    @page{size:A4 landscape;margin:10mm}
+  }
+  .ed-print-only{display:none}
 </style>
 </head>
 <body><div style="padding:40px;text-align:center;color:#94a3b8">กำลังโหลด…</div>
@@ -315,8 +358,14 @@ function updateCrumb(){
 }
 
 const COMPANIES = [
-  { id:"mbark", name:"M Bark",  short:"MM", brand:"Mommam",                gradient:["#1e3a8a","#3b82f6"] },
-  { id:"benya", name:"Benya",   short:"BY", brand:"Benya Medical",         gradient:["#0d9488","#2dd4bf"] },
+  { id:"mbark", name:"M Bark",  short:"MM", brand:"Mommam",
+    fullName:"บริษัท เอ็ม บาร์ค จำกัด · M Bark Co., Ltd.",
+    logo:"logos/mbark.png",
+    gradient:["#1e3a8a","#3b82f6"] },
+  { id:"benya", name:"Benya",   short:"BY", brand:"Benya Medical Innovations",
+    fullName:"บริษัท เบญญา เมดิคอล อินโนเวชั่นส์ จำกัด · Benya Medical Innovations Co., Ltd.",
+    logo:"logos/benya.png",
+    gradient:["#0d9488","#2dd4bf"] },
 ];
 
 function applyCompanyTheme(id){
@@ -3792,7 +3841,18 @@ async function usrConfirmDelete(uid, email){
    EXECUTIVE CASH FLOW DASHBOARD — admin only
    อัปไฟล์ "รายละเอียดเงินรับ-เงินจ่าย" หลายบัญชี/หลายเดือน
    ============================================================ */
-state.ed = state.ed || { file:null, data:null, tab:"summary", err:null, monthFilter:"all", drill:null };
+state.ed = state.ed || {};   // per-company container
+function edState(){
+  const co = state.company;
+  if(!state.ed[co]){
+    state.ed[co] = {
+      file:null, data:null, tab:"summary", err:null, monthFilter:"all",
+      explorer:{ q:"", acct:"all", act:"all", dir:"all", sort:"date", desc:true },
+      stmtAcct:"all"
+    };
+  }
+  return state.ed[co];
+}
 
 const ED_COLORS = {
   brand:"#4F8AF7", brand2:"#A6C8FF", bg:"#EEF5FF",
@@ -4074,7 +4134,7 @@ function renderToolExecDash(){
     return;
   }
 
-  const d = state.ed;
+  const d = edState();
 
   // No data yet → upload screen
   if(!d.data){
@@ -4140,7 +4200,7 @@ function renderToolExecDash(){
 }
 
 function edHandleFile(file){
-  const d = state.ed;
+  const d = edState();
   d.file = file.name;
   d.err = null;
   const reader = new FileReader();
@@ -4163,23 +4223,56 @@ function edHandleFile(file){
   reader.readAsArrayBuffer(file);
 }
 function edReset(){
-  state.ed = { file:null, data:null, tab:"summary", err:null, monthFilter:"all", drill:null };
+  const co = state.company;
+  state.ed[co] = null;
+  edState();   // re-init
   renderToolExecDash();
 }
 function edForceShow(){
-  // ข้าม validation
-  if(!state.ed.data) return;
-  state.ed.data.errors = [];
+  const d = edState();
+  if(!d.data) return;
+  d.data.errors = [];
   renderToolExecDash();
 }
-function edSetTab(tab){ state.ed.tab = tab; edRenderDashboard(); }
-function edSetMonth(m){ state.ed.monthFilter = m; edRenderDashboard(); }
+function edSetTab(tab){ edState().tab = tab; edRenderDashboard(); }
+function edSetMonth(m){ edState().monthFilter = m; edRenderDashboard(); }
+
+/* ---------- Print / PDF helpers ---------- */
+const TH_MONTHS = ["มกราคม","กุมภาพันธ์","มีนาคม","เมษายน","พฤษภาคม","มิถุนายน","กรกฎาคม","สิงหาคม","กันยายน","ตุลาคม","พฤศจิกายน","ธันวาคม"];
+function edThaiMonth(key){
+  // key = "2026.05" → "พฤษภาคม 2569"
+  const [y,m] = key.split(".").map(Number);
+  return TH_MONTHS[m-1] + " " + (y+543);
+}
+function edPeriodLabel(data, monthFilter){
+  if(!data || !data.months.length) return "—";
+  if(monthFilter !== "all"){
+    return "ข้อมูลของเดือน " + edThaiMonth(monthFilter);
+  }
+  const first = data.months[0].key;
+  const last  = data.months[data.months.length-1].key;
+  if(first === last) return "ข้อมูลของเดือน " + edThaiMonth(first);
+  return "ข้อมูลของเดือน " + edThaiMonth(first).split(" ")[0] + "–" + edThaiMonth(last);
+}
+function edNowStr(){
+  const d = new Date();
+  const dd = String(d.getDate()).padStart(2,"0");
+  const mm = TH_MONTHS[d.getMonth()];
+  const yy = d.getFullYear() + 543;
+  const hh = String(d.getHours()).padStart(2,"0");
+  const mi = String(d.getMinutes()).padStart(2,"0");
+  return `${dd} ${mm} ${yy} เวลา ${hh}:${mi} น.`;
+}
+function edPrint(){
+  // resize charts before print so they fit page
+  setTimeout(()=>window.print(), 50);
+}
 
 /* ---------- Render dashboard with 6 tabs ---------- */
 function edRenderDashboard(){
   const t = TOOLS.find(x=>x.id==="execdash");
   const co = COMPANIES.find(c=>c.id===state.company);
-  const d = state.ed;
+  const d = edState();
   const data = d.data;
   const main = document.getElementById("main");
 
@@ -4198,24 +4291,49 @@ function edRenderDashboard(){
     { id:"stmt",     l:"งบกระแสเงินสด" },
   ];
 
+  const curTab = tabs.find(x=>x.id===d.tab) || tabs[0];
+
   main.innerHTML = `
-    <div class="page-head" style="display:flex;justify-content:space-between;align-items:flex-end;gap:14px;flex-wrap:wrap">
-      <div>
-        <h1>${t.name} <span class="badge">${esc(co.name)}</span></h1>
-        <div class="sub">${esc(data.company||"—")} · ${data.transactions.length.toLocaleString()} รายการ · ${Object.keys(data.accounts).length} บัญชี · ${data.months.length} เดือน · <span style="color:var(--ok)">กระทบยอดผ่านทุกบัญชี ✓</span></div>
+    <div class="ed-page">
+      <div id="printHeader">
+        <div class="ph-row">
+          <div class="ph-co">
+            <img class="ph-logo" src="${esc(co.logo)}" onerror="this.style.display='none'">
+            <div>
+              <div class="ph-co-name">${esc(co.fullName||co.name)}</div>
+              <div class="ph-co-sub">${esc(co.brand||'')}</div>
+            </div>
+          </div>
+          <div class="ph-meta">
+            <div class="ph-title">${esc(curTab.l)}</div>
+            <div class="ph-period">${esc(edPeriodLabel(data, d.monthFilter))}</div>
+            <div class="ph-ts">พิมพ์เมื่อ ${edNowStr()} · ${esc(AUTH.email||'')}</div>
+          </div>
+        </div>
       </div>
-      <div style="display:flex;gap:8px;align-items:center">
-        <label style="font-size:12px;color:var(--ink-3);font-weight:600">ช่วงเวลา</label>
-        <select onchange="edSetMonth(this.value)" style="padding:6px 10px;border:1px solid var(--line);border-radius:7px;font-size:13px;background:#fff">${monthOptions}</select>
-        <button class="btn ghost btn sm" onclick="edReset()">อัปไฟล์ใหม่</button>
+
+      <div class="page-head" style="display:flex;justify-content:space-between;align-items:flex-end;gap:14px;flex-wrap:wrap">
+        <div style="display:flex;align-items:center;gap:14px">
+          <img src="${esc(co.logo)}" onerror="this.style.display='none'" style="width:40px;height:40px;object-fit:contain;border-radius:8px">
+          <div>
+            <h1>${t.name} <span class="badge">${esc(co.name)}</span></h1>
+            <div class="sub">${esc(data.company||co.fullName||'—')} · ${data.transactions.length.toLocaleString()} รายการ · ${Object.keys(data.accounts).length} บัญชี · ${data.months.length} เดือน · <span style="color:var(--ok);font-weight:700">กระทบยอดผ่าน ✓</span></div>
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <label style="font-size:12px;color:var(--ink-3);font-weight:600">ช่วงเวลา</label>
+          <select onchange="edSetMonth(this.value)" style="padding:7px 12px;border:1px solid #c3dafe;border-radius:8px;font-size:13px;background:#fff;font-family:inherit;color:#0f172a">${monthOptions}</select>
+          <button class="btn" onclick="edPrint()" style="background:linear-gradient(135deg,#4F8AF7,#3b82f6);border:none">พิมพ์ PDF</button>
+          <button class="btn ghost btn sm" onclick="edReset()">อัปไฟล์ใหม่</button>
+        </div>
       </div>
-    </div>
 
-    <div class="tabs" style="background:#dbeafe">
-      ${tabs.map(tb => `<button class="${d.tab===tb.id?'active':''}" onclick="edSetTab('${tb.id}')">${tb.l}</button>`).join("")}
-    </div>
+      <div class="ed-tabs">
+        ${tabs.map(tb => `<button class="${d.tab===tb.id?'active':''}" onclick="edSetTab('${tb.id}')">${tb.l}</button>`).join("")}
+      </div>
 
-    <div id="edContent"></div>
+      <div id="edContent"></div>
+    </div>
   `;
 
   if(d.tab==="summary")  edRenderSummary();
@@ -4228,7 +4346,7 @@ function edRenderDashboard(){
 
 /* ---------- Tab 1: Executive Summary ---------- */
 function edRenderSummary(){
-  const d = state.ed;
+  const d = edState();
   const A = edAgg(d.data, d.monthFilter);
 
   const kpiCard = (label, value, color, sub) => `
@@ -4274,9 +4392,9 @@ function edRenderSummary(){
   `;
 
   // monthly line+bar
-  const months = state.ed.data.months.map(m=>m.key);
-  const inData  = months.map(m => (state.ed.data.transactions.filter(t=>t.month===m).reduce((s,t)=>s+t.in,0)));
-  const outData = months.map(m => (state.ed.data.transactions.filter(t=>t.month===m).reduce((s,t)=>s+t.out,0)));
+  const months = edState().data.months.map(m=>m.key);
+  const inData  = months.map(m => (edState().data.transactions.filter(t=>t.month===m).reduce((s,t)=>s+t.in,0)));
+  const outData = months.map(m => (edState().data.transactions.filter(t=>t.month===m).reduce((s,t)=>s+t.out,0)));
   const netData = inData.map((v,i)=>v-outData[i]);
 
   edMakeChart("edChartMonthly", {
@@ -4324,7 +4442,7 @@ function edTopList(byCat, dir){
 
 /* ---------- Tab 2: Activity ---------- */
 function edRenderActivity(){
-  const d = state.ed;
+  const d = edState();
   const data = d.data;
   const months = data.months.map(m=>m.key);
   // per month per activity (net)
@@ -4385,7 +4503,7 @@ function edRenderActivity(){
 
 /* ---------- Tab 3: Category ---------- */
 function edRenderCategory(){
-  const d = state.ed;
+  const d = edState();
   const A = edAgg(d.data, d.monthFilter);
   const cats = Object.entries(A.byCat).map(([k,v])=>({ k, ...v, abs:Math.abs(v.net) })).sort((a,b)=>b.abs-a.abs);
   const top20 = cats.slice(0,20);
@@ -4454,7 +4572,7 @@ function edRenderCategory(){
 
 /* ---------- Tab 4: Banks ---------- */
 function edRenderBanks(){
-  const d = state.ed;
+  const d = edState();
   const A = edAgg(d.data, d.monthFilter);
   const acctEntries = Object.entries(A.byAcct).sort((a,b)=>b[1].in - a[1].in);
 
@@ -4518,12 +4636,12 @@ function edRenderBanks(){
 }
 
 /* ---------- Tab 5: Transaction Explorer ---------- */
-state.ed.explorer = state.ed.explorer || { q:"", acct:"all", act:"all", dir:"all", sort:"date", desc:true };
-function edExpSet(k,v){ state.ed.explorer[k]=v; edRenderExplorer(); }
-function edExpSort(c){ const e=state.ed.explorer; if(e.sort===c) e.desc=!e.desc; else { e.sort=c; e.desc=true; } edRenderExplorer(); }
+// explorer state now in edState()
+function edExpSet(k,v){ edState().explorer[k]=v; edRenderExplorer(); }
+function edExpSort(c){ const e=edState().explorer; if(e.sort===c) e.desc=!e.desc; else { e.sort=c; e.desc=true; } edRenderExplorer(); }
 
 function edRenderExplorer(){
-  const d = state.ed;
+  const d = edState();
   const A = edAgg(d.data, d.monthFilter);
   const e = d.explorer;
 
@@ -4598,7 +4716,7 @@ function edRenderExplorer(){
   `;
 }
 function edExportTxs(fmt){
-  const d = state.ed;
+  const d = edState();
   const A = edAgg(d.data, d.monthFilter);
   const rows = [["วันที่","MNE","เลขที่","ธนาคาร","เลขบัญชี","ฝ่าย","หมวด","กิจกรรม","รับ","จ่าย","คงเหลือ","สถานะ","หมายเหตุ"]];
   for(const t of A.txs){
@@ -4617,11 +4735,11 @@ function edExportTxs(fmt){
 }
 
 /* ---------- Tab 6: Statement (งบกระแสเงินสด) ---------- */
-state.ed.stmtAcct = state.ed.stmtAcct || "all";
-function edStmtAcct(v){ state.ed.stmtAcct = v; edRenderStmt(); }
+// stmtAcct state now in edState()
+function edStmtAcct(v){ edState().stmtAcct = v; edRenderStmt(); }
 
 function edRenderStmt(){
-  const d = state.ed;
+  const d = edState();
   const months = d.data.months.map(m=>m.key);
   const filterAcct = d.stmtAcct;
 
@@ -4711,7 +4829,7 @@ function edRenderStmt(){
 
 /* ---------- Drill modals ---------- */
 function edDrillCat(cat, dir){
-  const d = state.ed;
+  const d = edState();
   const A = edAgg(d.data, d.monthFilter);
   let txs = A.txs.filter(t=>t.category===cat);
   if(dir==="in")  txs = txs.filter(t=>t.in>0);
@@ -4719,13 +4837,13 @@ function edDrillCat(cat, dir){
   edShowDrillModal("หมวด: "+cat, txs);
 }
 function edDrillActivity(actKey){
-  const d = state.ed;
+  const d = edState();
   const A = edAgg(d.data, d.monthFilter);
   const txs = A.txs.filter(t=>t.activityKey===actKey);
   edShowDrillModal("กิจกรรม: "+edActivityLabel(actKey), txs);
 }
 function edDrillAcct(key){
-  const d = state.ed;
+  const d = edState();
   const A = edAgg(d.data, d.monthFilter);
   const txs = A.txs.filter(t=>t.accountKey===key);
   edShowDrillModal("บัญชี: "+key, txs);

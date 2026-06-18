@@ -406,6 +406,10 @@ const TOOLS = [
     multiInput:true, status:"soon" },
 
   // ───── 8. ตั้งค่า ─────
+  { id:"users", stage:"ตั้งค่า", ic:"◉",
+    name:"จัดการผู้ใช้", desc:"เพิ่ม / แก้สิทธิ์ / ลบ",
+    long:"จัดการผู้ใช้ระบบ — เพิ่มอีเมล · ตั้งรหัสผ่าน · กำหนด role + สิทธิ์เข้าบริษัท",
+    multiInput:true, status:"live", adminOnly:true },
   { id:"audit", stage:"ตั้งค่า", ic:"≣",
     name:"Audit Trail", desc:"ประวัติการแก้ไข",
     long:"ใครแก้อะไร เมื่อไหร่ — เพื่อตรวจสอบย้อนหลัง",
@@ -465,6 +469,7 @@ function renderSidebar(){
   if(!sb) return;
   let navHtml="", lastStage="";
   TOOLS.forEach(t=>{
+    if(t.adminOnly && AUTH.role!=="admin") return;
     if(t.stage!==lastStage){ navHtml+=`<div class="stage-label">${t.stage}</div>`; lastStage=t.stage; }
     const soon = t.status==="soon" ? `<span class="badge-mini">เร็วๆนี้</span>` : "";
     navHtml+=`<div class="nav-item ${t.id===state.tool?'active':''}" onclick="setTool('${t.id}')">
@@ -496,6 +501,7 @@ function renderTool(){
   const t = TOOLS.find(x=>x.id===state.tool);
   updateCrumb();
   if (t.multiInput) {
+    if (t.id==="users")    return renderToolUsers();
     if (t.id==="ar")       return renderToolAr();
     if (t.id==="armap") return renderToolArmap();
     if (t.id==="bigseller") return renderToolBigSeller();
@@ -2921,6 +2927,7 @@ function renderToolHome(){
   const groups = {};
   TOOLS.forEach(t => {
     if(t.id==="home") return;
+    if(t.adminOnly && AUTH.role!=="admin") return;
     if(!groups[t.stage]) groups[t.stage] = [];
     groups[t.stage].push(t);
   });
@@ -3284,6 +3291,496 @@ async function arSaveReceipt(info){
     btn.disabled=false; btn.textContent="✅ บันทึก";
     errEl.textContent="บันทึกไม่สำเร็จ: "+(err.message||err);
     errEl.style.display="";
+  }
+}
+
+/* ============================================================
+   USER MANAGEMENT — admin only
+   ใช้ service_role key ที่ user paste ครั้งเดียวต่อ session
+   (เก็บใน sessionStorage — ไม่ขึ้น cloud, ปิด tab = หาย)
+   ============================================================ */
+state.users = state.users || { list:null, companies:null, access:null, srKey:null, busy:false };
+
+function usrSrKey(){
+  return state.users.srKey || sessionStorage.getItem("ft-sr-key") || "";
+}
+function usrSrSet(k){
+  state.users.srKey = k;
+  if(k) sessionStorage.setItem("ft-sr-key", k);
+  else  sessionStorage.removeItem("ft-sr-key");
+}
+function usrSb(){
+  // client ใหม่ที่ใช้ service_role (ข้าม RLS, เรียก admin APIs ได้)
+  const k = usrSrKey();
+  if(!k) return null;
+  return window.supabase.createClient(SUPABASE_URL, k, { auth:{ persistSession:false } });
+}
+
+const ROLES = [
+  { v:"admin",       l:"Admin",         d:"ทำได้ทุกอย่าง" },
+  { v:"finance_mgr", l:"Finance Mgr",   d:"จัดการการเงิน อนุมัติ" },
+  { v:"accountant",  l:"Accountant",    d:"คีย์ IV, รับเงิน, AR/AP" },
+  { v:"treasury",    l:"Treasury",      d:"ธนาคาร, กระทบยอด" },
+  { v:"approver",    l:"Approver",      d:"อนุมัติเอกสาร" },
+  { v:"operator",    l:"Operator",      d:"คีย์ข้อมูล" },
+  { v:"viewer",      l:"Viewer",        d:"ดูอย่างเดียว" },
+];
+
+async function usrLoadAll(){
+  const sb2 = usrSb();
+  if(!sb2) throw new Error("ต้องใส่ service_role key ก่อน");
+  // 1) auth users (admin API)
+  const url = SUPABASE_URL + "/auth/v1/admin/users?per_page=200";
+  const res = await fetch(url, {
+    headers: { apikey: usrSrKey(), Authorization: "Bearer " + usrSrKey() }
+  });
+  if(!res.ok){
+    const txt = await res.text();
+    throw new Error("โหลด users ไม่สำเร็จ: " + res.status + " " + txt.slice(0,200));
+  }
+  const j = await res.json();
+  state.users.list = j.users || [];
+
+  // 2) companies
+  const { data: cos, error: e1 } = await sb2.from("companies").select("id,code,name").order("name");
+  if(e1) throw e1;
+  state.users.companies = cos || [];
+
+  // 3) user_company_access
+  const { data: acc, error: e2 } = await sb2.from("user_company_access")
+    .select("id,user_id,company_id,role,is_active");
+  if(e2) throw e2;
+  state.users.access = acc || [];
+}
+
+function usrAccessByUser(uid){
+  return (state.users.access||[]).filter(a => a.user_id === uid && a.is_active !== false);
+}
+function usrCoName(id){
+  const c = (state.users.companies||[]).find(x => x.id === id);
+  return c ? c.name : "—";
+}
+
+async function renderToolUsers(){
+  const t = TOOLS.find(x=>x.id==="users");
+  const co = COMPANIES.find(c=>c.id===state.company);
+  const main = document.getElementById("main");
+
+  // gate: admin only
+  if(AUTH.role !== "admin"){
+    main.innerHTML = `
+      <div class="page-head"><h1>${t.name}</h1></div>
+      <div class="card" style="text-align:center;padding:48px 20px">
+        <div style="font-size:16px;font-weight:700;color:var(--bad);margin-bottom:6px">ไม่มีสิทธิ์เข้าถึง</div>
+        <div style="color:var(--ink-3);font-size:13px">หน้านี้สำหรับ admin เท่านั้น</div>
+      </div>`;
+    return;
+  }
+
+  // service_role key gate
+  if(!usrSrKey()){
+    main.innerHTML = `
+      <div class="page-head">
+        <h1>${t.name} <span class="badge">${esc(co.name)}</span></h1>
+        <div class="sub">${t.long}</div>
+      </div>
+      <div class="card" style="max-width:620px">
+        <h3>ใส่ Service Role Key ก่อนใช้งาน</h3>
+        <div class="note">
+          key นี้ใช้สำหรับเรียก Supabase Admin API (สร้าง/ลบ user) — เก็บใน <b>sessionStorage</b> ของ browser นี้เท่านั้น
+          ปิด tab แล้วหาย ไม่ขึ้น cloud ไม่บันทึกไฟล์
+        </div>
+        <div style="display:flex;flex-direction:column;gap:10px;margin-top:10px">
+          <div>
+            <label style="display:block;font-size:12px;font-weight:700;color:var(--ink-2);margin-bottom:4px">SUPABASE SERVICE_ROLE KEY</label>
+            <input id="usrSrInput" type="password" placeholder="eyJhbGc... (ขึ้นต้นด้วย eyJ)"
+              style="width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:8px;font-family:monospace;font-size:12px">
+          </div>
+          <div style="font-size:11.5px;color:var(--ink-3);background:var(--brand-soft);padding:10px 12px;border-radius:7px;line-height:1.7">
+            ดู key ที่:
+            <a href="https://supabase.com/dashboard/project/qbsuynmsjieqglxzbqpw/settings/api-keys" target="_blank" style="color:var(--brand);font-weight:600">Supabase Dashboard → Settings → API Keys</a>
+            <br>เลือก <b>service_role</b> (secret) — กดเปิดดูแล้วก๊อปทั้งสาย
+          </div>
+          <div style="display:flex;gap:8px">
+            <button class="btn" onclick="usrSaveKey()">บันทึก key + โหลด users</button>
+          </div>
+        </div>
+      </div>`;
+    return;
+  }
+
+  main.innerHTML = `
+    <div class="page-head">
+      <h1>${t.name} <span class="badge">${esc(co.name)}</span></h1>
+      <div class="sub">${t.long}</div>
+    </div>
+    <div class="card"><div class="empty">กำลังโหลดผู้ใช้...</div></div>`;
+
+  try{ await usrLoadAll(); }
+  catch(err){
+    main.innerHTML = `
+      <div class="page-head"><h1>${t.name}</h1></div>
+      <div class="card">
+        <div style="color:var(--bad);font-weight:600;margin-bottom:10px">โหลดไม่สำเร็จ: ${esc(err.message||err)}</div>
+        <div style="display:flex;gap:8px">
+          <button class="btn" onclick="renderToolUsers()">ลองอีกครั้ง</button>
+          <button class="btn ghost" onclick="usrClearKey()">ใส่ key ใหม่</button>
+        </div>
+      </div>`;
+    return;
+  }
+
+  const users = state.users.list || [];
+  const cos = state.users.companies || [];
+
+  main.innerHTML = `
+    <div class="page-head" style="display:flex;justify-content:space-between;align-items:flex-end;gap:12px;flex-wrap:wrap">
+      <div>
+        <h1>${t.name} <span class="badge">${esc(co.name)}</span></h1>
+        <div class="sub">${users.length} users · ${cos.length} companies</div>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button class="btn ghost btn sm" onclick="usrClearKey()">เปลี่ยน key</button>
+        <button class="btn" onclick="usrOpenAdd()">+ เพิ่มผู้ใช้</button>
+      </div>
+    </div>
+
+    <div class="card" style="padding:0;overflow:hidden">
+      <div class="table-wrap" style="max-height:none;border:none;margin-top:0;border-radius:0">
+        <table>
+          <thead><tr>
+            <th>อีเมล</th>
+            <th>ชื่อ</th>
+            <th>Default Role</th>
+            <th>สิทธิ์เข้าบริษัท</th>
+            <th>เข้าระบบล่าสุด</th>
+            <th style="text-align:right">จัดการ</th>
+          </tr></thead>
+          <tbody>
+            ${users.length===0 ? `<tr><td colspan="6" class="empty">ยังไม่มีผู้ใช้</td></tr>` :
+              users.map(u => {
+                const meta = u.app_metadata || {};
+                const role = meta.role || "—";
+                const acc = usrAccessByUser(u.id);
+                const last = u.last_sign_in_at ? new Date(u.last_sign_in_at).toLocaleString("th-TH",{dateStyle:"short",timeStyle:"short"}) : "—";
+                const name = (u.user_metadata && u.user_metadata.display_name) || (u.email||"").split("@")[0];
+                return `
+                <tr>
+                  <td style="font-family:monospace;font-size:12px">${esc(u.email||"—")}</td>
+                  <td>${esc(name)}</td>
+                  <td>${role==="—"?'<span style="color:var(--ink-3)">—</span>':`<span class="badge">${esc(role)}</span>`}</td>
+                  <td>${acc.length===0 ? '<span style="color:var(--ink-3);font-size:12px">ไม่มี</span>' :
+                    acc.map(a => `<span style="display:inline-block;background:var(--brand-soft);color:var(--brand-dark);padding:1px 7px;border-radius:999px;font-size:11px;margin-right:3px">${esc(usrCoName(a.company_id))}: ${esc(a.role)}</span>`).join("")}</td>
+                  <td style="font-size:12px;color:var(--ink-3)">${esc(last)}</td>
+                  <td style="text-align:right;white-space:nowrap">
+                    <button class="btn ghost btn sm" onclick="usrOpenEdit('${u.id}')">แก้ไข</button>
+                    <button class="btn ghost btn sm" style="color:var(--bad);border-color:#fca5a5" onclick="usrConfirmDelete('${u.id}', ${JSON.stringify(u.email||"").replace(/"/g,'&quot;')})">ลบ</button>
+                  </td>
+                </tr>`;
+              }).join("")
+            }
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+function usrSaveKey(){
+  const v = (document.getElementById("usrSrInput").value||"").trim();
+  if(!v.startsWith("eyJ")){
+    alert("service_role key ไม่ถูกต้อง (ต้องขึ้นต้นด้วย eyJ)");
+    return;
+  }
+  usrSrSet(v);
+  renderToolUsers();
+}
+function usrClearKey(){
+  usrSrSet("");
+  state.users = { list:null, companies:null, access:null, srKey:null };
+  renderToolUsers();
+}
+
+/* ---------- Add user modal ---------- */
+function usrOpenAdd(){
+  const cos = state.users.companies || [];
+  const wrap = document.createElement("div");
+  wrap.id = "usrModal";
+  wrap.style.cssText = "position:fixed;inset:0;background:rgba(15,23,42,.5);z-index:1000;display:flex;align-items:center;justify-content:center;padding:20px";
+  wrap.innerHTML = `
+    <div style="background:#fff;border-radius:14px;padding:28px;max-width:520px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.3);max-height:90vh;overflow-y:auto">
+      <h3 style="margin:0 0 16px;font-size:17px;font-weight:800">+ เพิ่มผู้ใช้ใหม่</h3>
+      <div style="display:grid;gap:12px">
+        <label>
+          <div style="font-size:12px;font-weight:700;color:var(--ink-2);margin-bottom:4px">อีเมล *</div>
+          <input id="uAddEmail" type="email" required placeholder="staff@company.com"
+            style="width:100%;padding:9px 12px;border:1px solid var(--line);border-radius:8px;font-size:14px;font-family:inherit">
+        </label>
+        <label>
+          <div style="font-size:12px;font-weight:700;color:var(--ink-2);margin-bottom:4px">รหัสผ่าน *</div>
+          <input id="uAddPwd" type="text" required placeholder="ตั้งรหัสผ่านชั่วคราว"
+            style="width:100%;padding:9px 12px;border:1px solid var(--line);border-radius:8px;font-size:14px;font-family:inherit">
+          <div style="font-size:11px;color:var(--ink-3);margin-top:3px">แจ้ง user แล้วให้เขาเปลี่ยนเอง · กดปุ่ม "สุ่ม" ก็ได้</div>
+          <button type="button" class="btn ghost btn sm" style="margin-top:5px" onclick="document.getElementById('uAddPwd').value=usrGenPwd()">สุ่มรหัส</button>
+        </label>
+        <label>
+          <div style="font-size:12px;font-weight:700;color:var(--ink-2);margin-bottom:4px">ชื่อแสดง</div>
+          <input id="uAddName" type="text" placeholder="ไม่บังคับ"
+            style="width:100%;padding:9px 12px;border:1px solid var(--line);border-radius:8px;font-size:14px;font-family:inherit">
+        </label>
+        <label>
+          <div style="font-size:12px;font-weight:700;color:var(--ink-2);margin-bottom:4px">Default Role (app metadata) *</div>
+          <select id="uAddRole" style="width:100%;padding:9px 12px;border:1px solid var(--line);border-radius:8px;font-size:14px;background:#fff">
+            ${ROLES.map(r => `<option value="${r.v}">${r.l} — ${r.d}</option>`).join("")}
+          </select>
+        </label>
+        <div>
+          <div style="font-size:12px;font-weight:700;color:var(--ink-2);margin-bottom:6px">สิทธิ์เข้าบริษัท</div>
+          <div style="display:flex;flex-direction:column;gap:8px;background:var(--bg);padding:10px;border-radius:8px">
+            ${cos.map(c => `
+              <div style="display:flex;align-items:center;gap:8px">
+                <label style="display:flex;align-items:center;gap:6px;flex:1;font-size:13px;font-weight:600;color:var(--ink)">
+                  <input type="checkbox" id="uAddCo-${c.id}" data-co="${c.id}" style="width:15px;height:15px;accent-color:var(--brand)">
+                  ${esc(c.name)} <code style="font-size:11px;color:var(--ink-3)">${esc(c.code)}</code>
+                </label>
+                <select id="uAddCoRole-${c.id}" style="padding:5px 9px;border:1px solid var(--line);border-radius:6px;font-size:12px;background:#fff">
+                  ${ROLES.map(r => `<option value="${r.v}">${r.l}</option>`).join("")}
+                </select>
+              </div>
+            `).join("")}
+          </div>
+        </div>
+        <div id="uAddErr" style="color:var(--bad);font-size:13px;display:none;background:#fef2f2;padding:8px 12px;border-radius:7px"></div>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:20px;justify-content:flex-end">
+        <button onclick="document.getElementById('usrModal').remove()"
+          style="padding:9px 16px;border:1px solid var(--line);background:#fff;border-radius:8px;font-weight:600;cursor:pointer;font-size:13px">ยกเลิก</button>
+        <button id="uAddBtn" class="btn" onclick="usrCreate()">สร้าง user</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(wrap);
+  wrap.onclick = (e)=>{ if(e.target===wrap) wrap.remove(); };
+}
+
+function usrGenPwd(){
+  const c = "ABCDEFGHJKMNPQRSTUVWXYZ23456789abcdefghjkmnpqrstuvwxyz!@#$";
+  let p = ""; for(let i=0;i<14;i++) p += c[Math.floor(Math.random()*c.length)];
+  return p;
+}
+
+async function usrCreate(){
+  const err = document.getElementById("uAddErr");
+  const btn = document.getElementById("uAddBtn");
+  const email = document.getElementById("uAddEmail").value.trim();
+  const pwd   = document.getElementById("uAddPwd").value;
+  const name  = document.getElementById("uAddName").value.trim();
+  const role  = document.getElementById("uAddRole").value;
+  if(!email || !pwd){
+    err.textContent = "กรุณาระบุอีเมล + รหัสผ่าน";
+    err.style.display = ""; return;
+  }
+  if(pwd.length < 8){
+    err.textContent = "รหัสผ่านต้องอย่างน้อย 8 ตัว"; err.style.display = ""; return;
+  }
+  err.style.display = "none";
+  btn.disabled = true; btn.textContent = "กำลังสร้าง...";
+
+  try{
+    // 1) Create auth user via admin API
+    const res = await fetch(SUPABASE_URL + "/auth/v1/admin/users", {
+      method: "POST",
+      headers: {
+        apikey: usrSrKey(),
+        Authorization: "Bearer " + usrSrKey(),
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        email,
+        password: pwd,
+        email_confirm: true,
+        app_metadata: { role },
+        user_metadata: name ? { display_name: name } : {}
+      })
+    });
+    if(!res.ok){
+      const t = await res.text();
+      throw new Error("สร้าง user ไม่สำเร็จ: " + res.status + " " + t.slice(0,300));
+    }
+    const j = await res.json();
+    const newUserId = j.id || (j.user && j.user.id);
+
+    // 2) Insert user_company_access for each ticked company
+    const sb2 = usrSb();
+    const cos = state.users.companies || [];
+    const accessRows = [];
+    for(const c of cos){
+      const cb = document.getElementById("uAddCo-" + c.id);
+      if(cb && cb.checked){
+        const r = document.getElementById("uAddCoRole-" + c.id).value || role;
+        accessRows.push({ user_id: newUserId, company_id: c.id, role: r, is_active: true });
+      }
+    }
+    if(accessRows.length){
+      const { error: e } = await sb2.from("user_company_access").insert(accessRows);
+      if(e) throw new Error("user สร้างแล้ว แต่ assign บริษัทไม่ได้: " + e.message);
+    }
+
+    document.getElementById("usrModal").remove();
+    alert("สร้าง user สำเร็จ\n\nEmail: " + email + "\nPassword: " + pwd + "\n\nก๊อปแจ้ง user แล้วให้เขา login เปลี่ยนรหัสเอง");
+    renderToolUsers();
+  }catch(e){
+    btn.disabled = false; btn.textContent = "สร้าง user";
+    err.textContent = e.message || String(e);
+    err.style.display = "";
+  }
+}
+
+/* ---------- Edit user modal ---------- */
+function usrOpenEdit(uid){
+  const u = (state.users.list||[]).find(x => x.id === uid);
+  if(!u){ alert("ไม่พบ user"); return; }
+  const cos = state.users.companies || [];
+  const meta = u.app_metadata || {};
+  const accByCo = {};
+  usrAccessByUser(uid).forEach(a => { accByCo[a.company_id] = a; });
+
+  const wrap = document.createElement("div");
+  wrap.id = "usrModal";
+  wrap.style.cssText = "position:fixed;inset:0;background:rgba(15,23,42,.5);z-index:1000;display:flex;align-items:center;justify-content:center;padding:20px";
+  wrap.innerHTML = `
+    <div style="background:#fff;border-radius:14px;padding:28px;max-width:520px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.3);max-height:90vh;overflow-y:auto">
+      <h3 style="margin:0 0 4px;font-size:17px;font-weight:800">แก้ไขผู้ใช้</h3>
+      <div style="color:var(--ink-3);font-size:12.5px;margin-bottom:18px;font-family:monospace">${esc(u.email)}</div>
+      <div style="display:grid;gap:12px">
+        <label>
+          <div style="font-size:12px;font-weight:700;color:var(--ink-2);margin-bottom:4px">Default Role</div>
+          <select id="uEdRole" style="width:100%;padding:9px 12px;border:1px solid var(--line);border-radius:8px;font-size:14px;background:#fff">
+            ${ROLES.map(r => `<option value="${r.v}" ${r.v===meta.role?'selected':''}>${r.l} — ${r.d}</option>`).join("")}
+          </select>
+        </label>
+        <div>
+          <div style="font-size:12px;font-weight:700;color:var(--ink-2);margin-bottom:6px">สิทธิ์เข้าบริษัท</div>
+          <div style="display:flex;flex-direction:column;gap:8px;background:var(--bg);padding:10px;border-radius:8px">
+            ${cos.map(c => {
+              const a = accByCo[c.id];
+              return `
+              <div style="display:flex;align-items:center;gap:8px">
+                <label style="display:flex;align-items:center;gap:6px;flex:1;font-size:13px;font-weight:600">
+                  <input type="checkbox" id="uEdCo-${c.id}" ${a?'checked':''} style="width:15px;height:15px;accent-color:var(--brand)">
+                  ${esc(c.name)} <code style="font-size:11px;color:var(--ink-3)">${esc(c.code)}</code>
+                </label>
+                <select id="uEdCoRole-${c.id}" style="padding:5px 9px;border:1px solid var(--line);border-radius:6px;font-size:12px;background:#fff">
+                  ${ROLES.map(r => `<option value="${r.v}" ${a&&a.role===r.v?'selected':''}>${r.l}</option>`).join("")}
+                </select>
+              </div>`;
+            }).join("")}
+          </div>
+        </div>
+        <div>
+          <div style="font-size:12px;font-weight:700;color:var(--ink-2);margin-bottom:4px">รีเซ็ตรหัสผ่าน (ไม่ใส่ = ไม่เปลี่ยน)</div>
+          <input id="uEdPwd" type="text" placeholder="ปล่อยว่างถ้าไม่ต้องการเปลี่ยน"
+            style="width:100%;padding:9px 12px;border:1px solid var(--line);border-radius:8px;font-size:14px;font-family:inherit">
+        </div>
+        <div id="uEdErr" style="color:var(--bad);font-size:13px;display:none;background:#fef2f2;padding:8px 12px;border-radius:7px"></div>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:20px;justify-content:flex-end">
+        <button onclick="document.getElementById('usrModal').remove()"
+          style="padding:9px 16px;border:1px solid var(--line);background:#fff;border-radius:8px;font-weight:600;cursor:pointer;font-size:13px">ยกเลิก</button>
+        <button id="uEdBtn" class="btn" onclick="usrUpdate('${uid}')">บันทึก</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(wrap);
+  wrap.onclick = (e)=>{ if(e.target===wrap) wrap.remove(); };
+}
+
+async function usrUpdate(uid){
+  const err = document.getElementById("uEdErr");
+  const btn = document.getElementById("uEdBtn");
+  const role = document.getElementById("uEdRole").value;
+  const pwd  = document.getElementById("uEdPwd").value;
+  err.style.display = "none";
+  btn.disabled = true; btn.textContent = "กำลังบันทึก...";
+
+  try{
+    // 1) update app_metadata.role + (optional) password
+    const body = { app_metadata: { role } };
+    if(pwd){
+      if(pwd.length < 8) throw new Error("รหัสผ่านต้องอย่างน้อย 8 ตัว");
+      body.password = pwd;
+    }
+    const res = await fetch(SUPABASE_URL + "/auth/v1/admin/users/" + uid, {
+      method: "PUT",
+      headers: {
+        apikey: usrSrKey(),
+        Authorization: "Bearer " + usrSrKey(),
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(body)
+    });
+    if(!res.ok){
+      const t = await res.text();
+      throw new Error("update ไม่สำเร็จ: " + res.status + " " + t.slice(0,300));
+    }
+
+    // 2) sync user_company_access
+    const sb2 = usrSb();
+    const cos = state.users.companies || [];
+    const accByCo = {};
+    usrAccessByUser(uid).forEach(a => { accByCo[a.company_id] = a; });
+
+    const toInsert = [], toDelete = [];
+    for(const c of cos){
+      const ck = document.getElementById("uEdCo-" + c.id).checked;
+      const r  = document.getElementById("uEdCoRole-" + c.id).value;
+      const ex = accByCo[c.id];
+      if(ck && !ex){
+        toInsert.push({ user_id: uid, company_id: c.id, role: r, is_active: true });
+      } else if(ck && ex && ex.role !== r){
+        const { error: eu } = await sb2.from("user_company_access").update({ role: r }).eq("id", ex.id);
+        if(eu) throw eu;
+      } else if(!ck && ex){
+        toDelete.push(ex.id);
+      }
+    }
+    if(toInsert.length){
+      const { error: ei } = await sb2.from("user_company_access").insert(toInsert);
+      if(ei) throw ei;
+    }
+    if(toDelete.length){
+      const { error: ed } = await sb2.from("user_company_access").delete().in("id", toDelete);
+      if(ed) throw ed;
+    }
+
+    document.getElementById("usrModal").remove();
+    renderToolUsers();
+  }catch(e){
+    btn.disabled = false; btn.textContent = "บันทึก";
+    err.textContent = e.message || String(e);
+    err.style.display = "";
+  }
+}
+
+/* ---------- Delete user ---------- */
+async function usrConfirmDelete(uid, email){
+  if(!confirm(`ลบ user "${email}" จริง?\n\nการลบนี้ลบจาก auth.users + ลบ user_company_access ทั้งหมดด้วย`)) return;
+  try{
+    const sb2 = usrSb();
+    // ลบ user_company_access ก่อน (กัน FK)
+    await sb2.from("user_company_access").delete().eq("user_id", uid);
+    // ลบ auth user
+    const res = await fetch(SUPABASE_URL + "/auth/v1/admin/users/" + uid, {
+      method: "DELETE",
+      headers: { apikey: usrSrKey(), Authorization: "Bearer " + usrSrKey() }
+    });
+    if(!res.ok){
+      const t = await res.text();
+      throw new Error("ลบไม่สำเร็จ: " + res.status + " " + t.slice(0,300));
+    }
+    renderToolUsers();
+  }catch(e){
+    alert("ลบไม่สำเร็จ: " + (e.message||e));
   }
 }
 

@@ -4238,6 +4238,32 @@ const ED_COLORS = {
   inv:"#5EBEC4",      // teal-aqua
   fin:"#C291D3"       // violet pastel
 };
+
+/* ปรับสี ED ตามบริษัท — เรียกก่อน render ทุกครั้ง */
+function edApplyTheme(){
+  const co = state.company;
+  if(co === "mbark"){
+    // MBark — โทนเข้มตาม MomMam (navy เข้ม + orange accent)
+    ED_COLORS.in     = "#1e3a8a";   // navy เข้ม — รับ
+    ED_COLORS.out    = "#ed7235";   // orange — จ่าย
+    ED_COLORS.brand  = "#3b82f6";   // royal blue (line/highlight)
+    ED_COLORS.brand2 = "#93b9dd";
+    ED_COLORS.bg     = "#eef2ff";
+    ED_COLORS.op     = "#1e3a8a";   // navy
+    ED_COLORS.inv    = "#3b82f6";   // royal
+    ED_COLORS.fin    = "#ed7235";   // orange
+  } else {
+    // Benya — pastel teal/pink (default เดิม)
+    ED_COLORS.in     = "#14B8A6";
+    ED_COLORS.out    = "#E18AAA";
+    ED_COLORS.brand  = "#4F8AF7";
+    ED_COLORS.brand2 = "#93B9DD";
+    ED_COLORS.bg     = "#EEF5FF";
+    ED_COLORS.op     = "#78A3D4";
+    ED_COLORS.inv    = "#5EBEC4";
+    ED_COLORS.fin    = "#C291D3";
+  }
+}
 const BANK_KEYS = ["BBL","SCB","KBANK","KTB","BAY","TTB","TMB","GSB","UOB","CIMB","KKP","TISCO","ICBC","LH","HSBC"];
 
 function edFmt(n){
@@ -4545,6 +4571,9 @@ function renderToolExecDash(){
   const t = TOOLS.find(x=>x.id==="execdash");
   const co = COMPANIES.find(c=>c.id===state.company);
   const main = document.getElementById("main");
+
+  // ปรับ ED_COLORS ตามบริษัท (Benya=teal/pink, MBark=navy/orange)
+  edApplyTheme();
 
   // sync จาก Supabase ใน background (ถ้ามีของใหม่จะ re-render เอง)
   edSyncFromCloud();

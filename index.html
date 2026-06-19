@@ -6037,17 +6037,96 @@ state.apo = state.apo || {};
 function apoGet(){
   if(!state.apo[state.company]) state.apo[state.company] = {
     invoices:null, vendors:null, busy:false,
-    filter:{ search:"", vendor:"all", category:"all", age:"all", status:"all", overdueOnly:false },
+    filter:{ search:"", vendor:"all", category:"all", age:"all", status:"all", planned:"all", overdueOnly:false,
+             colFilters:{} },   // colFilters: { columnKey: [allowed values] }
     sort:{ key:"due_date", desc:false }
   };
   return state.apo[state.company];
 }
 function apoSetFilter(k, v){ const d = apoGet(); d.filter[k] = v; renderToolApOutstanding(); }
+function apoSetColFilter(col, val){
+  const d = apoGet();
+  if(!d.filter.colFilters) d.filter.colFilters = {};
+  if(val === "" || val === "all") delete d.filter.colFilters[col];
+  else d.filter.colFilters[col] = val;
+  renderToolApOutstanding();
+}
 function apoSetSort(k){ const d = apoGet(); if(d.sort.key === k) d.sort.desc = !d.sort.desc; else { d.sort.key = k; d.sort.desc = false; } renderToolApOutstanding(); }
 function apoClearFilter(){
   const d = apoGet();
-  d.filter = { search:"", vendor:"all", category:"all", age:"all", status:"all", overdueOnly:false };
+  d.filter = { search:"", vendor:"all", category:"all", age:"all", status:"all", planned:"all", overdueOnly:false, colFilters:{} };
   renderToolApOutstanding();
+}
+
+/* set planned_payment_date inline */
+async function apoSetPlannedDate(id, val){
+  try{
+    const payload = { planned_payment_date: val || null };
+    payload.updated_by = AUTH.user ? AUTH.user.id : null;
+    const { error } = await sb.from("ap_invoices").update(payload).eq("id", id);
+    if(error) throw error;
+    const d = apoGet();
+    const row = (d.invoices||[]).find(r => r.id === id);
+    if(row) row.planned_payment_date = val || null;
+  }catch(e){ alert("ตั้งวันชำระไม่สำเร็จ: " + fopErr(e)); state.apo[state.company] = null; renderToolApOutstanding(); }
+}
+/* edit internal note modal */
+function apoOpenNote(id){
+  const d = apoGet();
+  const r = (d.invoices||[]).find(x => x.id === id);
+  if(!r){ alert("ไม่พบรายการ"); return; }
+  const m = document.createElement("div");
+  m.id = "fopModal";
+  m.style.cssText = "position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:1000;display:flex;align-items:center;justify-content:center;padding:20px";
+  m.innerHTML = `
+    <div style="background:#fff;border-radius:14px;padding:24px;max-width:520px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.3)">
+      <h3 style="margin:0 0 4px;font-size:16px;font-weight:800">✎ หมายเหตุเพิ่มเติม</h3>
+      <div style="color:var(--ink-3);font-size:12.5px;margin-bottom:14px">
+        <code style="font-size:11px">${esc(r.invoice_no)}</code> · ${esc((r.vendors&&r.vendors.name) || r.vendor_name_raw || "")}
+      </div>
+      ${r.remark ? `<div style="background:var(--bg);border:1px solid var(--line);padding:10px 12px;border-radius:8px;font-size:12px;color:var(--ink-3);margin-bottom:10px"><b style="color:var(--ink-2)">หมายเหตุจากระบบ:</b> ${esc(r.remark)}</div>` : ""}
+      <div style="font-size:12px;font-weight:700;color:var(--ink-2);margin-bottom:6px">หมายเหตุเพิ่มเติม (จนท. กรอกเอง · ไม่จำกัดอักษร)</div>
+      <textarea id="apoNoteInput" class="input" style="width:100%;min-height:120px;font-family:inherit" placeholder="กรอกหมายเหตุเพิ่ม...">${esc(r.internal_note||"")}</textarea>
+      <div id="apoNoteErr" style="color:var(--out-ink);font-size:12px;display:none;margin-top:8px"></div>
+      <div style="display:flex;gap:8px;margin-top:14px;justify-content:flex-end">
+        <button onclick="document.getElementById('fopModal').remove()" class="btn ghost btn sm">ยกเลิก</button>
+        <button id="apoNoteBtn" class="btn" onclick="apoSaveNote('${id}')">บันทึก</button>
+      </div>
+    </div>`;
+  document.body.appendChild(m);
+  m.onclick = e=>{ if(e.target===m) m.remove(); };
+}
+async function apoSaveNote(id){
+  const err = document.getElementById("apoNoteErr");
+  const btn = document.getElementById("apoNoteBtn");
+  const val = document.getElementById("apoNoteInput").value;
+  btn.disabled=true; btn.textContent="กำลังบันทึก...";
+  try{
+    const { error } = await sb.from("ap_invoices")
+      .update({ internal_note: val || null, updated_by: AUTH.user?AUTH.user.id:null })
+      .eq("id", id);
+    if(error) throw error;
+    const d = apoGet();
+    const row = (d.invoices||[]).find(r => r.id === id);
+    if(row) row.internal_note = val || null;
+    document.getElementById("fopModal").remove();
+    renderToolApOutstanding();
+  }catch(e){
+    btn.disabled=false; btn.textContent="บันทึก";
+    err.textContent=fopErr(e); err.style.display="";
+  }
+}
+/* soft delete AP invoice */
+async function apoSoftDelete(id, label){
+  if(!confirm(`ลบบิล ${label}?\n(soft delete — audit log เก็บไว้)`)) return;
+  try{
+    const { error } = await sb.from("ap_invoices")
+      .update({ deleted_at: new Date().toISOString(), deleted_by: AUTH.user?AUTH.user.id:null, status:"void" })
+      .eq("id", id);
+    if(error) throw error;
+    state.apo[state.company] = null;
+    renderToolApOutstanding();
+  }catch(e){ alert("ลบไม่สำเร็จ: " + fopErr(e)); }
 }
 async function apoLoad(){
   const d = apoGet();
@@ -6082,8 +6161,13 @@ async function renderToolApOutstanding(){
   const rawInv = d.invoices || [];
   const today = new Date().toISOString().slice(0,10);
 
-  // enrich with age bucket
-  const enriched = rawInv.map(r => ({ ...r, age_bucket: apoAgeBucket(r.due_date, r.status) }));
+  // enrich with age bucket + display fields
+  const enriched = rawInv.map(r => ({
+    ...r,
+    age_bucket: apoAgeBucket(r.due_date, r.status),
+    _vendor: (r.vendors&&r.vendors.name) || r.vendor_name_raw || "—",
+    _planned: r.planned_payment_date || ""
+  }));
 
   // apply filters
   const f = d.filter;
@@ -6096,11 +6180,19 @@ async function renderToolApOutstanding(){
       || (r.remark||"").toLowerCase().includes(q)
       || (r.category||"").toLowerCase().includes(q));
   }
-  if(f.vendor !== "all")   inv = inv.filter(r => ((r.vendors&&r.vendors.name) || r.vendor_name_raw) === f.vendor);
+  if(f.vendor !== "all")   inv = inv.filter(r => r._vendor === f.vendor);
   if(f.category !== "all") inv = inv.filter(r => r.category === f.category);
   if(f.age !== "all")      inv = inv.filter(r => r.age_bucket === f.age);
   if(f.status !== "all")   inv = inv.filter(r => r.status === f.status);
+  if(f.planned === "set")    inv = inv.filter(r => !!r.planned_payment_date);
+  if(f.planned === "unset")  inv = inv.filter(r => !r.planned_payment_date);
   if(f.overdueOnly)        inv = inv.filter(r => r.due_date < today && Number(r.amount_outstanding) > 0);
+  // per-column filters (advanced) — colFilters: { colKey: value }
+  const cf = f.colFilters || {};
+  if(cf.invoice_no) inv = inv.filter(r => (r.invoice_no||"").includes(cf.invoice_no));
+  if(cf.invoice_date) inv = inv.filter(r => r.invoice_date === cf.invoice_date);
+  if(cf.due_date)     inv = inv.filter(r => r.due_date === cf.due_date);
+  if(cf.planned_payment_date) inv = inv.filter(r => r.planned_payment_date === cf.planned_payment_date);
 
   // sort
   const s = d.sort;
@@ -6166,6 +6258,11 @@ async function renderToolApOutstanding(){
           <option value="all">ทุกอายุหนี้</option>
           ${ages.map(a => `<option value="${esc(a)}" ${f.age===a?'selected':''}>${esc(a)}</option>`).join("")}
         </select>
+        <select class="input" onchange="apoSetFilter('planned', this.value)" style="font-size:12px;min-width:140px">
+          <option value="all">วันชำระทั้งหมด</option>
+          <option value="set" ${f.planned==='set'?'selected':''}>กำหนดแล้ว</option>
+          <option value="unset" ${f.planned==='unset'?'selected':''}>ยังไม่กำหนด</option>
+        </select>
         <select class="input" onchange="apoSetFilter('status', this.value)" style="font-size:12px;min-width:100px">
           <option value="all">ทุกสถานะ</option>
           <option value="open" ${f.status==='open'?'selected':''}>open</option>
@@ -6173,46 +6270,68 @@ async function renderToolApOutstanding(){
           <option value="paid" ${f.status==='paid'?'selected':''}>paid</option>
         </select>
         <label class="opt" style="font-size:12px"><input type="checkbox" ${f.overdueOnly?'checked':''} onchange="apoSetFilter('overdueOnly', this.checked)">เฉพาะเกินกำหนด</label>
-        ${hasFilter ? `<button class="btn ghost btn sm" onclick="apoClearFilter()">ล้าง</button>` : ''}
+        ${hasFilter || Object.keys(f.colFilters||{}).length ? `<button class="btn ghost btn sm" onclick="apoClearFilter()">ล้าง</button>` : ''}
         <div style="margin-left:auto;font-size:11.5px;color:var(--ink-3)">${inv.length} จาก ${enriched.length} รายการ</div>
       </div>
 
       ${inv.length===0 ? `<div class="empty">${hasFilter?'ไม่เจอตามตัวกรอง':'ยังไม่มีข้อมูล — Upload CSV / XML หรือเพิ่มเอง'}</div>` : `
-      <div class="table-wrap" style="max-height:600px">
+      <div class="table-wrap" style="max-height:680px">
         <table>
-          <thead><tr>
-            <th onclick="apoSetSort('invoice_no')" style="cursor:pointer">เลขที่บิล${sortArrow('invoice_no')}</th>
-            <th onclick="apoSetSort('vendor_name')" style="cursor:pointer">ผู้ขาย${sortArrow('vendor_name')}</th>
-            <th onclick="apoSetSort('invoice_date')" style="cursor:pointer">วันที่บิล${sortArrow('invoice_date')}</th>
-            <th onclick="apoSetSort('due_date')" style="cursor:pointer">ครบกำหนด${sortArrow('due_date')}</th>
-            <th onclick="apoSetSort('amount_total')" style="cursor:pointer;text-align:right">รวม${sortArrow('amount_total')}</th>
-            <th onclick="apoSetSort('amount_paid')" style="cursor:pointer;text-align:right">จ่ายแล้ว${sortArrow('amount_paid')}</th>
-            <th onclick="apoSetSort('amount_outstanding')" style="cursor:pointer;text-align:right">คงค้าง${sortArrow('amount_outstanding')}</th>
-            <th onclick="apoSetSort('age_bucket')" style="cursor:pointer">อายุหนี้${sortArrow('age_bucket')}</th>
-            <th onclick="apoSetSort('category')" style="cursor:pointer">ประเภท${sortArrow('category')}</th>
-            <th onclick="apoSetSort('status')" style="cursor:pointer">สถานะ${sortArrow('status')}</th>
-            ${canWrite?'<th></th>':''}
-          </tr></thead>
+          <thead>
+            <tr>
+              <th onclick="apoSetSort('invoice_no')" style="cursor:pointer">เลขที่บิล${sortArrow('invoice_no')}</th>
+              <th onclick="apoSetSort('vendor_name')" style="cursor:pointer">ผู้ขาย${sortArrow('vendor_name')}</th>
+              <th>คำอธิบาย</th>
+              <th onclick="apoSetSort('invoice_date')" style="cursor:pointer">วันที่บิล${sortArrow('invoice_date')}</th>
+              <th onclick="apoSetSort('due_date')" style="cursor:pointer">ครบกำหนด${sortArrow('due_date')}</th>
+              <th onclick="apoSetSort('planned_payment_date')" style="cursor:pointer">วันชำระเงิน${sortArrow('planned_payment_date')}</th>
+              <th onclick="apoSetSort('amount_total')" style="cursor:pointer;text-align:right">รวม${sortArrow('amount_total')}</th>
+              <th onclick="apoSetSort('amount_outstanding')" style="cursor:pointer;text-align:right">คงค้าง${sortArrow('amount_outstanding')}</th>
+              <th onclick="apoSetSort('age_bucket')" style="cursor:pointer">อายุหนี้${sortArrow('age_bucket')}</th>
+              <th onclick="apoSetSort('category')" style="cursor:pointer">ประเภท${sortArrow('category')}</th>
+              <th onclick="apoSetSort('status')" style="cursor:pointer">สถานะ${sortArrow('status')}</th>
+              ${canWrite?'<th style="text-align:center">จัดการ</th>':''}
+            </tr>
+            <tr style="background:rgba(255,255,255,.45)">
+              <th><input type="text" class="input" placeholder="ค้นเลข..." value="${esc((f.colFilters||{}).invoice_no||'')}" oninput="apoSetColFilter('invoice_no', this.value)" style="font-size:11px;padding:3px 6px;min-width:80px;width:100%"></th>
+              <th></th><th></th>
+              <th><input type="date" class="input" value="${esc((f.colFilters||{}).invoice_date||'')}" onchange="apoSetColFilter('invoice_date', this.value)" style="font-size:11px;padding:3px 6px;min-width:120px;width:100%"></th>
+              <th><input type="date" class="input" value="${esc((f.colFilters||{}).due_date||'')}" onchange="apoSetColFilter('due_date', this.value)" style="font-size:11px;padding:3px 6px;min-width:120px;width:100%"></th>
+              <th><input type="date" class="input" value="${esc((f.colFilters||{}).planned_payment_date||'')}" onchange="apoSetColFilter('planned_payment_date', this.value)" style="font-size:11px;padding:3px 6px;min-width:120px;width:100%"></th>
+              <th></th><th></th><th></th><th></th><th></th>${canWrite?'<th></th>':''}
+            </tr>
+          </thead>
           <tbody>${inv.map(r=>{
             const isOverdue = r.due_date < today && r.status !== 'paid';
             const statusBadge = `<span class="matchchip ${r.status==='paid'?'ok':r.status==='partial'?'warn':'bad'}">${r.status}</span>`;
+            const desc = [r.remark, r.internal_note].filter(Boolean).join(" · ") || "—";
+            const hasNote = !!r.internal_note;
             return `<tr ${isOverdue?'class="warning-row"':''}>
               <td><code style="font-size:11px">${esc(r.invoice_no)}</code></td>
-              <td>${esc((r.vendors&&r.vendors.name) || r.vendor_name_raw || "—")}</td>
+              <td>${esc(r._vendor)}</td>
+              <td style="font-size:11px;color:var(--ink-2);max-width:280px;white-space:normal" title="${esc(desc)}">${esc(desc.length>80?desc.slice(0,80)+"…":desc)}${hasNote?' <span style="color:var(--in-ink);font-weight:700">✎</span>':''}</td>
               <td style="font-size:12px">${fopDate(r.invoice_date)}</td>
               <td style="font-size:12px">${fopDate(r.due_date)}</td>
+              <td>${canWrite ? `<input type="date" value="${esc(r.planned_payment_date||'')}" onchange="apoSetPlannedDate('${r.id}', this.value)" style="font-size:11.5px;padding:3px 6px;border:1px solid ${r.planned_payment_date?'var(--in)':'var(--line)'};border-radius:6px;background:${r.planned_payment_date?'var(--in-soft)':'#fff'};color:var(--ink);font-family:inherit;width:130px">` : (r.planned_payment_date ? fopDate(r.planned_payment_date) : '<span style="color:var(--ink-3)">—</span>')}</td>
               <td style="text-align:right">${fopFmt(r.amount_total)}</td>
-              <td style="text-align:right;color:var(--in-ink)">${Number(r.amount_paid)>0?fopFmt(r.amount_paid):"—"}</td>
               <td style="text-align:right;font-weight:700;color:var(--out-ink)">${fopFmt(r.amount_outstanding)}</td>
               <td style="font-size:11.5px;font-weight:600;color:${apoAgeColor(r.age_bucket)};white-space:nowrap">${esc(r.age_bucket)}</td>
               <td style="font-size:11.5px;color:var(--ink-2)">${esc(r.category||"—")}</td>
               <td>${statusBadge}</td>
-              ${canWrite?`<td><button class="btn ghost btn sm" onclick="apoOpenPay('${r.id}',${Number(r.amount_outstanding)})">จ่าย</button></td>`:''}
+              ${canWrite?`<td style="white-space:nowrap;text-align:center">
+                <button class="btn ghost btn sm" onclick="apoOpenPay('${r.id}',${Number(r.amount_outstanding)})" title="บันทึกการจ่าย">จ่าย</button>
+                <button class="btn ghost btn sm" onclick="apoOpenNote('${r.id}')" title="หมายเหตุเพิ่ม">✎</button>
+                <button class="btn ghost btn sm" style="color:var(--out-ink);border-color:var(--out)" onclick="apoSoftDelete('${r.id}','${esc(r.invoice_no)}')" title="ลบ">🗑</button>
+              </td>`:''}
             </tr>`;
           }).join("")}</tbody>
         </table>
       </div>`}
-      <div class="soon-note">CSV ต้องมี header: <b>vendor_name, invoice_no, invoice_date, due_date, amount_total</b> · XML จาก Express upload ได้ตรงๆ · คลิกหัวคอลัมน์เพื่อ sort</div>
+      <div class="soon-note">
+        <b>วันชำระเงิน</b> = วันที่ จนท. กำหนดจะจ่าย (กรอกในตารางได้เลย) — ใช้เป็น filter ใน Cash Flow Forecast<br>
+        <b>คำอธิบาย</b> = หมายเหตุจากระบบ + กดปุ่ม ✎ เพิ่มหมายเหตุเอง (ไม่จำกัดอักษร) · <b>🗑</b> = soft delete (audit log เก็บไว้)<br>
+        <b>Filter ทุกคอลัมน์</b>: dropdown ด้านบนสุด + ช่อง search ใต้หัวคอลัมน์ · คลิกหัวคอลัมน์เพื่อ sort
+      </div>
     </div>
   `;
   if(window.lucide && window.lucide.createIcons){ try{ window.lucide.createIcons(); }catch(e){} }

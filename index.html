@@ -8200,23 +8200,27 @@ async function cffLoad(){
   const endISO = cffEndDate(d).toISOString().slice(0,10);
   const todayISO = new Date().toISOString().slice(0,10);
 
-  const [balRes, apRes, recRes, recExpRes] = await Promise.all([
+  const [balRes, apRes, recRes, recExpRes, recSkipRes] = await Promise.all([
     sb.rpc("fn_balance_as_of", { p_company: cid, p_as_of: todayISO }),
     sb.from("ap_invoices").select("id,vendor_name_raw,vendors(name),invoice_no,due_date,planned_payment_date,internal_note,amount_outstanding,amount_total,amount_paid,status,category,remark")
       .eq("company_id", cid).is("deleted_at", null)
       .neq("status","paid").neq("status","void"),
-    sb.from("recurring_occurrences").select("id,due_date,expected_amount,status,recurring_expenses(name,category)")
+    sb.from("recurring_occurrences").select("id,recurring_id,due_date,expected_amount,status,recurring_expenses(name,category)")
       .eq("company_id", cid).is("deleted_at", null)
       .eq("status","forecast")
       .gte("due_date", startISO).lte("due_date", endISO),
     sb.from("recurring_expenses").select("id,name,category,expected_amount,frequency,day_of_month,is_active")
-      .eq("company_id", cid).is("deleted_at", null).eq("is_active", true)
+      .eq("company_id", cid).is("deleted_at", null).eq("is_active", true),
+    // งวดค่าใช้จ่ายประจำที่ จนท. กด "ลบ" ออกจากประมาณการ (status=skipped) → ใช้ซ่อน + คืนค่า
+    sb.from("recurring_occurrences").select("id,recurring_id,due_date,expected_amount,recurring_expenses(name,category)")
+      .eq("company_id", cid).is("deleted_at", null).eq("status","skipped")
   ]);
   d.data = {
     balances: balRes.data || [],
     aps: apRes.data || [],
     recOccs: recRes.data || [],
     recurring: recExpRes.data || [],
+    recSkips: recSkipRes.data || [],
     startISO, endISO, todayISO
   };
 }
@@ -8275,6 +8279,7 @@ function cffCompute(){
   // 3) Recurring expenses ที่ยังไม่ materialise (auto-forecast)
   //    ถ้า day_of_month กำหนด & ตกในช่วง → ใส่ใน bucket (ถ้ายังไม่ซ้ำกับ occ)
   const occKeys = new Set(dt.recOccs.map(r => r.recurring_expenses ? `${r.due_date}|` + (r.recurring_expenses.name||"") : ""));
+  const skipSet = new Set((dt.recSkips||[]).map(s => `${s.recurring_id}|${s.due_date}`));  // ★ งวดที่กดลบไว้
   for(const r of dt.recurring){
     if(r.frequency !== "monthly") continue;
     if(!r.day_of_month) continue;
@@ -8285,6 +8290,7 @@ function cffCompute(){
       const k = dd.toISOString().slice(0,10);
       if(k < dt.startISO || k > dt.endISO) continue;
       if(occKeys.has(`${k}|${r.name}`)) continue;     // ซ้ำกับ occ จริง
+      if(skipSet.has(`${r.id}|${k}`)) continue;        // ★ ถูกกดลบออกจากประมาณการ
       const amt = Number(r.expected_amount||0);
       buckets[k].out += amt;
       buckets[k].payments.push({
@@ -8382,15 +8388,19 @@ function cffStaffPayments(dt, d){
   const winStartISO = cffISO(winStart), winEndISO = cffISO(winEnd);
   // dedupe กับงวดที่ materialise แล้ว (recurring_occurrences) กันนับซ้ำ
   const occKeys = new Set((dt.recOccs||[]).map(r => `${r.due_date}|${(r.recurring_expenses&&r.recurring_expenses.name)||""}`));
+  // ★ งวดที่ จนท. กด "ลบ" (skipped) → ซ่อนออกจากประมาณการ (key = recurring_id|due_date)
+  const skipSet = new Set((dt.recSkips||[]).map(s => `${s.recurring_id}|${s.due_date}`));
   // 2a) งวดที่ materialise แล้ว และอยู่ในช่วง
   for(const r of (dt.recOccs||[])){
     if(Number(r.expected_amount||0) <= 0) continue;
     if(r.due_date < winStartISO || r.due_date > winEndISO) continue;
+    if(skipSet.has(`${r.recurring_id}|${r.due_date}`)) continue;
     payments.push({
       type:"recurring", category: cffRecurCat(r.recurring_expenses&&r.recurring_expenses.category),
       vendor: (r.recurring_expenses&&r.recurring_expenses.name) || "ค่าใช้จ่ายประจำ",
       detail:"", due_date: r.due_date, original_due: r.due_date,
-      amount: Number(r.expected_amount||0), remark:"", internalNote:"ค่าใช้จ่ายประจำ"
+      amount: Number(r.expected_amount||0), remark:"", internalNote:"ค่าใช้จ่ายประจำ",
+      recurringId: r.recurring_id
     });
   }
   // 2b) คำนวณจาก recurring_expenses (รายเดือน + day_of_month) ที่ยังไม่ materialise
@@ -8402,14 +8412,42 @@ function cffStaffPayments(dt, d){
       const k = cffISO(new Date(m.getFullYear(), m.getMonth(), dom));
       if(k < winStartISO || k > winEndISO) continue;
       if(occKeys.has(`${k}|${r.name}`)) continue;  // ซ้ำกับงวดจริง
+      if(skipSet.has(`${r.id}|${k}`)) continue;     // ★ ถูกกดลบไว้
       payments.push({
         type:"recurring", category: cffRecurCat(r.category),
         vendor: r.name, detail:"", due_date: k, original_due: k,
-        amount: Number(r.expected_amount||0), remark:"", internalNote:"ค่าใช้จ่ายประจำ"
+        amount: Number(r.expected_amount||0), remark:"", internalNote:"ค่าใช้จ่ายประจำ",
+        recurringId: r.id
       });
     }
   }
   return payments;
+}
+/* ลบรายการค่าใช้จ่ายประจำออกจากประมาณการ (เฉพาะวันนั้น) → upsert occurrence = skipped */
+async function cffSkipRecurring(recurringId, dueDate, amount){
+  if(!recurringId){ alert("ลบไม่ได้ — ไม่พบรหัสรายการ"); return; }
+  if(!confirm("ลบค่าใช้จ่ายประจำรายการนี้ออกจากประมาณการ? (เฉพาะวันที่นี้ · คืนค่าได้ภายหลัง)")) return;
+  try{
+    const cid = await fopCompanyId();
+    const { error } = await sb.from("recurring_occurrences").upsert({
+      company_id: cid, recurring_id: recurringId, due_date: dueDate,
+      expected_amount: Number(amount)||0, status: "skipped",
+      created_by: AUTH.user ? AUTH.user.id : null, updated_by: AUTH.user ? AUTH.user.id : null
+    }, { onConflict: "recurring_id,due_date" });
+    if(error) throw error;
+    renderToolCashflowForecast();   // โหลดใหม่ (คง filter เดิม)
+  }catch(e){ alert("ลบไม่สำเร็จ: " + fopErr(e)); }
+}
+/* คืนค่ารายการที่ลบไว้ → occurrence กลับเป็น forecast */
+async function cffUnskipRecurring(recurringId, dueDate){
+  try{
+    const cid = await fopCompanyId();
+    const { error } = await sb.from("recurring_occurrences")
+      .update({ status: "forecast", updated_by: AUTH.user ? AUTH.user.id : null })
+      .eq("company_id", cid).eq("recurring_id", recurringId).eq("due_date", dueDate);
+    if(error) throw error;
+    renderToolCashflowForecast();
+  }catch(e){ alert("คืนค่าไม่สำเร็จ: " + fopErr(e)); }
 }
 
 /* เรียงรายการในหมวดเดียวกัน: ผู้ขายเดียวกันอยู่ติดกัน → แล้วตามวันครบกำหนด → เลขอ้างอิง */
@@ -8512,6 +8550,7 @@ async function renderToolCashflowStaff(){
   const periodLabel = d.staffMode === "day" ? fmtDate(d.staffDate)
                     : d.staffMode === "range" ? `${d.staffFrom?fmtDate(d.staffFrom):'?'} → ${d.staffTo?fmtDate(d.staffTo):'?'}`
                     : (upcomingDates[0] ? `ทั้งหมด · ${fmtDate(upcomingDates[0])}–${fmtDate(upcomingDates[upcomingDates.length-1])}` : 'ทั้งหมด');
+  const canWrite = fopCanWrite();
 
   main.innerHTML = `
     <div class="page-head" style="display:flex;justify-content:space-between;align-items:flex-end;gap:14px;flex-wrap:wrap">
@@ -8607,13 +8646,27 @@ async function renderToolCashflowStaff(){
               ${info.items.map(p => {
                 // ★ คำอธิบายเต็ม = remark + internal_note (เหมือนหน้า AP)
                 const fullDesc = [p.remark, p.internalNote].filter(Boolean).join(" · ");
-                return `<tr class="sub-row"><td>${esc(p.vendor)}${p.detail?` / ${esc(p.detail)}`:''}${fullDesc?` — ${esc(fullDesc)}`:''}</td><td>${esc(fmtDate(p.original_due))}</td><td class="num">${p.amount.toLocaleString("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2})}</td></tr>`;
+                // ★ ค่าใช้จ่ายประจำ (ประมาณการเอง) → กดลบออกจากประมาณการได้
+                const delBtn = (canWrite && p.type==="recurring" && p.recurringId)
+                  ? `<button title="ลบออกจากประมาณการ (เฉพาะวันนี้)" onclick="cffSkipRecurring('${p.recurringId}','${p.due_date}',${p.amount})" style="margin-left:8px;border:none;background:transparent;color:var(--out-ink);cursor:pointer;font-size:12px;font-weight:800;padding:0 5px;border-radius:5px;line-height:1">✕</button>`
+                  : '';
+                return `<tr class="sub-row"><td>${esc(p.vendor)}${p.detail?` / ${esc(p.detail)}`:''}${fullDesc?` — ${esc(fullDesc)}`:''}${delBtn}</td><td>${esc(fmtDate(p.original_due))}</td><td class="num">${p.amount.toLocaleString("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2})}</td></tr>`;
               }).join("")}
             `).join("")}
             <tr class="tot-row"><td>รวมทั้งสิ้น</td><td></td><td class="num">${totalDue.toLocaleString("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2})}</td></tr>
           </tbody>
         </table>
       </div>`}
+      ${(canWrite && dt.recSkips && dt.recSkips.length) ? `
+      <div style="margin-top:12px;padding:10px 12px;background:var(--bg);border-radius:8px;font-size:11.5px">
+        <span style="font-weight:700;color:var(--ink-2)">🗑️ ค่าใช้จ่ายประจำที่ลบไว้ (${dt.recSkips.length}):</span>
+        <span style="display:inline-flex;flex-wrap:wrap;gap:6px;margin-left:6px">
+          ${dt.recSkips.map(s => `<span style="display:inline-flex;align-items:center;gap:4px;background:var(--glass);border:1px solid var(--glass-border);border-radius:6px;padding:3px 6px">
+            <span style="color:var(--ink-3)">${esc((s.recurring_expenses&&s.recurring_expenses.name)||'—')} · ${esc(fmtDate(s.due_date))}</span>
+            <button title="คืนค่า" onclick="cffUnskipRecurring('${s.recurring_id}','${s.due_date}')" style="border:none;background:transparent;color:var(--brand);cursor:pointer;font-weight:700;padding:0 2px">↩ คืนค่า</button>
+          </span>`).join("")}
+        </span>
+      </div>` : ''}
       <div class="btnrow">
         <button class="btn" onclick="cffOpenSnapshotStaff()"><i data-lucide="image"></i>Snapshot PNG / PDF</button>
       </div>

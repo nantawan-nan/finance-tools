@@ -191,6 +191,29 @@
   .multi-dd .multi-pop .multi-actions button{font-size:11px;font-weight:700;color:var(--brand);background:none;border:none;cursor:pointer;padding:2px 4px}
   .multi-dd .multi-pop .multi-actions button:hover{text-decoration:underline}
   .multi-dd .multi-count{background:var(--brand);color:#fff;font-size:10px;padding:1px 6px;border-radius:999px;font-weight:700;margin-left:4px}
+  /* Excel-style per-column filter dropdown */
+  .col-fdd{position:relative;display:inline-block}
+  .col-fdd summary{cursor:pointer;list-style:none;font-size:10px;color:var(--ink-3);padding:1px 5px;border-radius:4px;user-select:none;line-height:1}
+  .col-fdd summary::-webkit-details-marker{display:none}
+  .col-fdd summary:hover{background:rgba(99,102,241,.12);color:var(--brand)}
+  .col-fdd summary.active{background:var(--brand);color:#fff}
+  .col-fdd .col-fpop{position:absolute;top:calc(100% + 4px);left:0;z-index:200;background:#fff;border:1px solid var(--line);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.18);padding:8px;min-width:280px;max-width:360px}
+  .col-fdd .col-fpop.right{left:auto;right:0}
+  .col-fdd .col-fsearch{width:100%;padding:6px 10px;border:1px solid var(--line);border-radius:7px;font-size:12px;margin-bottom:6px;font-family:inherit;box-sizing:border-box}
+  .col-fdd .col-factions{display:flex;justify-content:space-between;align-items:center;padding:4px 8px;border-bottom:1px solid var(--line);margin-bottom:6px;font-size:11.5px;color:var(--ink-3)}
+  .col-fdd .col-factions label{display:flex;align-items:center;gap:6px;color:var(--ink);font-weight:600;cursor:pointer}
+  .col-fdd .col-factions label input{width:14px;height:14px;accent-color:var(--brand)}
+  .col-fdd .col-fopts{max-height:230px;overflow-y:auto}
+  .col-fdd .col-fopts label{display:flex;align-items:center;gap:8px;padding:5px 8px;cursor:pointer;font-size:12px;border-radius:5px}
+  .col-fdd .col-fopts label:hover{background:rgba(99,102,241,.08)}
+  .col-fdd .col-fopts label input{width:14px;height:14px;accent-color:var(--brand);flex-shrink:0}
+  .col-fdd .col-fopts label .vlabel{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .col-fdd .col-fopts label .vcount{margin-left:auto;color:var(--ink-3);font-size:11px;flex-shrink:0}
+  .col-fdd .col-ffooter{display:flex;justify-content:space-between;padding-top:8px;border-top:1px solid var(--line);margin-top:6px;gap:6px}
+  .col-fdd .col-ffooter button{font-size:11.5px;font-weight:700;background:transparent;border:1px solid var(--line);padding:5px 12px;border-radius:6px;cursor:pointer;color:var(--ink-2);font-family:inherit}
+  .col-fdd .col-ffooter button.primary{background:var(--brand);color:#fff;border-color:var(--brand)}
+  .col-fdd .col-ffooter button:hover{background:rgba(99,102,241,.08)}
+  .col-fdd .col-ffooter button.primary:hover{filter:brightness(1.05)}
   .toolgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px}
   @media(max-width:1100px){.charts{grid-template-columns:1fr!important}}
   .toolcard{background:var(--glass);backdrop-filter:blur(10px);border:1px solid var(--glass-border);border-radius:11px;box-shadow:var(--shadow);padding:12px 14px;cursor:pointer;transition:transform .15s ease,box-shadow .15s ease,border-color .15s;display:flex;align-items:center;gap:11px;position:relative;text-align:left;font-family:inherit}
@@ -6428,38 +6451,107 @@ state.apo = state.apo || {};
 function apoGet(){
   if(!state.apo[state.company]) state.apo[state.company] = {
     invoices:null, vendors:null, busy:false,
-    filter:{ search:"", vendors:[], categories:[], ages:[], statuses:[],
-             planned:"all", overdueOnly:false, colFilters:{} },
-    sort:{ key:"due_date", desc:false }
+    filter:{ search:"", colFilters:{}, planned:"all", overdueOnly:false },
+    sort:{ key:"due_date", desc:false },
+    openCol:null
   };
-  return state.apo[state.company];
+  const d = state.apo[state.company];
+  // backward-compat: เก่ามี vendors/categories/ages/statuses arrays → ย้ายเข้า colFilters
+  const f = d.filter;
+  if(!f.colFilters) f.colFilters = {};
+  const map = { vendors:"_vendor", categories:"category", ages:"age_bucket", statuses:"status" };
+  for(const old in map){
+    if(Array.isArray(f[old]) && f[old].length){ f.colFilters[map[old]] = f[old].slice(); }
+    delete f[old];
+  }
+  // ทำให้ colFilters[k] เป็น Array<string> เสมอ
+  for(const k in f.colFilters){
+    const v = f.colFilters[k];
+    if(!Array.isArray(v)) f.colFilters[k] = (v == null || v === "") ? [] : [String(v)];
+    if(f.colFilters[k].length === 0) delete f.colFilters[k];
+  }
+  return d;
 }
-function apoSetFilter(k, v){ const d = apoGet(); d.filter[k] = v; renderToolApOutstanding(); }
-function apoToggleMulti(field, val){
+/* search ใช้ debounce + partial re-render → ไม่กระพริบ ไม่เสีย focus */
+let _apoSearchTimer = null;
+function apoSetSearch(v){
+  apoGet().filter.search = v;
+  if(_apoSearchTimer) clearTimeout(_apoSearchTimer);
+  _apoSearchTimer = setTimeout(apoApplyChanges, 80);
+}
+function apoSetFilter(k, v){ apoGet().filter[k] = v; apoApplyChanges(); }
+function apoSetSort(k){
+  const s = apoGet().sort;
+  if(s.key === k) s.desc = !s.desc;
+  else { s.key = k; s.desc = false; }
+  apoApplyChanges();
+}
+function apoToggleColVal(col, val){
+  const f = apoGet().filter;
+  if(!Array.isArray(f.colFilters[col])) f.colFilters[col] = [];
+  const i = f.colFilters[col].indexOf(val);
+  if(i >= 0) f.colFilters[col].splice(i, 1);
+  else f.colFilters[col].push(val);
+  if(f.colFilters[col].length === 0) delete f.colFilters[col];
+  apoGet().openCol = col;
+  apoApplyChanges();
+}
+function apoSelectAllCol(col, allValues){
+  const f = apoGet().filter;
+  const curr = f.colFilters[col] || [];
+  if(curr.length === allValues.length) delete f.colFilters[col];
+  else f.colFilters[col] = allValues.slice();
+  apoGet().openCol = col;
+  apoApplyChanges();
+}
+function apoClearCol(col){
+  const f = apoGet().filter;
+  delete f.colFilters[col];
+  apoGet().openCol = col;
+  apoApplyChanges();
+}
+function apoOpenCol(col){ apoGet().openCol = col; }
+function apoCloseCol(){
+  apoGet().openCol = null;
+  document.querySelectorAll('details.col-fdd[open]').forEach(d => d.removeAttribute('open'));
+}
+/* sync state.openCol กับ <details open> ผ่าน ontoggle */
+function apoOnToggleCol(col, isOpen){
   const d = apoGet();
-  if(!Array.isArray(d.filter[field])) d.filter[field] = [];
-  const i = d.filter[field].indexOf(val);
-  if(i >= 0) d.filter[field].splice(i, 1);
-  else d.filter[field].push(val);
-  renderToolApOutstanding();
+  if(isOpen) d.openCol = col;
+  else if(d.openCol === col) d.openCol = null;
 }
-function apoClearMulti(field){
-  const d = apoGet();
-  d.filter[field] = [];
-  renderToolApOutstanding();
-}
-function apoSetColFilter(col, val){
-  const d = apoGet();
-  if(!d.filter.colFilters) d.filter.colFilters = {};
-  if(val === "" || val === "all") delete d.filter.colFilters[col];
-  else d.filter.colFilters[col] = val;
-  renderToolApOutstanding();
-}
-function apoSetSort(k){ const d = apoGet(); if(d.sort.key === k) d.sort.desc = !d.sort.desc; else { d.sort.key = k; d.sort.desc = false; } renderToolApOutstanding(); }
 function apoClearFilter(){
   const d = apoGet();
-  d.filter = { search:"", vendors:[], categories:[], ages:[], statuses:[], planned:"all", overdueOnly:false, colFilters:{} };
-  renderToolApOutstanding();
+  d.filter = { search:"", colFilters:{}, planned:"all", overdueOnly:false };
+  d.openCol = null;
+  // ล้าง search input ใน DOM ด้วย
+  const inp = document.getElementById('apoSearch');
+  if(inp) inp.value = "";
+  apoApplyChanges();
+}
+/* คุมการ show/hide ของ option list ใน col-filter (ไม่ต้อง re-render) */
+function apoFilterColOpts(col, q){
+  const list = document.querySelector('[data-col-opts="' + col + '"]');
+  if(!list) return;
+  q = (q||"").toLowerCase();
+  list.querySelectorAll('[data-opt-label]').forEach(it => {
+    it.style.display = it.getAttribute('data-opt-label').toLowerCase().includes(q) ? '' : 'none';
+  });
+}
+/* click-outside ปิด popup */
+function apoSetupClickOutside(){
+  if(window._apoClickOutsideInstalled) return;
+  window._apoClickOutsideInstalled = true;
+  document.addEventListener('click', e => {
+    document.querySelectorAll('details.col-fdd[open]').forEach(dd => {
+      if(!dd.contains(e.target)){
+        dd.removeAttribute('open');
+        const d = state.apo && state.apo[state.company];
+        if(d) d.openCol = null;
+      }
+    });
+  });
 }
 
 /* set due_date inline */
@@ -6573,11 +6665,258 @@ async function apoLoad(){
   d.vendors  = venRes.data || [];
 }
 
+/* enrich row with display fields */
+function apoEnrich(rawInv){
+  return rawInv.map(r => ({
+    ...r,
+    age_bucket: apoAgeBucket(r.due_date, r.status),
+    _vendor: (r.vendors&&r.vendors.name) || r.vendor_name_raw || "—",
+    _planned: r.planned_payment_date || ""
+  }));
+}
+
+/* มี filter อะไรเปิดอยู่ไหม */
+function apoHasAnyFilter(){
+  const f = apoGet().filter;
+  if(f.search) return true;
+  if(f.planned !== "all") return true;
+  if(f.overdueOnly) return true;
+  if(f.colFilters && Object.keys(f.colFilters).length) return true;
+  return false;
+}
+
+/* filter + sort */
+function apoFilterAndSort(enriched){
+  const d = apoGet();
+  const f = d.filter;
+  const today = new Date().toISOString().slice(0,10);
+  let inv = enriched;
+
+  // global search — ค้นทุกคอลัมน์
+  if(f.search){
+    const q = String(f.search).toLowerCase().trim();
+    if(q){
+      inv = inv.filter(r => {
+        const hay = [
+          r.invoice_no, r._vendor, r.vendor_name_raw, (r.vendors&&r.vendors.name),
+          r.remark, r.internal_note, r.category, r.status, r.age_bucket,
+          r.invoice_date, r.due_date, r.planned_payment_date,
+          String(r.amount_total||""), String(r.amount_outstanding||"")
+        ].filter(Boolean).join(" ").toLowerCase();
+        return hay.indexOf(q) >= 0;
+      });
+    }
+  }
+
+  // per-column multi-select (Excel-style)
+  const cf = f.colFilters || {};
+  for(const col in cf){
+    const vals = cf[col];
+    if(!Array.isArray(vals)) continue;
+    // even empty array means "filter applied → 0 rows"
+    const set = new Set(vals);
+    inv = inv.filter(r => {
+      let v = col === "vendor_name" ? r._vendor : r[col];
+      if(v == null) v = "";
+      return set.has(String(v));
+    });
+  }
+
+  if(f.planned === "set")   inv = inv.filter(r => !!r.planned_payment_date);
+  if(f.planned === "unset") inv = inv.filter(r => !r.planned_payment_date);
+  if(f.overdueOnly)         inv = inv.filter(r => r.due_date < today && Number(r.amount_outstanding) > 0);
+
+  // sort
+  const s = d.sort;
+  inv = inv.slice().sort((a,b) => {
+    let av = a[s.key], bv = b[s.key];
+    if(s.key === "vendor_name") { av = a._vendor; bv = b._vendor; }
+    if(typeof av === "number" || /amount/.test(s.key)){ av = Number(av||0); bv = Number(bv||0); }
+    if(av < bv) return s.desc ? 1 : -1;
+    if(av > bv) return s.desc ? -1 : 1;
+    return 0;
+  });
+  return inv;
+}
+
+/* apply changes — partial re-render (count + table + clear button) */
+function apoApplyChanges(){
+  const d = apoGet();
+  const enriched = apoEnrich(d.invoices || []);
+  const inv = apoFilterAndSort(enriched);
+  const today = new Date().toISOString().slice(0,10);
+  const canWrite = fopCanWrite();
+
+  const countEl = document.getElementById("apoCount");
+  if(countEl) countEl.textContent = inv.length + " จาก " + enriched.length + " รายการ";
+
+  const tEl = document.getElementById("apoTableContainer");
+  if(tEl) tEl.innerHTML = apoBuildTable(inv, enriched, canWrite, today);
+
+  const clearBtn = document.getElementById("apoClearBtn");
+  if(clearBtn) clearBtn.style.display = apoHasAnyFilter() ? "" : "none";
+
+  apoUpdateIndeterminate();
+}
+
+/* ตั้ง indeterminate state ของ checkbox "(เลือกทั้งหมด)" */
+function apoUpdateIndeterminate(){
+  const f = apoGet().filter;
+  document.querySelectorAll("[data-col-selectall]").forEach(cb => {
+    const col = cb.getAttribute("data-col-selectall");
+    const allVals = (window._apoDistincts && window._apoDistincts[col]) || [];
+    const curr = f.colFilters && f.colFilters[col];
+    if(!Array.isArray(curr)){
+      cb.checked = true; cb.indeterminate = false;
+    } else if(curr.length === 0){
+      cb.checked = false; cb.indeterminate = false;
+    } else if(curr.length === allVals.length){
+      cb.checked = true; cb.indeterminate = false;
+    } else {
+      cb.checked = false; cb.indeterminate = true;
+    }
+  });
+}
+
+/* col-filter dropdown HTML — Excel-style */
+function apoColFilter(colKey, distinctValues, counts, fmt){
+  const d = apoGet();
+  const f = d.filter;
+  const curr = f.colFilters && f.colFilters[colKey];
+  const allCnt = distinctValues.length;
+  const selCnt = Array.isArray(curr) ? curr.length : allCnt;
+  const active = Array.isArray(curr);
+  const isOpen = d.openCol === colKey;
+  const formatter = fmt || (v => v == null || v === "" ? "(ว่าง)" : String(v));
+  return `<details class="col-fdd" ${isOpen?'open':''} ontoggle="apoOnToggleCol('${colKey}', this.open)">
+    <summary class="${active?'active':''}" title="กรองคอลัมน์นี้" onclick="event.stopPropagation()">▼</summary>
+    <div class="col-fpop" onclick="event.stopPropagation()">
+      <input type="text" class="col-fsearch" placeholder="ค้นหาใน dropdown..." oninput="apoFilterColOpts('${colKey}', this.value)" onclick="event.stopPropagation()">
+      <div class="col-factions">
+        <label><input type="checkbox" data-col-selectall="${colKey}" onclick="event.stopPropagation();apoSelectAllCol('${colKey}')"> (เลือกทั้งหมด)</label>
+        <span>${active ? selCnt + ' / ' + allCnt : allCnt}</span>
+      </div>
+      <div data-col-opts="${colKey}" class="col-fopts">
+        ${distinctValues.map(v => {
+          const checked = !active || curr.indexOf(v) >= 0;
+          const lbl = formatter(v);
+          const cnt = counts[v] || 0;
+          const valEsc = JSON.stringify(v).replace(/"/g,'&quot;');
+          return `<label data-opt-label="${esc(lbl)}"><input type="checkbox" ${checked?'checked':''} onchange="apoToggleColVal('${colKey}', ${valEsc})"><span class="vlabel">${esc(lbl)}</span><span class="vcount">${cnt}</span></label>`;
+        }).join("")}
+      </div>
+      <div class="col-ffooter">
+        <button onclick="apoClearCol('${colKey}')">ล้างตัวกรอง</button>
+        <button class="primary" onclick="apoCloseCol()">✓ ตกลง</button>
+      </div>
+    </div>
+  </details>`;
+}
+
+/* build table — header + tbody */
+function apoBuildTable(inv, enriched, canWrite, today){
+  const d = apoGet();
+  const s = d.sort;
+  const sortArrow = (k) => s.key === k ? (s.desc ? " ↓" : " ↑") : "";
+
+  // distinct + counts per filterable column
+  const distinctsOf = (key, mapper) => {
+    const counts = {};
+    for(const r of enriched){
+      let v = mapper ? mapper(r) : r[key];
+      if(v == null) v = "";
+      v = String(v);
+      counts[v] = (counts[v]||0) + 1;
+    }
+    return { values: Object.keys(counts).sort(), counts };
+  };
+  const dInvoice = distinctsOf("invoice_no");
+  const dVendor  = distinctsOf("vendor_name", r => r._vendor);
+  const dInvDate = distinctsOf("invoice_date");
+  const dDueDate = distinctsOf("due_date");
+  const dPlanned = distinctsOf("planned_payment_date");
+  const dAge     = distinctsOf("age_bucket");
+  const dCat     = distinctsOf("category");
+  const dStatus  = distinctsOf("status");
+
+  // expose to global (toggle handlers)
+  window._apoDistincts = {
+    invoice_no: dInvoice.values, vendor_name: dVendor.values,
+    invoice_date: dInvDate.values, due_date: dDueDate.values,
+    planned_payment_date: dPlanned.values,
+    age_bucket: dAge.values, category: dCat.values, status: dStatus.values
+  };
+
+  if(inv.length === 0){
+    return `<div class="empty">${apoHasAnyFilter() ? "ไม่เจอตามตัวกรอง" : "ยังไม่มีข้อมูล — Upload CSV / XML หรือเพิ่มเอง"}</div>`;
+  }
+
+  const fmtDate = v => v ? fopDate(v) : "(ยังไม่กำหนด)";
+  const th = (key, label, opts) => {
+    opts = opts || {};
+    const sortable = opts.sortable !== false;
+    const align = opts.align || "";
+    return `<th style="${align?'text-align:'+align+';':''}vertical-align:middle">
+      <div style="display:flex;align-items:center;gap:6px;${align==='right'?'justify-content:flex-end;':''}">
+        ${sortable ? `<span onclick="apoSetSort('${key}')" style="cursor:pointer;user-select:none">${esc(label)}${sortArrow(key)}</span>` : `<span>${esc(label)}</span>`}
+        ${opts.filter ? opts.filter : ""}
+      </div>
+    </th>`;
+  };
+
+  return `<table>
+    <thead>
+      <tr>
+        ${th("invoice_no", "เลขที่บิล", { filter: apoColFilter("invoice_no", dInvoice.values, dInvoice.counts) })}
+        ${th("vendor_name", "ผู้ขาย", { filter: apoColFilter("vendor_name", dVendor.values, dVendor.counts) })}
+        ${th("desc", "คำอธิบาย", { sortable: false })}
+        ${th("invoice_date", "วันที่บิล", { filter: apoColFilter("invoice_date", dInvDate.values, dInvDate.counts, fmtDate) })}
+        ${th("due_date", "ครบกำหนด", { filter: apoColFilter("due_date", dDueDate.values, dDueDate.counts, fmtDate) })}
+        ${th("planned_payment_date", "วันชำระเงิน", { filter: apoColFilter("planned_payment_date", dPlanned.values, dPlanned.counts, fmtDate) })}
+        ${th("amount_total", "รวม", { align: "right" })}
+        ${th("amount_outstanding", "คงค้าง", { align: "right" })}
+        ${th("age_bucket", "อายุหนี้", { filter: apoColFilter("age_bucket", dAge.values, dAge.counts) })}
+        ${th("category", "ประเภท", { filter: apoColFilter("category", dCat.values, dCat.counts) })}
+        ${th("status", "สถานะ", { filter: apoColFilter("status", dStatus.values, dStatus.counts) })}
+        ${canWrite ? '<th style="text-align:center">จัดการ</th>' : ""}
+      </tr>
+    </thead>
+    <tbody>${inv.map(r=>{
+      const isOverdue = r.due_date < today && r.status !== "paid";
+      const statusBadge = `<span class="matchchip ${r.status==='paid'?'ok':r.status==='partial'?'warn':'bad'}">${r.status}</span>`;
+      const desc = [r.remark, r.internal_note].filter(Boolean).join(" · ") || "—";
+      const hasNote = !!r.internal_note;
+      return `<tr ${isOverdue?'class="warning-row"':''}>
+        <td><code style="font-size:11px">${esc(r.invoice_no)}</code></td>
+        <td>${esc(r._vendor)}</td>
+        <td style="font-size:11px;color:var(--ink-2);max-width:280px;white-space:normal" title="${esc(desc)}">${esc(desc.length>80?desc.slice(0,80)+"…":desc)}${hasNote?' <span style="color:var(--in-ink);font-weight:700">✎</span>':''}</td>
+        <td style="font-size:12px">${fopDate(r.invoice_date)}</td>
+        <td>${canWrite ? `<input type="date" value="${esc(r.due_date||'')}" onchange="apoSetDueDate('${r.id}', this.value)" style="font-size:11.5px;padding:3px 6px;border:1px solid var(--line);border-radius:6px;background:#fff;color:var(--ink);font-family:inherit;width:130px">` : `<span style="font-size:12px">${fopDate(r.due_date)}</span>`}</td>
+        <td>${canWrite ? `<input type="date" value="${esc(r.planned_payment_date||'')}" onchange="apoSetPlannedDate('${r.id}', this.value)" style="font-size:11.5px;padding:3px 6px;border:1px solid ${r.planned_payment_date?'var(--in)':'var(--line)'};border-radius:6px;background:${r.planned_payment_date?'var(--in-soft)':'#fff'};color:var(--ink);font-family:inherit;width:130px">` : (r.planned_payment_date ? fopDate(r.planned_payment_date) : '<span style="color:var(--ink-3)">—</span>')}</td>
+        <td style="text-align:right">${fopFmt(r.amount_total)}</td>
+        <td style="text-align:right;font-weight:700;color:var(--out-ink)">${fopFmt(r.amount_outstanding)}</td>
+        <td style="font-size:11.5px;font-weight:600;color:${apoAgeColor(r.age_bucket)};white-space:nowrap">${esc(r.age_bucket)}</td>
+        <td>${canWrite ? `<select onchange="apoSetCategory('${r.id}', this.value)" style="font-size:11px;padding:3px 6px;border:1px solid var(--line);border-radius:6px;background:#fff;font-family:inherit;min-width:140px">
+          ${APO_CATEGORIES.map(c => `<option value="${esc(c)}" ${r.category===c?'selected':''}>${esc(c)}</option>`).join("")}
+        </select>` : `<span style="font-size:11.5px;color:var(--ink-2)">${esc(r.category||"—")}</span>`}</td>
+        <td>${statusBadge}</td>
+        ${canWrite?`<td style="white-space:nowrap;text-align:center">
+          <button class="btn ghost btn sm" onclick="apoOpenPay('${r.id}',${Number(r.amount_outstanding)})" title="บันทึกการจ่าย">จ่าย</button>
+          <button class="btn ghost btn sm" onclick="apoOpenNote('${r.id}')" title="หมายเหตุเพิ่ม">✎</button>
+          <button class="btn ghost btn sm" style="color:var(--out-ink);border-color:var(--out)" onclick="apoSoftDelete('${r.id}','${esc(r.invoice_no)}')" title="ลบ">🗑</button>
+        </td>`:''}
+      </tr>`;
+    }).join("")}</tbody>
+  </table>`;
+}
+
 async function renderToolApOutstanding(){
   const t = TOOLS.find(x=>x.id==="ap_outstanding");
   const co = COMPANIES.find(c=>c.id===state.company);
   const main = document.getElementById("main");
   const d = apoGet();
+  apoSetupClickOutside();
+
   main.innerHTML = `
     <div class="page-head">
       <h1>${esc(t.name)} <span class="badge">${esc(co.name)}</span></h1>
@@ -6589,80 +6928,16 @@ async function renderToolApOutstanding(){
     return;
   }
 
-  const rawInv = d.invoices || [];
   const today = new Date().toISOString().slice(0,10);
-
-  // enrich with age bucket + display fields
-  const enriched = rawInv.map(r => ({
-    ...r,
-    age_bucket: apoAgeBucket(r.due_date, r.status),
-    _vendor: (r.vendors&&r.vendors.name) || r.vendor_name_raw || "—",
-    _planned: r.planned_payment_date || ""
-  }));
-
-  // apply filters
-  const f = d.filter;
-  let inv = enriched;
-  if(f.search){
-    const q = f.search.toLowerCase();
-    inv = inv.filter(r => (r.invoice_no||"").toLowerCase().includes(q)
-      || (r.vendor_name_raw||"").toLowerCase().includes(q)
-      || ((r.vendors&&r.vendors.name)||"").toLowerCase().includes(q)
-      || (r.remark||"").toLowerCase().includes(q)
-      || (r.category||"").toLowerCase().includes(q));
-  }
-  if(Array.isArray(f.vendors)    && f.vendors.length)    inv = inv.filter(r => f.vendors.includes(r._vendor));
-  if(Array.isArray(f.categories) && f.categories.length) inv = inv.filter(r => f.categories.includes(r.category));
-  if(Array.isArray(f.ages)       && f.ages.length)       inv = inv.filter(r => f.ages.includes(r.age_bucket));
-  if(Array.isArray(f.statuses)   && f.statuses.length)   inv = inv.filter(r => f.statuses.includes(r.status));
-  if(f.planned === "set")    inv = inv.filter(r => !!r.planned_payment_date);
-  if(f.planned === "unset")  inv = inv.filter(r => !r.planned_payment_date);
-  if(f.overdueOnly)        inv = inv.filter(r => r.due_date < today && Number(r.amount_outstanding) > 0);
-  // per-column filters (advanced) — colFilters: { colKey: value }
-  const cf = f.colFilters || {};
-  if(cf.invoice_no) inv = inv.filter(r => (r.invoice_no||"").includes(cf.invoice_no));
-  if(cf.invoice_date) inv = inv.filter(r => r.invoice_date === cf.invoice_date);
-  if(cf.due_date)     inv = inv.filter(r => r.due_date === cf.due_date);
-  if(cf.planned_payment_date) inv = inv.filter(r => r.planned_payment_date === cf.planned_payment_date);
-
-  // sort
-  const s = d.sort;
-  inv = inv.slice().sort((a,b) => {
-    let av = a[s.key], bv = b[s.key];
-    if(s.key === "vendor_name") { av = (a.vendors&&a.vendors.name) || a.vendor_name_raw || ""; bv = (b.vendors&&b.vendors.name) || b.vendor_name_raw || ""; }
-    if(typeof av === "number" || /amount/.test(s.key)){ av = Number(av||0); bv = Number(bv||0); }
-    if(av < bv) return s.desc ? 1 : -1;
-    if(av > bv) return s.desc ? -1 : 1;
-    return 0;
-  });
-
+  const rawInv = d.invoices || [];
+  const enriched = apoEnrich(rawInv);
   const overdue = enriched.filter(r => r.due_date < today && Number(r.amount_outstanding) > 0);
   const due30   = enriched.filter(r => r.due_date >= today && r.due_date <= new Date(Date.now()+30*86400000).toISOString().slice(0,10) && Number(r.amount_outstanding) > 0);
   const totalOut = enriched.reduce((s,r)=>s+Number(r.amount_outstanding||0), 0);
   const totalOverdue = overdue.reduce((s,r)=>s+Number(r.amount_outstanding||0), 0);
   const canWrite = fopCanWrite();
-
-  // dropdown options
-  const vendors = Array.from(new Set(enriched.map(r => (r.vendors&&r.vendors.name) || r.vendor_name_raw || "—"))).filter(Boolean).sort();
-  const cats = Array.from(new Set(enriched.map(r => r.category).filter(Boolean))).sort();
-  const ages = ["อยู่ในกำหนดจ่าย","เกินกำหนดจ่ายไม่ถึง 30 วัน","เกินกำหนดจ่าย 30วัน","เกินกำหนดจ่าย 60วัน","เกินกำหนดจ่าย 90วัน","เกินกำหนดจ่าย 120 วันขึ้นไป","ยังไม่มีกำหนดจ่าย"];
-  const sortArrow = (k) => s.key === k ? (s.desc ? " ↓" : " ↑") : "";
-  const hasFilter = f.search || (f.vendors&&f.vendors.length) || (f.categories&&f.categories.length)
-    || (f.ages&&f.ages.length) || (f.statuses&&f.statuses.length) || f.planned!=="all" || f.overdueOnly;
-  // multi-select dropdown helper
-  const multiDD = (field, label, options, selected) => {
-    const sel = selected || [];
-    const cnt = sel.length;
-    return `<details class="multi-dd"><summary>${esc(label)}${cnt?`<span class="multi-count">${cnt}</span>`:""}</summary>
-      <div class="multi-pop">
-        <div class="multi-actions">
-          <button onclick="apoClearMulti('${field}')">ล้าง</button>
-          <span style="font-size:11px;color:var(--ink-3)">${cnt?cnt+' / '+options.length:'ทั้งหมด'}</span>
-        </div>
-        ${options.map(opt => `<label><input type="checkbox" ${sel.includes(opt)?'checked':''} onchange="apoToggleMulti('${field}', ${JSON.stringify(opt).replace(/"/g,'&quot;')})">${esc(opt)}</label>`).join("")}
-      </div>
-    </details>`;
-  };
+  const f = d.filter;
+  const inv = apoFilterAndSort(enriched);
 
   main.innerHTML = `
     <div class="page-head">
@@ -6688,87 +6963,34 @@ async function renderToolApOutstanding(){
         </div>` : ""}
       </div>
 
-      <!-- Filter bar -->
+      <!-- Filter bar: search ครอบทุกคอลัมน์ + planned + overdue + ล้าง -->
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;align-items:center;padding:10px;background:rgba(255,255,255,.5);border:1px solid var(--glass-border);border-radius:9px">
-        <input type="text" class="input" placeholder="ค้นหา เลขบิล / ผู้ขาย / หมายเหตุ" value="${esc(f.search)}"
-          oninput="apoSetFilter('search', this.value)" style="flex:1;min-width:200px;font-size:12.5px">
-        ${multiDD('vendors', 'ผู้ขาย', vendors, f.vendors)}
-        ${multiDD('categories', 'ประเภท', cats, f.categories)}
-        ${multiDD('ages', 'อายุหนี้', ages, f.ages)}
-        ${multiDD('statuses', 'สถานะ', ['open','partial','paid','void'], f.statuses)}
+        <div style="position:relative;flex:1;min-width:240px">
+          <span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--ink-3);font-size:14px;pointer-events:none">🔍</span>
+          <input id="apoSearch" type="text" class="input" placeholder="ค้นหาทุกคอลัมน์ — IV / ผู้ขาย / ประเภท / วันที่ / ยอดเงิน" value="${esc(f.search)}"
+            oninput="apoSetSearch(this.value)" style="width:100%;padding-left:32px;font-size:12.5px">
+        </div>
         <select class="input" onchange="apoSetFilter('planned', this.value)" style="font-size:12px;min-width:140px">
           <option value="all">วันชำระทั้งหมด</option>
           <option value="set" ${f.planned==='set'?'selected':''}>กำหนดแล้ว</option>
           <option value="unset" ${f.planned==='unset'?'selected':''}>ยังไม่กำหนด</option>
         </select>
         <label class="opt" style="font-size:12px"><input type="checkbox" ${f.overdueOnly?'checked':''} onchange="apoSetFilter('overdueOnly', this.checked)">เฉพาะเกินกำหนด</label>
-        ${hasFilter || Object.keys(f.colFilters||{}).length ? `<button class="btn ghost btn sm" onclick="apoClearFilter()">ล้าง</button>` : ''}
-        <div style="margin-left:auto;font-size:11.5px;color:var(--ink-3)">${inv.length} จาก ${enriched.length} รายการ</div>
+        <button id="apoClearBtn" class="btn ghost btn sm" onclick="apoClearFilter()" style="${apoHasAnyFilter()?'':'display:none'}">ล้างตัวกรองทั้งหมด</button>
+        <div id="apoCount" style="margin-left:auto;font-size:11.5px;color:var(--ink-3)">${inv.length} จาก ${enriched.length} รายการ</div>
       </div>
 
-      ${inv.length===0 ? `<div class="empty">${hasFilter?'ไม่เจอตามตัวกรอง':'ยังไม่มีข้อมูล — Upload CSV / XML หรือเพิ่มเอง'}</div>` : `
-      <div class="table-wrap" style="max-height:680px">
-        <table>
-          <thead>
-            <tr>
-              <th onclick="apoSetSort('invoice_no')" style="cursor:pointer">เลขที่บิล${sortArrow('invoice_no')}</th>
-              <th onclick="apoSetSort('vendor_name')" style="cursor:pointer">ผู้ขาย${sortArrow('vendor_name')}</th>
-              <th>คำอธิบาย</th>
-              <th onclick="apoSetSort('invoice_date')" style="cursor:pointer">วันที่บิล${sortArrow('invoice_date')}</th>
-              <th onclick="apoSetSort('due_date')" style="cursor:pointer">ครบกำหนด${sortArrow('due_date')}</th>
-              <th onclick="apoSetSort('planned_payment_date')" style="cursor:pointer">วันชำระเงิน${sortArrow('planned_payment_date')}</th>
-              <th onclick="apoSetSort('amount_total')" style="cursor:pointer;text-align:right">รวม${sortArrow('amount_total')}</th>
-              <th onclick="apoSetSort('amount_outstanding')" style="cursor:pointer;text-align:right">คงค้าง${sortArrow('amount_outstanding')}</th>
-              <th onclick="apoSetSort('age_bucket')" style="cursor:pointer">อายุหนี้${sortArrow('age_bucket')}</th>
-              <th onclick="apoSetSort('category')" style="cursor:pointer">ประเภท${sortArrow('category')}</th>
-              <th onclick="apoSetSort('status')" style="cursor:pointer">สถานะ${sortArrow('status')}</th>
-              ${canWrite?'<th style="text-align:center">จัดการ</th>':''}
-            </tr>
-            <tr style="background:rgba(255,255,255,.45)">
-              <th><input type="text" class="input" placeholder="ค้นเลข..." value="${esc((f.colFilters||{}).invoice_no||'')}" oninput="apoSetColFilter('invoice_no', this.value)" style="font-size:11px;padding:3px 6px;min-width:80px;width:100%"></th>
-              <th></th><th></th>
-              <th><input type="date" class="input" value="${esc((f.colFilters||{}).invoice_date||'')}" onchange="apoSetColFilter('invoice_date', this.value)" style="font-size:11px;padding:3px 6px;min-width:120px;width:100%"></th>
-              <th><input type="date" class="input" value="${esc((f.colFilters||{}).due_date||'')}" onchange="apoSetColFilter('due_date', this.value)" style="font-size:11px;padding:3px 6px;min-width:120px;width:100%"></th>
-              <th><input type="date" class="input" value="${esc((f.colFilters||{}).planned_payment_date||'')}" onchange="apoSetColFilter('planned_payment_date', this.value)" style="font-size:11px;padding:3px 6px;min-width:120px;width:100%"></th>
-              <th></th><th></th><th></th><th></th><th></th>${canWrite?'<th></th>':''}
-            </tr>
-          </thead>
-          <tbody>${inv.map(r=>{
-            const isOverdue = r.due_date < today && r.status !== 'paid';
-            const statusBadge = `<span class="matchchip ${r.status==='paid'?'ok':r.status==='partial'?'warn':'bad'}">${r.status}</span>`;
-            const desc = [r.remark, r.internal_note].filter(Boolean).join(" · ") || "—";
-            const hasNote = !!r.internal_note;
-            return `<tr ${isOverdue?'class="warning-row"':''}>
-              <td><code style="font-size:11px">${esc(r.invoice_no)}</code></td>
-              <td>${esc(r._vendor)}</td>
-              <td style="font-size:11px;color:var(--ink-2);max-width:280px;white-space:normal" title="${esc(desc)}">${esc(desc.length>80?desc.slice(0,80)+"…":desc)}${hasNote?' <span style="color:var(--in-ink);font-weight:700">✎</span>':''}</td>
-              <td style="font-size:12px">${fopDate(r.invoice_date)}</td>
-              <td>${canWrite ? `<input type="date" value="${esc(r.due_date||'')}" onchange="apoSetDueDate('${r.id}', this.value)" style="font-size:11.5px;padding:3px 6px;border:1px solid var(--line);border-radius:6px;background:#fff;color:var(--ink);font-family:inherit;width:130px">` : `<span style="font-size:12px">${fopDate(r.due_date)}</span>`}</td>
-              <td>${canWrite ? `<input type="date" value="${esc(r.planned_payment_date||'')}" onchange="apoSetPlannedDate('${r.id}', this.value)" style="font-size:11.5px;padding:3px 6px;border:1px solid ${r.planned_payment_date?'var(--in)':'var(--line)'};border-radius:6px;background:${r.planned_payment_date?'var(--in-soft)':'#fff'};color:var(--ink);font-family:inherit;width:130px">` : (r.planned_payment_date ? fopDate(r.planned_payment_date) : '<span style="color:var(--ink-3)">—</span>')}</td>
-              <td style="text-align:right">${fopFmt(r.amount_total)}</td>
-              <td style="text-align:right;font-weight:700;color:var(--out-ink)">${fopFmt(r.amount_outstanding)}</td>
-              <td style="font-size:11.5px;font-weight:600;color:${apoAgeColor(r.age_bucket)};white-space:nowrap">${esc(r.age_bucket)}</td>
-              <td>${canWrite ? `<select onchange="apoSetCategory('${r.id}', this.value)" style="font-size:11px;padding:3px 6px;border:1px solid var(--line);border-radius:6px;background:#fff;font-family:inherit;min-width:140px">
-                ${APO_CATEGORIES.map(c => `<option value="${esc(c)}" ${r.category===c?'selected':''}>${esc(c)}</option>`).join("")}
-              </select>` : `<span style="font-size:11.5px;color:var(--ink-2)">${esc(r.category||"—")}</span>`}</td>
-              <td>${statusBadge}</td>
-              ${canWrite?`<td style="white-space:nowrap;text-align:center">
-                <button class="btn ghost btn sm" onclick="apoOpenPay('${r.id}',${Number(r.amount_outstanding)})" title="บันทึกการจ่าย">จ่าย</button>
-                <button class="btn ghost btn sm" onclick="apoOpenNote('${r.id}')" title="หมายเหตุเพิ่ม">✎</button>
-                <button class="btn ghost btn sm" style="color:var(--out-ink);border-color:var(--out)" onclick="apoSoftDelete('${r.id}','${esc(r.invoice_no)}')" title="ลบ">🗑</button>
-              </td>`:''}
-            </tr>`;
-          }).join("")}</tbody>
-        </table>
-      </div>`}
+      <div id="apoTableContainer">${apoBuildTable(inv, enriched, canWrite, today)}</div>
+
       <div class="soon-note">
         <b>วันชำระเงิน</b> = วันที่ จนท. กำหนดจะจ่าย (กรอกในตารางได้เลย) — ใช้เป็น filter ใน Cash Flow Forecast<br>
         <b>คำอธิบาย</b> = หมายเหตุจากระบบ + กดปุ่ม ✎ เพิ่มหมายเหตุเอง (ไม่จำกัดอักษร) · <b>🗑</b> = soft delete (audit log เก็บไว้)<br>
-        <b>Filter ทุกคอลัมน์</b>: dropdown ด้านบนสุด + ช่อง search ใต้หัวคอลัมน์ · คลิกหัวคอลัมน์เพื่อ sort
+        <b>Filter แต่ละคอลัมน์</b>: คลิก <b>▼</b> ที่หัวคอลัมน์ → ค้นหา + ติ๊ก checkbox (เหมือน Excel) · คลิกชื่อคอลัมน์เพื่อ sort
       </div>
     </div>
   `;
   if(window.lucide && window.lucide.createIcons){ try{ window.lucide.createIcons(); }catch(e){} }
+  apoUpdateIndeterminate();
 }
 
 /* helper: parse ตัวเลขที่มี comma เช่น "500,000.00" → 500000 */

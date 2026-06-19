@@ -2,7 +2,7 @@ name: db-backup
 
 on:
   schedule:
-    - cron: '0 19 * * *'   # 02:00 ICT ทุกคืน (UTC 19:00 = ICT 02:00+7)
+    - cron: '0 19 * * *'   # 02:00 ICT ทุกคืน (UTC 19:00 = ICT 02:00 +7)
   workflow_dispatch:         # กด Run ด้วยมือได้ใน Actions tab
 
 permissions:
@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   backup:
-    name: Supabase Daily Backup
+    name: Supabase Daily Backup (SQL + CSV)
     runs-on: ubuntu-latest
 
     steps:
@@ -19,125 +19,82 @@ jobs:
         with:
           fetch-depth: 1
 
-      - name: Export tables via REST API
+      - name: Install PostgreSQL client 17
+        run: |
+          sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
+          curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/pgdg.gpg
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client-17
+          pg_dump --version
+
+      - name: Dump SQL + CSV
         env:
-          SUPA_URL: "https://qbsuynmsjieqglxzbqpw.supabase.co"
-          SUPA_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          DB_URL: ${{ secrets.SUPABASE_DB_URL }}
         run: |
+          if [ -z "$DB_URL" ]; then
+            echo "❌ ยังไม่ได้ตั้ง GitHub secret 'SUPABASE_DB_URL'"
+            echo "   ไปที่ Supabase Dashboard → Project Settings → Database → Connection string → URI (Session pooler)"
+            echo "   แล้วเพิ่มเป็น repo secret ชื่อ SUPABASE_DB_URL"
+            exit 1
+          fi
           DATE=$(date -u +%Y-%m-%d_%H%M)
-          echo "DATE=$DATE" >> $GITHUB_ENV
-          mkdir -p backup_tmp
+          echo "DATE=$DATE" >> "$GITHUB_ENV"
+          mkdir -p out/csv
 
-          TABLES="orders order_items sku_master companies users_profile user_company_access audit_log_v2"
+          # 1) Full SQL dump — schema public = ทุกตาราง + function + RLS policies + triggers
+          pg_dump "$DB_URL" --schema=public --no-owner --no-privileges --file=out/dump.sql
+          echo "✅ SQL dump — $(du -h out/dump.sql | cut -f1)"
 
-          for TABLE in $TABLES; do
-            # Paginate: ดึงทีละ 1000 แถว
-            OFFSET=0
-            > "backup_tmp/${TABLE}.json"
-            echo "[" > "backup_tmp/${TABLE}.json"
-            FIRST=true
-
-            while true; do
-              CHUNK=$(curl -sf \
-                -H "apikey: $SUPA_KEY" \
-                -H "Authorization: Bearer $SUPA_KEY" \
-                -H "Accept: application/json" \
-                -H "Prefer: count=none" \
-                "${SUPA_URL}/rest/v1/${TABLE}?select=*&limit=1000&offset=${OFFSET}")
-
-              if [ $? -ne 0 ]; then
-                echo "❌ Error fetching $TABLE at offset $OFFSET"
-                exit 1
-              fi
-
-              # นับแถวที่ได้
-              COUNT=$(echo "$CHUNK" | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d))" 2>/dev/null || echo "0")
-
-              if [ "$COUNT" = "0" ]; then
-                break
-              fi
-
-              # Append (ลบ [ และ ] หัวท้าย)
-              INNER=$(echo "$CHUNK" | python3 -c "import sys,json; d=json.load(sys.stdin); print(','.join(json.dumps(r) for r in d))")
-              if [ "$FIRST" = "true" ]; then
-                echo "$INNER" >> "backup_tmp/${TABLE}.json"
-                FIRST=false
-              else
-                echo ",$INNER" >> "backup_tmp/${TABLE}.json"
-              fi
-
-              if [ "$COUNT" -lt 1000 ]; then
-                break
-              fi
-              OFFSET=$((OFFSET + 1000))
-            done
-
-            echo "]" >> "backup_tmp/${TABLE}.json"
-
-            ROWS=$(python3 -c "import sys,json; d=json.load(open('backup_tmp/${TABLE}.json')); print(len(d))" 2>/dev/null || echo "?")
-            echo "✅ $TABLE: $ROWS rows"
+          # 2) CSV ต่อแต่ละตาราง (เปิดใน Excel ได้)
+          TABLES=$(psql "$DB_URL" -Atc "select tablename from pg_tables where schemaname='public' order by tablename")
+          N=0
+          for T in $TABLES; do
+            psql "$DB_URL" -c "\copy (select * from public.\"$T\") to 'out/csv/$T.csv' with csv header"
+            N=$((N+1))
+            echo "  • $T.csv"
           done
+          echo "✅ CSV — $N ตาราง"
 
-          # รวมเป็นไฟล์เดียว
-          python3 - <<'PYEOF'
-          import json, os, datetime
-
-          tables = "orders order_items sku_master companies users_profile user_company_access audit_log_v2".split()
-          backup = {
-            "exported_at": datetime.datetime.utcnow().isoformat() + "Z",
-            "project": "qbsuynmsjieqglxzbqpw",
-            "tables": {}
-          }
-          for t in tables:
-            path = f"backup_tmp/{t}.json"
-            if os.path.exists(path):
-              with open(path) as f:
-                backup["tables"][t] = json.load(f)
-            else:
-              backup["tables"][t] = []
-
-          with open("backup_tmp/full_backup.json", "w") as f:
-            json.dump(backup, f, ensure_ascii=False, default=str)
-
-          total = sum(len(v) for v in backup["tables"].values())
-          print(f"✅ Total rows: {total}")
-          PYEOF
-
-      - name: Compress + Encrypt
+      - name: Compress + Encrypt (AES-256)
         run: |
-          gzip -c backup_tmp/full_backup.json > backup_tmp/backup_${{ env.DATE }}.json.gz
+          gzip -c out/dump.sql > "out/backup_${DATE}.sql.gz"
+          tar -czf "out/backup_${DATE}.csv.tar.gz" -C out/csv .
 
           openssl enc -aes-256-cbc -salt -pbkdf2 -iter 100000 \
-            -in  backup_tmp/backup_${{ env.DATE }}.json.gz \
-            -out backups/backup_${{ env.DATE }}.json.gz.enc \
+            -in  "out/backup_${DATE}.sql.gz" \
+            -out "backups/backup_${DATE}.sql.gz.enc" \
+            -k   "${{ secrets.BACKUP_PASSPHRASE }}"
+          openssl enc -aes-256-cbc -salt -pbkdf2 -iter 100000 \
+            -in  "out/backup_${DATE}.csv.tar.gz" \
+            -out "backups/backup_${DATE}.csv.tar.gz.enc" \
             -k   "${{ secrets.BACKUP_PASSPHRASE }}"
 
-          SIZE=$(du -sh backups/backup_${{ env.DATE }}.json.gz.enc | cut -f1)
-          echo "✅ Encrypted: backups/backup_${{ env.DATE }}.json.gz.enc ($SIZE)"
+          echo "✅ encrypted:"
+          du -h "backups/backup_${DATE}.sql.gz.enc" "backups/backup_${DATE}.csv.tar.gz.enc"
 
       - name: Commit backup
         run: |
           git config user.name  "backup-bot"
           git config user.email "backup-bot@noreply.github.com"
           git add backups/
-          git commit -m "backup: ${{ env.DATE }}" || echo "nothing to commit"
+          git commit -m "backup: ${DATE} (SQL+CSV)" || echo "nothing to commit"
           git push
 
-      - name: Prune old backups (เก็บแค่ 30 วัน)
+      - name: Prune old backups (เก็บ 30 ไฟล์ล่าสุดต่อชนิด)
         run: |
           cd backups
-          COUNT=$(ls -1 *.enc 2>/dev/null | wc -l)
-          if [ "$COUNT" -gt 30 ]; then
-            ls -1t *.enc | tail -n +31 | xargs git rm
-            git commit -m "backup: prune (keep 30)" || true
-            git push || true
-          else
-            echo "ℹ️ $COUNT backups — ไม่ต้อง prune"
-          fi
+          for EXT in "sql.gz.enc" "csv.tar.gz.enc"; do
+            ls -1t *."$EXT" 2>/dev/null | tail -n +31 | xargs -r git rm
+          done
+          git commit -m "backup: prune (keep 30)" || echo "nothing to prune"
+          git push || true
 
       - name: Summary
         run: |
-          echo "### Backup สำเร็จ ✅" >> $GITHUB_STEP_SUMMARY
-          echo "- **ไฟล์:** backups/backup_${{ env.DATE }}.json.gz.enc" >> $GITHUB_STEP_SUMMARY
-          echo "- **เวลา:** $(TZ='Asia/Bangkok' date '+%d/%m/%Y %H:%M ICT')" >> $GITHUB_STEP_SUMMARY
-          echo "- **Backups ทั้งหมด:** $(ls backups/*.enc 2>/dev/null | wc -l) ไฟล์" >> $GITHUB_STEP_SUMMARY
+          {
+            echo "### Backup สำเร็จ ✅ (SQL + CSV)"
+            echo "- **SQL:** backups/backup_${DATE}.sql.gz.enc"
+            echo "- **CSV:** backups/backup_${DATE}.csv.tar.gz.enc"
+            echo "- **เวลา:** $(TZ='Asia/Bangkok' date '+%d/%m/%Y %H:%M ICT')"
+            echo "- **Backups SQL ทั้งหมด:** $(ls backups/*.sql.gz.enc 2>/dev/null | wc -l) ไฟล์"
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -5093,6 +5093,8 @@ function edRenderSummary(){
         ${edTopList(A.byCat,"out")}
       </div>
     </div>
+
+    ${edRenderFinKpis(A, d.data, d.monthFilter)}
   `;
 
   // monthly line+bar
@@ -5142,6 +5144,121 @@ function edTopList(byCat, dir){
       </div>`;
     }).join("")}
   </div>`;
+}
+
+/* ---------- KPI ทางการเงิน (Summary tab — ต่อจาก Top 5) ---------- */
+function edRenderFinKpis(A, data, monthFilter){
+  const months = data.months || [];
+  const nMonths = Math.max(1, monthFilter === "all" ? months.length : 1);
+  const op = A.byAct.operating || { in:0, out:0 };
+  const opNet = op.in - op.out;
+
+  // หา cost ของหมวด เงินเดือน/ค่าจ้าง + โฆษณา/อินฟลู (regex บนชื่อหมวด)
+  let empCost = 0, adCost = 0;
+  for(const [k, v] of Object.entries(A.byCat || {})){
+    if(/เงินเดือน|ค่าจ้าง|พนักงาน|salary|wage/i.test(k)) empCost += v.out;
+    if(/โฆษณา|อินฟลู|ads?\b|advert|influencer/i.test(k)) adCost += v.out;
+  }
+
+  // ratios
+  const cashMargin = A.totalIn > 0 ? (A.net / A.totalIn * 100) : null;
+  const opRatio    = op.in > 0 ? (opNet / op.in * 100) : null;
+  const burn       = A.totalOut / nMonths;
+  const avgIn      = A.totalIn / nMonths;
+  const opExRatio  = op.in > 0 ? (op.out / op.in * 100) : null;
+  const empRatio   = op.in > 0 ? (empCost / op.in * 100) : null;
+  const adRatio    = op.in > 0 ? (adCost  / op.in * 100) : null;
+
+  // period label — แบบในภาพ "ตลอดปี 2568"
+  let periodLabel = "ตลอดทั้งช่วง";
+  if(monthFilter !== "all"){
+    periodLabel = "เดือน " + monthFilter;
+  } else if(months.length){
+    const yrs = [...new Set(months.map(m => m.key.slice(0,4)))];
+    if(yrs.length === 1) periodLabel = "ตลอดปี " + (parseInt(yrs[0]) + 543);
+    else periodLabel = "ตลอด " + months.length + " เดือน · " + (parseInt(yrs[0])+543) + "–" + (parseInt(yrs[yrs.length-1])+543);
+  }
+
+  // helpers
+  const fmtPct = (v) => v == null ? "—" : (v >= 0 ? "" : "") + v.toFixed(1) + "%";
+  const fmtCompactM = (n) => {
+    const a = Math.abs(n);
+    if(a >= 1e6) return ((n/1e6).toFixed(2)) + " ล้าน";
+    if(a >= 1e3) return ((n/1e3).toFixed(1)) + " K";
+    return n.toFixed(0);
+  };
+  const goodColor = ED_COLORS.in;     // teal
+  const badColor  = ED_COLORS.out;    // pink
+  const neuColor  = "#0f172a";
+
+  // benchmark eval: pass {value, good, ok, dir} dir='hi' = ยิ่งสูงยิ่งดี, 'lo' = ยิ่งต่ำยิ่งดี
+  const evalBench = (v, good, ok, dir) => {
+    if(v == null) return neuColor;
+    if(dir === "hi"){
+      if(v >= good) return goodColor;
+      if(v >= ok)   return "#f59e0b";
+      return badColor;
+    } else {
+      if(v <= ok)   return goodColor;
+      if(v <= good) return "#f59e0b";
+      return badColor;
+    }
+  };
+
+  // single KPI card
+  const card = (label, value, color, sub, bench) => `
+    <div style="background:rgba(255,255,255,.85);backdrop-filter:blur(6px);border:1px solid #c3dafe;border-radius:14px;padding:14px 16px;display:flex;flex-direction:column;gap:4px">
+      <div style="font-size:11px;font-weight:700;color:#475569">${label}</div>
+      <div style="font-size:24px;font-weight:800;color:${color};letter-spacing:-.3px;margin-top:2px">${value}</div>
+      ${sub?`<div style="font-size:11px;color:#64748b">${sub}</div>`:""}
+      ${bench?`<div style="margin-top:6px;padding:4px 8px;background:rgba(99,102,241,.07);border:1px solid #e0e7ff;border-radius:6px;font-size:10.5px;color:#475569;align-self:flex-start">เกณฑ์มาตรฐาน: ${bench}</div>`:""}
+    </div>`;
+
+  return `
+    <div class="card" style="margin-top:14px">
+      <h3>📊 KPI ทางการเงิน</h3>
+      <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px">
+        ${card("รายรับรวม", fmtCompactM(A.totalIn), goodColor, periodLabel, "")}
+        ${card("รายจ่ายรวม", fmtCompactM(A.totalOut), badColor, periodLabel, "")}
+        ${card("กระแสเงินสดสุทธิ", fmtCompactM(A.net), A.net>=0?goodColor:badColor, "รับ - จ่าย", "")}
+
+        ${card("อัตรากำไรเงินสด",
+          fmtPct(cashMargin),
+          evalBench(cashMargin, 10, 5, "hi"),
+          "Net / Total Income",
+          "≥5% (ดี) / ≥10% (ยอดเยี่ยม)")}
+
+        ${card("Operating Cash Flow Ratio",
+          fmtPct(opRatio),
+          evalBench(opRatio, 100, 50, "hi"),
+          "Op Net / Op Income",
+          "≥50% (ดี) / ≥100% (แข็งแกร่ง)")}
+
+        ${card("Cash Burn Rate",
+          fmtCompactM(burn) + "/เดือน",
+          burn <= avgIn ? goodColor : badColor,
+          "ค่าใช้จ่ายดำเนินงานเฉลี่ย",
+          "ควรต่ำกว่ายอดรายรับ/เดือน")}
+
+        ${card("ค่าใช้จ่ายต่อยอดขาย",
+          fmtPct(opExRatio),
+          evalBench(opExRatio, 100, 80, "lo"),
+          "Op Expense / Op Income",
+          "≤80%")}
+
+        ${card("สัดส่วนค่าใช้จ่ายพนักงาน",
+          fmtPct(empRatio),
+          evalBench(empRatio, 50, 30, "lo"),
+          "เงินเดือน / รายรับดำเนินงาน",
+          "≤30%")}
+
+        ${card("สัดส่วนค่าโฆษณาต่อยอดขาย",
+          fmtPct(adRatio),
+          evalBench(adRatio, 30, 20, "lo"),
+          "ค่าโฆษณา / รายรับดำเนินงาน",
+          "≤20%")}
+      </div>
+    </div>`;
 }
 
 /* ---------- Tab 2: Activity ---------- */

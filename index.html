@@ -8258,7 +8258,10 @@ async function renderToolCashflowStaff(){
       type:"ap", category: ap.category || "เจ้าหนี้การค้า",
       vendor: (ap.vendors&&ap.vendors.name) || ap.vendor_name_raw || "—",
       detail: ap.invoice_no, due_date: ap.planned_payment_date, original_due: ap.due_date,
-      amount: Number(ap.amount_outstanding||0), remark: ap.internal_note || ap.remark
+      amount: Number(ap.amount_outstanding||0),
+      // ★ เก็บทั้ง remark + internal_note (เหมือนหน้า AP) — รวมแสดงในตาราง
+      remark: ap.remark || "",
+      internalNote: ap.internal_note || ""
     });
   }
   // ★ recurring_occurrences ไม่นับเข้าหน้าพนักงาน — ยึดเฉพาะที่ จนท. กรอก planned_payment_date
@@ -8412,7 +8415,11 @@ async function renderToolCashflowStaff(){
           <tbody>
             ${cats.map(([cat, info]) => `
               <tr class="cat-row"><td>${esc(cat)}</td><td></td><td class="num">${info.total.toLocaleString("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2})}</td></tr>
-              ${info.items.map(p => `<tr class="sub-row"><td>${esc(p.vendor)} ${p.detail?`/ ${esc(p.detail)}`:''}${p.remark?` — ${esc(p.remark)}`:''}</td><td>${esc(fmtDate(p.original_due))}</td><td class="num">${p.amount.toLocaleString("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2})}</td></tr>`).join("")}
+              ${info.items.map(p => {
+                // ★ คำอธิบายเต็ม = remark + internal_note (เหมือนหน้า AP)
+                const fullDesc = [p.remark, p.internalNote].filter(Boolean).join(" · ");
+                return `<tr class="sub-row"><td>${esc(p.vendor)}${p.detail?` / ${esc(p.detail)}`:''}${fullDesc?` — ${esc(fullDesc)}`:''}</td><td>${esc(fmtDate(p.original_due))}</td><td class="num">${p.amount.toLocaleString("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2})}</td></tr>`;
+              }).join("")}
             `).join("")}
             <tr class="tot-row"><td>รวมทั้งสิ้น</td><td></td><td class="num">${totalDue.toLocaleString("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2})}</td></tr>
           </tbody>

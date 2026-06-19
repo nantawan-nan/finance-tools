@@ -7811,7 +7811,7 @@ async function renderToolCashflowStaff(){
         </table>
       </div>`}
       <div class="btnrow">
-        <button class="btn" onclick="cffOpenSnapshot()"><i data-lucide="image"></i>Snapshot PNG / PDF</button>
+        <button class="btn" onclick="cffOpenSnapshotStaff()"><i data-lucide="image"></i>Snapshot PNG / PDF</button>
       </div>
     </div>
   `;
@@ -8042,6 +8042,153 @@ function cffDrill(kind, arg){
           <thead><tr><th>วันที่/ประเภท</th><th>รายละเอียด</th><th style="text-align:right">ยอด</th></tr></thead>
           <tbody>${rows.map(r => `<tr><td>${esc(r.left)}</td><td>${esc(r.mid)}</td><td style="text-align:right;font-weight:700">${r.right}</td></tr>`).join("")}</tbody>
         </table>`}
+      </div>
+    </div>`;
+  document.body.appendChild(m);
+  m.onclick = e=>{ if(e.target===m) m.remove(); };
+}
+
+/* Staff Snapshot — 1-page card สำหรับ LINE/PDF (ใช้ข้อมูล planned_payment_date จาก AP) */
+function cffOpenSnapshotStaff(){
+  const d = cffGet();
+  const dt = d.data;
+  if(!dt){ alert("ไม่มีข้อมูลพอ"); return; }
+  const co = COMPANIES.find(c=>c.id===state.company);
+  const todayISO = dt.todayISO;
+
+  // ★ ใช้ logic เดียวกับ renderToolCashflowStaff
+  const payments = [];
+  for(const ap of dt.aps){
+    if(Number(ap.amount_outstanding||0) <= 0) continue;
+    if(!ap.planned_payment_date) continue;
+    payments.push({
+      type:"ap", category: ap.category || "เจ้าหนี้การค้า",
+      vendor: (ap.vendors&&ap.vendors.name) || ap.vendor_name_raw || "—",
+      detail: ap.invoice_no, due_date: ap.planned_payment_date, original_due: ap.due_date,
+      amount: Number(ap.amount_outstanding||0)
+    });
+  }
+  let filtered = payments;
+  if(d.staffMode === "day" && d.staffDate){
+    filtered = payments.filter(p => p.due_date === d.staffDate);
+  } else if(d.staffMode === "range" && (d.staffFrom || d.staffTo)){
+    const from = d.staffFrom || "0000-01-01";
+    const to   = d.staffTo   || "9999-12-31";
+    filtered = payments.filter(p => p.due_date >= from && p.due_date <= to);
+  }
+  const totalDue = filtered.reduce((s,p) => s + p.amount, 0);
+  const openingCash = dt.balances.reduce((s,b) => s + Number(b.amount||0) - Number(b.hold||0), 0);
+  const netCash = openingCash - totalDue;
+
+  const fmtDate = (iso) => new Date(iso).toLocaleDateString("th-TH", { day:"2-digit", month:"short" });
+  const fmtMoney = (n) => "฿" + Math.abs(Number(n||0)).toLocaleString("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2});
+  const fmtParen = (n) => Number(n||0) < 0 ? "(" + fmtMoney(n) + ")" : fmtMoney(n);
+
+  const periodLabel = d.staffMode === "day" ? fmtDate(d.staffDate)
+                    : d.staffMode === "range" ? `${d.staffFrom?fmtDate(d.staffFrom):'?'}–${d.staffTo?fmtDate(d.staffTo):'?'}`
+                    : "ทั้งหมด";
+
+  // pivot by category
+  const byCat = {};
+  for(const p of filtered){
+    if(!byCat[p.category]) byCat[p.category] = { total: 0, items: [] };
+    byCat[p.category].total += p.amount;
+    byCat[p.category].items.push(p);
+  }
+  const cats = Object.entries(byCat).sort((a,b) => b[1].total - a[1].total);
+
+  // bank breakdown (attribute payments to largest bank)
+  const sortedBanks = dt.balances.slice().sort((a,b) => Number(b.amount||0) - Number(a.amount||0));
+  const mainBankId = sortedBanks.length > 1 ? sortedBanks[1].bank_account_id : (sortedBanks[0] && sortedBanks[0].bank_account_id);
+  const todayStr = new Date().toLocaleDateString("th-TH",{day:"2-digit",month:"long",year:"numeric"});
+
+  const m = document.createElement("div");
+  m.id = "fopModal";
+  m.style.cssText = "position:fixed;inset:0;background:rgba(15,23,42,.7);z-index:1000;display:flex;align-items:flex-start;justify-content:center;padding:20px;overflow:auto";
+  m.innerHTML = `
+    <div style="background:#fff;border-radius:14px;padding:18px;max-width:920px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.4);margin:auto">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <h3 style="margin:0;font-size:15px">รายงานรายวัน · สำหรับแชร์ LINE / Export</h3>
+        <div style="display:flex;gap:6px">
+          <button class="btn ghost btn sm" onclick="cffExportSnap('png')">⬇ PNG</button>
+          <button class="btn ghost btn sm" onclick="cffExportSnap('pdf')">⬇ PDF</button>
+          <button class="btn ghost btn sm" onclick="document.getElementById('fopModal').remove()">ปิด</button>
+        </div>
+      </div>
+      <div id="cffSnap" style="background:#fff;padding:0;border-radius:12px;font-family:'IBM Plex Sans Thai','IBM Plex Sans',sans-serif;color:#0f172a;overflow:hidden">
+        <!-- header gradient strip -->
+        <div style="background:linear-gradient(135deg,${co.gradient[0]},${co.gradient[1]});padding:18px 22px;color:#fff;display:flex;align-items:center;gap:14px">
+          <img src="${esc(co.logo||'')}" onerror="this.style.display='none'" style="height:54px;width:54px;object-fit:contain;background:#fff;border-radius:10px;padding:6px;flex-shrink:0">
+          <div style="flex:1">
+            <div style="font-size:11px;font-weight:700;opacity:.85;letter-spacing:.6px;text-transform:uppercase">${esc(co.brand||co.name)}</div>
+            <div style="font-size:19px;font-weight:800;letter-spacing:-.3px;margin-top:2px">ประมาณการรายรับ-รายจ่าย</div>
+            <div style="font-size:12.5px;opacity:.9;margin-top:2px">${esc(co.fullName||co.name)}</div>
+          </div>
+          <div style="text-align:right">
+            <div style="font-size:10.5px;opacity:.8;letter-spacing:.4px">รอบจ่าย</div>
+            <div style="font-size:15px;font-weight:800;margin-top:1px">${esc(periodLabel)}</div>
+            <div style="font-size:10.5px;opacity:.7;margin-top:2px">${esc(todayStr)}</div>
+          </div>
+        </div>
+
+        <!-- bank pivot — เงินคงเหลือใช้ได้ / ค่าใช้จ่ายถึงกำหนด -->
+        <div style="padding:16px 22px">
+          <table style="width:100%;border-collapse:collapse;font-size:13px">
+            <thead>
+              <tr style="background:#f8fafc">
+                <th style="text-align:left;padding:9px 12px;border-bottom:2px solid var(--brand);color:var(--brand-dark)">ธนาคาร</th>
+                ${dt.balances.map(b => `<th style="text-align:right;padding:9px 12px;border-bottom:2px solid var(--brand);color:var(--brand-dark);font-weight:700"><div style="font-size:11px">${esc(b.bank_code)} #${esc(b.account_no)}</div>${b.nickname?`<div style="font-size:10px;color:var(--ink-3);font-weight:500">${esc(b.nickname)}</div>`:''}</th>`).join("")}
+                <th style="text-align:right;padding:9px 12px;border-bottom:2px solid var(--brand);background:rgba(var(--brand-rgb),.1);color:var(--brand-dark)">รวม</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr style="background:rgba(20,184,166,.08)">
+                <td style="padding:8px 12px;font-weight:700">เงินคงเหลือใช้ได้</td>
+                ${dt.balances.map(b => `<td style="padding:8px 12px;text-align:right;font-weight:700">${(Number(b.amount||0)-Number(b.hold||0)).toLocaleString("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2})}</td>`).join("")}
+                <td style="padding:8px 12px;text-align:right;font-weight:800;background:rgba(var(--brand-rgb),.08)">${openingCash.toLocaleString("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
+              </tr>
+              <tr style="background:rgba(245,158,11,.10)">
+                <td style="padding:8px 12px;font-weight:700">ค่าใช้จ่ายถึงกำหนดชำระ</td>
+                ${dt.balances.map(b => `<td style="padding:8px 12px;text-align:right">${b.bank_account_id===mainBankId&&totalDue>0?totalDue.toLocaleString("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2}):'-'}</td>`).join("")}
+                <td style="padding:8px 12px;text-align:right;font-weight:800;background:rgba(var(--brand-rgb),.08)">${totalDue.toLocaleString("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
+              </tr>
+              ${cats.map(([cat,info]) => `<tr>
+                <td style="padding:7px 12px 7px 24px;color:var(--ink-2);font-size:12.5px">${esc(cat)}</td>
+                ${dt.balances.map(b => `<td style="padding:7px 12px;text-align:right;color:var(--ink-2);font-size:12.5px">${b.bank_account_id===mainBankId?info.total.toLocaleString("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2}):'-'}</td>`).join("")}
+                <td style="padding:7px 12px;text-align:right;color:var(--out-ink);font-weight:700">${info.total.toLocaleString("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
+              </tr>`).join("")}
+              <tr style="background:rgba(var(--brand-rgb),.10);border-top:2px solid var(--brand)">
+                <td style="padding:10px 12px;font-weight:800;color:var(--brand-dark)">เงินคงเหลือสุทธิ</td>
+                ${dt.balances.map(b => {
+                  const v = (Number(b.amount||0)-Number(b.hold||0)) - (b.bank_account_id===mainBankId?totalDue:0);
+                  return `<td style="padding:10px 12px;text-align:right;font-weight:800;color:${v<0?'var(--out-ink)':'var(--brand-dark)'}">${v<0?'('+Math.abs(v).toLocaleString("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2})+')':v.toLocaleString("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2})}</td>`;
+                }).join("")}
+                <td style="padding:10px 12px;text-align:right;font-weight:800;color:${netCash<0?'var(--out-ink)':'var(--brand-dark)'};background:rgba(var(--brand-rgb),.15)">${netCash<0?'('+Math.abs(netCash).toLocaleString("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2})+')':netCash.toLocaleString("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <!-- detail pivot per cat → item -->
+          ${cats.length > 0 ? `
+          <div style="margin-top:18px">
+            <div style="font-size:13px;font-weight:700;color:var(--brand-dark);margin-bottom:8px;display:flex;align-items:center;gap:6px">รายละเอียดประเภทรายจ่าย</div>
+            <table style="width:100%;border-collapse:collapse;font-size:11.5px">
+              <thead><tr style="background:#f8fafc">
+                <th style="text-align:left;padding:7px 10px;border-bottom:1px solid #cbd5e1;color:#475569">ประเภทรายจ่าย</th>
+                <th style="text-align:left;padding:7px 10px;border-bottom:1px solid #cbd5e1;color:#475569">ครบกำหนด</th>
+                <th style="text-align:right;padding:7px 10px;border-bottom:1px solid #cbd5e1;color:#475569">จำนวน (บาท)</th>
+              </tr></thead>
+              <tbody>
+                ${cats.map(([cat,info]) => `
+                  <tr style="background:rgba(var(--brand-rgb),.06)"><td style="padding:6px 10px;font-weight:700;color:var(--brand-dark)" colspan="2">${esc(cat)}</td><td style="padding:6px 10px;text-align:right;font-weight:700;color:var(--out-ink)">${info.total.toLocaleString("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2})}</td></tr>
+                  ${info.items.map(p => `<tr><td style="padding:5px 10px 5px 22px;color:#475569">${esc(p.vendor)}${p.detail?` / ${esc(p.detail)}`:''}</td><td style="padding:5px 10px;color:#475569;font-size:11px">${esc(fmtDate(p.original_due))}</td><td style="padding:5px 10px;text-align:right;font-variant-numeric:tabular-nums">${p.amount.toLocaleString("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2})}</td></tr>`).join("")}
+                `).join("")}
+                <tr style="border-top:2px solid var(--brand)"><td style="padding:8px 10px;font-weight:800" colspan="2">รวมทั้งสิ้น</td><td style="padding:8px 10px;text-align:right;font-weight:800;color:var(--out-ink)">${totalDue.toLocaleString("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2})}</td></tr>
+              </tbody>
+            </table>
+          </div>
+          ` : '<div style="margin-top:18px;padding:24px;text-align:center;color:var(--ink-3);font-size:12.5px">ไม่มีรายการในช่วงนี้</div>'}
+        </div>
       </div>
     </div>`;
   document.body.appendChild(m);

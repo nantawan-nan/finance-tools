@@ -4350,6 +4350,27 @@ function edActivityKey(s){
 function edActivityLabel(k){
   return ({operating:"ดำเนินงาน",investing:"ลงทุน",financing:"จัดหาเงิน",other:"อื่น ๆ"})[k] || k;
 }
+/* ตรวจว่า transaction เป็น "เงินโอนระหว่างบัญชี" (โอนภายในบริษัทเอง — ไม่ใช่รับ/จ่ายจริง) */
+function edIsTransfer(t){
+  const cat  = String((t && t.category) || "").trim();
+  const note = String((t && t.note)     || "").trim().toLowerCase();
+  if(/โอนระหว่างบัญชี/.test(cat))   return true;
+  if(/^(เงิน)?โอนระหว่าง/.test(cat))  return true;
+  if(/^เงินโอนภายใน/.test(cat))       return true;
+  if(/^เงินโอน$/.test(cat))            return true;
+  if(/^transfer$/i.test(cat))          return true;
+  if(/inter[\s-]?account/.test(cat.toLowerCase())) return true;
+  // note hint: บางบริษัทไม่ตั้ง category — เช็คจาก note
+  if(/โอนระหว่างบัญชี/.test(note)) return true;
+  return false;
+}
+/* helper: ดึง txs ตาม scope (month + optional exclude transfers) */
+function edTxsInScope(data, monthFilter, excludeTransfers){
+  let txs = data.transactions;
+  if(monthFilter !== "all") txs = txs.filter(t => t.month === monthFilter);
+  if(excludeTransfers)      txs = txs.filter(t => !edIsTransfer(t));
+  return txs;
+}
 
 /* ---------- Parser ---------- */
 function edParse(book){
@@ -4509,9 +4530,9 @@ function edParse(book){
 }
 
 /* ---------- Aggregations ---------- */
-function edAgg(data, monthFilter){
-  // monthFilter: "all" หรือ "2026.01"
-  const txs = data.transactions.filter(t => monthFilter==="all" || t.month===monthFilter);
+function edAgg(data, monthFilter, excludeTransfers){
+  // monthFilter: "all" หรือ "2026.01" — excludeTransfers=true จะตัด "เงินโอนระหว่างบัญชี" ออก
+  const txs = edTxsInScope(data, monthFilter, !!excludeTransfers);
 
   const totalIn  = txs.reduce((s,t)=>s+t.in, 0);
   const totalOut = txs.reduce((s,t)=>s+t.out, 0);
@@ -5103,7 +5124,7 @@ function edRenderDashboard(){
 /* ---------- Tab 1: Executive Summary ---------- */
 function edRenderSummary(){
   const d = edState();
-  const A = edAgg(d.data, d.monthFilter);
+  const A = edAgg(d.data, d.monthFilter, true);  // ★ ตัด "เงินโอนระหว่างบัญชี" ออก
 
   const kpiCard = (label, value, color, sub, onClick) => `
     <div ${onClick?`onclick="${onClick}" `:""}style="background:rgba(255,255,255,.85);backdrop-filter:blur(6px);border:1px solid #c3dafe;border-radius:14px;padding:16px 18px;transition:.15s${onClick?";cursor:pointer":""}" ${onClick?`onmouseover="this.style.borderColor='#4F8AF7';this.style.transform='translateY(-1px)'" onmouseout="this.style.borderColor='#c3dafe';this.style.transform='none'"`:""}>
@@ -5149,10 +5170,10 @@ function edRenderSummary(){
     ${edRenderFinKpis(A, d.data, d.monthFilter)}
   `;
 
-  // monthly line+bar
+  // monthly line+bar — ★ ตัด transfers ออก
   const months = edState().data.months.map(m=>m.key);
-  const inData  = months.map(m => (edState().data.transactions.filter(t=>t.month===m).reduce((s,t)=>s+t.in,0)));
-  const outData = months.map(m => (edState().data.transactions.filter(t=>t.month===m).reduce((s,t)=>s+t.out,0)));
+  const inData  = months.map(m => edTxsInScope(edState().data, m, true).reduce((s,t)=>s+t.in,0));
+  const outData = months.map(m => edTxsInScope(edState().data, m, true).reduce((s,t)=>s+t.out,0));
   const netData = inData.map((v,i)=>v-outData[i]);
 
   edMakeChart("edChartMonthly", {
@@ -5316,7 +5337,7 @@ function edRenderFinKpis(A, data, monthFilter){
 /* ---------- Drill: KPI ทางการเงิน — แสดงสูตร + ตัวตั้ง/ตัวหาร + รายการที่มา ---------- */
 function edDrillFinKpi(kpiKey){
   const d = edState();
-  const A = edAgg(d.data, d.monthFilter);
+  const A = edAgg(d.data, d.monthFilter, true);  // ★ exclude transfers
   const months = d.data.months || [];
   const nMonths = Math.max(1, d.monthFilter === "all" ? months.length : 1);
   const op = A.byAct.operating || { in:0, out:0 };
@@ -5335,7 +5356,7 @@ function edDrillFinKpi(kpiKey){
   // monthly breakdown (for burn rate)
   const monthlyOut = months.map(m => ({
     month: m.key,
-    out: d.data.transactions.filter(t => t.month === m.key).reduce((s,t) => s + t.out, 0)
+    out: edTxsInScope(d.data, m.key, true).reduce((s,t) => s + t.out, 0)  // ★ exclude transfers
   }));
 
   // 3 อันแรก = single value → route ไปที่ existing drill
@@ -5499,7 +5520,7 @@ function edRenderActivity(){
       label: lbls[k],
       backgroundColor: col[k],
       data: months.map(m=>{
-        const txs = data.transactions.filter(t=>t.month===m);
+        const txs = edTxsInScope(data, m, true);  // ★ exclude transfers
         const aKey = ({op:"operating",inv:"investing",fin:"financing"})[k];
         return txs.reduce((s,t)=> s + (t.activityKey===aKey ? (t.in - t.out) : 0), 0);
       })
@@ -5507,8 +5528,9 @@ function edRenderActivity(){
   });
 
   const totalNetByAct = {};
+  const _actScopeTxs = edTxsInScope(data, d.monthFilter, true);  // ★ exclude transfers
   for(const k of ["operating","investing","financing","other"]){
-    const tx = data.transactions.filter(t=>t.activityKey===k && (d.monthFilter==="all"||t.month===d.monthFilter));
+    const tx = _actScopeTxs.filter(t=>t.activityKey===k);
     totalNetByAct[k] = tx.reduce((s,t)=>s+t.in-t.out,0);
   }
 
@@ -5550,7 +5572,7 @@ function edRenderActivity(){
 /* ---------- Tab 3: Category ---------- */
 function edRenderCategory(){
   const d = edState();
-  const A = edAgg(d.data, d.monthFilter);
+  const A = edAgg(d.data, d.monthFilter, true);  // ★ exclude transfers
   const cats = Object.entries(A.byCat).map(([k,v])=>({ k, ...v, abs:Math.abs(v.net) })).sort((a,b)=>b.abs-a.abs);
   const top20 = cats.slice(0,20);
 
@@ -5784,15 +5806,40 @@ function edExportTxs(fmt){
 // stmtAcct state now in edState()
 function edStmtAcct(v){ edState().stmtAcct = v; edRenderStmt(); }
 
+/* MBark vs Benya — palette สำหรับงบกระแสเงินสด */
+function edStmtPalette(){
+  const isMbark = state.company === "mbark";
+  if(isMbark){
+    return {
+      actBg:"#eff6ff", actText:"#1e3a8a",
+      inBg:"#dbeafe",  inText:"#1e3a8a",  inSubBg:"#eff6ff", inTotalBg:"#bfdbfe", inRowTotalBg:"#dbeafe",
+      outBg:"#ffedd5", outText:"#9a3412", outSubBg:"#fff7ed", outTotalBg:"#fed7aa", outRowTotalBg:"#ffedd5",
+      netBg:"#dbeafe", netTotalBg:"#93c5fd", netAccent:"#1e3a8a",
+      openBg:"#f8fafc", openTotalBg:"#dbeafe", openCloseBg:"#bfdbfe",
+      netPosText:"#1e3a8a", netNegText:"#9a3412"
+    };
+  }
+  return {
+    actBg:"#eff6ff", actText:"#1e40af",
+    inBg:"#CCFBF1",  inText:"#0F766E",  inSubBg:"#F0FDFA", inTotalBg:"#99F6E4", inRowTotalBg:"#E0F2F1",
+    outBg:"#FCE7F3", outText:"#9D174D", outSubBg:"#FDF2F8", outTotalBg:"#FBCFE8", outRowTotalBg:"#E0F2F1",
+    netBg:"#DBEAFE", netTotalBg:"#93B9DD", netAccent:"#1e40af",
+    openBg:"#f8fafc", openTotalBg:"#dbeafe", openCloseBg:"#E0F2F1",
+    netPosText:"#0F766E", netNegText:"#9D174D"
+  };
+}
+
 function edRenderStmt(){
   const d = edState();
   const months = d.data.months.map(m=>m.key);
   const filterAcct = d.stmtAcct;
+  const C = edStmtPalette();  // ★ สีตามบริษัท
 
   // build per category × month grid (filtered by account if not "all")
   const cats = {};   // catKey → { in:[m], out:[m] }
   for(const t of d.data.transactions){
     if(filterAcct!=="all" && t.accountKey!==filterAcct) continue;
+    if(edIsTransfer(t)) continue;  // ★ ตัด "เงินโอนระหว่างบัญชี" ออก (ทำให้ยอดรับ/จ่ายเกินจริง)
     const k = t.category + "|" + t.activityKey;
     if(!cats[k]){
       cats[k] = { cat:t.category, act:t.activityKey, in:Array(months.length).fill(0), out:Array(months.length).fill(0) };
@@ -5840,14 +5887,14 @@ function edRenderStmt(){
         </select>
       </div>
       <div data-pdf-only="1" style="display:none;margin-bottom:10px">
-        <h3 style="margin:0;color:#1e40af">งบกระแสเงินสด — รายเดือน${filterAcct!=="all"?` · ${esc((d.data.accounts[filterAcct]&&d.data.accounts[filterAcct].bank)||'')} ${esc((d.data.accounts[filterAcct]&&d.data.accounts[filterAcct].no)||'')}`:" · รวมทุกบัญชี"}</h3>
+        <h3 style="margin:0;color:${C.actText}">งบกระแสเงินสด — รายเดือน${filterAcct!=="all"?` · ${esc((d.data.accounts[filterAcct]&&d.data.accounts[filterAcct].bank)||'')} ${esc((d.data.accounts[filterAcct]&&d.data.accounts[filterAcct].no)||'')}`:" · รวมทุกบัญชี"}</h3>
       </div>
       <div class="table-wrap" style="max-height:600px"><table>
-        <thead><tr><th>หมวด</th>${months.map(m=>`<th style="text-align:right">${esc(m)}</th>`).join("")}<th style="text-align:right;background:#dbeafe">รวม</th></tr></thead>
+        <thead><tr><th>หมวด</th>${months.map(m=>`<th style="text-align:right">${esc(m)}</th>`).join("")}<th style="text-align:right;background:${C.openTotalBg}">รวม</th></tr></thead>
         <tbody>
-          <tr style="background:#f8fafc;font-weight:700;cursor:pointer" title="คลิกดูยอดเปิดต้นงวดต่อบัญชี" onclick="edDrillOpenClose('opening')"><td>เงินสดต้นงวด</td>
+          <tr style="background:${C.openBg};font-weight:700;cursor:pointer" title="คลิกดูยอดเปิดต้นงวดต่อบัญชี" onclick="edDrillOpenClose('opening')"><td>เงินสดต้นงวด</td>
             ${openings.map((v,i)=>`<td style="text-align:right" onclick="event.stopPropagation();edDrillOpenCloseMonth('opening','${months[i]}')">${edFmt(v)}</td>`).join("")}
-            <td style="text-align:right;background:#dbeafe">${edFmt(openings[0])}</td></tr>
+            <td style="text-align:right;background:${C.openTotalBg}">${edFmt(openings[0])}</td></tr>
   `;
   const actLabels = { operating:"กระแสเงินสดจากกิจกรรมดำเนินงาน", investing:"กระแสเงินสดจากกิจกรรมลงทุน", financing:"กระแสเงินสดจากกิจกรรมจัดหาเงิน", other:"อื่น ๆ" };
   const actShort  = { operating:"กิจกรรมดำเนินงาน", investing:"กิจกรรมลงทุน", financing:"กิจกรรมจัดหาเงิน", other:"อื่น ๆ" };
@@ -5859,24 +5906,24 @@ function edRenderStmt(){
   for(const act of ["operating","investing","financing","other"]){
     if(!groups[act].length) continue;
     // หัวกิจกรรม
-    html += `<tr style="background:#eff6ff"><td colspan="${ncols}" style="font-weight:800;color:#1e40af;padding:9px 12px;font-size:13.5px">${actLabels[act]}</td></tr>`;
+    html += `<tr style="background:${C.actBg}"><td colspan="${ncols}" style="font-weight:800;color:${C.actText};padding:9px 12px;font-size:13.5px">${actLabels[act]}</td></tr>`;
 
     // ==== เงินสดรับ ====
     const inCats = groups[act].filter(c => c.in.some(v => v > 0))
       .sort((a,b) => sumArr(b.in) - sumArr(a.in));
     const inSub = Array(months.length).fill(0);
     if(inCats.length){
-      html += `<tr style="background:#CCFBF1"><td colspan="${ncols}" style="font-weight:700;color:#0F766E;padding:6px 12px;font-size:12.5px">เงินสดรับจาก${actShort[act]}</td></tr>`;
+      html += `<tr style="background:${C.inBg}"><td colspan="${ncols}" style="font-weight:700;color:${C.inText};padding:6px 12px;font-size:12.5px">เงินสดรับจาก${actShort[act]}</td></tr>`;
       for(const c of inCats){
         c.in.forEach((v,i) => inSub[i] += v);
         const total = sumArr(c.in);
         html += `<tr><td style="padding-left:24px;color:#0f172a">${esc(c.cat)}</td>` +
           c.in.map((v,i)=>`<td onclick="edDrillStmt(${dq(c.cat)},'${act}','${months[i]}','in')" style="text-align:right;cursor:pointer;color:${v>0?ED_COLORS.in:"var(--ink-3)"}" title="คลิกดูรายการ">${v>0?edFmt(v):"—"}</td>`).join("") +
-          `<td onclick="edDrillStmt(${dq(c.cat)},'${act}','all','in')" style="text-align:right;background:#E0F2F1;font-weight:700;cursor:pointer;color:${ED_COLORS.in}" title="คลิกดูรายการรวมทั้งปี">${edFmt(total)}</td></tr>`;
+          `<td onclick="edDrillStmt(${dq(c.cat)},'${act}','all','in')" style="text-align:right;background:${C.inRowTotalBg};font-weight:700;cursor:pointer;color:${ED_COLORS.in}" title="คลิกดูรายการรวมทั้งปี">${edFmt(total)}</td></tr>`;
       }
-      html += `<tr style="background:#F0FDFA;font-weight:700"><td style="padding-left:18px;color:#0F766E">รวมเงินสดรับ</td>` +
+      html += `<tr style="background:${C.inSubBg};font-weight:700"><td style="padding-left:18px;color:${C.inText}">รวมเงินสดรับ</td>` +
         inSub.map((v,i)=>`<td onclick="edDrillStmt(null,'${act}','${months[i]}','in')" style="text-align:right;cursor:pointer;color:${ED_COLORS.in}" title="คลิกดูที่มา">${edFmt(v)}</td>`).join("") +
-        `<td onclick="edDrillStmt(null,'${act}','all','in')" style="text-align:right;background:#99F6E4;cursor:pointer;color:${ED_COLORS.in}" title="คลิกดูที่มา">${edFmt(sumArr(inSub))}</td></tr>`;
+        `<td onclick="edDrillStmt(null,'${act}','all','in')" style="text-align:right;background:${C.inTotalBg};cursor:pointer;color:${ED_COLORS.in}" title="คลิกดูที่มา">${edFmt(sumArr(inSub))}</td></tr>`;
     }
 
     // ==== เงินสดจ่าย ====
@@ -5884,36 +5931,36 @@ function edRenderStmt(){
       .sort((a,b) => sumArr(b.out) - sumArr(a.out));
     const outSub = Array(months.length).fill(0);
     if(outCats.length){
-      html += `<tr style="background:#FCE7F3"><td colspan="${ncols}" style="font-weight:700;color:#9D174D;padding:6px 12px;font-size:12.5px">เงินสดจ่ายจาก${actShort[act]}</td></tr>`;
+      html += `<tr style="background:${C.outBg}"><td colspan="${ncols}" style="font-weight:700;color:${C.outText};padding:6px 12px;font-size:12.5px">เงินสดจ่ายจาก${actShort[act]}</td></tr>`;
       for(const c of outCats){
         c.out.forEach((v,i) => outSub[i] += v);
         const total = sumArr(c.out);
         html += `<tr><td style="padding-left:24px;color:#0f172a">${esc(c.cat)}</td>` +
           c.out.map((v,i)=>`<td onclick="edDrillStmt(${dq(c.cat)},'${act}','${months[i]}','out')" style="text-align:right;cursor:pointer;color:${v>0?ED_COLORS.out:"var(--ink-3)"}" title="คลิกดูรายการ">${v>0?edFmt(-v):"—"}</td>`).join("") +
-          `<td onclick="edDrillStmt(${dq(c.cat)},'${act}','all','out')" style="text-align:right;background:#E0F2F1;font-weight:700;cursor:pointer;color:${ED_COLORS.out}" title="คลิกดูรายการรวมทั้งปี">${edFmt(-total)}</td></tr>`;
+          `<td onclick="edDrillStmt(${dq(c.cat)},'${act}','all','out')" style="text-align:right;background:${C.outRowTotalBg};font-weight:700;cursor:pointer;color:${ED_COLORS.out}" title="คลิกดูรายการรวมทั้งปี">${edFmt(-total)}</td></tr>`;
       }
-      html += `<tr style="background:#FDF2F8;font-weight:700"><td style="padding-left:18px;color:#9D174D">รวมเงินสดจ่าย</td>` +
+      html += `<tr style="background:${C.outSubBg};font-weight:700"><td style="padding-left:18px;color:${C.outText}">รวมเงินสดจ่าย</td>` +
         outSub.map((v,i)=>`<td onclick="edDrillStmt(null,'${act}','${months[i]}','out')" style="text-align:right;cursor:pointer;color:${ED_COLORS.out}" title="คลิกดูที่มา">${edFmt(-v)}</td>`).join("") +
-        `<td onclick="edDrillStmt(null,'${act}','all','out')" style="text-align:right;background:#FBCFE8;cursor:pointer;color:${ED_COLORS.out}" title="คลิกดูที่มา">${edFmt(-sumArr(outSub))}</td></tr>`;
+        `<td onclick="edDrillStmt(null,'${act}','all','out')" style="text-align:right;background:${C.outTotalBg};cursor:pointer;color:${ED_COLORS.out}" title="คลิกดูที่มา">${edFmt(-sumArr(outSub))}</td></tr>`;
     }
 
     // ==== สุทธิของกิจกรรม ====
     const netByMonth = inSub.map((v,i) => v - outSub[i]);
     const netTotal = sumArr(netByMonth);
-    html += `<tr style="background:#DBEAFE;font-weight:800;border-top:2px solid #93B9DD"><td style="color:#1e40af">กระแสเงินสดสุทธิจาก${actShort[act]}</td>` +
+    html += `<tr style="background:${C.netBg};font-weight:800;border-top:2px solid ${C.netTotalBg}"><td style="color:${C.netAccent}">กระแสเงินสดสุทธิจาก${actShort[act]}</td>` +
       netByMonth.map((v,i)=>`<td onclick="edDrillStmt(null,'${act}','${months[i]}',null)" style="text-align:right;cursor:pointer;color:${v>=0?ED_COLORS.in:ED_COLORS.out}" title="คลิกดูที่มา">${edFmt(v)}</td>`).join("") +
-      `<td onclick="edDrillStmt(null,'${act}','all',null)" style="text-align:right;background:#93B9DD;cursor:pointer;color:${netTotal>=0?'#0F766E':'#9D174D'}" title="คลิกดูที่มา">${edFmt(netTotal)}</td></tr>`;
+      `<td onclick="edDrillStmt(null,'${act}','all',null)" style="text-align:right;background:${C.netTotalBg};cursor:pointer;color:${netTotal>=0?C.netPosText:C.netNegText}" title="คลิกดูที่มา">${edFmt(netTotal)}</td></tr>`;
   }
   // net change row
   const netChange = months.map((m,i)=> closings[i]-openings[i]);
   const totalNet = netChange.reduce((s,v)=>s+v,0);
   html += `
-    <tr style="background:#DBEAFE;font-weight:800;border-top:2px solid #93B9DD"><td style="color:#1e40af">เปลี่ยนแปลงเงินสดสุทธิ</td>` +
+    <tr style="background:${C.netBg};font-weight:800;border-top:2px solid ${C.netTotalBg}"><td style="color:${C.netAccent}">เปลี่ยนแปลงเงินสดสุทธิ</td>` +
       netChange.map((v,i)=>`<td onclick="edDrillStmt(null,null,'${months[i]}',null)" style="text-align:right;cursor:pointer;color:${v>=0?ED_COLORS.in:ED_COLORS.out}" title="คลิกดูที่มา">${edFmt(v)}</td>`).join("") +
-      `<td onclick="edDrillStmt(null,null,'all',null)" style="text-align:right;background:#93B9DD;cursor:pointer;color:${totalNet>=0?'#0F766E':'#9D174D'}" title="คลิกดูที่มา">${edFmt(totalNet)}</td></tr>
-    <tr style="background:#F8FAFC;font-weight:700;cursor:pointer" title="คลิกดูยอดปิดงวดต่อบัญชี" onclick="edDrillOpenClose('closing')"><td>เงินสดปลายงวด</td>` +
+      `<td onclick="edDrillStmt(null,null,'all',null)" style="text-align:right;background:${C.netTotalBg};cursor:pointer;color:${totalNet>=0?C.netPosText:C.netNegText}" title="คลิกดูที่มา">${edFmt(totalNet)}</td></tr>
+    <tr style="background:${C.openBg};font-weight:700;cursor:pointer" title="คลิกดูยอดปิดงวดต่อบัญชี" onclick="edDrillOpenClose('closing')"><td>เงินสดปลายงวด</td>` +
       closings.map((v,i)=>`<td style="text-align:right" onclick="event.stopPropagation();edDrillOpenCloseMonth('closing','${months[i]}')">${edFmt(v)}</td>`).join("") +
-      `<td style="text-align:right;background:#E0F2F1">${edFmt(closings[closings.length-1])}</td></tr>
+      `<td style="text-align:right;background:${C.openCloseBg}">${edFmt(closings[closings.length-1])}</td></tr>
   </tbody></table></div>
   </div>`;
 
@@ -5924,7 +5971,7 @@ function edRenderStmt(){
 /* generic drill: filter ตาม cat/act/month/dir แล้วแสดง modal รายการต้นทาง */
 function edDrillStmt(catName, actKey, monthKey, dir){
   const d = edState();
-  let txs = d.data.transactions.slice();
+  let txs = d.data.transactions.filter(t => !edIsTransfer(t));  // ★ exclude transfers (drill จาก Statement)
   if(catName) txs = txs.filter(t => t.category === catName);
   if(actKey)  txs = txs.filter(t => t.activityKey === actKey);
   if(monthKey && monthKey !== "all") txs = txs.filter(t => t.month === monthKey);
@@ -5944,7 +5991,7 @@ function edDrillStmt(catName, actKey, monthKey, dir){
 /* Summary KPI drill — รับรวม / จ่ายรวม / สุทธิ */
 function edDrillSummary(kind){
   const d = edState();
-  const A = edAgg(d.data, d.monthFilter);
+  const A = edAgg(d.data, d.monthFilter, true);  // ★ exclude transfers (drill จาก Summary)
   let txs = A.txs;
   let title = "รายการทั้งหมด";
   if(kind === "in"){  txs = txs.filter(t => t.in  > 0); title = "เงินสดรับรวม"; }
@@ -5957,7 +6004,7 @@ function edDrillSummary(kind){
 /* Activity sub-KPI drill — รับ/จ่ายของกิจกรรมหนึ่งๆ */
 function edDrillActivityIO(actKey, dir){
   const d = edState();
-  const A = edAgg(d.data, d.monthFilter);
+  const A = edAgg(d.data, d.monthFilter, true);  // ★ exclude transfers
   let txs = A.txs.filter(t => t.activityKey === actKey);
   if(dir === "in")  txs = txs.filter(t => t.in  > 0);
   if(dir === "out") txs = txs.filter(t => t.out > 0);
@@ -6029,7 +6076,7 @@ function edDrillOpenClose(kind){
 
 function edDrillCat(cat, dir){
   const d = edState();
-  const A = edAgg(d.data, d.monthFilter);
+  const A = edAgg(d.data, d.monthFilter, true);  // ★ exclude transfers
   let txs = A.txs.filter(t=>t.category===cat);
   if(dir==="in")  txs = txs.filter(t=>t.in>0);
   if(dir==="out") txs = txs.filter(t=>t.out>0);
@@ -6037,7 +6084,7 @@ function edDrillCat(cat, dir){
 }
 function edDrillActivity(actKey){
   const d = edState();
-  const A = edAgg(d.data, d.monthFilter);
+  const A = edAgg(d.data, d.monthFilter, true);  // ★ exclude transfers
   const txs = A.txs.filter(t=>t.activityKey===actKey);
   edShowDrillModal("กิจกรรม: "+edActivityLabel(actKey), txs);
 }

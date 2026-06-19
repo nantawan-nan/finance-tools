@@ -8220,6 +8220,79 @@ function cffCompute(){
   };
 }
 
+/* local-date ISO (กัน timezone shift ของ toISOString ใน TH UTC+7) */
+function cffISO(x){ const p=n=>String(n).padStart(2,"0"); return `${x.getFullYear()}-${p(x.getMonth()+1)}-${p(x.getDate())}`; }
+/* map รหัสหมวดค่าใช้จ่ายประจำ → ป้ายไทย (ใช้จัดกลุ่มใน pivot) */
+function cffRecurCat(c){
+  return ({ payroll:"เงินเดือน", rent:"ค่าเช่า", utility:"สาธารณูปโภค", subscription:"Subscription",
+    insurance:"ประกัน", provident_fund:"กองทุนสำรอง", social_security:"ประกันสังคม",
+    tax:"ภาษี", loan:"สินเชื่อ", other:"ค่าใช้จ่ายประจำอื่น ๆ" })[c] || (c || "ค่าใช้จ่ายประจำ");
+}
+/* ★ รายการจ่ายของหน้าพนักงาน = AP (ที่กรอกวันชำระแล้ว) + ค่าใช้จ่ายประจำ (ผูกตามวันจ่าย day_of_month) */
+function cffStaffPayments(dt, d){
+  const payments = [];
+  // 1) AP ที่ จนท. กรอก planned_payment_date แล้วเท่านั้น (ยังไม่กรอก = ยังไม่ตัดสินใจจ่าย)
+  for(const ap of dt.aps){
+    if(Number(ap.amount_outstanding||0) <= 0) continue;
+    if(!ap.planned_payment_date) continue;
+    payments.push({
+      type:"ap", category: ap.category || "เจ้าหนี้การค้า",
+      vendor: (ap.vendors&&ap.vendors.name) || ap.vendor_name_raw || "—",
+      detail: ap.invoice_no, due_date: ap.planned_payment_date, original_due: ap.due_date,
+      amount: Number(ap.amount_outstanding||0),
+      remark: ap.remark || "", internalNote: ap.internal_note || ""
+    });
+  }
+  // 2) ค่าใช้จ่ายประจำ → ผูกตามวันจ่าย (day_of_month) ของแต่ละเดือนในช่วง
+  //    window = ต้นเดือนนี้ → สิ้นเดือนถัดไป (ขยายถึง staffTo ถ้าผู้ใช้เลือกช่วงไกลกว่า)
+  const today = new Date(dt.todayISO);
+  const winStart = new Date(today.getFullYear(), today.getMonth(), 1);
+  let winEnd = new Date(today.getFullYear(), today.getMonth()+2, 0); // สิ้นเดือนถัดไป
+  if(d && d.staffTo){ const st = new Date(d.staffTo); if(st > winEnd) winEnd = st; }
+  const winStartISO = cffISO(winStart), winEndISO = cffISO(winEnd);
+  // dedupe กับงวดที่ materialise แล้ว (recurring_occurrences) กันนับซ้ำ
+  const occKeys = new Set((dt.recOccs||[]).map(r => `${r.due_date}|${(r.recurring_expenses&&r.recurring_expenses.name)||""}`));
+  // 2a) งวดที่ materialise แล้ว และอยู่ในช่วง
+  for(const r of (dt.recOccs||[])){
+    if(Number(r.expected_amount||0) <= 0) continue;
+    if(r.due_date < winStartISO || r.due_date > winEndISO) continue;
+    payments.push({
+      type:"recurring", category: cffRecurCat(r.recurring_expenses&&r.recurring_expenses.category),
+      vendor: (r.recurring_expenses&&r.recurring_expenses.name) || "ค่าใช้จ่ายประจำ",
+      detail:"", due_date: r.due_date, original_due: r.due_date,
+      amount: Number(r.expected_amount||0), remark:"", internalNote:"ค่าใช้จ่ายประจำ"
+    });
+  }
+  // 2b) คำนวณจาก recurring_expenses (รายเดือน + day_of_month) ที่ยังไม่ materialise
+  for(const r of (dt.recurring||[])){
+    if(r.frequency !== "monthly" || !r.day_of_month) continue;
+    for(let m = new Date(winStart); m <= winEnd; m.setMonth(m.getMonth()+1)){
+      const lastDay = new Date(m.getFullYear(), m.getMonth()+1, 0).getDate();
+      const dom = r.day_of_month === -1 ? lastDay : Math.min(r.day_of_month, lastDay);
+      const k = cffISO(new Date(m.getFullYear(), m.getMonth(), dom));
+      if(k < winStartISO || k > winEndISO) continue;
+      if(occKeys.has(`${k}|${r.name}`)) continue;  // ซ้ำกับงวดจริง
+      payments.push({
+        type:"recurring", category: cffRecurCat(r.category),
+        vendor: r.name, detail:"", due_date: k, original_due: k,
+        amount: Number(r.expected_amount||0), remark:"", internalNote:"ค่าใช้จ่ายประจำ"
+      });
+    }
+  }
+  return payments;
+}
+
+/* เรียงรายการในหมวดเดียวกัน: ผู้ขายเดียวกันอยู่ติดกัน → แล้วตามวันครบกำหนด → เลขอ้างอิง */
+function cffItemCmp(a,b){
+  const v = (a.vendor||"").localeCompare(b.vendor||"", "th");
+  if(v) return v;
+  const t = (a.type||"").localeCompare(b.type||"");
+  if(t) return t;
+  const d = (a.original_due||"").localeCompare(b.original_due||"");
+  if(d) return d;
+  return (a.detail||"").localeCompare(b.detail||"", "th");
+}
+
 /* router: staff (daily LINE) หรือ executive (30d) */
 async function renderToolCashflowForecast(){
   const d = cffGet();
@@ -8247,24 +8320,9 @@ async function renderToolCashflowStaff(){
   const dt = d.data;
   if(!dt){ return; }
 
-  // ★ ค่าใช้จ่ายถึงกำหนดชำระ = AP ที่ จนท. กรอก planned_payment_date แล้วเท่านั้น
-  //   (ผูกจากหน้า AP — ถ้ายังไม่กรอก = ยังไม่ตัดสินใจจะจ่าย → ไม่นับ)
+  // ★ ค่าใช้จ่ายถึงกำหนดชำระ = AP ที่ จนท. กรอก planned_payment_date + ค่าใช้จ่ายประจำ (ผูกตามวันจ่าย)
   const todayISO = dt.todayISO;
-  const payments = [];
-  for(const ap of dt.aps){
-    if(Number(ap.amount_outstanding||0) <= 0) continue;
-    if(!ap.planned_payment_date) continue;   // ★ ต้องมีวันชำระเงิน
-    payments.push({
-      type:"ap", category: ap.category || "เจ้าหนี้การค้า",
-      vendor: (ap.vendors&&ap.vendors.name) || ap.vendor_name_raw || "—",
-      detail: ap.invoice_no, due_date: ap.planned_payment_date, original_due: ap.due_date,
-      amount: Number(ap.amount_outstanding||0),
-      // ★ เก็บทั้ง remark + internal_note (เหมือนหน้า AP) — รวมแสดงในตาราง
-      remark: ap.remark || "",
-      internalNote: ap.internal_note || ""
-    });
-  }
-  // ★ recurring_occurrences ไม่นับเข้าหน้าพนักงาน — ยึดเฉพาะที่ จนท. กรอก planned_payment_date
+  const payments = cffStaffPayments(dt, d);
 
   // unique dates สำหรับ chip filter
   const upcomingDates = Array.from(new Set(payments.map(p => p.due_date))).sort();
@@ -8314,6 +8372,7 @@ async function renderToolCashflowStaff(){
     byCat[p.category].total += p.amount;
     byCat[p.category].items.push(p);
   }
+  for(const c of Object.values(byCat)) c.items.sort(cffItemCmp);  // ★ ผู้ขายเดียวกันอยู่ติดกัน
   const cats = Object.entries(byCat).sort((a,b) => b[1].total - a[1].total);
 
   const fmtDate = (iso) => new Date(iso).toLocaleDateString("th-TH", { day:"2-digit", month:"short" });
@@ -8671,21 +8730,8 @@ function cffOpenSnapshotStaff(){
   const co = COMPANIES.find(c=>c.id===state.company);
   const todayISO = dt.todayISO;
 
-  // ★ ใช้ logic เดียวกับ renderToolCashflowStaff
-  const payments = [];
-  for(const ap of dt.aps){
-    if(Number(ap.amount_outstanding||0) <= 0) continue;
-    if(!ap.planned_payment_date) continue;
-    payments.push({
-      type:"ap", category: ap.category || "เจ้าหนี้การค้า",
-      vendor: (ap.vendors&&ap.vendors.name) || ap.vendor_name_raw || "—",
-      detail: ap.invoice_no, due_date: ap.planned_payment_date, original_due: ap.due_date,
-      amount: Number(ap.amount_outstanding||0),
-      // ★ รวม remark + internal_note ทั้งคู่ (เหมือนหน้า AP) แสดงคำอธิบายครบ
-      remark: ap.remark || "",
-      internalNote: ap.internal_note || ""
-    });
-  }
+  // ★ ใช้ logic เดียวกับ renderToolCashflowStaff (AP + ค่าใช้จ่ายประจำ)
+  const payments = cffStaffPayments(dt, d);
   let filtered = payments;
   if(d.staffMode === "day" && d.staffDate){
     filtered = payments.filter(p => p.due_date === d.staffDate);
@@ -8713,6 +8759,7 @@ function cffOpenSnapshotStaff(){
     byCat[p.category].total += p.amount;
     byCat[p.category].items.push(p);
   }
+  for(const c of Object.values(byCat)) c.items.sort(cffItemCmp);  // ★ ผู้ขายเดียวกันอยู่ติดกัน
   const cats = Object.entries(byCat).sort((a,b) => b[1].total - a[1].total);
 
   // bank breakdown (attribute payments to largest bank)

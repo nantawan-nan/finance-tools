@@ -4182,13 +4182,12 @@ async function edSyncFromCloud(){
     if(!cid) return;
     const { data:rows, error } = await sb.from("exec_cashflow")
       .select("data, file_name, updated_at").eq("company_id", cid).limit(1);
-    if(error || !rows || !rows.length) return;
-    const remote = rows[0];
+    if(error){ console.warn("[ed] cloud fetch error:", error); return; }
     const local = edState();
-    const localTs  = local.savedAt ? new Date(local.savedAt).getTime() : 0;
-    const remoteTs = remote.updated_at ? new Date(remote.updated_at).getTime() : 0;
-    // remote ใหม่กว่า → load มา
-    if(remoteTs > localTs + 1000){
+
+    // CLOUD-FIRST: ถ้า server มีข้อมูล → ใช้ของ server เสมอ (single source of truth)
+    if(rows && rows.length){
+      const remote = rows[0];
       const dataObj = remote.data;
       if(dataObj && dataObj.transactions){
         dataObj.transactions.forEach(t => { if(typeof t.date === "string") t.date = new Date(t.date); });
@@ -4196,7 +4195,8 @@ async function edSyncFromCloud(){
           if(typeof it.date === "string") it.date = new Date(it.date);
         })));
       }
-      edMigrateAccounts(dataObj);   // ★ merge duplicate bank accounts ก่อนใช้
+      edMigrateAccounts(dataObj);
+      const changed = !local.savedAt || local.savedAt !== remote.updated_at;
       local.data = dataObj;
       local.file = remote.file_name;
       local.savedAt = remote.updated_at;
@@ -4205,7 +4205,11 @@ async function edSyncFromCloud(){
         monthFilter: local.monthFilter, explorer: local.explorer, stmtAcct: local.stmtAcct,
         savedAt: local.savedAt
       })); }catch(e){}
-      if(state.tool === "execdash" && state.company === co) renderToolExecDash();
+      if(changed && state.tool === "execdash" && state.company === co) renderToolExecDash();
+    } else if(local.data){
+      // CLOUD ว่าง แต่ local มี → push ขึ้น cloud (recovery กรณี first upload fail)
+      console.log("[ed] cloud empty + local has data → pushing");
+      edSaveCloud();
     }
   }catch(e){ console.warn("edSyncFromCloud:", e); }
 }

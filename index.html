@@ -6058,6 +6058,19 @@ function apoClearFilter(){
   renderToolApOutstanding();
 }
 
+/* set category inline */
+async function apoSetCategory(id, val){
+  try{
+    const { error } = await sb.from("ap_invoices")
+      .update({ category: val, updated_by: AUTH.user?AUTH.user.id:null })
+      .eq("id", id);
+    if(error) throw error;
+    const d = apoGet();
+    const row = (d.invoices||[]).find(r => r.id === id);
+    if(row) row.category = val;
+  }catch(e){ alert("เปลี่ยนประเภทไม่สำเร็จ: " + fopErr(e)); state.apo[state.company] = null; renderToolApOutstanding(); }
+}
+
 /* set planned_payment_date inline */
 async function apoSetPlannedDate(id, val){
   try{
@@ -6316,7 +6329,9 @@ async function renderToolApOutstanding(){
               <td style="text-align:right">${fopFmt(r.amount_total)}</td>
               <td style="text-align:right;font-weight:700;color:var(--out-ink)">${fopFmt(r.amount_outstanding)}</td>
               <td style="font-size:11.5px;font-weight:600;color:${apoAgeColor(r.age_bucket)};white-space:nowrap">${esc(r.age_bucket)}</td>
-              <td style="font-size:11.5px;color:var(--ink-2)">${esc(r.category||"—")}</td>
+              <td>${canWrite ? `<select onchange="apoSetCategory('${r.id}', this.value)" style="font-size:11px;padding:3px 6px;border:1px solid var(--line);border-radius:6px;background:#fff;font-family:inherit;min-width:140px">
+                ${APO_CATEGORIES.map(c => `<option value="${esc(c)}" ${r.category===c?'selected':''}>${esc(c)}</option>`).join("")}
+              </select>` : `<span style="font-size:11.5px;color:var(--ink-2)">${esc(r.category||"—")}</span>`}</td>
               <td>${statusBadge}</td>
               ${canWrite?`<td style="white-space:nowrap;text-align:center">
                 <button class="btn ghost btn sm" onclick="apoOpenPay('${r.id}',${Number(r.amount_outstanding)})" title="บันทึกการจ่าย">จ่าย</button>

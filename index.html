@@ -6058,6 +6058,20 @@ function apoClearFilter(){
   renderToolApOutstanding();
 }
 
+/* set due_date inline */
+async function apoSetDueDate(id, val){
+  if(!val){ alert("วันครบกำหนดต้องระบุ"); state.apo[state.company]=null; renderToolApOutstanding(); return; }
+  try{
+    const { error } = await sb.from("ap_invoices")
+      .update({ due_date: val, updated_by: AUTH.user?AUTH.user.id:null })
+      .eq("id", id);
+    if(error) throw error;
+    const d = apoGet();
+    const row = (d.invoices||[]).find(r => r.id === id);
+    if(row) row.due_date = val;
+  }catch(e){ alert("แก้วันครบกำหนดไม่สำเร็จ: " + fopErr(e)); state.apo[state.company] = null; renderToolApOutstanding(); }
+}
+
 /* set category inline */
 async function apoSetCategory(id, val){
   try{
@@ -6324,7 +6338,7 @@ async function renderToolApOutstanding(){
               <td>${esc(r._vendor)}</td>
               <td style="font-size:11px;color:var(--ink-2);max-width:280px;white-space:normal" title="${esc(desc)}">${esc(desc.length>80?desc.slice(0,80)+"…":desc)}${hasNote?' <span style="color:var(--in-ink);font-weight:700">✎</span>':''}</td>
               <td style="font-size:12px">${fopDate(r.invoice_date)}</td>
-              <td style="font-size:12px">${fopDate(r.due_date)}</td>
+              <td>${canWrite ? `<input type="date" value="${esc(r.due_date||'')}" onchange="apoSetDueDate('${r.id}', this.value)" style="font-size:11.5px;padding:3px 6px;border:1px solid var(--line);border-radius:6px;background:#fff;color:var(--ink);font-family:inherit;width:130px">` : `<span style="font-size:12px">${fopDate(r.due_date)}</span>`}</td>
               <td>${canWrite ? `<input type="date" value="${esc(r.planned_payment_date||'')}" onchange="apoSetPlannedDate('${r.id}', this.value)" style="font-size:11.5px;padding:3px 6px;border:1px solid ${r.planned_payment_date?'var(--in)':'var(--line)'};border-radius:6px;background:${r.planned_payment_date?'var(--in-soft)':'#fff'};color:var(--ink);font-family:inherit;width:130px">` : (r.planned_payment_date ? fopDate(r.planned_payment_date) : '<span style="color:var(--ink-3)">—</span>')}</td>
               <td style="text-align:right">${fopFmt(r.amount_total)}</td>
               <td style="text-align:right;font-weight:700;color:var(--out-ink)">${fopFmt(r.amount_outstanding)}</td>
@@ -7293,15 +7307,19 @@ function cffGet(){
   if(!state.cff[state.company]){
     state.cff[state.company] = {
       data:null, busy:false,
-      viewMode: 'staff',             // 'staff' = daily LINE report, 'executive' = 30d forecast
-      staffDate: 'all',              // 'all' | 'YYYY-MM-DD'
+      viewMode: 'staff',                     // 'staff' | 'executive'
+      staffMode: 'all',                      // 'all' | 'day' | 'range'
+      staffDate: '',                         // 'YYYY-MM-DD' (mode='day')
+      staffFrom: '', staffTo: '',            // range
       horizon: 30, customFrom: null, customTo: null, snapshot: false
     };
   }
   return state.cff[state.company];
 }
 function cffSetView(v){ cffGet().viewMode = v; renderToolCashflowForecast(); }
-function cffSetStaffDate(d){ cffGet().staffDate = d; renderToolCashflowForecast(); }
+function cffSetStaffDay(dd){ const d=cffGet(); d.staffMode='day'; d.staffDate=dd; renderToolCashflowForecast(); }
+function cffSetStaffAll(){ const d=cffGet(); d.staffMode='all'; d.staffDate=''; d.staffFrom=''; d.staffTo=''; renderToolCashflowForecast(); }
+function cffSetStaffRange(from, to){ const d=cffGet(); d.staffMode='range'; d.staffFrom=from||''; d.staffTo=to||''; renderToolCashflowForecast(); }
 /* bank logo: ใช้ไฟล์ local ใน logos bank/ ก่อน → fallback Clearbit → fallback bank code text */
 function cffBankLogo(bankCode){
   const code = String(bankCode||"").toUpperCase();
@@ -7535,22 +7553,22 @@ async function renderToolCashflowStaff(){
   const dt = d.data;
   if(!dt){ return; }
 
-  // กลุ่ม payments ทั้งหมด (ap+recurring occurrences) ใน 90 วันข้างหน้า
+  // ★ ค่าใช้จ่ายถึงกำหนดชำระ = AP ที่ จนท. กรอก planned_payment_date แล้วเท่านั้น
+  //   (ผูกจากหน้า AP — ถ้ายังไม่กรอก = ยังไม่ตัดสินใจจะจ่าย → ไม่นับ)
   const todayISO = dt.todayISO;
-  const horizon = new Date(Date.now()+90*86400000).toISOString().slice(0,10);
   const payments = [];
   for(const ap of dt.aps){
     if(Number(ap.amount_outstanding||0) <= 0) continue;
-    const due = ap.due_date < todayISO ? todayISO : ap.due_date;   // overdue → today bucket
+    if(!ap.planned_payment_date) continue;   // ★ ต้องมีวันชำระเงิน
     payments.push({
       type:"ap", category: ap.category || "เจ้าหนี้การค้า",
       vendor: (ap.vendors&&ap.vendors.name) || ap.vendor_name_raw || "—",
-      detail: ap.invoice_no, due_date: due, original_due: ap.due_date,
-      amount: Number(ap.amount_outstanding||0), remark: ap.remark
+      detail: ap.invoice_no, due_date: ap.planned_payment_date, original_due: ap.due_date,
+      amount: Number(ap.amount_outstanding||0), remark: ap.internal_note || ap.remark
     });
   }
+  // recurring occurrences ใช้ due_date เป็น planned (เพราะเป็น forecast)
   for(const r of (dt.recOccs||[])){
-    if(r.due_date > horizon) continue;
     payments.push({
       type:"recurring", category: (r.recurring_expenses&&r.recurring_expenses.category) || "other",
       vendor: (r.recurring_expenses&&r.recurring_expenses.name) || "—",
@@ -7559,12 +7577,18 @@ async function renderToolCashflowStaff(){
     });
   }
 
-  // unique dates สำหรับ filter pills
+  // unique dates สำหรับ chip filter
   const upcomingDates = Array.from(new Set(payments.map(p => p.due_date))).sort();
 
-  // apply filter
-  const f = d.staffDate || "all";
-  const filtered = f === "all" ? payments : payments.filter(p => p.due_date === f);
+  // apply filter ตาม staffMode
+  let filtered = payments;
+  if(d.staffMode === "day" && d.staffDate){
+    filtered = payments.filter(p => p.due_date === d.staffDate);
+  } else if(d.staffMode === "range" && (d.staffFrom || d.staffTo)){
+    const from = d.staffFrom || "0000-01-01";
+    const to   = d.staffTo   || "9999-12-31";
+    filtered = payments.filter(p => p.due_date >= from && p.due_date <= to);
+  }
   const totalDue = filtered.reduce((s,p) => s + p.amount, 0);
 
   // opening cash = ยอดเงินคงเหลือใช้ได้ทั้งหมด
@@ -7607,11 +7631,15 @@ async function renderToolCashflowStaff(){
   const fmt = (n) => "฿" + Math.abs(Number(n||0)).toLocaleString("th-TH", { minimumFractionDigits:2, maximumFractionDigits:2 });
   const fmtParen = (n) => Number(n||0) < 0 ? "(" + fmt(n) + ")" : fmt(n);
 
+  const periodLabel = d.staffMode === "day" ? fmtDate(d.staffDate)
+                    : d.staffMode === "range" ? `${d.staffFrom?fmtDate(d.staffFrom):'?'} → ${d.staffTo?fmtDate(d.staffTo):'?'}`
+                    : (upcomingDates[0] ? `ทั้งหมด · ${fmtDate(upcomingDates[0])}–${fmtDate(upcomingDates[upcomingDates.length-1])}` : 'ทั้งหมด');
+
   main.innerHTML = `
     <div class="page-head" style="display:flex;justify-content:space-between;align-items:flex-end;gap:14px;flex-wrap:wrap">
       <div>
         <h1>${esc(t.name)} <span class="badge">${esc(co.name)}</span></h1>
-        <div class="sub">ประมาณการรายรับ-รายจ่าย · รอบจ่ายวันที่ ${f==='all'?(upcomingDates[0]?fmtDate(upcomingDates[0]):'-'):fmtDate(f)} · ยอดธนาคาร ณ ${fmtDate(todayISO)}</div>
+        <div class="sub">ประมาณการรายรับ-รายจ่าย · ${esc(periodLabel)} · ยอดธนาคาร ณ ${fmtDate(todayISO)}</div>
       </div>
       <div style="display:flex;gap:6px;align-items:center">
         <div class="cf-chips" style="background:rgba(var(--brand-rgb),.08);padding:3px;border-radius:9px">
@@ -7621,15 +7649,23 @@ async function renderToolCashflowStaff(){
       </div>
     </div>
 
-    <!-- filter pills: วันชำระเงิน -->
+    <!-- filter: วันชำระเงิน (chips ราย day + range picker) -->
     <div class="card" style="padding:13px 16px;margin-bottom:16px">
       <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
         <span style="font-size:12px;font-weight:700;color:var(--ink-2);display:inline-flex;align-items:center;gap:6px"><i data-lucide="calendar-clock" style="width:15px;height:15px;color:var(--brand)"></i>วันชำระเงิน</span>
         <div class="cf-chips">
-          <button class="${f==='all'?'active':''}" onclick="cffSetStaffDate('all')">ทั้งหมด</button>
-          ${upcomingDates.slice(0,12).map(dd => `<button class="${f===dd?'active':''}" onclick="cffSetStaffDate('${dd}')">${esc(fmtDate(dd))}</button>`).join("")}
+          <button class="${d.staffMode==='all'?'active':''}" onclick="cffSetStaffAll()">ทั้งหมด</button>
+          ${upcomingDates.slice(0,8).map(dd => `<button class="${(d.staffMode==='day'&&d.staffDate===dd)?'active':''}" onclick="cffSetStaffDay('${dd}')">${esc(fmtDate(dd))}</button>`).join("")}
+        </div>
+        <div style="display:flex;align-items:center;gap:6px;margin-left:auto;padding-left:12px;border-left:1px solid var(--glass-border)">
+          <span style="font-size:11.5px;color:var(--ink-3);font-weight:600">ช่วง:</span>
+          <input type="date" id="cffStaffFrom" value="${esc(d.staffFrom||'')}" class="input" style="font-size:11.5px;padding:5px 8px;min-width:140px">
+          <span style="color:var(--ink-3)">→</span>
+          <input type="date" id="cffStaffTo" value="${esc(d.staffTo||'')}" class="input" style="font-size:11.5px;padding:5px 8px;min-width:140px">
+          <button class="btn btn sm" onclick="cffSetStaffRange(document.getElementById('cffStaffFrom').value, document.getElementById('cffStaffTo').value)">ใช้ช่วง</button>
         </div>
       </div>
+      ${payments.length === 0 ? `<div style="margin-top:8px;font-size:11.5px;color:var(--warn-ink);background:var(--warn-soft);padding:8px 12px;border-radius:7px">⚠ ยังไม่มี AP ที่กรอก <b>วันชำระเงิน</b> — ไปกรอกที่หน้า AP Outstanding ก่อน (รายการที่ยังไม่กรอกจะไม่นับเข้าค่าใช้จ่ายถึงกำหนด)</div>` : ''}
     </div>
 
     <!-- KPI 5 cards -->
@@ -7682,7 +7718,7 @@ async function renderToolCashflowStaff(){
     <!-- Pivot: ค่าใช้จ่ายถึงกำหนดชำระ แยกตามหมวด -->
     <div class="card">
       <h3><i data-lucide="list-tree"></i>ค่าใช้จ่ายถึงกำหนดชำระ</h3>
-      <div class="note">แยกตามหมวด · ${f==='all'?'ทุกวัน':'วันที่ '+fmtDate(f)}</div>
+      <div class="note">แยกตามหมวด · ${esc(periodLabel)}</div>
       ${cats.length === 0 ? `<div class="empty">ไม่มีรายการ</div>` : `
       <div class="table-wrap" style="margin-top:4px">
         <table>

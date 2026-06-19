@@ -8673,7 +8673,10 @@ function cffOpenSnapshotStaff(){
       type:"ap", category: ap.category || "เจ้าหนี้การค้า",
       vendor: (ap.vendors&&ap.vendors.name) || ap.vendor_name_raw || "—",
       detail: ap.invoice_no, due_date: ap.planned_payment_date, original_due: ap.due_date,
-      amount: Number(ap.amount_outstanding||0)
+      amount: Number(ap.amount_outstanding||0),
+      // ★ รวม remark + internal_note ทั้งคู่ (เหมือนหน้า AP) แสดงคำอธิบายครบ
+      remark: ap.remark || "",
+      internalNote: ap.internal_note || ""
     });
   }
   let filtered = payments;
@@ -8782,14 +8785,19 @@ function cffOpenSnapshotStaff(){
             <div style="font-size:13px;font-weight:700;color:var(--brand-dark);margin-bottom:8px;display:flex;align-items:center;gap:6px">รายละเอียดประเภทรายจ่าย</div>
             <table style="width:100%;border-collapse:collapse;font-size:11.5px">
               <thead><tr style="background:#f8fafc">
-                <th style="text-align:left;padding:7px 10px;border-bottom:1px solid #cbd5e1;color:#475569">ประเภทรายจ่าย</th>
+                <th style="text-align:left;padding:7px 10px;border-bottom:1px solid #cbd5e1;color:#475569">ชื่อเจ้าหนี้ / คำอธิบายรายการ</th>
                 <th style="text-align:left;padding:7px 10px;border-bottom:1px solid #cbd5e1;color:#475569">ครบกำหนด</th>
                 <th style="text-align:right;padding:7px 10px;border-bottom:1px solid #cbd5e1;color:#475569">จำนวน (บาท)</th>
               </tr></thead>
               <tbody>
                 ${cats.map(([cat,info]) => `
                   <tr style="background:rgba(var(--brand-rgb),.06)"><td style="padding:6px 10px;font-weight:700;color:var(--brand-dark)" colspan="2">${esc(cat)}</td><td style="padding:6px 10px;text-align:right;font-weight:700;color:var(--out-ink)">${info.total.toLocaleString("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2})}</td></tr>
-                  ${info.items.map(p => `<tr><td style="padding:5px 10px 5px 22px;color:#475569">${esc(p.vendor)}${p.detail?` / ${esc(p.detail)}`:''}</td><td style="padding:5px 10px;color:#475569;font-size:11px">${esc(fmtDate(p.original_due))}</td><td style="padding:5px 10px;text-align:right;font-variant-numeric:tabular-nums">${p.amount.toLocaleString("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2})}</td></tr>`).join("")}
+                  ${info.items.map(p => {
+                    // ★ คำอธิบายเต็ม = remark + internal_note (เหมือนหน้า AP)
+                    const fullDesc = [p.remark, p.internalNote].filter(Boolean).join(" · ");
+                    const line2 = (p.detail || "") + (fullDesc ? " — " + fullDesc : "");
+                    return `<tr><td style="padding:5px 10px 5px 22px;color:#475569"><div style="font-weight:600;color:#334155">${esc(p.vendor)}</div>${line2?`<div style="font-size:10.5px;color:#64748b;margin-top:1px;line-height:1.4">${esc(line2)}</div>`:''}</td><td style="padding:5px 10px;color:#475569;font-size:11px;white-space:nowrap">${esc(fmtDate(p.original_due))}</td><td style="padding:5px 10px;text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap">${p.amount.toLocaleString("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2})}</td></tr>`;
+                  }).join("")}
                 `).join("")}
                 <tr style="border-top:2px solid var(--brand)"><td style="padding:8px 10px;font-weight:800" colspan="2">รวมทั้งสิ้น</td><td style="padding:8px 10px;text-align:right;font-weight:800;color:var(--out-ink)">${totalDue.toLocaleString("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2})}</td></tr>
               </tbody>

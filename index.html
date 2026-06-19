@@ -4812,6 +4812,27 @@ async function edExportPDF(){
   cloneWrap.appendChild(clone);
   document.body.appendChild(cloneWrap);
 
+  // ★ 0) snapshot canvas (Chart.js) → แทนด้วย <img> ใน clone
+  //    cloneNode ไม่ copy pixel data ของ canvas → clone canvas ว่าง
+  //    ใช้ toDataURL ของต้นฉบับ + replace ใน clone
+  const origCanvases  = Array.from(original.querySelectorAll("canvas"));
+  const cloneCanvases = Array.from(clone.querySelectorAll("canvas"));
+  for(let i = 0; i < Math.min(origCanvases.length, cloneCanvases.length); i++){
+    const oc = origCanvases[i];
+    const cc = cloneCanvases[i];
+    if(!oc.width || !oc.height) continue;
+    try{
+      const dataUrl = oc.toDataURL("image/png");
+      const ph = cc.parentElement;
+      // ใช้ความสูง wrapper ของต้นฉบับ (มี style height:280px/300px/320px/380px)
+      const phRect = ph ? ph.getBoundingClientRect() : { width:0, height:0 };
+      const img = document.createElement("img");
+      img.src = dataUrl;
+      img.style.cssText = "display:block;width:100%;height:" + (phRect.height || oc.offsetHeight || 300) + "px;object-fit:contain";
+      cc.parentNode.replaceChild(img, cc);
+    }catch(e){ console.warn("[edExportPDF] snapshot canvas failed:", e); }
+  }
+
   // 1) ลบ elements ที่ทำเครื่องหมาย data-pdf-hide ออกจาก clone
   clone.querySelectorAll("[data-pdf-hide='1']").forEach(el => el.remove());
   // 2) แสดง elements ที่ทำเครื่องหมาย data-pdf-only
@@ -4824,7 +4845,6 @@ async function edExportPDF(){
     el.style.overflow = "visible";
     el.style.overflowY = "visible";
   });
-  // 5) ปลด max-height ของ chart wrappers (chart canvas ใน clone จะว่าง — ไม่เป็นไร summary tab อาจไม่มี chart ที่ render)
 
   try{
     await new Promise(r => setTimeout(r, 250));   // รอ layout settle ของ clone

@@ -6350,7 +6350,7 @@ async function renderToolBankBalance(){
                 <td style="text-align:right">${canWrite?`<input id="bb-hold-${a.id}" type="number" step="0.01" min="0" class="input" style="width:110px;text-align:right" value="${inVal(ri.hold,ri.saved)}" oninput="bbRecalc()">`:fopFmt(ri.hold)}</td>
                 <td class="num" id="bb-avail-${a.id}" style="text-align:right;font-weight:700">—</td>
                 <td>${status}</td>
-                ${canWrite?`<td><button class="btn ghost btn sm" title="ใช้ค่าเมื่อวาน" onclick="bbCopyPrev('${a.id}')">↩️</button></td>`:''}
+                ${canWrite?`<td style="white-space:nowrap"><button class="btn ghost btn sm" title="ใช้ค่าเมื่อวาน" onclick="bbCopyPrev('${a.id}')">↩️</button> <button class="btn ghost btn sm" style="color:var(--out-ink);border-color:var(--out)" title="ลบบัญชีนี้" onclick="bbDeleteAccount('${a.id}','${esc(a.bank_code)} ${esc(a.account_no)}')">🗑</button></td>`:''}
               </tr>`;
             }).join("")}</tbody>
           ${accts.length?`<tfoot><tr style="font-weight:800;border-top:2px solid var(--brand)">
@@ -6525,6 +6525,17 @@ async function bbSaveGrid(){
     if(btn){ btn.disabled=false; btn.textContent="บันทึกทั้งหมด"; }
     alert("บันทึกไม่สำเร็จ: "+fopErr(e));
   }
+}
+/* ลบบัญชี (soft-delete) — ซ่อนออกจากทุกหน้า, ประวัติยอดยังเก็บไว้ */
+async function bbDeleteAccount(id, label){
+  if(!confirm(`ลบบัญชี ${label}?\nบัญชีจะถูกซ่อนออกจากระบบ (ประวัติยอดยังเก็บไว้ใน audit log)`)) return;
+  try{
+    const { error } = await sb.from("bank_accounts")
+      .update({ deleted_at: new Date().toISOString(), deleted_by: AUTH.user?AUTH.user.id:null })
+      .eq("id", id);
+    if(error) throw error;
+    renderToolBankBalance();   // คง selDate ไว้
+  }catch(e){ alert("ลบบัญชีไม่สำเร็จ: " + fopErr(e)); }
 }
 /* import bank balance จาก Excel sheet "Bank_balance" */
 function bbParseAcctHeader(s){
@@ -7099,7 +7110,7 @@ function apoBuildTable(inv, enriched, canWrite, today){
         <td>${statusBadge}</td>
         ${canWrite?`<td style="white-space:nowrap;text-align:center">
           <button class="btn ghost btn sm" onclick="apoOpenPay('${r.id}',${Number(r.amount_outstanding)})" title="บันทึกการจ่าย">จ่าย</button>
-          <button class="btn ghost btn sm" onclick="apoOpenNote('${r.id}')" title="หมายเหตุเพิ่ม">✎</button>
+          <button class="btn ghost btn sm" onclick="apoOpenEdit('${r.id}')" title="แก้ไขทุกคอลัมน์">✏️</button>
           <button class="btn ghost btn sm" style="color:var(--out-ink);border-color:var(--out)" onclick="apoSoftDelete('${r.id}','${esc(r.invoice_no)}')" title="ลบ">🗑</button>
         </td>`:''}
       </tr>`;
@@ -7624,6 +7635,83 @@ async function apoSaveInvoice(){
   }catch(e){
     btn.disabled=false; btn.textContent="บันทึก";
     err.textContent=fopErr(e); err.style.display="";
+  }
+}
+
+/* แก้ไขบิล AP — ทุกคอลัมน์ */
+function apoOpenEdit(id){
+  const r = (apoGet().invoices||[]).find(x => String(x.id) === String(id));
+  if(!r){ alert("ไม่พบรายการ"); return; }
+  const STAT = [['open','เปิด'],['partial','จ่ายบางส่วน'],['paid','จ่ายแล้ว'],['void','ยกเลิก'],['disputed','โต้แย้ง']];
+  const cats = (typeof APO_CATEGORIES!=="undefined" && APO_CATEGORIES.length) ? APO_CATEGORIES : [r.category].filter(Boolean);
+  const catInList = !r.category || cats.includes(r.category);
+  const m = document.createElement("div");
+  m.id = "fopModal";
+  m.style.cssText = "position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:1000;display:flex;align-items:flex-start;justify-content:center;padding:20px;overflow:auto";
+  m.innerHTML = `
+    <div style="background:#fff;border-radius:14px;padding:24px;max-width:560px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.3);margin:auto">
+      <h3 style="margin:0 0 4px;font-size:16px;font-weight:800">✏️ แก้ไขบิล AP</h3>
+      <div style="font-size:11.5px;color:var(--ink-3);margin-bottom:14px">คงค้าง <b style="color:var(--out-ink)">${fopFmt(r.amount_outstanding)}</b> · จ่ายแล้ว ${fopFmt(r.amount_paid||0)} <span style="color:var(--ink-3)">(คงค้างคำนวณอัตโนมัติจากยอดรวม − จ่ายแล้ว)</span></div>
+      <div style="display:grid;gap:10px">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+          <label><div style="font-size:12px;font-weight:700;color:var(--ink-2);margin-bottom:4px">ผู้ขาย</div><input id="apoEVendor" class="input" style="width:100%" value="${esc(r.vendor_name_raw||(r.vendors&&r.vendors.name)||'')}"></label>
+          <label><div style="font-size:12px;font-weight:700;color:var(--ink-2);margin-bottom:4px">เลขที่บิล *</div><input id="apoENo" class="input" style="width:100%" value="${esc(r.invoice_no||'')}"></label>
+        </div>
+        <label><div style="font-size:12px;font-weight:700;color:var(--ink-2);margin-bottom:4px">คำอธิบาย (remark)</div><input id="apoERemark" class="input" style="width:100%" value="${esc(r.remark||'')}"></label>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
+          <label><div style="font-size:12px;font-weight:700;color:var(--ink-2);margin-bottom:4px">วันที่บิล *</div><input id="apoEIvDate" type="date" class="input" style="width:100%" value="${esc(r.invoice_date||'')}"></label>
+          <label><div style="font-size:12px;font-weight:700;color:var(--ink-2);margin-bottom:4px">ครบกำหนด *</div><input id="apoEDue" type="date" class="input" style="width:100%" value="${esc(r.due_date||'')}"></label>
+          <label><div style="font-size:12px;font-weight:700;color:var(--ink-2);margin-bottom:4px">วันชำระเงิน</div><input id="apoEPlanned" type="date" class="input" style="width:100%" value="${esc(r.planned_payment_date||'')}"></label>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+          <label><div style="font-size:12px;font-weight:700;color:var(--ink-2);margin-bottom:4px">ยอดรวม *</div><input id="apoEAmt" type="number" step="0.01" min="0" class="input" style="width:100%" value="${Number(r.amount_total||0)}"></label>
+          <label><div style="font-size:12px;font-weight:700;color:var(--ink-2);margin-bottom:4px">สถานะ</div><select id="apoEStatus" class="input" style="width:100%">${STAT.map(([k,l])=>`<option value="${k}" ${r.status===k?'selected':''}>${l}</option>`).join("")}</select></label>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+          <label><div style="font-size:12px;font-weight:700;color:var(--ink-2);margin-bottom:4px">ประเภท</div><select id="apoECat" class="input" style="width:100%"><option value="">— ไม่ระบุ —</option>${cats.map(c=>`<option value="${esc(c)}" ${r.category===c?'selected':''}>${esc(c)}</option>`).join("")}${catInList?'':`<option value="${esc(r.category)}" selected>${esc(r.category)}</option>`}</select></label>
+          <label><div style="font-size:12px;font-weight:700;color:var(--ink-2);margin-bottom:4px">หมายเหตุเพิ่ม</div><input id="apoENote" class="input" style="width:100%" value="${esc(r.internal_note||'')}"></label>
+        </div>
+        <div id="apoEErr" style="color:var(--out-ink);font-size:12px;display:none"></div>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end">
+        <button onclick="document.getElementById('fopModal').remove()" class="btn ghost btn sm">ยกเลิก</button>
+        <button id="apoEBtn" class="btn" onclick="apoSaveEdit('${id}')">บันทึก</button>
+      </div>
+    </div>`;
+  document.body.appendChild(m);
+  m.onclick = e=>{ if(e.target===m) m.remove(); };
+}
+async function apoSaveEdit(id){
+  const err = document.getElementById("apoEErr");
+  const btn = document.getElementById("apoEBtn");
+  const g = k => document.getElementById(k);
+  const no  = g("apoENo").value.trim();
+  const ivd = g("apoEIvDate").value;
+  const due = g("apoEDue").value;
+  const amt = parseFloat(g("apoEAmt").value);
+  if(!no || !ivd || !due || isNaN(amt) || amt < 0){ err.textContent="ต้องมี เลขที่บิล / วันที่บิล / ครบกำหนด / ยอดรวม (≥ 0)"; err.style.display=""; return; }
+  btn.disabled=true; btn.textContent="กำลังบันทึก...";
+  try{
+    const { error } = await sb.from("ap_invoices").update({
+      vendor_name_raw: g("apoEVendor").value.trim() || null,
+      invoice_no: no,
+      invoice_date: ivd,
+      due_date: due,
+      planned_payment_date: g("apoEPlanned").value || null,
+      amount_total: amt,
+      status: g("apoEStatus").value,
+      category: g("apoECat").value || null,
+      remark: g("apoERemark").value.trim() || null,
+      internal_note: g("apoENote").value.trim() || null,
+      updated_by: AUTH.user ? AUTH.user.id : null
+    }).eq("id", id);
+    if(error) throw error;
+    document.getElementById("fopModal").remove();
+    state.apo[state.company] = null;
+    renderToolApOutstanding();
+  }catch(e){
+    btn.disabled=false; btn.textContent="บันทึก";
+    err.textContent = fopErr(e); err.style.display="";
   }
 }
 

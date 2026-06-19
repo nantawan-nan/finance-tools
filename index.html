@@ -7431,7 +7431,7 @@ async function cffLoad(){
 
   const [balRes, apRes, recRes, recExpRes] = await Promise.all([
     sb.rpc("fn_balance_as_of", { p_company: cid, p_as_of: todayISO }),
-    sb.from("ap_invoices").select("id,vendor_name_raw,vendors(name),invoice_no,due_date,amount_outstanding,amount_total,amount_paid,status,category,remark")
+    sb.from("ap_invoices").select("id,vendor_name_raw,vendors(name),invoice_no,due_date,planned_payment_date,internal_note,amount_outstanding,amount_total,amount_paid,status,category,remark")
       .eq("company_id", cid).is("deleted_at", null)
       .neq("status","paid").neq("status","void"),
     sb.from("recurring_occurrences").select("id,due_date,expected_amount,status,recurring_expenses(name,category)")
@@ -7620,15 +7620,7 @@ async function renderToolCashflowStaff(){
       amount: Number(ap.amount_outstanding||0), remark: ap.internal_note || ap.remark
     });
   }
-  // recurring occurrences ใช้ due_date เป็น planned (เพราะเป็น forecast)
-  for(const r of (dt.recOccs||[])){
-    payments.push({
-      type:"recurring", category: (r.recurring_expenses&&r.recurring_expenses.category) || "other",
-      vendor: (r.recurring_expenses&&r.recurring_expenses.name) || "—",
-      detail: "งวด "+r.due_date, due_date: r.due_date, original_due: r.due_date,
-      amount: Number(r.expected_amount||0)
-    });
-  }
+  // ★ recurring_occurrences ไม่นับเข้าหน้าพนักงาน — ยึดเฉพาะที่ จนท. กรอก planned_payment_date
 
   // unique dates สำหรับ chip filter
   const upcomingDates = Array.from(new Set(payments.map(p => p.due_date))).sort();

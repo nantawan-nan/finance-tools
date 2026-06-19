@@ -4059,6 +4059,7 @@ function edState(){
               if(typeof it.date === "string") it.date = new Date(it.date);
             })));
           }
+          if(typeof edMigrateAccounts === "function") edMigrateAccounts(saved.data);
           state.ed[co] = Object.assign(state.ed[co], saved);
         }
       }
@@ -4125,6 +4126,54 @@ async function edDeleteCloud(){
   }catch(e){ console.warn("edDeleteCloud:", e); }
 }
 
+/* normalize bank account number: strip dash/space → กัน duplicate (865-0-98040-5 vs 865-098040-5) */
+function edNormAccNo(s){ return String(s||"").replace(/[\s\-\/]/g,""); }
+
+/* migrate loaded data: merge accounts ที่มี bank+normalizedNo เหมือนกัน */
+function edMigrateAccounts(dataObj){
+  if(!dataObj || !dataObj.accounts) return dataObj;
+  const newAccounts = {};
+  const keyMap = {};   // old key → new key (normalized)
+  for(const oldKey in dataObj.accounts){
+    const a = dataObj.accounts[oldKey];
+    const newKey = (a.bank || "") + "·" + edNormAccNo(a.no);
+    keyMap[oldKey] = newKey;
+    if(!newAccounts[newKey]){
+      newAccounts[newKey] = { ...a, no: a.no, months:{}, totalIn:0, totalOut:0, firstOpen:null, lastClose:null };
+    }
+    const acc = newAccounts[newKey];
+    // merge months
+    for(const m in (a.months||{})){
+      if(!acc.months[m]) acc.months[m] = { opening:0, closing:0, in:0, out:0, ok:true };
+      acc.months[m].opening += a.months[m].opening || 0;
+      acc.months[m].closing += a.months[m].closing || 0;
+      acc.months[m].in      += a.months[m].in || 0;
+      acc.months[m].out     += a.months[m].out || 0;
+    }
+    acc.totalIn  += a.totalIn  || 0;
+    acc.totalOut += a.totalOut || 0;
+    if(acc.firstOpen == null) acc.firstOpen = a.firstOpen;
+    else acc.firstOpen += (a.firstOpen || 0);
+    acc.lastClose = (acc.lastClose || 0) + (a.lastClose || 0);
+  }
+  dataObj.accounts = newAccounts;
+  // remap accountKey ใน transactions
+  if(Array.isArray(dataObj.transactions)){
+    for(const t of dataObj.transactions){
+      if(t.accountKey && keyMap[t.accountKey]) t.accountKey = keyMap[t.accountKey];
+    }
+  }
+  // remap accountKey ใน months[].accounts[]
+  if(Array.isArray(dataObj.months)){
+    for(const m of dataObj.months){
+      for(const a of (m.accounts||[])){
+        if(a.accountKey && keyMap[a.accountKey]) a.accountKey = keyMap[a.accountKey];
+      }
+    }
+  }
+  return dataObj;
+}
+
 async function edSyncFromCloud(){
   if(!AUTH.user) return;
   const co = state.company;
@@ -4147,6 +4196,7 @@ async function edSyncFromCloud(){
           if(typeof it.date === "string") it.date = new Date(it.date);
         })));
       }
+      edMigrateAccounts(dataObj);   // ★ merge duplicate bank accounts ก่อนใช้
       local.data = dataObj;
       local.file = remote.file_name;
       local.savedAt = remote.updated_at;
@@ -4287,7 +4337,10 @@ function edParse(book){
           }
         }
         const info = edParseAcctHeader(cell3, accNoFromRow);
-        const accountKey = info.bank + "·" + info.no;
+        // ★ normalize account_no: ตัด dash/space ออก เพื่อกัน duplicate
+        // (เช่น "865-0-98040-5" vs "865-098040-5" = บัญชีเดียวกัน)
+        const normNo = String(info.no||"").replace(/[\s\-\/]/g,"");
+        const accountKey = info.bank + "·" + normNo;
         curAcct = {
           header: info,
           accountKey,

@@ -1546,9 +1546,11 @@ function mbarkBankDownByCust(custCode){
 function aRowOf(r,i,company){
   // เลข RE auto-run จาก seed ที่ผู้ใช้กรอก + offset i (2 บริษัทเหมือนกัน)
   const seed = armapGet().reSeed;
-  // M Bark ใช้คำสั่งคงที่: enter={Down 18}, bank ตามรหัสลูกค้า · บริษัทอื่นใช้ BANK_DOWN (brand × channel) เดิม
+  // M Bark: bank ตามรหัสลูกค้า + "เลือก LETT OTHER" = {Down 18} · บริษัทอื่นใช้ BANK_DOWN (brand × channel) + {Up 1}
+  // หมายเหตุ: "Enter less other" คงเป็น {Enter} ทั้งคู่
   const isMbark = company === "mbark";
-  const enterCmd = isMbark ? "{Down 18}" : "{Enter}";
+  const lettOther = isMbark ? "{Down 18}" : "{Up 1}";
+  const enterCmd = "{Enter}";
   const downCmd  = isMbark ? mbarkBankDownByCust(r.arCustCode) : bankDownCmd(r.actualBrand, r.channel);
   return {
     ลำดับ:i+1,
@@ -1564,7 +1566,7 @@ function aRowOf(r,i,company){
     net:round2(r.netAmount),
     diff:round2(r.diff),
     cust:r.arCustCode,
-    lett_other:"{Up 1}",
+    lett_other:lettOther,
     enter:enterCmd,
     bank_down:downCmd,
     bank_code:r.bankCode||"",            // SB/SI/TB/TQ

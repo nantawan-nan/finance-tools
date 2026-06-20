@@ -4911,7 +4911,7 @@ async function edExportPDF(){
     // PDF setup — เลือกแนวตั้ง/แนวนอน + โหมดย่อ 1 หน้า
     const tabId = curTab.id;
     let orient, fitOne;
-    if(tabId === "stmt"){ orient = "landscape"; fitOne = true; }            // งบกระแสเงินสด: ล็อคแนวนอน + ย่อ 1 หน้า
+    if(tabId === "stmt"){ orient = "landscape"; fitOne = false; }           // งบกระแสเงินสด: ล็อคแนวนอน + slice หลายหน้า (ตารางสูง ใส่ 1 หน้า landscape แล้วเล็กเกิน)
     else if(tabId === "explorer"){ orient = "landscape"; fitOne = false; }  // ทรานแซกชัน: หลายหน้าแนวนอน (ข้อมูลเยอะ)
     else if(d.pdfOrient === "portrait"){ orient = "portrait"; fitOne = true; }
     else { orient = "landscape"; fitOne = false; }
@@ -4936,13 +4936,17 @@ async function edExportPDF(){
     const logoData = await edLoadImg(co.logoIcon||co.logo);
 
     if(fitOne){
-      // ★ ย่อทั้งหน้าให้พอดี 1 หน้า (ไม่ตัดหน้า)
+      // ★ ย่อทั้ง canvas ลงให้พอดี 1 หน้า — เริ่มจาก "เต็มกว้าง" แล้วถ้าสูงเกินค่อยลดทั้งคู่
       drawPdfHeader(pdf, co, t, curTab, d, logoData, pageW, headerH, margin);
       const availW = imgW, availH = yEnd - yStart;
-      let wMM = availW, hMM = (canvas.height * wMM) / canvas.width;
-      if(hMM > availH){ const s = availH / hMM; hMM = availH; wMM = wMM * s; }
-      const x = margin + (availW - wMM) / 2;
-      pdf.addImage(canvas.toDataURL("image/jpeg", 0.92), "JPEG", x, yStart, wMM, hMM);
+      // คำนวณสเกลที่ทำให้ภาพพอดีหน้า (ไม่ล้น)
+      const s = Math.min(availW / canvas.width, availH / canvas.height) * (canvas.width / canvas.width); // canvas px → mm
+      const pxToMm = Math.min(availW / canvas.width, availH / canvas.height);
+      const wMM = canvas.width  * pxToMm;
+      const hMM = canvas.height * pxToMm;
+      const x = margin + (availW - wMM) / 2;     // จัดกลางถ้ามีพื้นที่เหลือ (ปกติจะเต็มกว้าง)
+      const y = yStart + (availH - hMM) / 2;     // จัดกลางถ้าสูงไม่เต็ม
+      pdf.addImage(canvas.toDataURL("image/jpeg", 0.92), "JPEG", x, y, wMM, hMM);
       pdf.setFont("helvetica","normal"); pdf.setFontSize(8); pdf.setTextColor(150,150,150);
       pdf.text("หน้า 1 / 1", pageW - margin, pageH - 3, { align:"right" });
     } else {

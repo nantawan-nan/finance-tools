@@ -109,7 +109,7 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 | `ar` | `renderToolAr` | live | AR Outstanding |
 | `armap` | `renderToolArmap` | live | Map ลูกหนี้ → เงินเข้า |
 | `settle` | (none — generic) | live | จับยอด Settlement |
-| `bankrec` | (none) | soon | Bank Reconciliation |
+| `bankrec` | `renderToolBankRec` | live | **Full Bank Reconciliation** (Phase 1) — Express XML ↔ Statement (SCB XLSX / BBL XLS) · strict same-date · brec* helpers |
 | `withdraw` | (none) | soon | กระทบยอดถอนเงิน |
 | `ap` | (replaced) | soon (เก่า) | — — |
 | `ap_outstanding` | `renderToolApOutstanding` | live | **AP จริง** (finops phase 1) |
@@ -175,6 +175,40 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 - `phase0-foundation.sql` trigger `trg_sync_user_profile` ต้องเป็น `AFTER INSERT only` (ไม่ใช่ `INSERT OR UPDATE`)
 
 ## Recent changes (chronological)
+
+### 2026-06-20 — Bank Reconciliation Phase 1 (Express ↔ Bank Statement)
+- โมดูล `bankrec` เปลี่ยนจาก `soon` → live · ฟังก์ชันหลัก `renderToolBankRec` + helper prefix **`brec*`**
+- **Schema** `supabase/bankrec-phase1.sql` — 4 ตาราง:
+  - `brec_imports` (ประวัติอัป + `file_hash` กันซ้ำ + period_from/to + status)
+  - `brec_express_rows` (วันที่/MNE/doc_no/withdrawal/deposit/balance/remark — จาก Express XML)
+  - `brec_bank_rows` (วันที่/tr_code/description/cheque_no/withdrawal/deposit/**ref_note** — SCB only)
+  - `brec_matches` (express_row_id × bank_row_id, status: `suggested/confirmed/manual/interaccount/excluded`, confidence, match_reason)
+  - RLS เดิม (read=ทุก user ของ company / write=admin·finance_mgr·accountant·treasury) + soft delete
+  - UNIQUE index บน express_row_id/bank_row_id (where deleted_at is null) — กันคู่ซ้ำ
+- **Parsers 3 ตัว** (vanilla JS):
+  - `brecParseExpressXml(text)` — Excel SpreadsheetML XML รูปแบบ "งบกระทบยอด" (วันที่/MNE/เลขที่/ยอดถอน/ยอดฝาก/ยอดคงเหลือ/สถานะเช็ค/หมายเหตุ) ใช้ได้ทั้ง BBL+SCB Express. ดึง bank_code+account_no จาก header `S/A #...`
+  - `brecParseScbXlsx(workbook)` — SCB BusinessNet sheet `RPT_01009_XLSX` 16 cols, **ใช้คอลัมน์ `Note`** (เลขใบสำคัญ PS/BT...) สำหรับ ref match
+  - `brecParseBblXls(workbook)` — BBL iBanking `.xls` (BIFF), header row ~16, 9 cols (Debit/Credit/Ledger). **ไม่มี ref** — ต้อง match ด้วย date+amount เท่านั้น
+  - `brecParseStatement(wb)` — auto-detect SCB vs BBL จาก header signature
+- **Matching rule (strict)**:
+  - **วันที่ต้องตรงเป๊ะ — ไม่มี ±N วัน** (เจ้าของเน้นย้ำ: "ต้องไม่ต่างกันสักวันเดียวนะ")
+  - Tier 1 `exact`: ref ตรง + วันตรง + ยอดตรง · ref normalize ด้วย `brecRefKey()` (strip Q prefix ใน QPPS → PS)
+  - Tier 2 `suggested`: วันตรง + ยอดตรง (ไม่มี ref) — สำหรับ BBL
+  - ทุก match เริ่มที่ `status='suggested'` → user กดยืนยันถึงเป็น `confirmed`
+- **UI 4 แท็บ (PEAK-style)**: รอยืนยัน · รอกระทบยอด · กระทบแล้ว · ทั้งหมด
+  - Toolbar: เลือกบัญชี + งวด (**toggle รายเดือน/ช่วงวัน**) + ปุ่ม upload Express+Statement + จับคู่อัตโนมัติ + Export
+  - Summary 5 การ์ด: Express / Bank / ผลต่าง (สมดุล✓ หรือไม่) / กระทบแล้ว / ค้างกระทบ
+  - ตารางเทียบ **side-by-side** (Express ซ้าย | ↔ | Bank ขวา | confidence | actions)
+  - สี border ซ้ายต่อสถานะ: matched=เขียว · suggested=ส้ม · unmatched-ex=brand · unmatched-bk=น้ำเงิน · confirmed=เขียว+พื้น
+  - Action bar: เลือกแล้วกี่รายการ · จับคู่เอง (เลือก ex 1 + bk 1) · ยืนยันที่เลือก
+- **Auto-create bank_accounts**: ถ้าอัปโหลดไฟล์แล้วเจอเลขบัญชีที่ยังไม่มี → `brecEnsureAccount()` สร้างใหม่อัตโนมัติ (bank_code จาก header BBL/SCB, normalize account_no = digits-only)
+- **กันไฟล์ซ้ำ**: `file_hash` (djb2 ของ filename+size+row_count+period) → confirm ก่อนถ้าซ้ำ
+- **Export**: 3 sheets (กระทบแล้ว / ค้าง Express / ค้าง Bank) เป็น XLSX
+- **บัญชีที่ระบบรองรับใน Phase 1**:
+  - Benya: BBL 865-0-98040-5 · SCB 136-2-684889 · SCB 417-077164-0
+  - MBark: SCB 136-2-270928-1 (บัญชีเดียว ง่ายสุด)
+- **Mockup** `for-design/bankrec-mockup.html` — static preview HTML (เปิดในเบราว์เซอร์ดู layout/สี/ปุ่ม) — ใช้ตอน design review ก่อนเขียนจริง
+- **Phase 2 (ยังไม่ทำ)**: Marketplace Recon (Shopee/TikTok payout ↔ เงินเข้า) — รอไฟล์ตัวอย่าง · 1-to-many matching · ปิดงวด · template UI
 
 ### 2026-06-20 — Executive Cash Flow polish + พิมพ์ทั้งรายงาน + สีพาสเทล MBark + ปุ่มซ่อน sidebar
 **หมายเหตุ:** หน้า Executive Dashboard ที่เคยมาร์ค "ห้ามแตะ" ถูกแก้รอบนี้ตามที่เจ้าของสั่ง — ปรับ "presentation polish" ไม่แตะ logic การรวมเลข/ตัดโอน

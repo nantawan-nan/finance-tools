@@ -620,9 +620,9 @@ const TOOLS = [
 
   // ───── 4. ธนาคาร ─────
   { id:"bankrec", stage:"ธนาคาร", ic:"⇆", icon:"refresh-ccw",
-    name:"Bank Reconciliation", desc:"กระทบ Statement",
-    long:"อัป Statement → match รายการอัตโนมัติ · แสดงรายการไม่ match · ซ้ำ · ยังไม่บันทึก",
-    multiInput:true, status:"soon" },
+    name:"Bank Reconciliation", desc:"กระทบ Express ↔ Statement",
+    long:"อัป Express XML + Statement (SCB XLSX / BBL XLS) → จับคู่อัตโนมัติด้วย ref + วันที่ + ยอด (วันต้องตรงเป๊ะ) · แยกรอยืนยัน / รอกระทบ / กระทบแล้ว",
+    multiInput:true, status:"live" },
   { id:"withdraw", stage:"ธนาคาร", ic:"↙", icon:"arrow-down-left",
     name:"กระทบยอดถอนเงิน", desc:"แพลตฟอร์ม → แบงค์",
     long:"อัปรายงานถอนเงินจากแพลตฟอร์ม → จับว่ายอดเข้าบัญชีบริษัทมีออเดอร์ไหนบ้าง + สร้างรายการผ่านเช็ค",
@@ -804,6 +804,7 @@ function renderTool(){
     if (t.id==="ap_outstanding") return renderToolApOutstanding();
     if (t.id==="recurring")      return renderToolRecurring();
     if (t.id==="cashflow")       return renderToolCashflowForecast();
+    if (t.id==="bankrec")        return renderToolBankRec();
     if (t.id==="ar")       return renderToolAr();
     if (t.id==="armap") return renderToolArmap();
     if (t.id==="bigseller") return renderToolBigSeller();
@@ -9781,6 +9782,972 @@ function renderToolSoon(t){
       <div style="margin-top:20px;display:inline-block;background:var(--brand-soft);color:var(--brand-dark);font-size:12px;padding:6px 16px;border-radius:999px;font-weight:600">อยู่ใน roadmap</div>
     </div>
   `;
+}
+
+
+/* ============================================================
+   BANK RECONCILIATION — Phase 1
+   Express XML ↔ Bank Statement (SCB XLSX BusinessNet / BBL XLS iBanking)
+   - Strict same-date matching (no tolerance)
+   - Exact match = วันที่ตรง + ยอดตรง + ref ตรง (SCB Note ↔ Express เลขที่)
+   - Suggested match = วันที่ตรง + ยอดตรง (no ref — BBL)
+   ============================================================ */
+
+function brecGet(){
+  if(!state.brec) state.brec = {};
+  const co = state.company;
+  if(!state.brec[co]) state.brec[co] = {
+    accounts:[], accountId:null,
+    period:{ mode:"month", month: new Date().toISOString().slice(0,7), from:null, to:null },
+    express:[], bank:[], matches:[],
+    tab:"pending", sel:{ ex:new Set(), bk:new Set() },
+    busy:false, lastImport:null
+  };
+  return state.brec[co];
+}
+function brecCanWrite(){ return !!(AUTH.role && ["admin","finance_mgr","accountant","treasury"].includes(AUTH.role)); }
+
+/* parse date in many forms → ISO YYYY-MM-DD (local, no TZ drift) */
+function brecISODate(v){
+  if(!v && v!==0) return null;
+  if(v instanceof Date) return v.getFullYear()+"-"+String(v.getMonth()+1).padStart(2,"0")+"-"+String(v.getDate()).padStart(2,"0");
+  if(typeof v === "number"){
+    // Excel serial date
+    const d = new Date(Math.round((v - 25569) * 86400 * 1000));
+    return d.getUTCFullYear()+"-"+String(d.getUTCMonth()+1).padStart(2,"0")+"-"+String(d.getUTCDate()).padStart(2,"0");
+  }
+  const s = String(v).trim();
+  // ISO already
+  let m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if(m) return `${m[1]}-${m[2]}-${m[3]}`;
+  // dd/mm/yyyy or dd/mm/yy
+  m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
+  if(m){
+    let y = parseInt(m[3],10);
+    if(y < 100) y += 2500;        // 2-digit assumed BE
+    if(y >= 2400) y -= 543;        // BE → CE
+    return `${y}-${m[2].padStart(2,"0")}-${m[1].padStart(2,"0")}`;
+  }
+  return null;
+}
+function brecNum(v){
+  if(v===null||v===undefined||v==="") return 0;
+  if(typeof v === "number") return v;
+  const n = Number(String(v).replace(/[,\s฿]/g,""));
+  return isNaN(n) ? 0 : n;
+}
+function brecHash(s){
+  // simple djb2 hash → hex (for dup-file detection)
+  let h = 5381;
+  for(let i=0;i<s.length;i++) h = ((h<<5) + h + s.charCodeAt(i)) | 0;
+  return (h>>>0).toString(16);
+}
+/* Normalize ref so QPPS26051506 ↔ PS26051506 match (strip leading "Q") */
+function brecRefKey(s){
+  if(!s) return null;
+  let k = String(s).toUpperCase().replace(/[^A-Z0-9]/g,"");
+  // common Express prefix Q before PS/BT/BV/BQ
+  k = k.replace(/^Q(?=PS|BT|BV|BQ)/,"");
+  return k || null;
+}
+/* tolerant amount equality */
+function brecAmtEq(a,b){ return Math.abs((Number(a)||0)-(Number(b)||0)) < 0.005; }
+/* signed amount of a row */
+function brecSignedAmt(r){ return (Number(r.deposit)||0) - (Number(r.withdrawal)||0); }
+function brecExtractAccountNo(s){
+  // "S/A #BBL 865-0-98040-5 (สาขา...)" → "8650980405"
+  // "S/A #SCB 136-2-684889 (สาขา...)" → "1362684889"
+  if(!s) return null;
+  const m = String(s).match(/(\d[\d\-]{6,})/);
+  if(!m) return null;
+  return m[1].replace(/\D/g,"");
+}
+function brecExtractBankCode(s){
+  // "S/A #BBL 865..." → "BBL"
+  const m = String(s||"").match(/#?\s*(BBL|SCB|KBANK|KTB|BAY|TMB|TTB|GSB|UOB|CIMB)\b/i);
+  return m ? m[1].toUpperCase() : null;
+}
+
+/* ---------- PARSERS ---------- */
+
+/* Express SpreadsheetML XML — งบกระทบยอด รายการเคลื่อนไหวบัญชีธนาคาร
+   columns: วันที่ | MNE | เลขที่ | ยอดถอน | ยอดฝาก | ยอดคงเหลือ | สถานะเช็ค | หมายเหตุ */
+function brecParseExpressXml(xmlText){
+  const NS = "urn:schemas-microsoft-com:office:spreadsheet";
+  const dom = new DOMParser().parseFromString(xmlText,"text/xml");
+  if(dom.querySelector("parsererror")) throw new Error("Express XML parse error");
+  const rows = Array.from(dom.getElementsByTagNameNS(NS,"Row"));
+
+  function getCells(row){
+    const cells = {}; let idx = 0;
+    for(const c of row.children){
+      if(c.localName !== "Cell") continue;
+      const ix = c.getAttributeNS(NS,"Index");
+      if(ix) idx = parseInt(ix,10); else idx++;
+      const data = c.getElementsByTagNameNS(NS,"Data")[0];
+      if(data) cells[idx] = { v:data.textContent, t:data.getAttributeNS(NS,"Type") };
+    }
+    return cells;
+  }
+
+  // header info — look in first ~10 rows for S/A #... + period
+  let acctText = "", periodFrom = null, periodTo = null;
+  for(let i=0;i<Math.min(rows.length,10);i++){
+    const cs = getCells(rows[i]);
+    for(const k in cs){
+      const v = String(cs[k].v||"");
+      if(/S\/A\s*#/.test(v)) acctText = v;
+      if(cs[k].t === "DateTime" && !periodFrom) periodFrom = cs[k].v.slice(0,10);
+    }
+  }
+  const accountNo = brecExtractAccountNo(acctText);
+  const bankCode = brecExtractBankCode(acctText);
+
+  // find header row (วันที่/MNE/เลขที่)
+  const COL = {};
+  let headerRow = -1;
+  for(let i=0;i<rows.length;i++){
+    const cs = getCells(rows[i]);
+    const labels = Object.entries(cs).map(([i,c])=>[parseInt(i,10), String(c.v||"").trim()]);
+    if(labels.some(([_,v]) => v==="MNE") && labels.some(([_,v]) => v==="ยอดถอน")){
+      for(const [k,v] of labels){
+        if(v==="วันที่") COL.date = k;
+        else if(v==="MNE") COL.mne = k;
+        else if(v==="เลขที่") COL.doc = k;
+        else if(v==="ยอดถอน") COL.withdraw = k;
+        else if(v==="ยอดฝาก") COL.deposit = k;
+        else if(v==="ยอดคงเหลือ") COL.balance = k;
+        else if(v==="สถานะเช็ค") COL.cheque = k;
+        else if(v==="หมายเหตุ") COL.remark = k;
+      }
+      headerRow = i; break;
+    }
+  }
+  if(headerRow < 0) throw new Error("ไม่พบ header (วันที่/MNE/เลขที่/ยอดถอน/ยอดฝาก) ใน Express XML");
+
+  const out = [];
+  for(let i=headerRow+1;i<rows.length;i++){
+    const cs = getCells(rows[i]);
+    const cDate = cs[COL.date];
+    if(!cDate) continue;
+    let txnDate = null;
+    if(cDate.t === "DateTime") txnDate = cDate.v.slice(0,10);
+    else txnDate = brecISODate(cDate.v);
+    if(!txnDate) continue;
+    if(!periodFrom || txnDate < periodFrom) periodFrom = txnDate;
+    if(!periodTo || txnDate > periodTo) periodTo = txnDate;
+    out.push({
+      txn_date: txnDate,
+      mne: String((cs[COL.mne]||{}).v||"").trim(),
+      doc_no: String((cs[COL.doc]||{}).v||"").trim(),
+      withdrawal: brecNum((cs[COL.withdraw]||{}).v),
+      deposit:    brecNum((cs[COL.deposit]||{}).v),
+      balance:    brecNum((cs[COL.balance]||{}).v),
+      cheque_status: String((cs[COL.cheque]||{}).v||"").trim(),
+      remark:     String((cs[COL.remark]||{}).v||"").trim(),
+      raw_row: i+1
+    });
+  }
+  return { source:"express", accountNo, bankCode, periodFrom, periodTo, rows: out };
+}
+
+/* SCB BusinessNet HISTSTMTAN_*.XLSX — sheet RPT_01009_XLSX
+   16 cols: Account Number | Account Name | Account Type | Currency | Branch
+            | Date | Time | Tr Code | Tr Description | Channel | Cheque No.
+            | Withdrawal | Deposit | Outstanding Balance | Description | Note */
+function brecParseScbXlsx(workbook){
+  const sheet = workbook.Sheets[workbook.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json(sheet, { header:1, defval:"", raw:true });
+  if(!rows.length) throw new Error("SCB statement ว่าง");
+  // find header row by content
+  let hr = -1;
+  for(let i=0;i<Math.min(rows.length,8);i++){
+    const r = rows[i].map(x=>String(x||"").trim());
+    if(r.includes("Date") && r.includes("Withdrawal") && r.includes("Deposit")){ hr = i; break; }
+  }
+  if(hr < 0) throw new Error("ไม่พบ header SCB statement (ต้องมี Date/Withdrawal/Deposit)");
+  const head = rows[hr].map(x=>String(x||"").trim());
+  const idx = (name)=> head.indexOf(name);
+  const cAcct=idx("Account Number"), cDate=idx("Date"), cTime=idx("Time"),
+        cCode=idx("Tr Code"), cDesc=idx("Tr Description"), cChan=idx("Channel"),
+        cChq=idx("Cheque No."), cW=idx("Withdrawal"), cD=idx("Deposit"),
+        cBal=idx("Outstanding Balance"), cDescription=idx("Description"), cNote=idx("Note");
+
+  let accountNo = null, periodFrom = null, periodTo = null;
+  const out = [];
+  for(let i=hr+1;i<rows.length;i++){
+    const r = rows[i];
+    if(!r || !r[cDate]) continue;
+    const txnDate = brecISODate(r[cDate]);
+    if(!txnDate) continue;
+    accountNo = accountNo || String(r[cAcct]||"").replace(/\D/g,"") || null;
+    if(!periodFrom || txnDate < periodFrom) periodFrom = txnDate;
+    if(!periodTo || txnDate > periodTo) periodTo = txnDate;
+    out.push({
+      txn_date: txnDate,
+      value_date: null,
+      tr_code: String(r[cCode]||"").trim(),
+      tr_desc: String(r[cDesc]||"").trim(),
+      channel: String(r[cChan]||"").trim(),
+      cheque_no: String(r[cChq]||"").trim(),
+      withdrawal: brecNum(r[cW]),
+      deposit:    brecNum(r[cD]),
+      balance:    brecNum(r[cBal]),
+      description: String(r[cDescription]||"").trim(),
+      ref_note:   String(r[cNote]||"").trim() || null,
+      raw_row: i+1
+    });
+  }
+  return { source:"scb_stmt", accountNo, bankCode:"SCB", periodFrom, periodTo, rows: out };
+}
+
+/* BBL iBanking TransactionsReport_*.xls — header at row 16 (~)
+   9 cols: Transaction Date And Time | Value Date | Description | Cheque No.
+          | Debit | Credit | Ledger Balance | Channel | Branch */
+function brecParseBblXls(workbook){
+  const sheet = workbook.Sheets[workbook.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json(sheet, { header:1, defval:"", raw:true });
+  if(!rows.length) throw new Error("BBL statement ว่าง");
+
+  // find account no in first ~15 rows ("Account Number" + value next to it)
+  let accountNo = null;
+  for(let i=0;i<Math.min(rows.length,15);i++){
+    const r = rows[i] || [];
+    for(let j=0;j<r.length;j++){
+      if(String(r[j]||"").trim() === "Account Number"){
+        // value typically in next non-empty cell
+        for(let k=j+1;k<r.length;k++){
+          const v = String(r[k]||"").trim();
+          if(v){ accountNo = v.replace(/\D/g,""); break; }
+        }
+      }
+    }
+    if(accountNo) break;
+  }
+
+  // find header row containing "Debit" + "Credit"
+  let hr = -1;
+  for(let i=0;i<Math.min(rows.length,25);i++){
+    const r = (rows[i]||[]).map(x=>String(x||"").trim());
+    if(r.includes("Debit") && r.includes("Credit") && (r.includes("Description")||r.includes("Description "))){ hr = i; break; }
+  }
+  if(hr < 0) throw new Error("ไม่พบ header BBL statement (ต้องมี Debit/Credit/Description)");
+  const head = rows[hr].map(x=>String(x||"").trim());
+  const idx = (name)=> head.indexOf(name);
+  const cDate=idx("Transaction Date And Time"), cVal=idx("Value Date"),
+        cDesc=idx("Description"), cChq=idx("Cheque No."),
+        cD=idx("Debit"), cC=idx("Credit"), cBal=idx("Ledger Balance"),
+        cChan=idx("Channel"), cBr=idx("Branch");
+
+  let periodFrom = null, periodTo = null;
+  const out = [];
+  for(let i=hr+1;i<rows.length;i++){
+    const r = rows[i];
+    if(!r || !r[cDate]) continue;
+    // date+time → ISO date (just take the date part)
+    const txnDate = brecISODate(r[cDate]) || brecISODate(r[cVal]);
+    if(!txnDate) continue;
+    if(!periodFrom || txnDate < periodFrom) periodFrom = txnDate;
+    if(!periodTo || txnDate > periodTo) periodTo = txnDate;
+    out.push({
+      txn_date: txnDate,
+      value_date: brecISODate(r[cVal]),
+      tr_code: null,
+      tr_desc: String(r[cDesc]||"").trim(),
+      channel: String(r[cChan]||"").trim(),
+      cheque_no: String(r[cChq]||"").trim(),
+      withdrawal: brecNum(r[cD]),
+      deposit:    brecNum(r[cC]),
+      balance:    brecNum(r[cBal]),
+      description: String(r[cDesc]||"").trim(),
+      ref_note: null,
+      raw_row: i+1
+    });
+  }
+  return { source:"bbl_stmt", accountNo, bankCode:"BBL", periodFrom, periodTo, rows: out };
+}
+
+/* auto-pick parser based on workbook signature */
+function brecParseStatement(workbook){
+  const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json(firstSheet, { header:1, defval:"", raw:true });
+  for(let i=0;i<Math.min(rows.length,25);i++){
+    const joined = (rows[i]||[]).map(x=>String(x||"")).join("|");
+    if(/Tr Code|Outstanding Balance/.test(joined)) return brecParseScbXlsx(workbook);
+    if(/Debit\|Credit|Transaction Date And Time/.test(joined)) return brecParseBblXls(workbook);
+  }
+  // Fallback heuristic
+  const hdrJoin = (rows[16]||[]).join("|");
+  if(/Debit|Credit|Ledger/.test(hdrJoin)) return brecParseBblXls(workbook);
+  return brecParseScbXlsx(workbook);
+}
+
+/* ---------- MATCHING ENGINE ---------- */
+/* Returns array of {express_id, bank_id, status, confidence, match_reason}
+   Strict same-date rule — วันต่าง = ไม่ match
+   Tier 1: ref ตรง + วันตรง + ยอดตรง → confidence="exact"
+   Tier 2: วันตรง + ยอดตรง (ไม่มี ref check) → confidence="suggested" */
+function brecAutoMatch(exRows, bkRows, existing){
+  const used = new Set();
+  for(const m of existing||[]){
+    if(m.express_row_id) used.add("e:"+m.express_row_id);
+    if(m.bank_row_id) used.add("b:"+m.bank_row_id);
+  }
+  const out = [];
+
+  // Tier 1: ref + date + amount
+  for(const ex of exRows){
+    if(used.has("e:"+ex.id)) continue;
+    const exRef = brecRefKey(ex.doc_no);
+    if(!exRef) continue;
+    const exAmt = brecSignedAmt(ex);
+    for(const bk of bkRows){
+      if(used.has("b:"+bk.id)) continue;
+      const bkRef = brecRefKey(bk.ref_note);
+      if(!bkRef) continue;
+      // ref similarity: exact or one contains the other (handles QPPS vs PS prefix variants)
+      const refOk = (exRef === bkRef) || exRef.endsWith(bkRef) || bkRef.endsWith(exRef);
+      if(!refOk) continue;
+      if(ex.txn_date !== bk.txn_date) continue;
+      if(!brecAmtEq(exAmt, brecSignedAmt(bk))) continue;
+      out.push({ express_row_id:ex.id, bank_row_id:bk.id, status:"suggested", confidence:"exact",
+                 match_reason:"ref+date+amount", txn_date:ex.txn_date, amount:exAmt });
+      used.add("e:"+ex.id); used.add("b:"+bk.id);
+      break;
+    }
+  }
+
+  // Tier 2: date + amount (no ref)
+  for(const ex of exRows){
+    if(used.has("e:"+ex.id)) continue;
+    const exAmt = brecSignedAmt(ex);
+    if(!exAmt) continue;
+    for(const bk of bkRows){
+      if(used.has("b:"+bk.id)) continue;
+      if(ex.txn_date !== bk.txn_date) continue;
+      if(!brecAmtEq(exAmt, brecSignedAmt(bk))) continue;
+      out.push({ express_row_id:ex.id, bank_row_id:bk.id, status:"suggested", confidence:"suggested",
+                 match_reason:"date+amount", txn_date:ex.txn_date, amount:exAmt });
+      used.add("e:"+ex.id); used.add("b:"+bk.id);
+      break;
+    }
+  }
+  return out;
+}
+
+/* ---------- DATA LAYER ---------- */
+async function brecLoadAccounts(co){
+  const { data, error } = await sb.from("bank_accounts")
+    .select("id,company_id,bank_code,account_no,nickname,is_active")
+    .eq("company_id", co)
+    .is("deleted_at", null)
+    .order("display_order",{ascending:true})
+    .order("bank_code",{ascending:true});
+  if(error) throw error;
+  return data || [];
+}
+async function brecEnsureAccount(co, bankCode, accountNo){
+  // Normalize accountNo: strip non-digits
+  const norm = String(accountNo||"").replace(/\D/g,"");
+  if(!norm || !bankCode) return null;
+  const { data } = await sb.from("bank_accounts").select("id,account_no,bank_code")
+    .eq("company_id", co).is("deleted_at", null);
+  for(const a of (data||[])){
+    if(String(a.bank_code||"").toUpperCase() === bankCode.toUpperCase()
+       && String(a.account_no||"").replace(/\D/g,"") === norm) return a.id;
+  }
+  // create
+  const { data:ins, error } = await sb.from("bank_accounts").insert({
+    company_id: co, bank_code: bankCode.toUpperCase(),
+    account_no: norm, nickname: `${bankCode} ${norm}`,
+    is_active: true
+  }).select("id").single();
+  if(error) throw error;
+  return ins.id;
+}
+async function brecLoadRows(co, acctId, from, to){
+  if(!acctId) return { express:[], bank:[] };
+  const [exRes, bkRes] = await Promise.all([
+    sb.from("brec_express_rows").select("*")
+      .eq("company_id", co).eq("bank_account_id", acctId)
+      .is("deleted_at", null)
+      .gte("txn_date", from).lte("txn_date", to)
+      .order("txn_date",{ascending:true}).order("raw_row",{ascending:true}),
+    sb.from("brec_bank_rows").select("*")
+      .eq("company_id", co).eq("bank_account_id", acctId)
+      .is("deleted_at", null)
+      .gte("txn_date", from).lte("txn_date", to)
+      .order("txn_date",{ascending:true}).order("raw_row",{ascending:true})
+  ]);
+  if(exRes.error) throw exRes.error;
+  if(bkRes.error) throw bkRes.error;
+  return { express: exRes.data||[], bank: bkRes.data||[] };
+}
+async function brecLoadMatches(co, acctId, from, to){
+  const { data, error } = await sb.from("brec_matches").select("*")
+    .eq("company_id", co).eq("bank_account_id", acctId)
+    .is("deleted_at", null)
+    .gte("txn_date", from).lte("txn_date", to);
+  if(error) throw error;
+  return data || [];
+}
+function brecComputePeriod(d){
+  if(d.period.mode === "month"){
+    const ym = d.period.month || new Date().toISOString().slice(0,7);
+    const [y,m] = ym.split("-").map(Number);
+    const from = `${y}-${String(m).padStart(2,"0")}-01`;
+    const last = new Date(y, m, 0).getDate();
+    const to = `${y}-${String(m).padStart(2,"0")}-${String(last).padStart(2,"0")}`;
+    return { from, to };
+  }
+  return { from: d.period.from || "1900-01-01", to: d.period.to || "2099-12-31" };
+}
+async function brecLoad(){
+  const d = brecGet(); const co = state.company;
+  d.busy = true;
+  try{
+    d.accounts = await brecLoadAccounts(co);
+    if(!d.accountId && d.accounts.length) d.accountId = d.accounts[0].id;
+    if(d.accountId){
+      const { from, to } = brecComputePeriod(d);
+      const [rows, matches] = await Promise.all([
+        brecLoadRows(co, d.accountId, from, to),
+        brecLoadMatches(co, d.accountId, from, to)
+      ]);
+      d.express = rows.express; d.bank = rows.bank; d.matches = matches;
+    } else { d.express=[]; d.bank=[]; d.matches=[]; }
+  } finally { d.busy = false; }
+}
+
+/* ---------- FILE UPLOAD ---------- */
+async function brecPickFile(accept){
+  return new Promise(res=>{
+    const i = document.createElement("input"); i.type="file"; i.accept=accept;
+    i.onchange = ()=> res(i.files[0]||null); i.click();
+  });
+}
+async function brecUpload(kind){
+  if(!brecCanWrite()){ alert("คุณไม่มีสิทธิ์ upload"); return; }
+  const accept = kind==="express" ? ".xml" : ".xlsx,.xls";
+  const file = await brecPickFile(accept);
+  if(!file) return;
+  const d = brecGet(); const co = state.company;
+  d.busy = true; brecRefresh();
+  try{
+    let parsed;
+    if(kind === "express"){
+      const text = await file.text();
+      parsed = brecParseExpressXml(text);
+    } else {
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type:"array", cellDates:false });
+      parsed = brecParseStatement(wb);
+    }
+    if(!parsed.rows.length) throw new Error("ไม่พบรายการในไฟล์");
+    if(!parsed.accountNo) throw new Error("ไม่พบเลขบัญชีในไฟล์ — ตรวจสอบรูปแบบไฟล์");
+    const acctId = await brecEnsureAccount(co, parsed.bankCode, parsed.accountNo);
+    if(!acctId) throw new Error("สร้าง bank account ไม่สำเร็จ");
+    // Preview confirm
+    const ok = confirm(
+      `พบ ${parsed.rows.length} รายการ\n`+
+      `บัญชี: ${parsed.bankCode} ${parsed.accountNo}\n`+
+      `งวด: ${parsed.periodFrom} → ${parsed.periodTo}\n\nนำเข้าใช่ไหม?`
+    );
+    if(!ok){ d.busy=false; brecRefresh(); return; }
+
+    // file hash (filename + size + content prefix) → กันซ้ำ
+    const hash = brecHash(file.name + "|" + file.size + "|" + parsed.rows.length + "|" + parsed.periodFrom + "|" + parsed.periodTo);
+
+    // check existing
+    const { data:dup } = await sb.from("brec_imports").select("id,filename,created_at")
+      .eq("company_id", co).eq("source", parsed.source).eq("file_hash", hash)
+      .is("deleted_at", null);
+    if(dup && dup.length){
+      const cont = confirm(`ไฟล์นี้เคยอัปโหลดแล้ว (${dup[0].filename} · ${new Date(dup[0].created_at).toLocaleString("th-TH")})\n\nดำเนินการต่อจะนำเข้าซ้ำ — ใช่ไหม?`);
+      if(!cont){ d.busy=false; brecRefresh(); return; }
+    }
+
+    // INSERT import + rows
+    const { data:imp, error:ie } = await sb.from("brec_imports").insert({
+      company_id: co, bank_account_id: acctId, source: parsed.source,
+      filename: file.name, file_hash: hash,
+      period_from: parsed.periodFrom, period_to: parsed.periodTo,
+      row_count: parsed.rows.length, status:"imported"
+    }).select("id").single();
+    if(ie) throw ie;
+    const importId = imp.id;
+    const table = parsed.source === "express" ? "brec_express_rows" : "brec_bank_rows";
+    // chunk insert
+    const CHUNK = 500;
+    for(let i=0;i<parsed.rows.length;i+=CHUNK){
+      const slice = parsed.rows.slice(i,i+CHUNK).map(r => ({
+        company_id: co, bank_account_id: acctId, import_id: importId, ...r
+      }));
+      const { error:re } = await sb.from(table).insert(slice);
+      if(re) throw re;
+    }
+    d.accountId = acctId;
+    d.lastImport = imp.id;
+    alert(`นำเข้าสำเร็จ ${parsed.rows.length} รายการ`);
+    await brecLoad();
+    brecRefresh();
+  } catch(e){
+    alert("Upload ล้มเหลว: "+(e.message||e));
+    d.busy=false; brecRefresh();
+  }
+}
+
+/* ---------- ACTIONS ---------- */
+async function brecRunAutoMatch(){
+  if(!brecCanWrite()){ alert("ไม่มีสิทธิ์"); return; }
+  const d = brecGet(); const co = state.company;
+  if(!d.accountId){ alert("เลือกบัญชีก่อน"); return; }
+  d.busy = true; brecRefresh();
+  try{
+    const proposed = brecAutoMatch(d.express, d.bank, d.matches);
+    if(!proposed.length){ alert("ไม่พบรายการใหม่ที่จับคู่ได้"); d.busy=false; brecRefresh(); return; }
+    const inserts = proposed.map(p => ({ ...p, company_id: co, bank_account_id: d.accountId }));
+    const { error } = await sb.from("brec_matches").insert(inserts);
+    if(error) throw error;
+    await brecLoad();
+    brecRefresh();
+    setTimeout(()=> alert(`จับคู่อัตโนมัติ ${proposed.length} รายการ — รออยู่ในแท็บ "รอยืนยัน"`), 100);
+  } catch(e){
+    alert("จับคู่ล้มเหลว: "+(e.message||e));
+    d.busy = false; brecRefresh();
+  }
+}
+async function brecConfirmMatch(id){
+  if(!brecCanWrite()) return;
+  const d = brecGet();
+  d.busy=true; brecRefresh();
+  try{
+    const { error } = await sb.from("brec_matches")
+      .update({ status:"confirmed", confirmed_at: new Date().toISOString() })
+      .eq("id", id);
+    if(error) throw error;
+    await brecLoad(); brecRefresh();
+  }catch(e){ alert("ยืนยันล้มเหลว: "+(e.message||e)); d.busy=false; brecRefresh(); }
+}
+async function brecUnmatch(id){
+  if(!brecCanWrite()) return;
+  if(!confirm("นำคู่นี้ออก?")) return;
+  const d = brecGet();
+  d.busy=true; brecRefresh();
+  try{
+    const { error } = await sb.from("brec_matches")
+      .update({ deleted_at: new Date().toISOString() })
+      .eq("id", id);
+    if(error) throw error;
+    await brecLoad(); brecRefresh();
+  }catch(e){ alert("ลบคู่ล้มเหลว: "+(e.message||e)); d.busy=false; brecRefresh(); }
+}
+async function brecConfirmSelected(){
+  if(!brecCanWrite()){ alert("ไม่มีสิทธิ์"); return; }
+  const d = brecGet();
+  const ids = [...d.sel.ex];
+  if(!ids.length){ alert("ยังไม่ได้เลือกรายการ"); return; }
+  d.busy=true; brecRefresh();
+  try{
+    const { error } = await sb.from("brec_matches")
+      .update({ status:"confirmed", confirmed_at: new Date().toISOString() })
+      .in("id", ids);
+    if(error) throw error;
+    d.sel.ex.clear(); d.sel.bk.clear();
+    await brecLoad(); brecRefresh();
+  }catch(e){ alert("ยืนยันล้มเหลว: "+(e.message||e)); d.busy=false; brecRefresh(); }
+}
+async function brecManualLink(){
+  if(!brecCanWrite()){ alert("ไม่มีสิทธิ์"); return; }
+  const d = brecGet();
+  if(d.sel.ex.size !== 1 || d.sel.bk.size !== 1){
+    alert("เลือก Express 1 รายการ + Bank 1 รายการ ก่อนกด \"จับคู่เอง\""); return;
+  }
+  const exId = [...d.sel.ex][0], bkId = [...d.sel.bk][0];
+  const ex = d.express.find(x=>x.id===exId), bk = d.bank.find(x=>x.id===bkId);
+  if(!ex || !bk) return;
+  d.busy=true; brecRefresh();
+  try{
+    const { error } = await sb.from("brec_matches").insert({
+      company_id: state.company, bank_account_id: d.accountId,
+      express_row_id: exId, bank_row_id: bkId,
+      status:"manual", confidence:"manual",
+      match_reason:"manual",
+      txn_date: ex.txn_date, amount: brecSignedAmt(ex)
+    });
+    if(error) throw error;
+    d.sel.ex.clear(); d.sel.bk.clear();
+    await brecLoad(); brecRefresh();
+  }catch(e){ alert("จับคู่เองล้มเหลว: "+(e.message||e)); d.busy=false; brecRefresh(); }
+}
+function brecExportXlsx(){
+  const d = brecGet();
+  const co = COMPANIES.find(c=>c.id===state.company);
+  const acct = d.accounts.find(a=>a.id===d.accountId);
+  if(!acct){ alert("เลือกบัญชีก่อน"); return; }
+  const matched = brecBuildBuckets(d).matched.map(p => ({
+    "วันที่": p.ex?.txn_date || p.bk?.txn_date,
+    "Express เลขที่": p.ex?.doc_no || "",
+    "Express หมายเหตุ": p.ex?.remark || "",
+    "Bank ref": p.bk?.ref_note || "",
+    "Bank คำอธิบาย": p.bk?.description || "",
+    "ยอดเข้า": p.ex?.deposit || p.bk?.deposit || 0,
+    "ยอดออก": p.ex?.withdrawal || p.bk?.withdrawal || 0,
+    "สถานะ": p.m?.status === "confirmed" ? "ยืนยันแล้ว" : "รอยืนยัน",
+    "ความมั่นใจ": p.m?.confidence || ""
+  }));
+  const exOnly = brecBuildBuckets(d).exOnly.map(ex => ({
+    "วันที่": ex.txn_date, "เลขที่": ex.doc_no, "MNE": ex.mne,
+    "ยอดถอน": ex.withdrawal, "ยอดฝาก": ex.deposit, "หมายเหตุ": ex.remark
+  }));
+  const bkOnly = brecBuildBuckets(d).bkOnly.map(bk => ({
+    "วันที่": bk.txn_date, "Tr Code": bk.tr_code, "คำอธิบาย": bk.description,
+    "Note": bk.ref_note, "ยอดถอน": bk.withdrawal, "ยอดฝาก": bk.deposit
+  }));
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(matched), "กระทบแล้ว");
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(exOnly), "ค้าง Express");
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(bkOnly), "ค้าง Bank");
+  const p = brecComputePeriod(d);
+  XLSX.writeFile(wb, `BankRec_${co.code}_${acct.bank_code}-${acct.account_no}_${p.from}_${p.to}.xlsx`);
+}
+
+/* ---------- BUCKETS ---------- */
+function brecBuildBuckets(d){
+  const exById = new Map(d.express.map(r=>[r.id,r]));
+  const bkById = new Map(d.bank.map(r=>[r.id,r]));
+  const usedEx = new Set(), usedBk = new Set();
+  const pending = [], confirmed = [];
+  for(const m of d.matches){
+    const ex = exById.get(m.express_row_id);
+    const bk = bkById.get(m.bank_row_id);
+    if(ex) usedEx.add(ex.id);
+    if(bk) usedBk.add(bk.id);
+    const pair = { m, ex, bk };
+    if(m.status === "confirmed") confirmed.push(pair);
+    else pending.push(pair);
+  }
+  const exOnly = d.express.filter(r=>!usedEx.has(r.id));
+  const bkOnly = d.bank.filter(r=>!usedBk.has(r.id));
+  return { pending, confirmed, exOnly, bkOnly, matched: [...pending, ...confirmed] };
+}
+
+/* ---------- CSS (inject once) ---------- */
+function brecInjectCSS(){
+  if(document.getElementById("brec-styles")) return;
+  const s = document.createElement("style"); s.id = "brec-styles";
+  s.textContent = `
+  .brec-wrap{font-family:inherit}
+  .brec-toolbar{background:#fff;border:1px solid var(--line);border-radius:14px;padding:12px 16px;display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-bottom:14px;box-shadow:var(--shadow,0 1px 3px rgba(0,0,0,.05))}
+  .brec-toolbar .fld{display:flex;flex-direction:column;gap:3px}
+  .brec-toolbar label{font-size:10.5px;color:var(--ink-3,#94a3b8);font-weight:700;text-transform:uppercase;letter-spacing:.4px}
+  .brec-toolbar select,.brec-toolbar input{border:1px solid var(--line,#e2e8f0);border-radius:8px;padding:6px 10px;font-size:13px;background:#fff;font-family:inherit}
+  .brec-pmode{display:inline-flex;background:#f1f5f9;border-radius:8px;padding:2px;gap:2px}
+  .brec-pmode button{border:0;background:transparent;padding:5px 12px;border-radius:6px;font-size:12.5px;font-weight:600;color:var(--ink-2,#475569);cursor:pointer}
+  .brec-pmode button.active{background:#fff;color:var(--brand-dark);box-shadow:0 1px 3px rgba(15,23,42,.08)}
+  .brec-toolbar .sp{flex:1}
+  .brec-btn{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--line,#e2e8f0);background:#fff;padding:7px 12px;border-radius:8px;font-size:12.5px;font-weight:600;color:var(--ink,#0f172a);cursor:pointer;font-family:inherit}
+  .brec-btn:hover{background:#f8fafc}
+  .brec-btn.primary{background:var(--brand);color:#fff;border-color:var(--brand)}
+  .brec-btn.primary:hover{filter:brightness(.95)}
+  .brec-btn.ok{background:#16a34a;color:#fff;border-color:#16a34a}
+  .brec-btn.ok:hover{background:#15803d}
+  .brec-btn:disabled{opacity:.5;cursor:not-allowed}
+  .brec-btn i{width:14px;height:14px}
+
+  .brec-sum{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:14px}
+  .brec-sc{background:#fff;border:1px solid var(--line,#e2e8f0);border-radius:12px;padding:12px 14px;position:relative}
+  .brec-sc .l{font-size:10.5px;color:var(--ink-3,#94a3b8);font-weight:700;text-transform:uppercase;letter-spacing:.3px}
+  .brec-sc .v{font-size:20px;font-weight:700;font-feature-settings:'tnum';margin-top:4px;color:var(--ink,#0f172a)}
+  .brec-sc .s{font-size:11.5px;color:var(--ink-2,#475569);margin-top:2px}
+  .brec-sc.bal .v{color:#16a34a}
+  .brec-sc.unbal .v{color:#dc2626}
+  .brec-sc.pend .v{color:#d97706}
+  .brec-sc.done .v{color:#16a34a}
+
+  .brec-tabs{display:flex;background:#fff;border:1px solid var(--line,#e2e8f0);border-bottom:none;border-radius:12px 12px 0 0;padding:0 10px;gap:0}
+  .brec-tab{padding:12px 16px;font-size:12.5px;font-weight:600;color:var(--ink-2,#475569);cursor:pointer;border-bottom:3px solid transparent;margin-bottom:-1px;display:flex;align-items:center;gap:7px;transition:.12s}
+  .brec-tab:hover{color:var(--brand-dark)}
+  .brec-tab.active{color:var(--brand-dark);border-bottom-color:var(--brand)}
+  .brec-tab i{width:14px;height:14px}
+  .brec-tab .c{background:#f1f5f9;color:var(--ink-2,#475569);font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:999px;min-width:22px;text-align:center}
+  .brec-tab.active .c{background:var(--brand);color:#fff}
+
+  .brec-actbar{background:#f8fafc;border:1px solid var(--line,#e2e8f0);border-top:none;padding:8px 14px;display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--ink-2,#475569);flex-wrap:wrap}
+  .brec-actbar .sp{flex:1}
+  .brec-actbar .sel{font-weight:600;color:var(--ink,#0f172a)}
+
+  .brec-table{background:#fff;border:1px solid var(--line,#e2e8f0);border-top:none;border-radius:0 0 12px 12px;overflow:hidden}
+  .brec-row{display:grid;grid-template-columns:30px 1fr 28px 1fr 110px 100px;gap:6px;padding:10px 12px;border-bottom:1px solid #f1f5f9;align-items:center;transition:.1s}
+  .brec-row:hover{background:#fafbfc}
+  .brec-row.head{background:#f8fafc;font-size:10.5px;font-weight:700;color:var(--ink-2,#475569);text-transform:uppercase;letter-spacing:.4px;padding:9px 12px;border-bottom:1px solid var(--line,#e2e8f0)}
+  .brec-row .ck{display:flex;align-items:center;justify-content:center}
+  .brec-row .ck input{width:15px;height:15px;accent-color:var(--brand);cursor:pointer}
+  .brec-side{padding:7px 9px;border-radius:8px;background:#f8fafc;font-size:12.5px}
+  .brec-side.empty{background:repeating-linear-gradient(45deg,#fafbfc,#fafbfc 5px,#f1f5f9 5px,#f1f5f9 10px);color:#94a3b8;font-style:italic;text-align:center;padding:12px;font-size:12px}
+  .brec-side .top{display:flex;align-items:center;gap:6px;margin-bottom:2px;flex-wrap:wrap}
+  .brec-side .dt{font-weight:700;color:var(--ink,#0f172a);font-feature-settings:'tnum';font-size:12px}
+  .brec-side .rf{font-family:"IBM Plex Sans",monospace;font-size:11px;background:#fff;border:1px solid var(--line,#e2e8f0);padding:1px 6px;border-radius:5px;font-weight:600;color:var(--ink-2,#475569)}
+  .brec-side .ds{font-size:12px;color:var(--ink,#0f172a);font-weight:500;line-height:1.35}
+  .brec-side .am{display:flex;justify-content:flex-end;font-size:13px;font-weight:700;font-feature-settings:'tnum';margin-top:3px}
+  .brec-side .am.in{color:#16a34a}
+  .brec-side .am.out{color:#dc2626}
+  .brec-link{display:flex;align-items:center;justify-content:center;color:#94a3b8}
+  .brec-link svg{width:18px;height:18px}
+  .brec-link.ok{color:#16a34a}
+  .brec-link.sug{color:#d97706}
+  .brec-tag{font-size:10.5px;font-weight:700;padding:3px 8px;border-radius:999px;letter-spacing:.3px;display:inline-block}
+  .brec-tag.exact{background:#dcfce7;color:#166534}
+  .brec-tag.sug{background:#fef3c7;color:#92400e}
+  .brec-tag.man{background:#e0e7ff;color:#3730a3}
+  .brec-tag.conf{background:#dbeafe;color:#1e40af}
+  .brec-conf .w{font-size:10px;color:var(--ink-3,#94a3b8);margin-top:3px}
+  .brec-acts{display:flex;flex-direction:column;gap:4px}
+  .brec-acts button{border:1px solid var(--line,#e2e8f0);background:#fff;color:var(--ink-2,#475569);padding:4px 8px;border-radius:6px;font-size:11.5px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:4px;justify-content:center;font-family:inherit}
+  .brec-acts button:hover{background:#f8fafc}
+  .brec-acts button.ok{color:#16a34a;border-color:#bbf7d0}
+  .brec-acts button.ok:hover{background:#dcfce7}
+  .brec-acts button.warn{color:#dc2626;border-color:#fecaca}
+  .brec-acts button.warn:hover{background:#fee2e2}
+  .brec-acts button i{width:11px;height:11px}
+  .brec-row.matched{border-left:3px solid #16a34a;padding-left:9px}
+  .brec-row.suggested{border-left:3px solid #d97706;padding-left:9px}
+  .brec-row.unex{border-left:3px solid var(--brand);padding-left:9px}
+  .brec-row.unbk{border-left:3px solid #2563eb;padding-left:9px}
+  .brec-row.confirmed{background:#f0fdf4;border-left:3px solid #16a34a;padding-left:9px}
+
+  .brec-empty{padding:40px 20px;text-align:center;color:var(--ink-3,#94a3b8);background:#fff;border:1px solid var(--line,#e2e8f0);border-top:none;border-radius:0 0 12px 12px}
+  .brec-empty i{width:40px;height:40px;color:var(--ink-3,#94a3b8);margin-bottom:10px}
+  .brec-empty .ttl{font-size:15px;font-weight:600;color:var(--ink,#0f172a);margin-bottom:4px}
+  `;
+  document.head.appendChild(s);
+}
+
+/* ---------- UI ---------- */
+function brecRefresh(){ renderToolBankRec(); }
+
+function brecSetTab(t){ const d=brecGet(); d.tab=t; d.sel.ex.clear(); d.sel.bk.clear(); brecRefresh(); }
+function brecSetPeriodMode(m){ const d=brecGet(); d.period.mode=m; brecLoad().then(brecRefresh); }
+function brecSetMonth(v){ const d=brecGet(); d.period.month=v; brecLoad().then(brecRefresh); }
+function brecSetRange(k,v){ const d=brecGet(); d.period[k]=v; brecLoad().then(brecRefresh); }
+function brecSetAccount(id){ const d=brecGet(); d.accountId=id; d.sel.ex.clear(); d.sel.bk.clear(); brecLoad().then(brecRefresh); }
+function brecToggleSel(side,id){ const d=brecGet(); const s=d.sel[side]; if(s.has(id)) s.delete(id); else s.add(id); brecRefresh(); }
+function brecSelectAll(side, ids){ const d=brecGet(); const s=d.sel[side]; const all=ids.every(i=>s.has(i)); if(all) ids.forEach(i=>s.delete(i)); else ids.forEach(i=>s.add(i)); brecRefresh(); }
+function brecAcctLabel(a){ return `${a.nickname || (a.bank_code+" "+a.account_no)}`; }
+
+function brecSideHTML(r, side, sel){
+  if(!r) return `<div class="brec-side empty">— ไม่พบ —</div>`;
+  const inAmt = Number(r.deposit)||0, outAmt = Number(r.withdrawal)||0;
+  const amt = inAmt > 0 ? `<span class="am in">+${fopFmt ? fopFmt(inAmt) : inAmt.toLocaleString("th-TH",{minimumFractionDigits:2})}</span>`
+                       : `<span class="am out">-${fopFmt ? fopFmt(outAmt) : outAmt.toLocaleString("th-TH",{minimumFractionDigits:2})}</span>`;
+  const ref = side==="ex" ? r.doc_no : r.ref_note;
+  const ds = side==="ex" ? (r.remark||r.cheque_status||"") : (r.description||r.tr_desc||"");
+  return `<div class="brec-side">
+    <div class="top">
+      <span class="dt">${r.txn_date}</span>
+      ${ref ? `<span class="rf">${esc(ref)}</span>` : ''}
+      ${side==="ex" && r.mne ? `<span style="font-size:10px;color:var(--ink-3,#94a3b8);font-weight:600">${esc(r.mne)}</span>` : ''}
+    </div>
+    <div class="ds">${esc(ds)}</div>
+    <div class="am-wrap" style="display:flex;justify-content:flex-end">${amt}</div>
+  </div>`;
+}
+function brecConfHTML(m){
+  if(!m) return "";
+  const cls = m.confidence === "exact" ? "exact" : m.confidence === "manual" ? "man" : m.confidence === "confirmed" ? "conf" : "sug";
+  const lbl = m.confidence === "exact" ? "EXACT" : m.confidence === "manual" ? "MANUAL" : m.status === "confirmed" ? "ยืนยันแล้ว" : "เสนอ";
+  return `<div class="brec-conf"><span class="brec-tag ${cls}">${lbl}</span><div class="w">${esc(m.match_reason||"")}</div></div>`;
+}
+
+async function renderToolBankRec(){
+  const t = TOOLS.find(x=>x.id==="bankrec");
+  const co = COMPANIES.find(c=>c.id===state.company);
+  const main = document.getElementById("main");
+  const d = brecGet();
+  brecInjectCSS();
+
+  if(!d.accounts.length && !d.busy){
+    // initial load
+    main.innerHTML = `<div class="page-head"><h1>${esc(t.name)} <span class="badge">${esc(co.name)}</span></h1><div class="sub">กำลังโหลด...</div></div>`;
+    try{ await brecLoad(); }catch(e){
+      main.innerHTML = `<div class="page-head"><h1>${esc(t.name)}</h1></div><div class="card"><div style="color:var(--bad,#dc2626)">โหลดไม่สำเร็จ: ${esc(e.message||e)}</div></div>`;
+      return;
+    }
+  }
+
+  const buckets = brecBuildBuckets(d);
+  const sumEx = d.express.reduce((s,r)=>s + brecSignedAmt(r), 0);
+  const sumBk = d.bank.reduce((s,r)=>s + brecSignedAmt(r), 0);
+  const diff = sumEx - sumBk;
+  const balanced = Math.abs(diff) < 0.01;
+
+  const acctOpts = d.accounts.map(a => `<option value="${a.id}" ${a.id===d.accountId?'selected':''}>${esc(brecAcctLabel(a))}</option>`).join("");
+  const noAcct = !d.accounts.length;
+
+  const fmt = (n)=> (typeof fopFmt==="function" ? fopFmt(n) : Number(n||0).toLocaleString("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2}));
+
+  // tabs
+  const tabs = [
+    { id:"pending",   l:"รอยืนยัน",     ic:"clock-3",       c: buckets.pending.length },
+    { id:"unmatched", l:"รอกระทบยอด",   ic:"circle-alert",  c: buckets.exOnly.length + buckets.bkOnly.length },
+    { id:"done",      l:"กระทบแล้ว",    ic:"check-check",   c: buckets.confirmed.length },
+    { id:"all",       l:"ทั้งหมด",      ic:"list",          c: d.express.length + d.bank.length },
+  ];
+  const tab = d.tab || "pending";
+
+  // body content per tab
+  let body = "";
+  if(noAcct){
+    body = `<div class="brec-empty">
+      <i data-lucide="upload-cloud"></i>
+      <div class="ttl">ยังไม่มีบัญชีธนาคาร</div>
+      <div>อัปโหลดไฟล์ Express XML หรือ Statement ใดก็ได้ — ระบบจะสร้างบัญชีให้อัตโนมัติจากข้อมูลในไฟล์</div>
+    </div>`;
+  } else if(d.busy){
+    body = `<div class="brec-empty"><i data-lucide="loader-2"></i><div class="ttl">กำลังประมวลผล…</div></div>`;
+  } else if(tab === "pending"){
+    if(!buckets.pending.length) body = `<div class="brec-empty"><i data-lucide="check-circle-2"></i><div class="ttl">ไม่มีรายการรอยืนยัน</div><div>กดปุ่ม "จับคู่อัตโนมัติ" เพื่อให้ระบบหาคู่ที่เป็นไปได้</div></div>`;
+    else {
+      body = `<div class="brec-table">
+        <div class="brec-row head">
+          <div class="ck"><input type="checkbox" onchange="brecSelectAll('ex', ${JSON.stringify(buckets.pending.map(p=>p.m.id))})"></div>
+          <div>Express (สมุดธนาคารภายใน)</div><div></div><div>Bank Statement</div><div>ความมั่นใจ</div><div>การจัดการ</div>
+        </div>
+        ${buckets.pending.map(p => {
+          const cls = p.m.confidence === "exact" ? "matched" : "suggested";
+          const sel = d.sel.ex.has(p.m.id);
+          return `<div class="brec-row ${cls}">
+            <div class="ck"><input type="checkbox" ${sel?'checked':''} onchange="brecToggleSel('ex','${p.m.id}')"></div>
+            ${brecSideHTML(p.ex,"ex",false)}
+            <div class="brec-link ${p.m.confidence==='exact'?'ok':'sug'}"><i data-lucide="${p.m.confidence==='exact'?'check-circle-2':'help-circle'}"></i></div>
+            ${brecSideHTML(p.bk,"bk",false)}
+            ${brecConfHTML(p.m)}
+            <div class="brec-acts">
+              <button class="ok" onclick="brecConfirmMatch('${p.m.id}')"><i data-lucide="check"></i> ยืนยัน</button>
+              <button class="warn" onclick="brecUnmatch('${p.m.id}')"><i data-lucide="x"></i> นำออก</button>
+            </div>
+          </div>`;
+        }).join("")}
+      </div>`;
+    }
+  } else if(tab === "unmatched"){
+    const rows = [
+      ...buckets.exOnly.map(ex => ({ kind:"ex", ex })),
+      ...buckets.bkOnly.map(bk => ({ kind:"bk", bk }))
+    ].sort((a,b)=> (a.ex?.txn_date||a.bk?.txn_date||"").localeCompare(b.ex?.txn_date||b.bk?.txn_date||""));
+    if(!rows.length) body = `<div class="brec-empty"><i data-lucide="check-check"></i><div class="ttl">กระทบครบหมดแล้ว</div></div>`;
+    else {
+      body = `<div class="brec-table">
+        <div class="brec-row head"><div></div><div>Express</div><div></div><div>Bank Statement</div><div>เหตุผล</div><div>การจัดการ</div></div>
+        ${rows.map(r => {
+          if(r.kind === "ex"){
+            const sel = d.sel.ex.has(r.ex.id);
+            return `<div class="brec-row unex">
+              <div class="ck"><input type="checkbox" ${sel?'checked':''} onchange="brecToggleSel('ex','${r.ex.id}')"></div>
+              ${brecSideHTML(r.ex,"ex",sel)}
+              <div class="brec-link"><i data-lucide="circle-dashed"></i></div>
+              <div class="brec-side empty">— ไม่พบใน Bank —</div>
+              <div class="brec-conf"><span class="brec-tag" style="background:#f1f5f9;color:#64748b">ค้าง Express</span><div class="w">ยังไม่ขึ้นเงิน?</div></div>
+              <div class="brec-acts"><button onclick="brecManualLink()"><i data-lucide="link"></i> จับคู่เอง</button></div>
+            </div>`;
+          } else {
+            const sel = d.sel.bk.has(r.bk.id);
+            return `<div class="brec-row unbk">
+              <div class="ck"><input type="checkbox" ${sel?'checked':''} onchange="brecToggleSel('bk','${r.bk.id}')"></div>
+              <div class="brec-side empty">— ไม่พบใน Express —</div>
+              <div class="brec-link"><i data-lucide="circle-dashed"></i></div>
+              ${brecSideHTML(r.bk,"bk",sel)}
+              <div class="brec-conf"><span class="brec-tag" style="background:#dbeafe;color:#1e40af">ค้าง Bank</span><div class="w">ค่าธรรมเนียมยังไม่บันทึก?</div></div>
+              <div class="brec-acts"><button onclick="brecManualLink()"><i data-lucide="link"></i> จับคู่เอง</button></div>
+            </div>`;
+          }
+        }).join("")}
+      </div>`;
+    }
+  } else if(tab === "done"){
+    if(!buckets.confirmed.length) body = `<div class="brec-empty"><i data-lucide="check-check"></i><div class="ttl">ยังไม่มีรายการที่กระทบ</div></div>`;
+    else body = `<div class="brec-table">
+      <div class="brec-row head"><div></div><div>Express</div><div></div><div>Bank Statement</div><div>สถานะ</div><div>การจัดการ</div></div>
+      ${buckets.confirmed.map(p => `<div class="brec-row confirmed">
+        <div class="ck"></div>
+        ${brecSideHTML(p.ex,"ex",false)}
+        <div class="brec-link ok"><i data-lucide="check-check"></i></div>
+        ${brecSideHTML(p.bk,"bk",false)}
+        ${brecConfHTML(p.m)}
+        <div class="brec-acts"><button class="warn" onclick="brecUnmatch('${p.m.id}')"><i data-lucide="undo-2"></i> ยกเลิก</button></div>
+      </div>`).join("")}
+    </div>`;
+  } else if(tab === "all"){
+    const all = [
+      ...d.express.map(r=>({ kind:"ex", r, dt:r.txn_date })),
+      ...d.bank.map(r=>({ kind:"bk", r, dt:r.txn_date }))
+    ].sort((a,b)=> a.dt.localeCompare(b.dt));
+    body = `<div class="brec-table">
+      <div class="brec-row head"><div></div><div colspan="3">รายการ</div><div></div><div></div><div></div></div>
+      ${all.map(x => x.kind==="ex"
+        ? `<div class="brec-row unex"><div></div>${brecSideHTML(x.r,"ex",false)}<div></div><div class="brec-side empty">—</div><div></div><div></div></div>`
+        : `<div class="brec-row unbk"><div></div><div class="brec-side empty">—</div><div></div>${brecSideHTML(x.r,"bk",false)}<div></div><div></div></div>`
+      ).join("")}
+    </div>`;
+  }
+
+  // Compose
+  const periodCtl = d.period.mode === "month"
+    ? `<div class="fld"><label>เดือน</label><input type="month" value="${d.period.month}" onchange="brecSetMonth(this.value)"></div>`
+    : `<div class="fld"><label>ตั้งแต่ — ถึง</label><div style="display:flex;gap:6px;align-items:center"><input type="date" value="${d.period.from||''}" onchange="brecSetRange('from',this.value)"><span style="color:#94a3b8">→</span><input type="date" value="${d.period.to||''}" onchange="brecSetRange('to',this.value)"></div></div>`;
+
+  main.innerHTML = `
+    <div class="brec-wrap">
+      <div class="page-head">
+        <h1>${esc(t.name)} <span class="badge">${esc(co.name)}</span></h1>
+        <div class="sub">หน่วย: บาท · กฎ: วันที่ Express ต้องตรงเป๊ะกับวันที่ใน Statement</div>
+      </div>
+
+      <div class="brec-toolbar">
+        <div class="fld">
+          <label>บัญชี</label>
+          <select onchange="brecSetAccount(this.value)">
+            ${noAcct ? `<option>— ยังไม่มีบัญชี —</option>` : acctOpts}
+          </select>
+        </div>
+        <div class="fld">
+          <label>งวด</label>
+          <div class="brec-pmode">
+            <button class="${d.period.mode==='month'?'active':''}" onclick="brecSetPeriodMode('month')">รายเดือน</button>
+            <button class="${d.period.mode==='range'?'active':''}" onclick="brecSetPeriodMode('range')">ช่วงวัน</button>
+          </div>
+        </div>
+        ${periodCtl}
+        <div class="sp"></div>
+        <button class="brec-btn" onclick="brecUpload('express')" ${brecCanWrite()?'':'disabled'}><i data-lucide="upload"></i> Express XML</button>
+        <button class="brec-btn" onclick="brecUpload('stmt')" ${brecCanWrite()?'':'disabled'}><i data-lucide="upload"></i> Statement</button>
+        <button class="brec-btn primary" onclick="brecRunAutoMatch()" ${brecCanWrite()&&!noAcct?'':'disabled'}><i data-lucide="zap"></i> จับคู่อัตโนมัติ</button>
+        <button class="brec-btn" onclick="brecExportXlsx()" ${noAcct?'disabled':''}><i data-lucide="download"></i> Export</button>
+      </div>
+
+      <div class="brec-sum">
+        <div class="brec-sc"><div class="l">ยอด Express</div><div class="v">${fmt(sumEx)}</div><div class="s">${d.express.length} รายการ</div></div>
+        <div class="brec-sc"><div class="l">ยอด Bank</div><div class="v">${fmt(sumBk)}</div><div class="s">${d.bank.length} รายการ</div></div>
+        <div class="brec-sc ${balanced?'bal':'unbal'}"><div class="l">ผลต่าง</div><div class="v">${fmt(diff)}</div><div class="s">${balanced?'สมดุล':'ยังไม่สมดุล'}</div></div>
+        <div class="brec-sc done"><div class="l">กระทบแล้ว</div><div class="v">${buckets.confirmed.length}</div><div class="s">ยืนยันแล้ว</div></div>
+        <div class="brec-sc pend"><div class="l">ค้างกระทบ</div><div class="v">${buckets.exOnly.length + buckets.bkOnly.length + buckets.pending.length}</div><div class="s">รอยืนยัน ${buckets.pending.length} · ค้าง ${buckets.exOnly.length + buckets.bkOnly.length}</div></div>
+      </div>
+
+      <div class="brec-tabs">
+        ${tabs.map(x => `<div class="brec-tab ${x.id===tab?'active':''}" onclick="brecSetTab('${x.id}')"><i data-lucide="${x.ic}"></i> ${x.l} <span class="c">${x.c}</span></div>`).join("")}
+      </div>
+
+      <div class="brec-actbar">
+        <span>เลือกแล้ว <span class="sel">${d.sel.ex.size + d.sel.bk.size}</span> รายการ</span>
+        <div class="sp"></div>
+        <button class="brec-btn" onclick="brecManualLink()" ${brecCanWrite()?'':'disabled'}><i data-lucide="link"></i> จับคู่เอง (Ex+Bk)</button>
+        <button class="brec-btn ok" onclick="brecConfirmSelected()" ${brecCanWrite()?'':'disabled'}><i data-lucide="check"></i> ยืนยันที่เลือก</button>
+      </div>
+
+      ${body}
+    </div>
+  `;
+  if(window.lucide && window.lucide.createIcons){ try{ window.lucide.createIcons(); }catch(e){} }
 }
 
 

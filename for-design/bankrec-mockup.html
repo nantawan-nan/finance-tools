@@ -1,0 +1,552 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<title>Mockup — Bank Reconciliation Phase 1</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+<style>
+  :root{
+    --brand:#0d9488; --brand-dark:#115e59; --brand-soft:#ccfbf1;
+    --ink:#0f172a; --ink-2:#475569; --ink-3:#94a3b8;
+    --line:#e2e8f0; --bg:#f4f6f9; --card:#ffffff;
+    --ok:#16a34a; --warn:#d97706; --bad:#dc2626; --info:#2563eb;
+    --in:#14b8a6; --out:#e18aaa;
+    --shadow:0 1px 2px rgba(15,23,42,.06),0 4px 16px rgba(15,23,42,.06);
+    --shadow-md:0 2px 8px rgba(15,23,42,.08),0 12px 32px rgba(15,23,42,.08);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:"IBM Plex Sans Thai","IBM Plex Sans",ui-sans-serif,system-ui,sans-serif;background:var(--bg);color:var(--ink);font-size:14px;line-height:1.6}
+  .topbar{display:flex;align-items:center;gap:12px;background:#fff;border-bottom:1px solid var(--line);padding:12px 24px;position:sticky;top:0;z-index:10}
+  .topbar h1{margin:0;font-size:16px;font-weight:700;color:var(--brand-dark);display:flex;align-items:center;gap:8px}
+  .topbar .spacer{flex:1}
+  .topbar .pill{background:var(--brand-soft);color:var(--brand-dark);padding:3px 10px;border-radius:999px;font-size:11px;font-weight:700;letter-spacing:.4px}
+  .main{padding:20px 28px;max-width:1480px;margin:0 auto}
+
+  /* Toolbar */
+  .toolbar{background:#fff;border:1px solid var(--line);border-radius:14px;padding:14px 18px;display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin-bottom:16px;box-shadow:var(--shadow)}
+  .field{display:flex;flex-direction:column;gap:4px}
+  .field label{font-size:11px;color:var(--ink-3);font-weight:600;letter-spacing:.3px;text-transform:uppercase}
+  .field select,.field input{border:1px solid var(--line);border-radius:9px;padding:7px 11px;font-size:13.5px;font-family:inherit;background:#fff;color:var(--ink)}
+  .field select:focus,.field input:focus{outline:2px solid var(--brand-soft);border-color:var(--brand)}
+  .period-tabs{display:inline-flex;background:#f1f5f9;border-radius:9px;padding:3px;gap:2px}
+  .period-tabs button{border:0;background:transparent;padding:6px 14px;border-radius:7px;font-size:13px;font-weight:600;color:var(--ink-2);cursor:pointer}
+  .period-tabs button.active{background:#fff;color:var(--brand-dark);box-shadow:0 1px 3px rgba(15,23,42,.1)}
+  .toolbar .spacer{flex:1}
+  .btn{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);background:#fff;color:var(--ink);padding:8px 14px;border-radius:9px;font-size:13px;font-weight:600;cursor:pointer;transition:.15s}
+  .btn:hover{background:#f8fafc;border-color:#cbd5e1}
+  .btn.primary{background:var(--brand);color:#fff;border-color:var(--brand)}
+  .btn.primary:hover{background:var(--brand-dark);border-color:var(--brand-dark)}
+  .btn.success{background:var(--ok);color:#fff;border-color:var(--ok)}
+  .btn.success:hover{background:#15803d}
+  .btn i{width:16px;height:16px}
+
+  /* Summary band */
+  .summary{display:grid;grid-template-columns:1.4fr 1.4fr 1fr 1fr 1fr;gap:12px;margin-bottom:16px}
+  .sum-card{background:#fff;border:1px solid var(--line);border-radius:14px;padding:14px 16px;box-shadow:var(--shadow);position:relative;overflow:hidden}
+  .sum-card .lbl{font-size:11.5px;color:var(--ink-3);font-weight:600;text-transform:uppercase;letter-spacing:.4px}
+  .sum-card .val{font-size:22px;font-weight:700;color:var(--ink);font-feature-settings:'tnum';margin-top:6px}
+  .sum-card .sub{font-size:12px;color:var(--ink-2);margin-top:2px}
+  .sum-card.express{background:linear-gradient(135deg,#f0fdfa,#fff)}
+  .sum-card.bank{background:linear-gradient(135deg,#eff6ff,#fff)}
+  .sum-card.diff .val{color:var(--bad)}
+  .sum-card.diff.balanced .val{color:var(--ok)}
+  .sum-card .badge{position:absolute;top:12px;right:14px;font-size:10.5px;font-weight:700;padding:3px 8px;border-radius:999px;letter-spacing:.3px}
+  .badge.tag-express{background:var(--brand-soft);color:var(--brand-dark)}
+  .badge.tag-bank{background:#dbeafe;color:#1e40af}
+  .badge.tag-ok{background:#dcfce7;color:#166534}
+  .badge.tag-warn{background:#fef3c7;color:#92400e}
+
+  /* Tabs */
+  .tabs{display:flex;gap:0;border-bottom:2px solid var(--line);margin-bottom:0;background:#fff;border-radius:14px 14px 0 0;padding:0 12px;border:1px solid var(--line);border-bottom:none}
+  .tab{padding:14px 18px;font-size:13.5px;font-weight:600;color:var(--ink-2);cursor:pointer;border-bottom:3px solid transparent;margin-bottom:-2px;transition:.15s;display:flex;align-items:center;gap:8px}
+  .tab:hover{color:var(--brand-dark)}
+  .tab.active{color:var(--brand-dark);border-bottom-color:var(--brand)}
+  .tab .count{background:#f1f5f9;color:var(--ink-2);font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;min-width:24px;text-align:center}
+  .tab.active .count{background:var(--brand);color:#fff}
+  .tab.warn.active .count{background:var(--warn)}
+  .tab.bad.active .count{background:var(--bad)}
+
+  /* Action bar */
+  .action-bar{background:#f8fafc;border:1px solid var(--line);border-top:none;padding:10px 16px;display:flex;align-items:center;gap:10px;font-size:13px;color:var(--ink-2)}
+  .action-bar .spacer{flex:1}
+  .action-bar .selected{font-weight:600;color:var(--ink)}
+
+  /* Match table */
+  .table-wrap{background:#fff;border:1px solid var(--line);border-top:none;border-radius:0 0 14px 14px;overflow:hidden;box-shadow:var(--shadow)}
+  .row-head{display:grid;grid-template-columns:36px 1fr 36px 1fr 130px 110px;background:#f8fafc;border-bottom:1px solid var(--line);font-size:11px;font-weight:700;color:var(--ink-2);text-transform:uppercase;letter-spacing:.4px;padding:10px 14px;gap:8px}
+  .row-head>div{padding:0 6px}
+  .row-head .ck{display:flex;align-items:center;justify-content:center}
+
+  .match-row{display:grid;grid-template-columns:36px 1fr 36px 1fr 130px 110px;gap:8px;padding:12px 14px;border-bottom:1px solid #f1f5f9;align-items:center;transition:.1s}
+  .match-row:hover{background:#fafbfc}
+  .match-row .ck{display:flex;align-items:center;justify-content:center}
+  .match-row .ck input{width:16px;height:16px;accent-color:var(--brand);cursor:pointer}
+
+  .side{padding:8px 10px;border-radius:9px;background:#f8fafc;border:1px dashed transparent;position:relative}
+  .side.empty{background:repeating-linear-gradient(45deg,#fafbfc,#fafbfc 6px,#f1f5f9 6px,#f1f5f9 12px);color:var(--ink-3);font-style:italic;text-align:center;padding:14px;font-size:12.5px}
+  .side .top{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--ink-2);margin-bottom:3px}
+  .side .top .date{font-weight:700;color:var(--ink);font-feature-settings:'tnum'}
+  .side .top .ref{font-family:"IBM Plex Sans",monospace;font-size:11.5px;color:var(--ink-2);background:#fff;border:1px solid var(--line);padding:1px 7px;border-radius:5px;font-weight:600}
+  .side .desc{font-size:13px;color:var(--ink);font-weight:500;line-height:1.4}
+  .side .amount{display:flex;justify-content:flex-end;font-size:14px;font-weight:700;font-feature-settings:'tnum';margin-top:4px}
+  .side .amount.in{color:var(--ok)}
+  .side .amount.out{color:var(--bad)}
+
+  .link-col{display:flex;align-items:center;justify-content:center}
+  .link-col svg{width:20px;height:20px;color:var(--ink-3)}
+
+  .match-row.matched .link-col svg{color:var(--ok)}
+  .match-row.suggested .link-col svg{color:var(--warn)}
+  .match-row.unmatched .link-col svg{color:var(--ink-3)}
+
+  .conf{display:flex;flex-direction:column;align-items:flex-start;gap:4px}
+  .conf .tag{font-size:11px;font-weight:700;padding:3px 10px;border-radius:999px;letter-spacing:.3px}
+  .conf .tag.exact{background:#dcfce7;color:#166534}
+  .conf .tag.sug{background:#fef3c7;color:#92400e}
+  .conf .tag.none{background:#f1f5f9;color:#64748b}
+  .conf .why{font-size:10.5px;color:var(--ink-3)}
+
+  .actions{display:flex;flex-direction:column;gap:5px}
+  .actions button{border:1px solid var(--line);background:#fff;color:var(--ink-2);padding:5px 10px;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:5px;justify-content:center}
+  .actions button:hover{background:#f8fafc}
+  .actions button.ok{color:var(--ok);border-color:#bbf7d0}
+  .actions button.ok:hover{background:#dcfce7}
+  .actions button.warn{color:var(--bad);border-color:#fecaca}
+  .actions button.warn:hover{background:#fee2e2}
+  .actions button i{width:13px;height:13px}
+
+  /* Row state borders */
+  .match-row.matched{border-left:3px solid var(--ok);padding-left:11px}
+  .match-row.suggested{border-left:3px solid var(--warn);padding-left:11px}
+  .match-row.unmatched-ex{border-left:3px solid var(--brand);padding-left:11px}
+  .match-row.unmatched-bk{border-left:3px solid var(--info);padding-left:11px}
+
+  /* Footer hint */
+  .legend{display:flex;gap:18px;margin-top:14px;font-size:12.5px;color:var(--ink-2);padding:0 4px}
+  .legend .lg{display:flex;align-items:center;gap:6px}
+  .legend .lg .sw{width:10px;height:10px;border-radius:3px}
+  .sw.ok{background:var(--ok)}
+  .sw.warn{background:var(--warn)}
+  .sw.ex{background:var(--brand)}
+  .sw.bk{background:var(--info)}
+
+  /* Tab content */
+  .pane{display:none}
+  .pane.active{display:block}
+
+  /* Mode toggle (theme switch for preview) */
+  .preview-note{background:#fef3c7;border:1px solid #fde68a;color:#92400e;padding:10px 14px;border-radius:10px;font-size:13px;margin-bottom:14px;display:flex;align-items:center;gap:8px}
+</style>
+</head>
+<body data-co="benya">
+
+<div class="topbar">
+  <h1><i data-lucide="git-compare-arrows"></i> Bank Reconciliation <span class="pill">PHASE 1 MOCKUP</span></h1>
+  <div class="spacer"></div>
+  <button class="btn" onclick="document.body.dataset.co=document.body.dataset.co==='benya'?'mbark':'benya';applyTheme()"><i data-lucide="palette"></i> สลับธีม (Benya/MBark)</button>
+</div>
+
+<div class="main">
+
+  <div class="preview-note">
+    <i data-lucide="info" style="width:16px;height:16px"></i>
+    <span>นี่คือ <b>mockup แบบ static</b> สำหรับ design review เท่านั้น — ใช้ข้อมูลตัวอย่างจริงจากไฟล์ Express + SCB statement ของ Benya งวด 05/2026</span>
+  </div>
+
+  <!-- TOOLBAR -->
+  <div class="toolbar">
+    <div class="field">
+      <label>บัญชี</label>
+      <select>
+        <option>Benya · SCB 136-2-684889 (สัมมากร)</option>
+        <option>Benya · SCB 417-077164-0</option>
+        <option>Benya · BBL 865-0-98040-5 (แฟชั่นไอส์แลนด์)</option>
+        <option>MBark · SCB 136-2-270928-1</option>
+      </select>
+    </div>
+
+    <div class="field">
+      <label>งวด</label>
+      <div class="period-tabs" id="periodTabs">
+        <button class="active" onclick="setPeriodMode('month',this)">รายเดือน</button>
+        <button onclick="setPeriodMode('range',this)">ช่วงวัน</button>
+      </div>
+    </div>
+
+    <div class="field" id="monthField">
+      <label>เดือน</label>
+      <select>
+        <option>พ.ค. 2569 (05/2026)</option>
+        <option>เม.ย. 2569 (04/2026)</option>
+        <option>มิ.ย. 2569 (06/2026)</option>
+      </select>
+    </div>
+
+    <div class="field" id="rangeField" style="display:none">
+      <label>ตั้งแต่ — ถึง</label>
+      <div style="display:flex;gap:6px;align-items:center">
+        <input type="date" value="2026-05-01">
+        <span style="color:var(--ink-3)">→</span>
+        <input type="date" value="2026-05-31">
+      </div>
+    </div>
+
+    <div class="spacer"></div>
+
+    <button class="btn"><i data-lucide="upload"></i> Express XML</button>
+    <button class="btn"><i data-lucide="upload"></i> Statement</button>
+    <button class="btn primary"><i data-lucide="zap"></i> จับคู่อัตโนมัติ</button>
+  </div>
+
+  <!-- SUMMARY BAND -->
+  <div class="summary">
+    <div class="sum-card express">
+      <span class="badge tag-express">EXPRESS</span>
+      <div class="lbl">ยอด Express</div>
+      <div class="val">523,448.95</div>
+      <div class="sub">45 รายการ · เงินเข้า 273k / ออก 250k</div>
+    </div>
+    <div class="sum-card bank">
+      <span class="badge tag-bank">BANK</span>
+      <div class="lbl">ยอด Statement</div>
+      <div class="val">523,448.95</div>
+      <div class="sub">48 รายการ · เข้า 280k / ออก 257k</div>
+    </div>
+    <div class="sum-card diff balanced">
+      <span class="badge tag-ok">สมดุล ✓</span>
+      <div class="lbl">ผลต่าง</div>
+      <div class="val">0.00</div>
+      <div class="sub">ยอดสุดท้ายตรงกัน</div>
+    </div>
+    <div class="sum-card">
+      <span class="badge tag-ok">DONE</span>
+      <div class="lbl">กระทบแล้ว</div>
+      <div class="val" style="color:var(--ok)">38</div>
+      <div class="sub">84% ของทั้งหมด</div>
+    </div>
+    <div class="sum-card">
+      <span class="badge tag-warn">PENDING</span>
+      <div class="lbl">ค้างกระทบ</div>
+      <div class="val" style="color:var(--warn)">15</div>
+      <div class="sub">รอตรวจ 4 / ค้าง 11</div>
+    </div>
+  </div>
+
+  <!-- TABS -->
+  <div class="tabs">
+    <div class="tab warn active" onclick="setTab('pending',this)"><i data-lucide="circle-check-big" style="width:16px;height:16px"></i> รอยืนยัน <span class="count">4</span></div>
+    <div class="tab bad" onclick="setTab('unmatched',this)"><i data-lucide="circle-alert" style="width:16px;height:16px"></i> รอกระทบยอด <span class="count">11</span></div>
+    <div class="tab" onclick="setTab('done',this)"><i data-lucide="check-check" style="width:16px;height:16px"></i> กระทบแล้ว <span class="count">38</span></div>
+    <div class="tab" onclick="setTab('all',this)"><i data-lucide="list" style="width:16px;height:16px"></i> ทั้งหมด <span class="count">53</span></div>
+  </div>
+
+  <!-- ACTION BAR -->
+  <div class="action-bar">
+    <input type="checkbox" style="accent-color:var(--brand)">
+    <span>เลือกทั้งหมด</span>
+    <span class="selected">· เลือกแล้ว 2 รายการ</span>
+    <div class="spacer"></div>
+    <button class="btn"><i data-lucide="x"></i> นำออก</button>
+    <button class="btn"><i data-lucide="link"></i> จับคู่เอง</button>
+    <button class="btn success"><i data-lucide="check"></i> กระทบยอดที่เลือก</button>
+    <button class="btn"><i data-lucide="download"></i> Export</button>
+  </div>
+
+  <!-- ====== PANE: รอยืนยัน ====== -->
+  <div class="pane active" id="pane-pending">
+    <div class="table-wrap">
+      <div class="row-head">
+        <div class="ck"><input type="checkbox" style="accent-color:var(--brand)"></div>
+        <div>ฝั่ง Express (สมุดบัญชีภายใน)</div>
+        <div></div>
+        <div>ฝั่ง Bank Statement</div>
+        <div>ความมั่นใจ</div>
+        <div>การจัดการ</div>
+      </div>
+
+      <!-- AUTO MATCH TIER 1 (exact ref + date + amount) -->
+      <div class="match-row matched">
+        <div class="ck"><input type="checkbox" checked></div>
+        <div class="side">
+          <div class="top"><span class="date">15/05/2026</span><span class="ref">QPPS26051506</span></div>
+          <div class="desc">ค่าภ.ง.ด.1,3,53 ด.04.69 / กรมสรรพากร</div>
+          <div class="amount out">-1,854.00</div>
+        </div>
+        <div class="link-col"><i data-lucide="check-circle-2"></i></div>
+        <div class="side">
+          <div class="top"><span class="date">15/05/2026</span><span class="ref">PS2606150006</span></div>
+          <div class="desc">ชำระค่า Revenue Department2 / เงินค่าการศึกษา</div>
+          <div class="amount out">-1,854.00</div>
+        </div>
+        <div class="conf">
+          <span class="tag exact">EXACT</span>
+          <span class="why">วันที่+ยอด+ref ตรง</span>
+        </div>
+        <div class="actions">
+          <button class="ok"><i data-lucide="check"></i> ยืนยัน</button>
+          <button class="warn"><i data-lucide="x"></i> นำออก</button>
+        </div>
+      </div>
+
+      <div class="match-row matched">
+        <div class="ck"><input type="checkbox" checked></div>
+        <div class="side">
+          <div class="top"><span class="date">15/05/2026</span><span class="ref">QPPS26051515</span></div>
+          <div class="desc">เงินกู้ยืมเพื่อการศึกษา ด.04.69 / กยศ.</div>
+          <div class="amount out">-1,854.00</div>
+        </div>
+        <div class="link-col"><i data-lucide="check-circle-2"></i></div>
+        <div class="side">
+          <div class="top"><span class="date">15/05/2026</span><span class="ref">PS2606150007</span></div>
+          <div class="desc">เงินกู้ยืมเพื่อการศึกษา</div>
+          <div class="amount out">-1,854.00</div>
+        </div>
+        <div class="conf">
+          <span class="tag exact">EXACT</span>
+          <span class="why">วันที่+ยอด+ref ตรง</span>
+        </div>
+        <div class="actions">
+          <button class="ok"><i data-lucide="check"></i> ยืนยัน</button>
+          <button class="warn"><i data-lucide="x"></i> นำออก</button>
+        </div>
+      </div>
+
+      <!-- SUGGESTED TIER 2 (BBL no ref — amount+date only) -->
+      <div class="match-row suggested">
+        <div class="ck"><input type="checkbox"></div>
+        <div class="side">
+          <div class="top"><span class="date">06/05/2026</span><span class="ref">QPPS26050603</span></div>
+          <div class="desc">ค่าโทร เดือน 04.69 ตัดบช / ทรู มูฟ เอช</div>
+          <div class="amount out">-480.43</div>
+        </div>
+        <div class="link-col"><i data-lucide="help-circle"></i></div>
+        <div class="side">
+          <div class="top"><span class="date">06/05/2026</span><span style="font-size:11px;color:var(--ink-3)">no ref</span></div>
+          <div class="desc">PAYMENT ON GOODS · Automatic · eSaving Metro Branch</div>
+          <div class="amount out">-480.43</div>
+        </div>
+        <div class="conf">
+          <span class="tag sug">เสนอ</span>
+          <span class="why">ยอด+วันตรง · ไม่มี ref</span>
+        </div>
+        <div class="actions">
+          <button class="ok"><i data-lucide="check"></i> ยืนยัน</button>
+          <button class="warn"><i data-lucide="x"></i> ไม่ใช่</button>
+        </div>
+      </div>
+
+      <div class="match-row suggested">
+        <div class="ck"><input type="checkbox"></div>
+        <div class="side">
+          <div class="top"><span class="date">15/05/2026</span><span class="ref">QPPS26051514</span></div>
+          <div class="desc">กรมธรรม์ประกันกลุ่มพนักงาน / ทิพย์ประกันภัย</div>
+          <div class="amount out">-69,276.24</div>
+        </div>
+        <div class="link-col"><i data-lucide="help-circle"></i></div>
+        <div class="side">
+          <div class="top"><span class="date">15/05/2026</span><span style="font-size:11px;color:var(--ink-3)">no ref</span></div>
+          <div class="desc">CHQ Withdraw / โอน Dhipaya Insurance</div>
+          <div class="amount out">-69,276.24</div>
+        </div>
+        <div class="conf">
+          <span class="tag sug">เสนอ</span>
+          <span class="why">ยอด+วันตรง · ไม่มี ref</span>
+        </div>
+        <div class="actions">
+          <button class="ok"><i data-lucide="check"></i> ยืนยัน</button>
+          <button class="warn"><i data-lucide="x"></i> ไม่ใช่</button>
+        </div>
+      </div>
+
+      <!-- INTER-ACCOUNT TRANSFER (Express BBL ↔ Express SCB) -->
+      <div class="match-row matched" style="background:linear-gradient(90deg,#fef3c7 0%,#fff 100%)">
+        <div class="ck"><input type="checkbox" checked></div>
+        <div class="side">
+          <div class="top"><span class="date">15/05/2026</span><span class="ref">BT2605150001</span></div>
+          <div class="desc">โอนระหว่างบัญชี · BBL-0405 → SCB-4889</div>
+          <div class="amount out">-130,000.00</div>
+        </div>
+        <div class="link-col"><i data-lucide="arrow-left-right"></i></div>
+        <div class="side">
+          <div class="top"><span class="date">15/05/2026</span><span class="ref">BT2605150001</span></div>
+          <div class="desc">โอนมาจาก BBL-0405 (TRD)</div>
+          <div class="amount in">+130,000.00</div>
+        </div>
+        <div class="conf">
+          <span class="tag exact" style="background:#fed7aa;color:#9a3412">โอนระหว่างบัญชี</span>
+          <span class="why">หักล้างกันภายใน Express</span>
+        </div>
+        <div class="actions">
+          <button class="ok"><i data-lucide="check"></i> ยืนยัน</button>
+          <button class="warn"><i data-lucide="x"></i> นำออก</button>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="legend">
+      <div class="lg"><span class="sw ok"></span> Auto match — ref ตรง</div>
+      <div class="lg"><span class="sw warn"></span> Suggested — ยอด+วันตรง ยังไม่มี ref</div>
+      <div class="lg"><span class="sw ex"></span> Unmatched ฝั่ง Express</div>
+      <div class="lg"><span class="sw bk"></span> Unmatched ฝั่ง Bank</div>
+    </div>
+  </div>
+
+  <!-- ====== PANE: รอกระทบยอด ====== -->
+  <div class="pane" id="pane-unmatched">
+    <div class="table-wrap">
+      <div class="row-head">
+        <div class="ck"><input type="checkbox" style="accent-color:var(--brand)"></div>
+        <div>ฝั่ง Express (สมุดบัญชีภายใน)</div>
+        <div></div>
+        <div>ฝั่ง Bank Statement</div>
+        <div>เหตุผล</div>
+        <div>การจัดการ</div>
+      </div>
+
+      <!-- Express Only (เช็คยังไม่ขึ้นเงิน) -->
+      <div class="match-row unmatched-ex">
+        <div class="ck"><input type="checkbox"></div>
+        <div class="side">
+          <div class="top"><span class="date">29/05/2026</span><span class="ref">QPPS26052904</span></div>
+          <div class="desc">ค่าเปิดบัญชีบริษัทที่อินโดนีเซีย / คุณ มาริสา โรซัม</div>
+          <div class="amount out">-2,850.00</div>
+        </div>
+        <div class="link-col"><i data-lucide="circle-dashed"></i></div>
+        <div class="side empty">— ไม่พบใน Bank Statement —</div>
+        <div class="conf">
+          <span class="tag none">ค้าง Express</span>
+          <span class="why">เช็คอาจยังไม่ขึ้นเงิน</span>
+        </div>
+        <div class="actions">
+          <button><i data-lucide="link"></i> จับคู่เอง</button>
+          <button><i data-lucide="message-square"></i> หมายเหตุ</button>
+        </div>
+      </div>
+
+      <div class="match-row unmatched-ex">
+        <div class="ck"><input type="checkbox"></div>
+        <div class="side">
+          <div class="top"><span class="date">31/05/2026</span><span class="ref">QPPS26053106</span></div>
+          <div class="desc">หมึกพิมพ์ กระดาษ ซองน้ำตาล / ออฟฟิศเมท</div>
+          <div class="amount out">-3,685.17</div>
+        </div>
+        <div class="link-col"><i data-lucide="circle-dashed"></i></div>
+        <div class="side empty">— ไม่พบใน Bank Statement —</div>
+        <div class="conf">
+          <span class="tag none">ค้าง Express</span>
+          <span class="why">เช็คยังไม่ขึ้นเงิน</span>
+        </div>
+        <div class="actions">
+          <button><i data-lucide="link"></i> จับคู่เอง</button>
+          <button><i data-lucide="message-square"></i> หมายเหตุ</button>
+        </div>
+      </div>
+
+      <!-- Bank Only (ค่าธรรมเนียมที่ Express ยังไม่ลง) -->
+      <div class="match-row unmatched-bk">
+        <div class="ck"><input type="checkbox"></div>
+        <div class="side empty">— ไม่พบใน Express —</div>
+        <div class="link-col"><i data-lucide="circle-dashed"></i></div>
+        <div class="side">
+          <div class="top"><span class="date">15/05/2026</span><span class="ref">PS2606150015</span></div>
+          <div class="desc">ค่าธรรมเนียมโอน · Mobile Banking</div>
+          <div class="amount out">-10.00</div>
+        </div>
+        <div class="conf">
+          <span class="tag none" style="background:#dbeafe;color:#1e40af">ค้าง Bank</span>
+          <span class="why">ค่าธรรมเนียมยังไม่บันทึก</span>
+        </div>
+        <div class="actions">
+          <button><i data-lucide="plus"></i> สร้างใน Express</button>
+          <button><i data-lucide="message-square"></i> หมายเหตุ</button>
+        </div>
+      </div>
+
+      <div class="match-row unmatched-bk">
+        <div class="ck"><input type="checkbox"></div>
+        <div class="side empty">— ไม่พบใน Express —</div>
+        <div class="link-col"><i data-lucide="circle-dashed"></i></div>
+        <div class="side">
+          <div class="top"><span class="date">28/05/2026</span><span class="ref">TROI26053001</span></div>
+          <div class="desc">รับเงินกู้ยืม / บริษัท บัณฑิตา โฮลดิ้ง กรุ๊ป</div>
+          <div class="amount in">+800,000.00</div>
+        </div>
+        <div class="conf">
+          <span class="tag none" style="background:#dbeafe;color:#1e40af">ค้าง Bank</span>
+          <span class="why">ลงสมุดธนาคารแต่ Express ยังไม่ออก receipt</span>
+        </div>
+        <div class="actions">
+          <button><i data-lucide="plus"></i> สร้างใน Express</button>
+          <button><i data-lucide="message-square"></i> หมายเหตุ</button>
+        </div>
+      </div>
+
+      <!-- Different date — strict rule: SAME-DATE = NO MATCH -->
+      <div class="match-row unmatched-ex" style="background:#fef2f2">
+        <div class="ck"><input type="checkbox"></div>
+        <div class="side">
+          <div class="top"><span class="date" style="color:var(--bad)">15/05/2026</span><span class="ref">QPPS26051517</span></div>
+          <div class="desc">ค่าบริการ Web 04/69 คืนบัตรเครดิต / Google Asia Pacific</div>
+          <div class="amount out">-15,339.99</div>
+        </div>
+        <div class="link-col"><i data-lucide="circle-x" style="color:var(--bad)"></i></div>
+        <div class="side">
+          <div class="top"><span class="date" style="color:var(--bad)">16/05/2026</span><span style="font-size:11px;color:var(--ink-3)">no ref</span></div>
+          <div class="desc">Google Asia Pacific Pte.Ltd · DD</div>
+          <div class="amount out">-15,339.99</div>
+        </div>
+        <div class="conf">
+          <span class="tag none" style="background:#fecaca;color:#991b1b">ยอดตรง วันต่าง</span>
+          <span class="why" style="color:var(--bad);font-weight:600">⚠️ ไม่นับเป็น match — วันต่าง 1 วัน</span>
+        </div>
+        <div class="actions">
+          <button><i data-lucide="link"></i> จับคู่เอง</button>
+          <button><i data-lucide="message-square"></i> ทำไม?</button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ====== PANE: กระทบแล้ว ====== -->
+  <div class="pane" id="pane-done">
+    <div class="table-wrap" style="padding:60px 20px;text-align:center;color:var(--ink-3)">
+      <i data-lucide="check-check" style="width:48px;height:48px;color:var(--ok);margin-bottom:12px"></i>
+      <div style="font-size:18px;color:var(--ink);font-weight:600;margin-bottom:6px">กระทบแล้ว 38 รายการ</div>
+      <div style="font-size:13px">รายการที่ผ่านการยืนยันแล้วจะมาอยู่ที่นี่ · คลิกเพื่อย้อนกลับ</div>
+      <button class="btn" style="margin-top:18px"><i data-lucide="undo-2"></i> ย้อนการกระทบ</button>
+    </div>
+  </div>
+
+  <!-- ====== PANE: ทั้งหมด ====== -->
+  <div class="pane" id="pane-all">
+    <div class="table-wrap" style="padding:60px 20px;text-align:center;color:var(--ink-3)">
+      <div style="font-size:14px">รวมรายการทั้ง 3 ฝั่ง · 53 รายการ</div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  lucide.createIcons();
+  function setTab(id, el){
+    document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+    el.classList.add('active');
+    document.querySelectorAll('.pane').forEach(p=>p.classList.remove('active'));
+    document.getElementById('pane-'+id).classList.add('active');
+    setTimeout(()=>lucide.createIcons(),10);
+  }
+  function setPeriodMode(mode, el){
+    el.parentNode.querySelectorAll('button').forEach(b=>b.classList.remove('active'));
+    el.classList.add('active');
+    document.getElementById('monthField').style.display = mode==='month'?'flex':'none';
+    document.getElementById('rangeField').style.display = mode==='range'?'flex':'none';
+  }
+  function applyTheme(){ setTimeout(()=>lucide.createIcons(),10); }
+</script>
+</body>
+</html>

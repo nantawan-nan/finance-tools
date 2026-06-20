@@ -5932,10 +5932,10 @@ function edRenderActivity(){
   }
 
   document.getElementById("edContent").innerHTML = `
-    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px">
-      ${["operating","investing","financing","other"].map(k=>{
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px">
+      ${["operating","investing","financing"].map(k=>{
         const v = totalNetByAct[k];
-        const colors = { operating:ED_COLORS.op, investing:ED_COLORS.inv, financing:ED_COLORS.fin, other:ED_COLORS.neutral };
+        const colors = { operating:ED_COLORS.op, investing:ED_COLORS.inv, financing:ED_COLORS.fin };
         return `<div style="background:rgba(255,255,255,.85);border:1px solid #c3dafe;border-radius:12px;padding:12px 14px;cursor:pointer" onclick="edDrillActivity('${k}')">
           <div style="font-size:10.5px;font-weight:700;color:#475569;text-transform:uppercase">${edActivityLabel(k)}</div>
           <div style="font-size:18px;font-weight:800;color:${colors[k]};margin-top:3px">${edFmt(v)}</div>

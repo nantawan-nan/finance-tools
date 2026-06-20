@@ -4867,8 +4867,9 @@ async function edExportPDF(){
     await new Promise(r => setTimeout(r, 250));   // รอ layout settle ของ clone
 
     const cloneFullH = cloneWrap.scrollHeight;
+    const effScale = Math.min(SCALE, 32000 / cloneFullH);   // กันแคนวาสสูงเกินลิมิต browser (~32767px) → "Invalid string length"
     const canvas = await window.html2canvas(cloneWrap, {
-      scale: SCALE,
+      scale: effScale,
       backgroundColor: "#ffffff",
       useCORS: true,
       logging: false,
@@ -4885,7 +4886,7 @@ async function edExportPDF(){
     if(cloneThead){
       const wrapRect  = cloneWrap.getBoundingClientRect();
       const theadRect = cloneThead.getBoundingClientRect();
-      const sc = SCALE;   // html2canvas scale
+      const sc = canvas.width / captureWidth;   // scale จริงของ canvas (หลัง clamp)
       const theadYPx = Math.max(0, Math.round((theadRect.top - wrapRect.top) * sc));
       const theadHPx = Math.round(theadRect.height * sc);
       if(theadHPx > 0 && theadYPx + theadHPx <= canvas.height){
@@ -4896,7 +4897,7 @@ async function edExportPDF(){
         ctx.fillStyle = "#ffffff";
         ctx.fillRect(0, 0, tc.width, tc.height);
         ctx.drawImage(canvas, 0, -theadYPx);
-        theadImg = tc.toDataURL("image/png");
+        theadImg = tc.toDataURL("image/jpeg", 0.92);
       }
     }
 
@@ -4927,7 +4928,7 @@ async function edExportPDF(){
       const r = el.getBoundingClientRect();
       // ★ หัวข้อ (h3) ใช้ขอบ "บน" — ตัดหน้าก่อนหัวข้อ ไม่ทิ้งหัวข้อไว้ท้ายหน้าโดยตารางไปอยู่หน้าถัดไป (keep-with-next)
       const edge = (el.tagName === "H3") ? r.top : r.bottom;
-      const yB = Math.round((edge - wrapTopY) * SCALE);
+      const yB = Math.round((edge - wrapTopY) * (canvas.width / captureWidth));
       if(yB > 0 && yB <= canvas.height) rowBounds.push(yB);
     });
     rowBounds.sort((a,b) => a - b);
@@ -4967,7 +4968,7 @@ async function edExportPDF(){
 
       let yMM = yStart;
       if(pg.showThead && theadImg){
-        pdf.addImage(theadImg, "PNG", margin, yMM, imgW, theadHmm);
+        pdf.addImage(theadImg, "JPEG", margin, yMM, imgW, theadHmm);
         yMM += theadHmm + 1;
       }
 
@@ -4980,9 +4981,9 @@ async function edExportPDF(){
       ctx.fillRect(0, 0, sliceCanvas.width, sliceCanvas.height);
       ctx.drawImage(canvas, 0, -pg.yPx);
 
-      const sliceImgData = sliceCanvas.toDataURL("image/png");
+      const sliceImgData = sliceCanvas.toDataURL("image/jpeg", 0.92);
       const sliceHmm = (pg.slicePx * imgW) / canvas.width;
-      pdf.addImage(sliceImgData, "PNG", margin, yMM, imgW, sliceHmm);
+      pdf.addImage(sliceImgData, "JPEG", margin, yMM, imgW, sliceHmm);
 
       // footer
       pdf.setFont("helvetica","normal");
@@ -5060,8 +5061,10 @@ async function edCaptureContentToPdf(pdf, opts){
 
     await new Promise(r=>setTimeout(r,200));
     const cloneFullH = cloneWrap.scrollHeight;
-    const canvas = await window.html2canvas(cloneWrap,{ scale:SCALE, backgroundColor:"#ffffff", useCORS:true, logging:false,
+    const effScale = Math.min(SCALE, 32000 / cloneFullH);   // กันแคนวาสสูงเกินลิมิต browser → "Invalid string length"
+    const canvas = await window.html2canvas(cloneWrap,{ scale:effScale, backgroundColor:"#ffffff", useCORS:true, logging:false,
       width:captureWidth, windowWidth:captureWidth, height:cloneFullH, windowHeight:cloneFullH });
+    const pxScale = canvas.width / captureWidth;
 
     // thead → ทำซ้ำหัวตารางทุกหน้า
     let theadImg=null, theadHmm=0;
@@ -5069,12 +5072,12 @@ async function edCaptureContentToPdf(pdf, opts){
     if(cloneThead){
       const wrapRect=cloneWrap.getBoundingClientRect();
       const theadRect=cloneThead.getBoundingClientRect();
-      const theadYPx=Math.max(0,Math.round((theadRect.top-wrapRect.top)*SCALE));
-      const theadHPx=Math.round(theadRect.height*SCALE);
+      const theadYPx=Math.max(0,Math.round((theadRect.top-wrapRect.top)*pxScale));
+      const theadHPx=Math.round(theadRect.height*pxScale);
       if(theadHPx>0 && theadYPx+theadHPx<=canvas.height){
         const tc=document.createElement("canvas"); tc.width=canvas.width; tc.height=theadHPx;
         const cx=tc.getContext("2d"); cx.fillStyle="#ffffff"; cx.fillRect(0,0,tc.width,tc.height);
-        cx.drawImage(canvas,0,-theadYPx); theadImg=tc.toDataURL("image/png");
+        cx.drawImage(canvas,0,-theadYPx); theadImg=tc.toDataURL("image/jpeg",0.92);
       }
     }
     if(theadImg){
@@ -5088,7 +5091,7 @@ async function edCaptureContentToPdf(pdf, opts){
     clone.querySelectorAll("tr, .card, .ed-card, h3, .page-head").forEach(el=>{
       const r=el.getBoundingClientRect();
       const edge=(el.tagName==="H3")?r.top:r.bottom;
-      const yB=Math.round((edge-wrapTopY)*SCALE);
+      const yB=Math.round((edge-wrapTopY)*pxScale);
       if(yB>0 && yB<=canvas.height) rowBounds.push(yB);
     });
     rowBounds.sort((a,b)=>a-b);
@@ -5116,10 +5119,10 @@ async function edCaptureContentToPdf(pdf, opts){
       const pg=pdfPages[i];
       drawPdfHeader(pdf, co, t, tab, d, logoData, pageW, headerH, margin);
       let yMM=yStart;
-      if(pg.showThead && theadImg){ pdf.addImage(theadImg,"PNG",margin,yMM,imgW,theadHmm); yMM+=theadHmm+1; }
+      if(pg.showThead && theadImg){ pdf.addImage(theadImg,"JPEG",margin,yMM,imgW,theadHmm); yMM+=theadHmm+1; }
       const slc=document.createElement("canvas"); slc.width=canvas.width; slc.height=pg.slicePx;
       const cx=slc.getContext("2d"); cx.fillStyle="#ffffff"; cx.fillRect(0,0,slc.width,slc.height); cx.drawImage(canvas,0,-pg.yPx);
-      pdf.addImage(slc.toDataURL("image/png"),"PNG",margin,yMM,imgW,(pg.slicePx*imgW)/canvas.width);
+      pdf.addImage(slc.toDataURL("image/jpeg",0.92),"JPEG",margin,yMM,imgW,(pg.slicePx*imgW)/canvas.width);
     }
   } finally {
     if(cloneWrap.parentNode) cloneWrap.remove();

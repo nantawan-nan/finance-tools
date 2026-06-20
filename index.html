@@ -6105,7 +6105,7 @@ function edRenderStmt(){
   let html = `
     <div class="card">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px" data-pdf-hide="1">
-        <h3 style="margin:0">งบกระแสเงินสด — รายเดือน</h3>
+        <h3 style="margin:0">งบกระแสเงินสด — รายเดือน <span style="font-size:11px;font-weight:500;color:var(--ink-3)">· คลิกชื่อหมวด = คลี่รายการ · คลิกตัวเลข = ดูป๊อปอัพ</span></h3>
         <select onchange="edStmtAcct(this.value)" style="padding:6px 10px;border:1px solid var(--line);border-radius:7px;font-size:13px">
           <option value="all" ${filterAcct==="all"?"selected":""}>รวมทุกบัญชี</option>${acctOpts}
         </select>
@@ -6141,7 +6141,7 @@ function edRenderStmt(){
       for(const c of inCats){
         c.in.forEach((v,i) => inSub[i] += v);
         const total = sumArr(c.in);
-        html += `<tr><td style="padding-left:24px;color:#0f172a">${esc(c.cat)}</td>` +
+        html += `<tr><td class="stmt-cat" style="padding-left:16px;color:#0f172a;cursor:pointer" onclick="edStmtToggle(this,${dq(c.cat)},'${act}','in')" title="คลิกเพื่อคลี่รายการ"><span class="stmt-caret" style="display:inline-block;width:12px;color:var(--ink-3);font-size:10px">▶</span> ${esc(c.cat)}</td>` +
           c.in.map((v,i)=>`<td onclick="edDrillStmt(${dq(c.cat)},'${act}','${months[i]}','in')" style="text-align:right;cursor:pointer;color:${v>0?ED_COLORS.in:"var(--ink-3)"}" title="คลิกดูรายการ">${v>0?edFmt(v):"—"}</td>`).join("") +
           `<td onclick="edDrillStmt(${dq(c.cat)},'${act}','all','in')" style="text-align:right;background:${C.inRowTotalBg};font-weight:700;cursor:pointer;color:${ED_COLORS.in}" title="คลิกดูรายการรวมทั้งปี">${edFmt(total)}</td></tr>`;
       }
@@ -6159,7 +6159,7 @@ function edRenderStmt(){
       for(const c of outCats){
         c.out.forEach((v,i) => outSub[i] += v);
         const total = sumArr(c.out);
-        html += `<tr><td style="padding-left:24px;color:#0f172a">${esc(c.cat)}</td>` +
+        html += `<tr><td class="stmt-cat" style="padding-left:16px;color:#0f172a;cursor:pointer" onclick="edStmtToggle(this,${dq(c.cat)},'${act}','out')" title="คลิกเพื่อคลี่รายการ"><span class="stmt-caret" style="display:inline-block;width:12px;color:var(--ink-3);font-size:10px">▶</span> ${esc(c.cat)}</td>` +
           c.out.map((v,i)=>`<td onclick="edDrillStmt(${dq(c.cat)},'${act}','${months[i]}','out')" style="text-align:right;cursor:pointer;color:${v>0?ED_COLORS.out:"var(--ink-3)"}" title="คลิกดูรายการ">${v>0?edFmt(-v):"—"}</td>`).join("") +
           `<td onclick="edDrillStmt(${dq(c.cat)},'${act}','all','out')" style="text-align:right;background:${C.outRowTotalBg};font-weight:700;cursor:pointer;color:${ED_COLORS.out}" title="คลิกดูรายการรวมทั้งปี">${edFmt(-total)}</td></tr>`;
       }
@@ -6189,6 +6189,57 @@ function edRenderStmt(){
   </div>`;
 
   document.getElementById("edContent").innerHTML = html;
+}
+
+/* คลี่/พับรายการของหมวด inline (แบบ Excel) — เรียกจากการคลิก "ชื่อหมวด" ในงบกระแสเงินสด
+   (คลิกที่ตัวเลขเดือนยังเปิด popup เหมือนเดิมผ่าน edDrillStmt) */
+function edStmtToggle(tdEl, catName, actKey, dir){
+  const tr = tdEl.closest("tr");
+  const caret = tdEl.querySelector(".stmt-caret");
+  const next = tr.nextElementSibling;
+  if(next && next.classList.contains("stmt-detail")){   // เปิดอยู่ → พับ
+    next.remove();
+    if(caret) caret.textContent = "▶";
+    return;
+  }
+  const d = edState();
+  let txs = d.data.transactions.filter(t => !edIsTransfer(t));   // ★ ตัดโอนระหว่างบัญชี
+  if(catName) txs = txs.filter(t => t.category === catName);
+  if(actKey)  txs = txs.filter(t => t.activityKey === actKey);
+  if(d.stmtAcct && d.stmtAcct !== "all") txs = txs.filter(t => t.accountKey === d.stmtAcct);
+  if(dir === "in")  txs = txs.filter(t => t.in  > 0);
+  if(dir === "out") txs = txs.filter(t => t.out > 0);
+  txs.sort((a,b) => a.date - b.date);
+
+  const colspan = tr.children.length;
+  const head = dir === "in" ? ED_COLORS.in : ED_COLORS.out;
+  const body = txs.length ? txs.map(t=>`<tr style="border-top:1px solid #eef2f7">
+      <td style="padding:5px 10px;white-space:nowrap">${t.dateISO}</td>
+      <td style="padding:5px 10px"><code style="font-size:11px">${esc(t.ref)}</code></td>
+      <td style="padding:5px 10px"><b>${esc(t.bank)}</b> ${esc((t.accountNo||'').slice(-5))}</td>
+      <td style="padding:5px 10px;text-align:right;color:${ED_COLORS.in}">${t.in>0?edFmt(t.in):"—"}</td>
+      <td style="padding:5px 10px;text-align:right;color:${ED_COLORS.out}">${t.out>0?edFmt(t.out):"—"}</td>
+      <td style="padding:5px 10px;color:var(--ink-2);white-space:normal">${esc(t.note)}</td>
+    </tr>`).join("") : `<tr><td colspan="6" style="padding:10px;color:var(--ink-3)">ไม่มีรายการ</td></tr>`;
+
+  const detail = document.createElement("tr");
+  detail.className = "stmt-detail";
+  detail.innerHTML = `<td colspan="${colspan}" style="padding:0;background:#fbfdff;border-left:3px solid ${head}">
+    <div style="padding:4px 10px 10px 30px;overflow:auto">
+      <table style="width:100%;font-size:12px;border-collapse:collapse">
+        <thead><tr style="color:var(--ink-3)">
+          <th style="padding:4px 10px;font-weight:600;text-align:left">วันที่</th>
+          <th style="padding:4px 10px;font-weight:600;text-align:left">เลขที่</th>
+          <th style="padding:4px 10px;font-weight:600;text-align:left">บัญชี</th>
+          <th style="padding:4px 10px;font-weight:600;text-align:right">รับ</th>
+          <th style="padding:4px 10px;font-weight:600;text-align:right">จ่าย</th>
+          <th style="padding:4px 10px;font-weight:600;text-align:left">หมายเหตุ</th>
+        </tr></thead>
+        <tbody>${body}</tbody>
+      </table>
+    </div></td>`;
+  tr.after(detail);
+  if(caret) caret.textContent = "▼";
 }
 
 /* ---------- Drill modals ---------- */

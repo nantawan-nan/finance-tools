@@ -9842,13 +9842,33 @@ function brecHash(s){
   for(let i=0;i<s.length;i++) h = ((h<<5) + h + s.charCodeAt(i)) | 0;
   return (h>>>0).toString(16);
 }
-/* Normalize ref so QPPS26051506 ↔ PS26051506 match (strip leading "Q") */
+/* Normalize ref → {prefix, num} so we can compare:
+   Express "QPPS26060401" (Q+PS+YYMM+DD+SS) ↔ Statement "PS2606040001" (PS+YYMM+DD+SSSS)
+   - strip leading "Q", strip non-alphanumeric, also strip " - description" tail */
 function brecRefKey(s){
   if(!s) return null;
-  let k = String(s).toUpperCase().replace(/[^A-Z0-9]/g,"");
-  // common Express prefix Q before PS/BT/BV/BQ
-  k = k.replace(/^Q(?=PS|BT|BV|BQ)/,"");
-  return k || null;
+  // keep only the leading "CODE+digits" part — drop description after " - " or space
+  let head = String(s).split(/[\s\-]/)[0];
+  head = head.toUpperCase().replace(/[^A-Z0-9]/g,"");
+  if(!head) return null;
+  head = head.replace(/^Q(?=[A-Z])/, ""); // QPPS → PPS; QPS → PS
+  // collapse double-letter PPS to single PS (Express QPS uses double-P after stripping Q)
+  head = head.replace(/^P+(?=S)/, "P");
+  return head;
+}
+/* compare two refs — accept exact, or one ends/starts with the other,
+   or "PREFIX+YYMMDD+SEQ" alignment with leading-zero-stripped seq */
+function brecRefMatch(a, b){
+  if(!a || !b) return false;
+  if(a === b) return true;
+  if(a.endsWith(b) || b.endsWith(a)) return true;
+  // PREFIX + YYMMDD + SEQ pattern
+  const re = /^([A-Z]+)(\d{6})(\d+)$/;
+  const ma = a.match(re), mb = b.match(re);
+  if(ma && mb && ma[1] === mb[1] && ma[2] === mb[2]){
+    return parseInt(ma[3],10) === parseInt(mb[3],10);
+  }
+  return false;
 }
 /* tolerant amount equality */
 function brecAmtEq(a,b){ return Math.abs((Number(a)||0)-(Number(b)||0)) < 0.005; }
@@ -10105,9 +10125,7 @@ function brecAutoMatch(exRows, bkRows, existing){
       if(used.has("b:"+bk.id)) continue;
       const bkRef = brecRefKey(bk.ref_note);
       if(!bkRef) continue;
-      // ref similarity: exact or one contains the other (handles QPPS vs PS prefix variants)
-      const refOk = (exRef === bkRef) || exRef.endsWith(bkRef) || bkRef.endsWith(exRef);
-      if(!refOk) continue;
+      if(!brecRefMatch(exRef, bkRef)) continue;
       if(ex.txn_date !== bk.txn_date) continue;
       if(!brecAmtEq(exAmt, brecSignedAmt(bk))) continue;
       out.push({ express_row_id:ex.id, bank_row_id:bk.id, status:"suggested", confidence:"exact",
@@ -10294,9 +10312,21 @@ async function brecUpload(kind){
     }
     d.accountId = acctId;
     d.lastImport = imp.id;
-    alert(`นำเข้าสำเร็จ ${parsed.rows.length} รายการ`);
     await brecLoad();
+    // auto-run match หลัง upload — ผู้ใช้ไม่ต้องกดปุ่มเอง
+    const proposed = brecAutoMatch(d.express, d.bank, d.matches);
+    let matchedMsg = "";
+    if(proposed.length){
+      const inserts = proposed.map(p => ({ ...p, company_id: co, bank_account_id: acctId }));
+      const { error:me } = await sb.from("brec_matches").insert(inserts);
+      if(!me){
+        matchedMsg = `\nจับคู่อัตโนมัติ ${proposed.length} คู่ — ดูในแท็บ "รอยืนยัน"`;
+        d.tab = "pending";
+        await brecLoad();
+      }
+    }
     brecRefresh();
+    alert(`นำเข้าสำเร็จ ${parsed.rows.length} รายการ${matchedMsg}`);
   } catch(e){
     alert("Upload ล้มเหลว: "+(e.message||e));
     d.busy=false; brecRefresh();

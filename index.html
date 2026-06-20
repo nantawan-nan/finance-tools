@@ -5350,6 +5350,9 @@ function edRenderDashboard(){
   else if(d.tab==="banks")    edRenderBanks();
   else if(d.tab==="explorer") edRenderExplorer();
   else if(d.tab==="stmt")     edRenderStmt();
+
+  // ★ ตัวเลขเงินวิ่ง count-up ทุกแท็บ (ข้ามที่ tag data-anim ใน Summary + ข้ามตารางใหญ่)
+  edAnimMoney(document.getElementById("edContent"));
 }
 
 /* ตัวเลขวิ่ง (count-up) — หา element ที่มี data-anim แล้ว animate จาก 0 → ค่าจริง */
@@ -5371,6 +5374,37 @@ function edAnimNums(root){
     }
     if(t < 1) requestAnimationFrame(step);
     else for(const el of els){ const to = parseFloat(el.dataset.to) || 0; el.textContent = fmtOne(el.dataset.anim, to, to); }
+  };
+  requestAnimationFrame(step);
+}
+
+/* auto count-up เลขเงินทุก cell ในหน้า (แท็บอื่นที่ไม่ได้ tag data-anim)
+   จับเฉพาะ pattern เงิน x,xxx.xx (ปี/วันที่/เลขบัญชี/จำนวนรายการ จะไม่โดน) + ข้ามตารางใหญ่กัน jank */
+function edAnimMoney(root){
+  root = root || document;
+  const MONEY = /^\(?-?\d{1,3}(,\d{3})*\.\d{2}\)?$/;
+  const items = [];
+  for(const el of root.querySelectorAll('td, span, div, b, strong')){
+    if(el.children.length) continue;            // leaf เท่านั้น
+    if(el.hasAttribute('data-anim')) continue;  // ข้ามที่ทำ count-up อยู่แล้ว
+    const t = el.textContent.trim();
+    if(!MONEY.test(t)) continue;
+    let s = t, neg = false;
+    if(s[0] === '('){ neg = true; s = s.slice(1, -1); }
+    if(s[0] === '-'){ neg = true; s = s.slice(1); }
+    const target = (neg?-1:1) * parseFloat(s.replace(/,/g, ''));
+    if(!isFinite(target)) continue;
+    items.push({ el, target });
+    if(items.length > 300) return;   // ตารางใหญ่เกิน (เช่น Transaction Explorer) → ไม่ animate
+  }
+  if(!items.length) return;
+  const dur = 600, start = performance.now();
+  const step = (now) => {
+    const p = Math.min(1, (now - start) / dur);
+    const e = 1 - Math.pow(1 - p, 3);
+    for(const it of items) it.el.textContent = edFmt(it.target * e);
+    if(p < 1) requestAnimationFrame(step);
+    else for(const it of items) it.el.textContent = edFmt(it.target);
   };
   requestAnimationFrame(step);
 }

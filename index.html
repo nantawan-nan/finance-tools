@@ -5672,6 +5672,9 @@ function edRenderFinKpis(A, data, monthFilter){
     }
   };
 
+  // ป้ายชื่อ ไทย + อังกฤษ
+  const lbl = (th, en) => `${th} <span style="font-weight:400;color:#94a3b8;font-size:11.5px">${en}</span>`;
+
   // single KPI card — คลิกได้ → drill modal
   const card = (kpiKey, label, value, color, sub, bench) => `
     <div onclick="edDrillFinKpi('${kpiKey}')" style="background:rgba(255,255,255,.85);backdrop-filter:blur(6px);border:1px solid #c3dafe;border-radius:14px;padding:16px 18px;display:flex;flex-direction:column;gap:4px;cursor:pointer;transition:.15s" onmouseover="this.style.borderColor='${ED_COLORS.brand}';this.style.transform='translateY(-1px)';this.style.boxShadow='0 4px 12px rgba(0,0,0,.06)'" onmouseout="this.style.borderColor='#c3dafe';this.style.transform='none';this.style.boxShadow='none'">
@@ -5685,41 +5688,41 @@ function edRenderFinKpis(A, data, monthFilter){
     <div class="card" style="margin-top:14px">
       <h3 style="font-size:18px">📊 KPI ทางการเงิน <span style="font-weight:400;color:#94a3b8;font-size:13.5px">Financial KPIs</span></h3>
       <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px">
-        ${card("totalIn",  "รายรับรวม", fmtCompactM(A.totalIn), goodColor, periodLabel, "")}
-        ${card("totalOut", "รายจ่ายรวม", fmtCompactM(A.totalOut), badColor, periodLabel, "")}
-        ${card("net",      "กระแสเงินสดสุทธิ", fmtCompactM(A.net), A.net>=0?goodColor:badColor, "รับ - จ่าย", "")}
+        ${card("totalIn",  lbl("รายรับรวม","Total Receipts"), fmtCompactM(A.totalIn), goodColor, periodLabel, "")}
+        ${card("totalOut", lbl("รายจ่ายรวม","Total Payments"), fmtCompactM(A.totalOut), badColor, periodLabel, "")}
+        ${card("net",      lbl("กระแสเงินสดสุทธิ","Net Cash Flow"), fmtCompactM(A.net), A.net>=0?goodColor:badColor, "รับ - จ่าย", "")}
 
-        ${card("cashMargin", "อัตรากำไรเงินสด",
+        ${card("cashMargin", lbl("อัตรากำไรเงินสด","Cash Margin"),
           fmtPct(cashMargin),
           evalBench(cashMargin, 10, 5, "hi"),
           "Net / Total Income",
           "ไม่ต่ำกว่า 5% (ดี) / ไม่ต่ำกว่า 10% (ยอดเยี่ยม)")}
 
-        ${card("opRatio", "Operating Cash Flow Ratio",
+        ${card("opRatio", lbl("อัตราส่วนเงินสดดำเนินงาน","Operating Cash Flow Ratio"),
           fmtPct(opRatio),
           evalBench(opRatio, 100, 50, "hi"),
           "Op Net / Op Income",
           "ไม่ต่ำกว่า 50% (ดี) / ไม่ต่ำกว่า 100% (แข็งแกร่ง)")}
 
-        ${card("burn", "Cash Burn Rate",
+        ${card("burn", lbl("อัตราใช้เงินสด/เดือน","Cash Burn Rate"),
           fmtCompactM(burn) + "/เดือน",
           burn <= avgIn ? goodColor : badColor,
           "ค่าใช้จ่ายดำเนินงานเฉลี่ย",
           "ควรต่ำกว่ายอดรายรับ/เดือน")}
 
-        ${card("opExRatio", "ค่าใช้จ่ายต่อยอดขาย",
+        ${card("opExRatio", lbl("ค่าใช้จ่ายต่อยอดขาย","Op Expense Ratio"),
           fmtPct(opExRatio),
           evalBench(opExRatio, 100, 80, "lo"),
           "Op Expense / Op Income",
           "ไม่เกิน 80%")}
 
-        ${card("empRatio", "สัดส่วนค่าใช้จ่ายพนักงาน",
+        ${card("empRatio", lbl("สัดส่วนค่าใช้จ่ายพนักงาน","Payroll Ratio"),
           fmtPct(empRatio),
           evalBench(empRatio, 50, 30, "lo"),
           "เงินเดือน / รายรับดำเนินงาน",
           "ไม่เกิน 30%")}
 
-        ${card("adRatio", "สัดส่วนค่าโฆษณาต่อยอดขาย",
+        ${card("adRatio", lbl("สัดส่วนค่าโฆษณาต่อยอดขาย","Ad Spend Ratio"),
           fmtPct(adRatio),
           evalBench(adRatio, 30, 20, "lo"),
           "ค่าโฆษณา / รายรับดำเนินงาน",

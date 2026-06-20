@@ -5910,12 +5910,17 @@ function edRenderActivity(){
   const data = d.data;
   const months = data.months.map(m=>m.key);
   // per month per activity (net)
-  const series = ["op","inv","fin"].map((k,idx)=>{
+  // สีตามธีมบริษัท (เหมือนหน้า Summary): MBark พาสเทล / Benya teal-amber-pink
+  const isMbark = state.company === "mbark";
+  const actCol = isMbark
+    ? { financing:"#3FB69E", operating:"#dc2626", investing:"#F0A02E" }
+    : { financing:"#14B8A6", operating:"#E23D4B", investing:"#F0A02E" };
+  const series = ["fin","op","inv"].map((k)=>{
     const lbls = { op:"ดำเนินงาน", inv:"ลงทุน", fin:"จัดหาเงิน" };
-    const col  = { op:ED_COLORS.op, inv:ED_COLORS.inv, fin:ED_COLORS.fin };
     return {
       label: lbls[k],
-      backgroundColor: col[k],
+      backgroundColor: actCol[({op:"operating",inv:"investing",fin:"financing"})[k]],
+      borderRadius: 4,
       data: months.map(m=>{
         const txs = edTxsInScope(data, m, true);  // ★ exclude transfers
         const aKey = ({op:"operating",inv:"investing",fin:"financing"})[k];
@@ -5931,21 +5936,48 @@ function edRenderActivity(){
     totalNetByAct[k] = tx.reduce((s,t)=>s+t.in-t.out,0);
   }
 
+  // ★ การ์ดสรุปแบบเดียวกับ Executive Summary — sign-based (ลบ=แดง, บวก=เขียว) + icon + แถบสัดส่วน
+  const actsMeta = {
+    operating:{ th:"ดำเนินงาน", en:"Operating", desc:"เงินสดจาก/ใช้ในการดำเนินงาน",
+      icon:`<svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" stroke="CLR" stroke-width="1.8"/><path d="M19.4 13a7.5 7.5 0 0 0 .1-2l1.7-1.3-1.8-3.1-2 .8a7.6 7.6 0 0 0-1.7-1l-.3-2.1H9.6l-.3 2.1c-.6.2-1.2.6-1.7 1l-2-.8L3.8 9.7 5.5 11a7.5 7.5 0 0 0 0 2l-1.7 1.3 1.8 3.1 2-.8c.5.4 1.1.8 1.7 1l.3 2.1h4.8l.3-2.1c.6-.2 1.2-.6 1.7-1l2 .8 1.8-3.1L19.4 13Z" stroke="CLR" stroke-width="1.4" stroke-linejoin="round"/></svg>` },
+    investing:{ th:"ลงทุน", en:"Investing", desc:"ซื้อสินทรัพย์ / เงินลงทุน",
+      icon:`<svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M4 20V9M10 20V5M16 20v-8M22 20V3" stroke="CLR" stroke-width="2" stroke-linecap="round"/></svg>` },
+    financing:{ th:"จัดหาเงิน", en:"Financing", desc:"เงินกู้ / เพิ่มทุน รับเข้า",
+      icon:`<svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M3 21h18M5 21V10M9 21V10M15 21V10M19 21V10M12 3 3.5 8h17L12 3Z" stroke="CLR" stroke-width="1.7" stroke-linejoin="round"/></svg>` }
+  };
+  const sumAbs = ["operating","investing","financing"].reduce((s,k)=>s+Math.abs(totalNetByAct[k]),0) || 1;
+  const actCard2 = (k) => {
+    const v = totalNetByAct[k], m = actsMeta[k];
+    const neg = v < 0;
+    const accent = neg ? "#dc2626" : "#0E9A88";
+    const softBg = neg ? "#FEE2E2" : "#E8FBF5";
+    const barGrad = neg ? "linear-gradient(180deg,#F87171,#DC2626)" : "linear-gradient(180deg,#2BD0B8,#0FA08C)";
+    const prop = Math.round(Math.abs(v)/sumAbs*100);
+    return `<div onclick="edDrillActivity('${k}')" style="background:#fff;border:1px solid #E3ECF7;border-radius:18px;padding:20px 22px;box-shadow:0 8px 22px rgba(31,42,68,.05);position:relative;overflow:hidden;cursor:pointer;transition:.15s" onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 12px 26px rgba(31,42,68,.1)'" onmouseout="this.style.transform='none';this.style.boxShadow='0 8px 22px rgba(31,42,68,.05)'">
+      <div style="position:absolute;left:0;top:0;bottom:0;width:5px;background:${accent}"></div>
+      <div style="display:flex;align-items:center;justify-content:space-between">
+        <div style="display:flex;align-items:center;gap:11px">
+          <div style="width:42px;height:42px;border-radius:12px;background:${softBg};display:flex;align-items:center;justify-content:center">${m.icon.replace(/CLR/g,accent)}</div>
+          <div><div style="font-size:18px;font-weight:700;color:#1F2A44;white-space:nowrap">${m.th}</div><div style="font-size:13.5px;color:#9AA8BF">${m.en}</div></div>
+        </div>
+        <span style="background:${softBg};color:${accent};font-size:13px;font-weight:600;padding:4px 10px;border-radius:999px;white-space:nowrap">${neg?"จ่ายสุทธิ":"รับสุทธิ"}</span>
+      </div>
+      <div style="font-size:35px;font-weight:700;letter-spacing:-.6px;color:${accent};margin-top:14px">${edFmt(v)}</div>
+      <div style="margin-top:14px;height:11px;background:#EEF2F7;border-radius:7px;box-shadow:inset 0 1px 2px rgba(31,42,68,.1);overflow:hidden">
+        <div class="ed-grow" style="position:relative;overflow:hidden;width:${prop}%;height:100%;border-radius:7px;background:${barGrad}"><div class="ed-shim"></div></div>
+      </div>
+      <div style="display:flex;justify-content:space-between;margin-top:8px;font-size:13px;color:#9AA8BF"><span>${m.desc}</span><span>สัดส่วน ${prop}%</span></div>
+    </div>`;
+  };
+
   document.getElementById("edContent").innerHTML = `
-    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px">
-      ${["operating","investing","financing"].map(k=>{
-        const v = totalNetByAct[k];
-        const colors = { operating:ED_COLORS.op, investing:ED_COLORS.inv, financing:ED_COLORS.fin };
-        return `<div style="background:rgba(255,255,255,.85);border:1px solid #c3dafe;border-radius:12px;padding:12px 14px;cursor:pointer" onclick="edDrillActivity('${k}')">
-          <div style="font-size:10.5px;font-weight:700;color:#475569;text-transform:uppercase">${edActivityLabel(k)}</div>
-          <div style="font-size:18px;font-weight:800;color:${colors[k]};margin-top:3px">${edFmt(v)}</div>
-        </div>`;
-      }).join("")}
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin-bottom:18px">
+      ${["operating","investing","financing"].map(actCard2).join("")}
     </div>
     <div class="card">
-      <h3>Stacked Bar — กระแสเงินสดสุทธิรายเดือน แยกตามกิจกรรม</h3>
-      <div class="note">คลิกแท่งเดือนใด ๆ → ลงไปดูรายการต้นทาง</div>
-      <div style="position:relative;height:320px"><canvas id="edActivityChart"></canvas></div>
+      <h3 style="font-size:18px">กระแสเงินสดสุทธิรายเดือน <span style="font-weight:400;color:#94a3b8;font-size:13.5px">Monthly Net Cash Flow · แยกตามกิจกรรม</span></h3>
+      <div style="font-size:12.5px;color:#94a3b8;margin-top:-4px;margin-bottom:10px">บนเส้นศูนย์ = เงินเข้า · ใต้เส้นศูนย์ = เงินออก</div>
+      <div style="position:relative;height:360px"><canvas id="edActivityChart"></canvas></div>
     </div>
   `;
 

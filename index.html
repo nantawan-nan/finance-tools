@@ -5559,8 +5559,8 @@ function edRenderFinKpis(A, data, monthFilter){
     if(a >= 1e3) return ((n/1e3).toFixed(1)) + " K";
     return n.toFixed(0);
   };
-  const goodColor = ED_COLORS.in;     // teal
-  const badColor  = ED_COLORS.out;    // pink
+  const goodColor = ED_COLORS.in;     // teal/ฟ้า — ดี
+  const badColor  = "#dc2626";        // แดง — แย่/ติดลบ/จ่าย (ตรงกับ negative=red ทั้งระบบ)
   const neuColor  = "#0f172a";
 
   // benchmark eval: pass {value, good, ok, dir} dir='hi' = ยิ่งสูงยิ่งดี, 'lo' = ยิ่งต่ำยิ่งดี

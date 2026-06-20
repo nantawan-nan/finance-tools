@@ -178,7 +178,8 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ### 2026-06-20 — Executive Cash Flow polish + พิมพ์ทั้งรายงาน + สีพาสเทล MBark + ปุ่มซ่อน sidebar
 **หมายเหตุ:** หน้า Executive Dashboard ที่เคยมาร์ค "ห้ามแตะ" ถูกแก้รอบนี้ตามที่เจ้าของสั่ง — ปรับ "presentation polish" ไม่แตะ logic การรวมเลข/ตัดโอน
-- **โลโก้ icon-only (ตัดชื่อบริษัทในรูปออก):** เพิ่ม `logos/mbark-icon.png` + `logos/benya-icon.png` (ครอปเฉพาะสัญลักษณ์ด้วย PIL — ตัดที่ "ช่องว่างใหญ่สุด" ระหว่างไอคอนกับข้อความ) + field `logoIcon` ใน COMPANIES — **ใช้เฉพาะ print header + PDF export** (`co.logoIcon||co.logo`); sidebar/หน้าจอ/login ยังเป็นโลโก้เต็มมีชื่อ
+- **โลโก้ icon-only (ตัดชื่อบริษัทในรูปออก):** เพิ่ม `logos/mbark-icon.png` + `logos/benya-icon.png` (ครอปเฉพาะสัญลักษณ์ด้วย PIL — ตัดที่ "ช่องว่างใหญ่สุด" ระหว่างไอคอนกับข้อความ) — **ใช้ทุกที่** (COMPANIES `logo` ชี้ไฟล์ icon เลย): sidebar/หน้าจอ/login/print/PDF (ทุกจุดใช้ `object-fit:contain` หรือ `width:auto` กันรูปไม่จัตุรัสเบี้ยว) · `logos/mbark.png`/`benya.png` (มีชื่อ) ยังเก็บไว้ในรีโปแต่ไม่ถูกอ้างแล้ว · print/PDF ใช้ `co.logoIcon||co.logo` (logoIcon ถูกถอดออก → fallback มา logo)
+  - **เดิม (กลับ 2026-06-20):** เคยทำเป็น icon เฉพาะ print/PDF + เก็บโลโก้เต็มที่ sidebar/login — ภายหลังเจ้าของสั่งให้ตัดชื่อทุกที่
 - **เอาสัญลักษณ์ `฿` ออกทุกหน้า** (เคยดูเหมือนมีเลข 8 เพิ่ม) — ลบจาก `edFmt`/`fopFmt`/`fmt`/`fmtMoney` + AR inline (`฿${arFmt(` → `${arFmt(`). คง `฿` ไว้แค่ regex parse (l.956) + CSV header matching BigSeller (l.1149/1152). แทนด้วย **"หน่วย: บาท"** ที่หัวหน้า/หัวตารางของหน้าเงิน (Executive on-screen+PDF, AR, AP, Bank, Cashflow staff+exec, Recurring, Armap)
 - **KPI ทางการเงิน:** เปลี่ยน `≥`/`≤` ในเกณฑ์มาตรฐาน → "ไม่ต่ำกว่า" / "ไม่เกิน" (อ่านง่ายตอนพรีเซนต์)
 - **ลดความรกการ์ด Executive Summary:** เอา "· คลิกดูที่มา" ออกจากทุกการ์ด (ทั้ง `edRenderSummary` kpiCard + `edRenderFinKpis` card — ยังคลิก drill ได้/มี hover) + เอาบรรทัดย่อยใต้ตัวเลขออก (รายการ/เป็นบวก-ลบ/in÷out)

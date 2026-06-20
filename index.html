@@ -326,6 +326,15 @@
 
   /* ---- Executive Dashboard styling ---- */
   .ed-page{background:linear-gradient(180deg,#f5f9ff 0%,#eef5ff 100%);min-height:calc(100vh - 54px);margin:-24px -28px;padding:24px 28px}
+  /* ลูกเล่น animation (Executive Summary) */
+  @keyframes edGrow{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+  @keyframes edShimmer{0%{transform:translateX(-130%)}55%{transform:translateX(230%)}100%{transform:translateX(230%)}}
+  @keyframes edShine{0%{transform:translateX(-130%) skewX(-16deg)}60%{transform:translateX(330%) skewX(-16deg)}100%{transform:translateX(330%) skewX(-16deg)}}
+  @keyframes edGlow{0%,100%{box-shadow:0 14px 30px rgba(45,55,120,.26)}50%{box-shadow:0 16px 42px rgba(45,55,120,.5)}}
+  .ed-grow{transform-origin:left;animation:edGrow .85s cubic-bezier(.22,1,.36,1)}
+  .ed-shim{position:absolute;inset:0;background:linear-gradient(110deg,transparent 25%,rgba(255,255,255,.55) 50%,transparent 75%);animation:edShimmer 2.8s ease-in-out infinite}
+  .ed-shine{position:absolute;top:0;left:0;width:38%;height:100%;background:linear-gradient(100deg,transparent,rgba(255,255,255,.22),transparent);animation:edShine 3.4s ease-in-out infinite;pointer-events:none}
+  .ed-glow{animation:edGlow 2.6s ease-in-out infinite}
   .ed-card{background:rgba(255,255,255,.85);backdrop-filter:blur(8px);border:1px solid #d6e4ff;border-radius:14px;box-shadow:0 1px 3px rgba(30,58,138,.06),0 4px 16px rgba(30,58,138,.05);padding:18px 20px;margin-bottom:14px}
   .ed-card h3{margin:0 0 10px;font-family:"IBM Plex Sans","IBM Plex Sans Thai",ui-sans-serif,sans-serif;font-size:14.5px;font-weight:700;color:#1e3a8a;letter-spacing:-.2px}
   .ed-tabs{display:flex;gap:4px;background:rgba(99,179,237,.12);padding:4px;border-radius:11px;margin-bottom:16px;flex-wrap:wrap}
@@ -5343,6 +5352,29 @@ function edRenderDashboard(){
   else if(d.tab==="stmt")     edRenderStmt();
 }
 
+/* ตัวเลขวิ่ง (count-up) — หา element ที่มี data-anim แล้ว animate จาก 0 → ค่าจริง */
+function edAnimNums(root){
+  root = root || document;
+  const els = [...root.querySelectorAll('[data-anim]')];
+  if(!els.length) return;
+  const fmtOne = (kind, v, to) => {
+    if(kind === 'pct') return (to<0?'▼ ':'▲ ') + Math.abs(v).toFixed(1) + '%';
+    return edFmt(v);   // money (มี () สำหรับติดลบอยู่แล้ว)
+  };
+  const dur = 650, start = performance.now();
+  const step = (now) => {
+    const t = Math.min(1, (now - start) / dur);
+    const e = 1 - Math.pow(1 - t, 3);
+    for(const el of els){
+      const to = parseFloat(el.dataset.to) || 0;
+      el.textContent = fmtOne(el.dataset.anim, to * e, to);
+    }
+    if(t < 1) requestAnimationFrame(step);
+    else for(const el of els){ const to = parseFloat(el.dataset.to) || 0; el.textContent = fmtOne(el.dataset.anim, to, to); }
+  };
+  requestAnimationFrame(step);
+}
+
 /* ---------- Tab 1: Executive Summary ---------- */
 function edRenderSummary(){
   const d = edState();
@@ -5386,9 +5418,9 @@ function edRenderSummary(){
         </div>
         <span style="background:${softBg};color:${accent};font-size:13px;font-weight:600;padding:4px 10px;border-radius:999px;white-space:nowrap">${neg?"จ่ายสุทธิ":"รับสุทธิ"}</span>
       </div>
-      <div style="font-size:35px;font-weight:700;letter-spacing:-.6px;color:${accent};margin-top:14px">${edFmt(a.net)}</div>
+      <div data-anim="money" data-to="${a.net}" style="font-size:35px;font-weight:700;letter-spacing:-.6px;color:${accent};margin-top:14px">${edFmt(a.net)}</div>
       <div style="margin-top:14px;height:11px;background:#EEF2F7;border-radius:7px;box-shadow:inset 0 1px 2px rgba(31,42,68,.1);overflow:hidden">
-        <div style="width:${prop}%;height:100%;border-radius:7px;background:${barGrad}"></div>
+        <div class="ed-grow" style="position:relative;overflow:hidden;width:${prop}%;height:100%;border-radius:7px;background:${barGrad}"><div class="ed-shim"></div></div>
       </div>
       <div style="display:flex;justify-content:space-between;margin-top:8px;font-size:13px;color:#9AA8BF"><span>${a.desc}</span><span>สัดส่วน ${prop}%</span></div>
     </div>`;
@@ -5406,14 +5438,14 @@ function edRenderSummary(){
           <div onclick="edDrillSummary('in')" style="cursor:pointer;position:relative;overflow:hidden;border-radius:14px;padding:16px 18px;background:${inGrad};box-shadow:0 8px 18px rgba(15,160,140,.22)">
             <div style="position:absolute;right:-32px;top:-36px;width:128px;height:128px;border-radius:50%;background:radial-gradient(circle,rgba(255,255,255,.28),rgba(255,255,255,0) 70%);pointer-events:none"></div>
             <div style="position:relative;display:flex;align-items:center;gap:8px"><span style="width:9px;height:9px;border-radius:3px;background:#fff"></span><span style="font-size:15px;font-weight:500;color:rgba(255,255,255,.95);white-space:nowrap">เงินรับรวม</span><span style="margin-left:auto;background:rgba(255,255,255,.22);color:#fff;font-size:12.5px;font-weight:600;padding:2px 8px;border-radius:999px;white-space:nowrap">▲ เข้า</span></div>
-            <div style="position:relative;font-size:34px;font-weight:700;color:#fff;margin-top:8px;letter-spacing:-.6px">${edFmt(A.totalIn)}</div>
-            <div style="position:relative;margin-top:12px;height:8px;background:rgba(255,255,255,.28);border-radius:5px;overflow:hidden"><div style="width:${inW}%;height:100%;background:rgba(255,255,255,.95);border-radius:5px"></div></div>
+            <div data-anim="money" data-to="${A.totalIn}" style="position:relative;font-size:34px;font-weight:700;color:#fff;margin-top:8px;letter-spacing:-.6px">${edFmt(A.totalIn)}</div>
+            <div style="position:relative;margin-top:12px;height:8px;background:rgba(255,255,255,.28);border-radius:5px;overflow:hidden"><div class="ed-grow" style="width:${inW}%;height:100%;background:rgba(255,255,255,.95);border-radius:5px"></div></div>
           </div>
           <div onclick="edDrillSummary('out')" style="cursor:pointer;position:relative;overflow:hidden;border-radius:14px;padding:16px 18px;background:${outGrad};box-shadow:0 8px 18px rgba(216,80,130,.2)">
             <div style="position:absolute;right:-32px;top:-36px;width:128px;height:128px;border-radius:50%;background:radial-gradient(circle,rgba(255,255,255,.26),rgba(255,255,255,0) 70%);pointer-events:none"></div>
             <div style="position:relative;display:flex;align-items:center;gap:8px"><span style="width:9px;height:9px;border-radius:3px;background:#fff"></span><span style="font-size:15px;font-weight:500;color:rgba(255,255,255,.95);white-space:nowrap">เงินจ่ายรวม</span><span style="margin-left:auto;background:rgba(255,255,255,.22);color:#fff;font-size:12.5px;font-weight:600;padding:2px 8px;border-radius:999px;white-space:nowrap">▼ ออก</span></div>
-            <div style="position:relative;font-size:34px;font-weight:700;color:#fff;margin-top:8px;letter-spacing:-.6px">${edFmt(A.totalOut)}</div>
-            <div style="position:relative;margin-top:12px;height:8px;background:rgba(255,255,255,.28);border-radius:5px;overflow:hidden"><div style="width:${outW}%;height:100%;background:rgba(255,255,255,.95);border-radius:5px"></div></div>
+            <div data-anim="money" data-to="${A.totalOut}" style="position:relative;font-size:34px;font-weight:700;color:#fff;margin-top:8px;letter-spacing:-.6px">${edFmt(A.totalOut)}</div>
+            <div style="position:relative;margin-top:12px;height:8px;background:rgba(255,255,255,.28);border-radius:5px;overflow:hidden"><div class="ed-grow" style="width:${outW}%;height:100%;background:rgba(255,255,255,.95);border-radius:5px"></div></div>
           </div>
         </div>
         <div onclick="edDrillSummary('net')" style="cursor:pointer;margin-top:18px;display:flex;align-items:center;gap:16px;background:${netChipBg};border:1px solid ${netChipBd};border-radius:14px;padding:14px 18px">
@@ -5421,23 +5453,24 @@ function edRenderSummary(){
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M12 5v14M12 19l-6-6M12 19l6-6" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" transform="${netNeg?'':'rotate(180 12 12)'}"/></svg>
           </div>
           <div style="flex:1;min-width:0"><div style="font-size:14px;font-weight:600;color:${netAccent};letter-spacing:.3px">กระแสเงินสดสุทธิ</div><div style="font-size:13.5px;color:#7C8597;margin-top:1px">${netDesc}</div></div>
-          <div style="font-size:36px;font-weight:700;letter-spacing:-.6px;color:${netNeg?'#dc2626':netAccent}">${edFmt(A.net)}</div>
+          <div data-anim="money" data-to="${A.net}" style="font-size:36px;font-weight:700;letter-spacing:-.6px;color:${netNeg?'#dc2626':netAccent}">${edFmt(A.net)}</div>
         </div>
       </div>
 
       <!-- RIGHT: เงินสดปลายงวด hero -->
-      <div onclick="edDrillOpenClose('closing')" style="cursor:pointer;border-radius:20px;padding:24px 26px;color:#fff;position:relative;overflow:hidden;box-shadow:0 14px 30px rgba(45,55,120,.26);background:${heroBg};min-width:0">
+      <div onclick="edDrillOpenClose('closing')" class="ed-glow" style="cursor:pointer;border-radius:20px;padding:24px 26px;color:#fff;position:relative;overflow:hidden;box-shadow:0 14px 30px rgba(45,55,120,.26);background:${heroBg};min-width:0">
+        <div class="ed-shine"></div>
         <div style="position:absolute;right:-40px;top:-40px;width:180px;height:180px;border-radius:50%;background:rgba(255,255,255,.07)"></div>
         <div style="position:absolute;right:30px;bottom:-60px;width:160px;height:160px;border-radius:50%;background:rgba(255,255,255,.05)"></div>
         <div style="position:relative">
           <div style="display:flex;align-items:center;gap:9px"><svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M3 7h18v12H3z" stroke="rgba(255,255,255,.85)" stroke-width="1.8"/><path d="M3 10h18M16 14h2" stroke="rgba(255,255,255,.85)" stroke-width="1.8" stroke-linecap="round"/></svg><span style="font-size:18px;font-weight:700;color:rgba(255,255,255,.95)">เงินสดปลายงวด</span></div>
-          <div style="font-size:56px;font-weight:700;letter-spacing:-1.5px;margin-top:12px;line-height:1">${edFmt(A.closing)}</div>
+          <div data-anim="money" data-to="${A.closing}" style="font-size:56px;font-weight:700;letter-spacing:-1.5px;margin-top:12px;line-height:1">${edFmt(A.closing)}</div>
           <div style="font-size:13.5px;color:rgba(255,255,255,.7);margin-top:7px">คงเหลือสุทธิ ณ สิ้นงวด · หน่วย บาท</div>
           <div style="height:1px;background:rgba(255,255,255,.18);margin:18px 0 14px"></div>
           <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
-            <div><div style="font-size:14px;color:rgba(255,255,255,.65)">เงินสดต้นงวด</div><div style="font-size:22px;font-weight:600;margin-top:3px">${edFmt(A.opening)}</div></div>
+            <div><div style="font-size:14px;color:rgba(255,255,255,.65)">เงินสดต้นงวด</div><div data-anim="money" data-to="${A.opening}" style="font-size:22px;font-weight:600;margin-top:3px">${edFmt(A.opening)}</div></div>
             <svg width="28" height="22" viewBox="0 0 26 20" fill="none"><path d="M2 10h20M22 10l-6-5M22 10l-6 5" stroke="rgba(255,255,255,.55)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            <div style="text-align:right"><div style="font-size:14px;color:rgba(255,255,255,.65)">เปลี่ยนแปลง</div><div style="font-size:22px;font-weight:700;margin-top:3px;color:${chgNeg?'#FFC9CF':'#BDF3E9'}">${chgNeg?'▼':'▲'} ${Math.abs(chgPct).toFixed(1)}%</div></div>
+            <div style="text-align:right"><div style="font-size:14px;color:rgba(255,255,255,.65)">เปลี่ยนแปลง</div><div data-anim="pct" data-to="${chgPct}" style="font-size:22px;font-weight:700;margin-top:3px;color:${chgNeg?'#FFC9CF':'#BDF3E9'}">${chgNeg?'▼':'▲'} ${Math.abs(chgPct).toFixed(1)}%</div></div>
           </div>
         </div>
       </div>
@@ -5468,6 +5501,8 @@ function edRenderSummary(){
 
     ${edRenderFinKpis(A, d.data, d.monthFilter)}
   `;
+
+  edAnimNums(document.getElementById("edContent"));   // ★ ตัวเลขวิ่ง count-up
 
   // monthly line+bar — ★ ตัด transfers ออก
   const months = edState().data.months.map(m=>m.key);

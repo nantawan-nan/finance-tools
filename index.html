@@ -1531,8 +1531,8 @@ function armapResultHTML(R, tab){
 function armapSetTab(t){ armapGet().activeTab=t; renderTool(); }
 
 // เทมเพลตจริง 17 คอลัมน์ — ตรงกับไฟล์ "ตัวอย่างเทมเพลตที่ใช้บันทึก RE เข้าระบบ.xlsx"
-// "เลขที่เอกสาร" ย้ายมาคอลัมน์ B (ตำแหน่ง 2 — หลังลำดับ) ตามที่ตกลง
-const A_HEAD=["ลำดับที่","เลขที่เอกสาร","วันที่ IV","เลข IV","แบรนด์","ยอดคงค้าง (IV)","รหัสออเดอร์","ช่องทาง","วันที่รับชำระ (DD/MM/YYYY)","วันที่รับชำระ (DD/MM/YY)","ยอดเงินเข้า (หลังหักค่าธรรมเนียม)","ส่วนต่างที่ต้องบันทึก","รหัสลูกค้า","เลือก LETT OTHER","Enter less other","เลือก Bank","ธนาคาร","หมายเหตุ"];
+// "เลขที่เอกสาร" ย้ายมาคอลัมน์ B (ตำแหน่ง 2 — หลังลำดับ) ตามที่ตกลง · "รหัสเช็ค" เพิ่มก่อน "หมายเหตุ"
+const A_HEAD=["ลำดับที่","เลขที่เอกสาร","วันที่ IV","เลข IV","แบรนด์","ยอดคงค้าง (IV)","รหัสออเดอร์","ช่องทาง","วันที่รับชำระ (DD/MM/YYYY)","วันที่รับชำระ (DD/MM/YY)","ยอดเงินเข้า (หลังหักค่าธรรมเนียม)","ส่วนต่างที่ต้องบันทึก","รหัสลูกค้า","เลือก LETT OTHER","Enter less other","เลือก Bank","ธนาคาร","รหัสเช็ค","หมายเหตุ"];
 
 /* เฉพาะ M Bark: bank down ตามรหัสลูกค้า (จากรายงานขาย) */
 function mbarkBankDownByCust(custCode){
@@ -1540,6 +1540,25 @@ function mbarkBankDownByCust(custCode){
   if(/LAZADA|\bLZ\b/.test(c)) return "{Down 11}";
   if(/TIKTOK|\bTT\b|\bTK\b/.test(c)) return "{Down 12}";
   if(/SHOPEE|\bSP\b|\bSH\b/.test(c)) return "{Down 13}";
+  return "";
+}
+
+/* เฉพาะ M Bark: รหัสเช็ค ตามรหัสลูกค้า (legend จาก Excel ของแนน)
+   LZ=Lazada · SH=Shopee · TT=Tiktok · DR=Dealer · FB=Facebook · IG=Instagram · LI=LINE · 61=C-BBL · 63=C-TFB */
+function mbarkCheckCode(custCode){
+  const c = String(custCode||"").toUpperCase();
+  // ใช้ tokens (split ทุกตัวที่ไม่ใช่ A-Z 0-9) เพื่อเช็ครหัสสั้นแม่นยำ — "IG_99" → ["IG","99"]
+  const tokens = c.split(/[^A-Z0-9]+/).filter(Boolean);
+  const has = (...keys) => tokens.some(t => keys.includes(t));
+  if(/LAZADA/.test(c)   || has("LZ"))         return "LZ";
+  if(/SHOPEE/.test(c)   || has("SP","SH"))    return "SH";
+  if(/TIKTOK/.test(c)   || has("TT","TK"))    return "TT";
+  if(/DEALER/.test(c)   || has("DR"))         return "DR";
+  if(/FACEBOOK/.test(c) || has("FB"))         return "FB";
+  if(/INSTAGRAM/.test(c)|| has("IG"))         return "IG";
+  if(/LINE/.test(c)     || has("LI"))         return "LI";
+  if(/C-?BBL|กรุงเทพ/.test(c) || has("61"))   return "61";
+  if(/C-?TFB|กสิกร/.test(c)   || has("63"))   return "63";
   return "";
 }
 
@@ -1552,6 +1571,7 @@ function aRowOf(r,i,company){
   const lettOther = isMbark ? "{Down 18}" : "{Up 1}";
   const enterCmd = "{Enter}";
   const downCmd  = isMbark ? mbarkBankDownByCust(r.arCustCode) : bankDownCmd(r.actualBrand, r.channel);
+  const checkCode = isMbark ? mbarkCheckCode(r.arCustCode) : "";   // Benya เว้นว่างก่อน รอข้อมูล
   return {
     ลำดับ:i+1,
     doc_no: armapRunRE(seed, i),         // ★ คอลัมน์ B — รัน RE +1 ทุกแถว
@@ -1570,6 +1590,7 @@ function aRowOf(r,i,company){
     enter:enterCmd,
     bank_down:downCmd,
     bank_code:r.bankCode||"",            // SB/SI/TB/TQ
+    check_code:checkCode,                // รหัสเช็ค (M Bark) / "" (Benya)
     warning:r.warning||""
   };
 }
@@ -1605,6 +1626,7 @@ function bucketAHTML(A){
       <td style="font-family:monospace;font-size:11.5px;color:#475569">${esc(a.enter)}</td>
       <td style="font-family:monospace;font-size:11.5px;color:${a.bank_down?'#475569':'#dc2626'}">${esc(a.bank_down||'(?)')}</td>
       <td>${esc(a.bank_code)}</td>
+      <td style="font-family:monospace">${esc(a.check_code)}</td>
       <td style="font-size:11.5px">${esc(a.warning)}</td>
     </tr>`;
   }).join("");
@@ -1666,7 +1688,7 @@ function armapExport(){
     const a=aRowOf(r,i,company);
     return [a.ลำดับ, a.doc_no, a.iv_date, a.iv, a.brand, a.outstanding, a.orderNo, a.channel,
             a.pay_date_long, a.pay_date_short, a.net, a.diff, a.cust,
-            a.lett_other, a.enter, a.bank_down, a.bank_code, a.warning];
+            a.lett_other, a.enter, a.bank_down, a.bank_code, a.check_code, a.warning];
   }));
   // cols: 1=เลขที่เอกสาร, 3=เลข IV, 6=รหัสออเดอร์, 12=รหัสลูกค้า — บังคับ text กัน Excel ตัดท้ายเลข 18+ หลัก
   const aSheet = XLSX.utils.aoa_to_sheet(aRows);
@@ -1698,7 +1720,7 @@ function armapExportCSV(){
     const a=aRowOf(r,i,company);
     return [a.ลำดับ, a.doc_no, a.iv_date, a.iv, a.brand, a.outstanding, a.orderNo, a.channel,
             a.pay_date_long, a.pay_date_short, a.net, a.diff, a.cust,
-            a.lett_other, a.enter, a.bank_down, a.bank_code, a.warning];
+            a.lett_other, a.enter, a.bank_down, a.bank_code, a.check_code, a.warning];
   }));
   const ws=XLSX.utils.aoa_to_sheet(aRows);
   forceTextCells(ws, [1, 3, 6, 12]);    // เลขที่เอกสาร, เลข IV, รหัสออเดอร์, รหัสลูกค้า

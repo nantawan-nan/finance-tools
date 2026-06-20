@@ -5185,9 +5185,18 @@ function drawPdfHeader(pdf, co, tool, tab, d, logoData, pageW, headerH, margin){
   pdf.setFillColor(79, 138, 247);   // ED brand
   pdf.rect(0, 0, pageW, 1.5, "F");
 
-  // logo (ซ้าย) — ขยายเล็กน้อย
+  // logo (ซ้าย) — คงสัดส่วน (ไอคอนไม่จัตุรัส → ห้ามบังคับ 18×18 ไม่งั้นยืดเพี้ยน)
   if(logoData){
-    try{ pdf.addImage(logoData, "PNG", margin, 4, 18, 18); }catch(e){}
+    try{
+      const maxW = 20, maxH = 18;
+      let lw = maxW, lh = maxH;
+      try{
+        const p = pdf.getImageProperties(logoData);
+        lw = maxW; lh = lw * p.height / p.width;
+        if(lh > maxH){ lh = maxH; lw = lh * p.width / p.height; }
+      }catch(_){ lw = 18; lh = 18; }
+      pdf.addImage(logoData, "PNG", margin, 4 + (maxH - lh)/2, lw, lh);
+    }catch(e){}
   }
 
   // company text — บรรทัดเดียวเด่นๆ

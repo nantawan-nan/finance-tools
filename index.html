@@ -5386,7 +5386,7 @@ function edRenderSummary(){
         </div>
         <span style="background:${softBg};color:${accent};font-size:13px;font-weight:600;padding:4px 10px;border-radius:999px;white-space:nowrap">${neg?"จ่ายสุทธิ":"รับสุทธิ"}</span>
       </div>
-      <div style="font-size:30px;font-weight:700;color:${accent};margin-top:16px">${edFmt(a.net)}</div>
+      <div style="font-size:35px;font-weight:700;letter-spacing:-.6px;color:${accent};margin-top:14px">${edFmt(a.net)}</div>
       <div style="margin-top:14px;height:11px;background:#EEF2F7;border-radius:7px;box-shadow:inset 0 1px 2px rgba(31,42,68,.1);overflow:hidden">
         <div style="width:${prop}%;height:100%;border-radius:7px;background:${barGrad}"></div>
       </div>
@@ -5406,13 +5406,13 @@ function edRenderSummary(){
           <div onclick="edDrillSummary('in')" style="cursor:pointer;position:relative;overflow:hidden;border-radius:14px;padding:16px 18px;background:${inGrad};box-shadow:0 8px 18px rgba(15,160,140,.22)">
             <div style="position:absolute;right:-32px;top:-36px;width:128px;height:128px;border-radius:50%;background:radial-gradient(circle,rgba(255,255,255,.28),rgba(255,255,255,0) 70%);pointer-events:none"></div>
             <div style="position:relative;display:flex;align-items:center;gap:8px"><span style="width:9px;height:9px;border-radius:3px;background:#fff"></span><span style="font-size:15px;font-weight:500;color:rgba(255,255,255,.95);white-space:nowrap">เงินรับรวม</span><span style="margin-left:auto;background:rgba(255,255,255,.22);color:#fff;font-size:12.5px;font-weight:600;padding:2px 8px;border-radius:999px;white-space:nowrap">▲ เข้า</span></div>
-            <div style="position:relative;font-size:25px;font-weight:700;color:#fff;margin-top:10px;letter-spacing:-.4px">${edFmt(A.totalIn)}</div>
+            <div style="position:relative;font-size:34px;font-weight:700;color:#fff;margin-top:8px;letter-spacing:-.6px">${edFmt(A.totalIn)}</div>
             <div style="position:relative;margin-top:12px;height:8px;background:rgba(255,255,255,.28);border-radius:5px;overflow:hidden"><div style="width:${inW}%;height:100%;background:rgba(255,255,255,.95);border-radius:5px"></div></div>
           </div>
           <div onclick="edDrillSummary('out')" style="cursor:pointer;position:relative;overflow:hidden;border-radius:14px;padding:16px 18px;background:${outGrad};box-shadow:0 8px 18px rgba(216,80,130,.2)">
             <div style="position:absolute;right:-32px;top:-36px;width:128px;height:128px;border-radius:50%;background:radial-gradient(circle,rgba(255,255,255,.26),rgba(255,255,255,0) 70%);pointer-events:none"></div>
             <div style="position:relative;display:flex;align-items:center;gap:8px"><span style="width:9px;height:9px;border-radius:3px;background:#fff"></span><span style="font-size:15px;font-weight:500;color:rgba(255,255,255,.95);white-space:nowrap">เงินจ่ายรวม</span><span style="margin-left:auto;background:rgba(255,255,255,.22);color:#fff;font-size:12.5px;font-weight:600;padding:2px 8px;border-radius:999px;white-space:nowrap">▼ ออก</span></div>
-            <div style="position:relative;font-size:25px;font-weight:700;color:#fff;margin-top:10px;letter-spacing:-.4px">${edFmt(A.totalOut)}</div>
+            <div style="position:relative;font-size:34px;font-weight:700;color:#fff;margin-top:8px;letter-spacing:-.6px">${edFmt(A.totalOut)}</div>
             <div style="position:relative;margin-top:12px;height:8px;background:rgba(255,255,255,.28);border-radius:5px;overflow:hidden"><div style="width:${outW}%;height:100%;background:rgba(255,255,255,.95);border-radius:5px"></div></div>
           </div>
         </div>
@@ -5421,7 +5421,7 @@ function edRenderSummary(){
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M12 5v14M12 19l-6-6M12 19l6-6" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" transform="${netNeg?'':'rotate(180 12 12)'}"/></svg>
           </div>
           <div style="flex:1;min-width:0"><div style="font-size:14px;font-weight:600;color:${netAccent};letter-spacing:.3px">กระแสเงินสดสุทธิ</div><div style="font-size:13.5px;color:#7C8597;margin-top:1px">${netDesc}</div></div>
-          <div style="font-size:28px;font-weight:700;color:${netNeg?'#E23D4B':netAccent}">${edFmt(A.net)}</div>
+          <div style="font-size:36px;font-weight:700;letter-spacing:-.6px;color:${netNeg?'#E23D4B':netAccent}">${edFmt(A.net)}</div>
         </div>
       </div>
 
@@ -5431,13 +5431,13 @@ function edRenderSummary(){
         <div style="position:absolute;right:30px;bottom:-60px;width:160px;height:160px;border-radius:50%;background:rgba(255,255,255,.05)"></div>
         <div style="position:relative">
           <div style="display:flex;align-items:center;gap:9px"><svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M3 7h18v12H3z" stroke="rgba(255,255,255,.85)" stroke-width="1.8"/><path d="M3 10h18M16 14h2" stroke="rgba(255,255,255,.85)" stroke-width="1.8" stroke-linecap="round"/></svg><span style="font-size:18px;font-weight:700;color:rgba(255,255,255,.95)">เงินสดปลายงวด</span></div>
-          <div style="font-size:42px;font-weight:700;letter-spacing:-1px;margin-top:12px;line-height:1">${edFmt(A.closing)}</div>
+          <div style="font-size:56px;font-weight:700;letter-spacing:-1.5px;margin-top:12px;line-height:1">${edFmt(A.closing)}</div>
           <div style="font-size:13.5px;color:rgba(255,255,255,.7);margin-top:7px">คงเหลือสุทธิ ณ สิ้นงวด · หน่วย บาท</div>
           <div style="height:1px;background:rgba(255,255,255,.18);margin:18px 0 14px"></div>
           <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
-            <div><div style="font-size:13.5px;color:rgba(255,255,255,.6)">เงินสดต้นงวด</div><div style="font-size:18px;font-weight:600;margin-top:2px">${edFmt(A.opening)}</div></div>
-            <svg width="26" height="20" viewBox="0 0 26 20" fill="none"><path d="M2 10h20M22 10l-6-5M22 10l-6 5" stroke="rgba(255,255,255,.55)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            <div style="text-align:right"><div style="font-size:13.5px;color:rgba(255,255,255,.6)">เปลี่ยนแปลง</div><div style="font-size:18px;font-weight:700;margin-top:2px;color:${chgNeg?'#FFC9CF':'#BDF3E9'}">${chgNeg?'▼':'▲'} ${Math.abs(chgPct).toFixed(1)}%</div></div>
+            <div><div style="font-size:14px;color:rgba(255,255,255,.65)">เงินสดต้นงวด</div><div style="font-size:22px;font-weight:600;margin-top:3px">${edFmt(A.opening)}</div></div>
+            <svg width="28" height="22" viewBox="0 0 26 20" fill="none"><path d="M2 10h20M22 10l-6-5M22 10l-6 5" stroke="rgba(255,255,255,.55)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <div style="text-align:right"><div style="font-size:14px;color:rgba(255,255,255,.65)">เปลี่ยนแปลง</div><div style="font-size:22px;font-weight:700;margin-top:3px;color:${chgNeg?'#FFC9CF':'#BDF3E9'}">${chgNeg?'▼':'▲'} ${Math.abs(chgPct).toFixed(1)}%</div></div>
           </div>
         </div>
       </div>
@@ -5480,7 +5480,7 @@ function edRenderSummary(){
     data:{ labels:months, datasets:[
       { label:"เงินรับ",   data:inData,  backgroundColor:ED_COLORS.in,  borderRadius:6, order:2 },
       { label:"เงินจ่าย",  data:outData, backgroundColor:ED_COLORS.out, borderRadius:6, order:2 },
-      { label:"สุทธิ", type:"line", data:netData, borderColor:ED_COLORS.brand, backgroundColor:ED_COLORS.brand, tension:.3, pointRadius:4, order:1 }
+      { label:"สุทธิ", type:"bar", data:netData, backgroundColor:ED_COLORS.brand, borderRadius:6, order:2 }
     ]},
     options:{
       responsive:true, maintainAspectRatio:false,

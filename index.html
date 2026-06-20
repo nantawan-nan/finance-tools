@@ -10203,9 +10203,12 @@ function brecComputePeriod(d){
   return { from: d.period.from || "1900-01-01", to: d.period.to || "2099-12-31" };
 }
 async function brecLoad(){
-  const d = brecGet(); const co = state.company;
+  const d = brecGet();
   d.busy = true;
   try{
+    const co = await fopCompanyId();
+    if(!co) throw new Error("หา company_id ไม่เจอ");
+    d.companyId = co;
     d.accounts = await brecLoadAccounts(co);
     if(!d.accountId && d.accounts.length) d.accountId = d.accounts[0].id;
     if(d.accountId){
@@ -10231,7 +10234,10 @@ async function brecUpload(kind){
   const accept = kind==="express" ? ".xml" : ".xlsx,.xls";
   const file = await brecPickFile(accept);
   if(!file) return;
-  const d = brecGet(); const co = state.company;
+  const d = brecGet();
+  const co = d.companyId || await fopCompanyId();
+  if(!co){ alert("หา company_id ไม่เจอ"); return; }
+  d.companyId = co;
   d.busy = true; brecRefresh();
   try{
     let parsed;
@@ -10300,7 +10306,10 @@ async function brecUpload(kind){
 /* ---------- ACTIONS ---------- */
 async function brecRunAutoMatch(){
   if(!brecCanWrite()){ alert("ไม่มีสิทธิ์"); return; }
-  const d = brecGet(); const co = state.company;
+  const d = brecGet();
+  const co = d.companyId || await fopCompanyId();
+  if(!co){ alert("หา company_id ไม่เจอ"); return; }
+  d.companyId = co;
   if(!d.accountId){ alert("เลือกบัญชีก่อน"); return; }
   d.busy = true; brecRefresh();
   try{
@@ -10368,8 +10377,9 @@ async function brecManualLink(){
   if(!ex || !bk) return;
   d.busy=true; brecRefresh();
   try{
+    const co = d.companyId || await fopCompanyId();
     const { error } = await sb.from("brec_matches").insert({
-      company_id: state.company, bank_account_id: d.accountId,
+      company_id: co, bank_account_id: d.accountId,
       express_row_id: exId, bank_row_id: bkId,
       status:"manual", confidence:"manual",
       match_reason:"manual",

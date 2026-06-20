@@ -5356,7 +5356,7 @@ function edRenderSummary(){
   const _mx = Math.max(A.totalIn, A.totalOut, 1);
   const inW = Math.round(A.totalIn/_mx*100), outW = Math.round(A.totalOut/_mx*100);
   const netNeg = A.net < 0;
-  const netAccent = netNeg ? "#E23D4B" : "#0E9A88";
+  const netAccent = netNeg ? "#dc2626" : "#0E9A88";
   const netChipBg = netNeg ? "#FDF1F2" : "#E9FBF4";
   const netChipBd = netNeg ? "#F7D6DB" : "#BFEFE4";
   const netDesc   = netNeg ? "จ่ายมากกว่ารับ — เงินสดลดลงในงวดนี้" : "รับมากกว่าจ่าย — เงินสดเพิ่มขึ้นในงวดนี้";
@@ -5373,9 +5373,9 @@ function edRenderSummary(){
   const actSumAbs = acts.reduce((s,a)=>s+Math.abs(a.net),0) || 1;
   const actCard = a => {
     const neg = a.net < 0;
-    const accent = neg ? "#E23D4B" : "#0E9A88";
-    const softBg = neg ? "#FDECEE" : "#E8FBF5";
-    const barGrad = neg ? "linear-gradient(180deg,#F36C79,#D8323F)" : "linear-gradient(180deg,#2BD0B8,#0FA08C)";
+    const accent = neg ? "#dc2626" : "#0E9A88";
+    const softBg = neg ? "#FEE2E2" : "#E8FBF5";
+    const barGrad = neg ? "linear-gradient(180deg,#F87171,#DC2626)" : "linear-gradient(180deg,#2BD0B8,#0FA08C)";
     const prop = Math.round(Math.abs(a.net)/actSumAbs*100);
     return `<div onclick="edDrillActivityIO('${a.key}',null)" style="background:#fff;border:1px solid #E3ECF7;border-radius:18px;padding:20px 22px;box-shadow:0 8px 22px rgba(31,42,68,.05);position:relative;overflow:hidden;cursor:pointer;transition:.15s" onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 12px 26px rgba(31,42,68,.1)'" onmouseout="this.style.transform='none';this.style.boxShadow='0 8px 22px rgba(31,42,68,.05)'">
       <div style="position:absolute;left:0;top:0;bottom:0;width:5px;background:${accent}"></div>
@@ -5421,7 +5421,7 @@ function edRenderSummary(){
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M12 5v14M12 19l-6-6M12 19l6-6" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" transform="${netNeg?'':'rotate(180 12 12)'}"/></svg>
           </div>
           <div style="flex:1;min-width:0"><div style="font-size:14px;font-weight:600;color:${netAccent};letter-spacing:.3px">กระแสเงินสดสุทธิ</div><div style="font-size:13.5px;color:#7C8597;margin-top:1px">${netDesc}</div></div>
-          <div style="font-size:36px;font-weight:700;letter-spacing:-.6px;color:${netNeg?'#E23D4B':netAccent}">${edFmt(A.net)}</div>
+          <div style="font-size:36px;font-weight:700;letter-spacing:-.6px;color:${netNeg?'#dc2626':netAccent}">${edFmt(A.net)}</div>
         </div>
       </div>
 

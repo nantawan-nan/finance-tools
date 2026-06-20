@@ -5910,11 +5910,8 @@ function edRenderActivity(){
   const data = d.data;
   const months = data.months.map(m=>m.key);
   // per month per activity (net)
-  // สีตามธีมบริษัท (เหมือนหน้า Summary): MBark พาสเทล / Benya teal-amber-pink
-  const isMbark = state.company === "mbark";
-  const actCol = isMbark
-    ? { financing:"#3FB69E", operating:"#dc2626", investing:"#F0A02E" }
-    : { financing:"#14B8A6", operating:"#E23D4B", investing:"#F0A02E" };
+  // สีพาสเทลตามธีมบริษัท — โทนเดียวกับ Summary (เข้า=in, ออก=out, accent ที่ 3=ส้มพาสเทล)
+  const actCol = { financing:ED_COLORS.in, operating:ED_COLORS.out, investing:"#F2A968" };
   const series = ["fin","op","inv"].map((k)=>{
     const lbls = { op:"ดำเนินงาน", inv:"ลงทุน", fin:"จัดหาเงิน" };
     return {

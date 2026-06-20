@@ -5324,7 +5324,7 @@ function edRenderDashboard(){
           <img src="${esc(co.logo)}" onerror="this.style.display='none'" style="width:40px;height:40px;object-fit:contain;border-radius:8px">
           <div>
             <h1>${t.name} <span class="badge">${esc(co.name)}</span></h1>
-            <div class="sub">${esc(data.company||co.fullName||'—')} · ${data.transactions.length.toLocaleString()} รายการ · ${Object.keys(data.accounts).length} บัญชี · ${data.months.length} เดือน · <span style="color:var(--ok);font-weight:700">กระทบยอดผ่าน ✓</span> · <span style="color:var(--ink-3)">หน่วย: บาท</span>${d.savedAt?` · <span style="color:var(--ink-3);font-size:11.5px">บันทึกในเครื่องเมื่อ ${esc(new Date(d.savedAt).toLocaleString("th-TH",{dateStyle:"short",timeStyle:"short"}))}</span>`:""}</div>
+            <div class="sub"><span style="color:var(--ink-3)">หน่วย: บาท</span></div>
           </div>
         </div>
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
@@ -5431,7 +5431,7 @@ function edRenderSummary(){
       <!-- LEFT: ภาพรวมรับ–จ่าย + สุทธิ -->
       <div style="background:#fff;border:1px solid #E3ECF7;border-radius:20px;padding:22px 24px;box-shadow:0 8px 24px rgba(31,42,68,.05);min-width:0">
         <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
-          <div style="font-size:17px;font-weight:700;color:#3A4A66">ภาพรวมรับ–จ่าย</div>
+          <div style="font-size:18px;font-weight:700;color:#3A4A66">ภาพรวมรับ–จ่าย <span style="font-weight:400;color:#9AA8BF;font-size:13px">Cash In–Out Overview</span></div>
           <div style="font-size:13.5px;color:#9AA8BF">${d.data.months.length} เดือน · เงินหมุน ${edFmtCompact(A.totalIn+A.totalOut)}</div>
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:16px">
@@ -5463,7 +5463,7 @@ function edRenderSummary(){
         <div style="position:absolute;right:-40px;top:-40px;width:180px;height:180px;border-radius:50%;background:rgba(255,255,255,.07)"></div>
         <div style="position:absolute;right:30px;bottom:-60px;width:160px;height:160px;border-radius:50%;background:rgba(255,255,255,.05)"></div>
         <div style="position:relative">
-          <div style="display:flex;align-items:center;gap:9px"><svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M3 7h18v12H3z" stroke="rgba(255,255,255,.85)" stroke-width="1.8"/><path d="M3 10h18M16 14h2" stroke="rgba(255,255,255,.85)" stroke-width="1.8" stroke-linecap="round"/></svg><span style="font-size:18px;font-weight:700;color:rgba(255,255,255,.95)">เงินสดปลายงวด</span></div>
+          <div style="display:flex;align-items:center;gap:9px"><svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M3 7h18v12H3z" stroke="rgba(255,255,255,.85)" stroke-width="1.8"/><path d="M3 10h18M16 14h2" stroke="rgba(255,255,255,.85)" stroke-width="1.8" stroke-linecap="round"/></svg><span style="font-size:19px;font-weight:700;color:rgba(255,255,255,.95)">เงินสดปลายงวด <span style="font-weight:400;color:rgba(255,255,255,.6);font-size:13px">Ending Cash</span></span></div>
           <div data-anim="money" data-to="${A.closing}" style="font-size:56px;font-weight:700;letter-spacing:-1.5px;margin-top:12px;line-height:1">${edFmt(A.closing)}</div>
           <div style="font-size:13.5px;color:rgba(255,255,255,.7);margin-top:7px">คงเหลือสุทธิ ณ สิ้นงวด · หน่วย บาท</div>
           <div style="height:1px;background:rgba(255,255,255,.18);margin:18px 0 14px"></div>
@@ -5482,17 +5482,17 @@ function edRenderSummary(){
 
     <div style="display:grid;grid-template-columns:2fr 1fr;gap:12px;margin-bottom:16px">
       <div class="card" style="margin-bottom:0">
-        <h3>กระแสเงินสดรายเดือน (รวมทุกบัญชี)</h3>
+        <h3 style="font-size:18px">กระแสเงินสดรายเดือน <span style="font-weight:400;color:#94a3b8;font-size:13.5px">Monthly Cash Flow · รวมทุกบัญชี</span></h3>
         <div style="position:relative;height:280px"><canvas id="edChartMonthly"></canvas></div>
       </div>
       <div class="card" style="margin-bottom:0">
-        <h3>สัดส่วน รับ vs จ่าย</h3>
+        <h3 style="font-size:18px">สัดส่วน รับ vs จ่าย <span style="font-weight:400;color:#94a3b8;font-size:13.5px">Receipts vs Payments</span></h3>
         <div style="position:relative;height:280px"><canvas id="edChartIO"></canvas></div>
       </div>
     </div>
 
     <div class="card">
-      <h3>Top 5 หมวด รายรับ / รายจ่าย</h3>
+      <h3 style="font-size:18px">Top 5 หมวด รายรับ / รายจ่าย <span style="font-weight:400;color:#94a3b8;font-size:13.5px">Top 5 Categories</span></h3>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px">
         ${edTopList(A.byCat,"in")}
         ${edTopList(A.byCat,"out")}
@@ -5540,14 +5540,16 @@ function edTopList(byCat, dir){
   const total = arr.reduce((s,x)=>s+x.v,0);
   const color = dir==="in" ? ED_COLORS.in : ED_COLORS.out;
   const title = dir==="in" ? "หมวดรายรับ" : "หมวดรายจ่าย";
-  if(!arr.length) return `<div><div style="font-weight:700;font-size:13px;color:${color};margin-bottom:6px">${title}</div><div class="empty" style="padding:14px">ไม่มีข้อมูล</div></div>`;
+  const titleEn = dir==="in" ? "Receipts" : "Payments";
+  const titleHtml = `<div style="font-weight:700;font-size:15px;color:${color};margin-bottom:9px">${title} <span style="font-weight:400;color:#94a3b8;font-size:12px">${titleEn}</span></div>`;
+  if(!arr.length) return `<div>${titleHtml}<div class="empty" style="padding:14px">ไม่มีข้อมูล</div></div>`;
   return `<div>
-    <div style="font-weight:700;font-size:13px;color:${color};margin-bottom:8px">${title}</div>
+    ${titleHtml}
     ${arr.map(x => {
       const pct = total ? (x.v/total*100).toFixed(1) : 0;
-      return `<div style="margin-bottom:7px;cursor:pointer" onclick="edDrillCat(${JSON.stringify(x.k).replace(/"/g,'&quot;')},'${dir}')">
-        <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:2px"><span style="color:var(--ink-2)">${esc(x.k)}</span><span style="color:${color};font-weight:700">${edFmt(x.v)}</span></div>
-        <div style="height:6px;background:#e2e8f0;border-radius:999px;overflow:hidden"><div style="height:100%;background:${color};width:${pct}%"></div></div>
+      return `<div style="margin-bottom:9px;cursor:pointer" onclick="edDrillCat(${JSON.stringify(x.k).replace(/"/g,'&quot;')},'${dir}')">
+        <div style="display:flex;justify-content:space-between;gap:10px;font-size:13.5px;margin-bottom:3px"><span style="color:var(--ink-2)">${esc(x.k)}</span><span style="color:${color};font-weight:700;white-space:nowrap">${edFmt(x.v)}</span></div>
+        <div style="height:7px;background:#e2e8f0;border-radius:999px;overflow:hidden"><div style="height:100%;background:${color};width:${pct}%"></div></div>
       </div>`;
     }).join("")}
   </div>`;
@@ -5614,16 +5616,16 @@ function edRenderFinKpis(A, data, monthFilter){
 
   // single KPI card — คลิกได้ → drill modal
   const card = (kpiKey, label, value, color, sub, bench) => `
-    <div onclick="edDrillFinKpi('${kpiKey}')" style="background:rgba(255,255,255,.85);backdrop-filter:blur(6px);border:1px solid #c3dafe;border-radius:14px;padding:14px 16px;display:flex;flex-direction:column;gap:4px;cursor:pointer;transition:.15s" onmouseover="this.style.borderColor='${ED_COLORS.brand}';this.style.transform='translateY(-1px)';this.style.boxShadow='0 4px 12px rgba(0,0,0,.06)'" onmouseout="this.style.borderColor='#c3dafe';this.style.transform='none';this.style.boxShadow='none'">
-      <div style="font-size:11px;font-weight:700;color:#475569">${label}</div>
-      <div style="font-size:24px;font-weight:800;color:${color};letter-spacing:-.3px;margin-top:2px">${value}</div>
-      ${sub?`<div style="font-size:11px;color:#64748b">${sub}</div>`:""}
-      ${bench?`<div style="margin-top:6px;padding:4px 8px;background:rgba(99,102,241,.07);border:1px solid #e0e7ff;border-radius:6px;font-size:10.5px;color:#475569;align-self:flex-start">เกณฑ์มาตรฐาน: ${bench}</div>`:""}
+    <div onclick="edDrillFinKpi('${kpiKey}')" style="background:rgba(255,255,255,.85);backdrop-filter:blur(6px);border:1px solid #c3dafe;border-radius:14px;padding:16px 18px;display:flex;flex-direction:column;gap:4px;cursor:pointer;transition:.15s" onmouseover="this.style.borderColor='${ED_COLORS.brand}';this.style.transform='translateY(-1px)';this.style.boxShadow='0 4px 12px rgba(0,0,0,.06)'" onmouseout="this.style.borderColor='#c3dafe';this.style.transform='none';this.style.boxShadow='none'">
+      <div style="font-size:13px;font-weight:700;color:#475569">${label}</div>
+      <div style="font-size:30px;font-weight:800;color:${color};letter-spacing:-.4px;margin-top:3px">${value}</div>
+      ${sub?`<div style="font-size:12.5px;color:#64748b">${sub}</div>`:""}
+      ${bench?`<div style="margin-top:7px;padding:5px 9px;background:rgba(99,102,241,.07);border:1px solid #e0e7ff;border-radius:6px;font-size:12px;color:#475569;align-self:flex-start">เกณฑ์มาตรฐาน: ${bench}</div>`:""}
     </div>`;
 
   return `
     <div class="card" style="margin-top:14px">
-      <h3>📊 KPI ทางการเงิน</h3>
+      <h3 style="font-size:18px">📊 KPI ทางการเงิน <span style="font-weight:400;color:#94a3b8;font-size:13.5px">Financial KPIs</span></h3>
       <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px">
         ${card("totalIn",  "รายรับรวม", fmtCompactM(A.totalIn), goodColor, periodLabel, "")}
         ${card("totalOut", "รายจ่ายรวม", fmtCompactM(A.totalOut), badColor, periodLabel, "")}
@@ -5926,11 +5928,11 @@ function edRenderCategory(){
   document.getElementById("edContent").innerHTML = `
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
       <div class="card" style="margin-bottom:0">
-        <h3>🟢 Top 5 รายรับ</h3>
+        <h3 style="font-size:18px">🟢 Top 5 รายรับ <span style="font-weight:400;color:#94a3b8;font-size:13.5px">Top 5 Receipts</span></h3>
         ${inT.data.length?`<div style="position:relative;height:330px"><canvas id="edPieIn"></canvas></div>`:`<div class="empty" style="padding:30px">ไม่มีรายรับ</div>`}
       </div>
       <div class="card" style="margin-bottom:0">
-        <h3>🔴 Top 5 รายจ่าย</h3>
+        <h3 style="font-size:18px">🔴 Top 5 รายจ่าย <span style="font-weight:400;color:#94a3b8;font-size:13.5px">Top 5 Payments</span></h3>
         ${outT.data.length?`<div style="position:relative;height:330px"><canvas id="edPieOut"></canvas></div>`:`<div class="empty" style="padding:30px">ไม่มีรายจ่าย</div>`}
       </div>
     </div>

@@ -176,6 +176,23 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-06-20 — Executive Cash Flow polish + พิมพ์ทั้งรายงาน + สีพาสเทล MBark + ปุ่มซ่อน sidebar
+**หมายเหตุ:** หน้า Executive Dashboard ที่เคยมาร์ค "ห้ามแตะ" ถูกแก้รอบนี้ตามที่เจ้าของสั่ง — ปรับ "presentation polish" ไม่แตะ logic การรวมเลข/ตัดโอน
+- **โลโก้ icon-only (ตัดชื่อบริษัทในรูปออก):** เพิ่ม `logos/mbark-icon.png` + `logos/benya-icon.png` (ครอปเฉพาะสัญลักษณ์ด้วย PIL — ตัดที่ "ช่องว่างใหญ่สุด" ระหว่างไอคอนกับข้อความ) + field `logoIcon` ใน COMPANIES — **ใช้เฉพาะ print header + PDF export** (`co.logoIcon||co.logo`); sidebar/หน้าจอ/login ยังเป็นโลโก้เต็มมีชื่อ
+- **เอาสัญลักษณ์ `฿` ออกทุกหน้า** (เคยดูเหมือนมีเลข 8 เพิ่ม) — ลบจาก `edFmt`/`fopFmt`/`fmt`/`fmtMoney` + AR inline (`฿${arFmt(` → `${arFmt(`). คง `฿` ไว้แค่ regex parse (l.956) + CSV header matching BigSeller (l.1149/1152). แทนด้วย **"หน่วย: บาท"** ที่หัวหน้า/หัวตารางของหน้าเงิน (Executive on-screen+PDF, AR, AP, Bank, Cashflow staff+exec, Recurring, Armap)
+- **KPI ทางการเงิน:** เปลี่ยน `≥`/`≤` ในเกณฑ์มาตรฐาน → "ไม่ต่ำกว่า" / "ไม่เกิน" (อ่านง่ายตอนพรีเซนต์)
+- **ลดความรกการ์ด Executive Summary:** เอา "· คลิกดูที่มา" ออกจากทุกการ์ด (ทั้ง `edRenderSummary` kpiCard + `edRenderFinKpis` card — ยังคลิก drill ได้/มี hover) + เอาบรรทัดย่อยใต้ตัวเลขออก (รายการ/เป็นบวก-ลบ/in÷out)
+- **Pareto:** Top 20 → **Top 5** (`slice(0,5)`) + ป้ายชื่อยาวขึ้น (40 ตัว) สีแยกรับ(in)/จ่าย(out) เหมือนเดิม
+- **สีพาสเทล MBark (`edApplyTheme`):** กราฟ in `#1e3a8a`→**`#6E9BE8`** (ฟ้าพาสเทล), out `#ed7235`→**`#F2A968`** (ส้มพาสเทล), brand/op/inv/fin ปรับตาม — **ตัวหนังสือ/หัวข้อ/ปุ่ม navy เข้มคงเดิม** (อ่านง่าย); `edStmtPalette` MBark คงเดิม (พื้นพาสเทล+ตัวอักษรเข้มอยู่แล้ว); Benya ไม่แตะ
+- **ปุ่มซ่อน sidebar (เดสก์ท็อป):** ปุ่ม `≡` (เดิมโชว์เฉพาะ ≤820px) โชว์ทุกขนาด → `toggleSidebar()`: เดสก์ท็อป toggle `body.sb-hidden` (CSS `body.sb-hidden .sidebar{display:none}`) + จำใน `localStorage ft-sb-hidden`; มือถือยัง toggle `.show` เหมือนเดิม; restore ตอน `buildShell`
+- **PDF (Executive) แก้ + เพิ่ม:**
+  - กราฟวงกลมเคยเพี้ยนเป็นวงรี → snapshot canvas เปลี่ยน `object-fit:contain` (html2canvas ไม่รองรับ) เป็น **`width:100%;height:auto`** (คงสัดส่วน)
+  - คมขึ้น: html2canvas `scale 2→3` (ตัวแปร `SCALE` คุมรวม — เดิม hardcode `2` ทั้ง scale/thead/rowBounds)
+  - ชื่อไฟล์ตามหัวข้อหน้า: `curTab.id`→**`curTab.l`** (เช่น `M_Bark_งบกระแสเงินสด_*.pdf`)
+  - หัวข้อ (h3) ไม่หลุดจากตาราง: rowBounds ของ h3 ใช้ขอบ **บน** (snap ตัดหน้า "ก่อน" หัวข้อ = keep-with-next)
+  - **ปุ่ม "พิมพ์ทั้งรายงาน"** (`edExportFullPDF`) — วน 6 แท็บ (set `d.tab` → เรียก renderer → รอ ~450ms → แคป) รวมเป็น PDF เล่มเดียว, ปิด `Chart.defaults.animation` ชั่วคราว, เลขหน้า global (`edDrawPdfFooters` เรียกท้ายสุด), restore tab + `edRenderDashboard()`. แยก helper `edCaptureContentToPdf`/`edPdfDims` (edExportPDF เดิมไม่ถูกแตะ — ลดความเสี่ยง)
+- **`.claude/launch.json`** เพิ่มไว้ preview ผ่าน `python -m http.server 8000`
+
 ### 2026-06-19 — Bank Balance รื้อเป็นตารางกรอกรายวัน + คาดการณ์ล่วงหน้า (พรุ่งนี้)
 - รื้อ `renderToolBankBalance()` จาก modal → **ตารางกรอกรายวัน inline** (อ้างอิงดีไซน์เว็บอีกทีม "ของป๊อก")
 - เลือกวันด้วย **chip** (วันนี้−6 .. วันนี้ + "พรุ่งนี้") + dropdown ปี/เดือน/วัน — chip โชว์ยอดรวมต่อวัน

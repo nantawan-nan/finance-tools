@@ -319,7 +319,9 @@
     .menu-toggle{display:inline-block!important}
     .slots{grid-template-columns:1fr}
   }
-  .menu-toggle{display:none;border:1px solid var(--line);background:#fff;border-radius:7px;padding:5px 10px;font-size:18px;line-height:1;color:var(--ink-2)}
+  .menu-toggle{display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--line);background:#fff;border-radius:7px;padding:5px 10px;font-size:18px;line-height:1;color:var(--ink-2);cursor:pointer;transition:.15s}
+  .menu-toggle:hover{border-color:var(--brand);color:var(--brand);background:var(--brand-soft)}
+  body.sb-hidden .sidebar{display:none}
 
 
   /* ---- Executive Dashboard styling ---- */
@@ -501,7 +503,7 @@ function buildShell(){
   <aside class="sidebar" id="sb"></aside>
   <div style="flex:1;min-width:0;display:flex;flex-direction:column">
     <div class="topbar">
-      <button class="menu-toggle" onclick="document.getElementById('sb').classList.toggle('show')">≡</button>
+      <button class="menu-toggle" title="ซ่อน/แสดงแถบเมนู" aria-label="ซ่อน/แสดงแถบเมนู" onclick="toggleSidebar()">≡</button>
       <div class="crumb" id="crumb"></div>
       <div class="date" id="topDate"></div>
       <div class="user">
@@ -518,6 +520,18 @@ function buildShell(){
     const M=["ม.ค.","ก.พ.","มี.ค.","เม.ย.","พ.ค.","มิ.ย.","ก.ค.","ส.ค.","ก.ย.","ต.ค.","พ.ย.","ธ.ค."];
     document.getElementById("topDate").textContent = `${today.getDate()} ${M[today.getMonth()]} ${today.getFullYear()+543}`;
   }catch(_){}
+  // restore สถานะซ่อน sidebar (เดสก์ท็อป)
+  try{ if(localStorage.getItem("ft-sb-hidden")==="1") document.body.classList.add("sb-hidden"); }catch(_){}
+}
+
+/* ปุ่ม ≡ — เดสก์ท็อป: ซ่อน/แสดง sidebar (จำค่า) · มือถือ: เลื่อนเข้า/ออก */
+function toggleSidebar(){
+  if(window.matchMedia("(max-width:820px)").matches){
+    document.getElementById("sb").classList.toggle("show");
+  } else {
+    document.body.classList.toggle("sb-hidden");
+    try{ localStorage.setItem("ft-sb-hidden", document.body.classList.contains("sb-hidden")?"1":"0"); }catch(_){}
+  }
 }
 
 function updateCrumb(){
@@ -532,10 +546,12 @@ const COMPANIES = [
   { id:"mbark", name:"M Bark",  short:"MM", brand:"Mommam",
     fullName:"บริษัท เอ็ม บาร์ค จำกัด · M Bark Co., Ltd.",
     logo:"logos/mbark.png",
+    logoIcon:"logos/mbark-icon.png",
     gradient:["#1e3a8a","#3b82f6"] },
   { id:"benya", name:"Benya",   short:"BY", brand:"Benya Medical Innovations",
     fullName:"บริษัท เบญญา เมดิคอล อินโนเวชั่นส์ จำกัด · Benya Medical Innovations Co., Ltd.",
     logo:"logos/benya.png",
+    logoIcon:"logos/benya-icon.png",
     gradient:["#0d9488","#2dd4bf"] },
 ];
 
@@ -1391,7 +1407,7 @@ function renderToolArmap(){
   document.getElementById("main").innerHTML=`
     <div class="page-head">
       <h1>${t.ic} ${t.name} <span class="badge">${COMPANIES.find(c=>c.id===state.company).name}</span></h1>
-      <div class="sub">${t.long}</div>
+      <div class="sub">${t.long} · <span style="color:var(--ink-3)">หน่วย: บาท</span></div>
     </div>
 
     <div class="slots">
@@ -3360,24 +3376,24 @@ async function renderToolAr(){
   document.getElementById("main").innerHTML = `
     <div class="page-head">
       <h1>${t.name} <span class="badge">${COMPANIES.find(c=>c.id===co).name}</span></h1>
-      <div class="sub">${t.long}</div>
+      <div class="sub">${t.long} · <span style="color:var(--ink-3)">หน่วย: บาท</span></div>
     </div>
 
     <!-- KPI 3 การ์ด -->
     <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:18px">
       <div class="card" style="border-top:4px solid var(--bad);margin-bottom:0">
         <div style="font-size:11px;font-weight:700;color:var(--ink-3);letter-spacing:.5px;text-transform:uppercase">AR จริง (ค้างรับทั้งหมด)</div>
-        <div style="font-size:26px;font-weight:800;color:var(--bad);margin:6px 0 2px">฿${arFmt(arReal)}</div>
+        <div style="font-size:26px;font-weight:800;color:var(--bad);margin:6px 0 2px">${arFmt(arReal)}</div>
         <div style="font-size:12px;color:var(--ink-2)">${rows.filter(r=>r.out>0).length} ออเดอร์ · ทุกช่องทาง</div>
       </div>
       <div class="card" style="border-top:4px solid var(--warn);margin-bottom:0">
         <div style="font-size:11px;font-weight:700;color:var(--ink-3);letter-spacing:.5px;text-transform:uppercase">AR บัญชี (มี IV แล้ว)</div>
-        <div style="font-size:26px;font-weight:800;color:var(--warn);margin:6px 0 2px">฿${arFmt(arAcct)}</div>
+        <div style="font-size:26px;font-weight:800;color:var(--warn);margin:6px 0 2px">${arFmt(arAcct)}</div>
         <div style="font-size:12px;color:var(--ink-2)">${rowsIv.filter(r=>r.out>0).length} ออเดอร์ · คีย์ IV แล้ว</div>
       </div>
       <div class="card" style="border-top:4px solid var(--ink-3);margin-bottom:0">
         <div style="font-size:11px;font-weight:700;color:var(--ink-3);letter-spacing:.5px;text-transform:uppercase">Gap (ยังไม่คีย์ IV)</div>
-        <div style="font-size:26px;font-weight:800;color:var(--ink-2);margin:6px 0 2px">฿${arFmt(arGap)}</div>
+        <div style="font-size:26px;font-weight:800;color:var(--ink-2);margin:6px 0 2px">${arFmt(arGap)}</div>
         <div style="font-size:12px;color:var(--ink-2)">${rows.filter(r=>r.out>0&&!r.iv_no).length} ออเดอร์ · รอคีย์ IV</div>
       </div>
     </div>
@@ -3445,7 +3461,7 @@ function arTabAcct(rowsIv, canWrite){
     const tot = rows.reduce((s,r)=>s+r.out,0);
     html += `<div style="background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:12px;text-align:center">
       <div style="font-size:12px;font-weight:700;color:${colors[lbl]}">${lbl}</div>
-      <div style="font-size:20px;font-weight:800;color:${colors[lbl]};margin:4px 0">฿${arFmt(tot)}</div>
+      <div style="font-size:20px;font-weight:800;color:${colors[lbl]};margin:4px 0">${arFmt(tot)}</div>
       <div style="font-size:12px;color:var(--ink-3)">${rows.length} IV</div>
     </div>`;
   }
@@ -3479,7 +3495,7 @@ function arTabHist(receipts){
   const total = receipts.reduce((s,r)=>s+(r.received_amount||0),0);
   return `
     <div style="margin-bottom:12px">
-      <span style="font-weight:700;color:var(--ok)">รับเงินแล้วทั้งหมด: ฿${arFmt(total)}</span>
+      <span style="font-weight:700;color:var(--ok)">รับเงินแล้วทั้งหมด: ${arFmt(total)}</span>
       <span style="color:var(--ink-3);font-size:13px;margin-left:10px">(${receipts.length} รายการ)</span>
     </div>
     <div class="table-wrap"><table>
@@ -3492,7 +3508,7 @@ function arTabHist(receipts){
           <td>${esc(r.received_date)}</td>
           <td><code style="font-size:12px">${esc(r.order_no)}</code></td>
           <td>${r.iv_no?`<span class="badge" style="background:#dcfce7;color:#166534">${esc(r.iv_no)}</span>`:'—'}</td>
-          <td style="text-align:right;color:var(--ok);font-weight:700">฿${arFmt(r.received_amount)}</td>
+          <td style="text-align:right;color:var(--ok);font-weight:700">${arFmt(r.received_amount)}</td>
           <td style="font-size:13px">${esc(r.bank_account||'—')}</td>
           <td style="font-size:13px;color:var(--ink-2)">${esc(r.note||'')}</td>
         </tr>`).join("")}
@@ -3510,7 +3526,7 @@ function arOpenReceipt(info){
   wrap.innerHTML = `
     <div style="background:#fff;border-radius:14px;padding:28px;max-width:440px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.3)">
       <h3 style="margin:0 0 4px;font-size:16px;font-weight:800">บันทึกรับเงิน</h3>
-      <div style="color:var(--ink-3);font-size:12.5px;margin-bottom:18px">ออเดอร์ <b style="color:var(--ink)">${esc(info.order_no)}</b>${info.iv_no?' · IV '+esc(info.iv_no):''} · ค้างรับ <b style="color:var(--bad)">฿${arFmt(info.out)}</b></div>
+      <div style="color:var(--ink-3);font-size:12.5px;margin-bottom:18px">ออเดอร์ <b style="color:var(--ink)">${esc(info.order_no)}</b>${info.iv_no?' · IV '+esc(info.iv_no):''} · ค้างรับ <b style="color:var(--bad)">${arFmt(info.out)}</b></div>
       <div style="display:grid;gap:12px">
         <label style="font-size:13px;font-weight:600;color:var(--ink)">วันที่รับเงิน
           <input id="arRDate" type="date" value="${today}"
@@ -4266,15 +4282,15 @@ const ED_COLORS = {
 function edApplyTheme(){
   const co = state.company;
   if(co === "mbark"){
-    // MBark — โทนเข้มตาม MomMam (navy เข้ม + orange accent)
-    ED_COLORS.in     = "#1e3a8a";   // navy เข้ม — รับ
-    ED_COLORS.out    = "#ed7235";   // orange — จ่าย
-    ED_COLORS.brand  = "#3b82f6";   // royal blue (line/highlight)
-    ED_COLORS.brand2 = "#93b9dd";
+    // MBark — พาสเทลฟ้า/ส้ม (นุ่มลงแต่ยังสดใส — กราฟไม่แสบตา)
+    ED_COLORS.in     = "#6E9BE8";   // ฟ้าพาสเทล — รับ
+    ED_COLORS.out    = "#F2A968";   // ส้มพาสเทล — จ่าย
+    ED_COLORS.brand  = "#6E9BE8";   // ฟ้าพาสเทล (line/highlight)
+    ED_COLORS.brand2 = "#AFC8EE";
     ED_COLORS.bg     = "#eef2ff";
-    ED_COLORS.op     = "#1e3a8a";   // navy
-    ED_COLORS.inv    = "#3b82f6";   // royal
-    ED_COLORS.fin    = "#ed7235";   // orange
+    ED_COLORS.op     = "#6E9BE8";   // ฟ้าพาสเทล
+    ED_COLORS.inv    = "#9DBCEF";   // ฟ้าอ่อน
+    ED_COLORS.fin    = "#F2A968";   // ส้มพาสเทล
   } else {
     // Benya — pastel teal/pink (default เดิม)
     ED_COLORS.in     = "#14B8A6";
@@ -4292,7 +4308,7 @@ const BANK_KEYS = ["BBL","SCB","KBANK","KTB","BAY","TTB","TMB","GSB","UOB","CIMB
 function edFmt(n){
   if(n==null || isNaN(n)) return "—";
   const v = Number(n);
-  const s = "฿" + Math.abs(v).toLocaleString("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2});
+  const s = Math.abs(v).toLocaleString("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2});
   return v < 0 ? "(" + s + ")" : s;
 }
 function edFmtCompact(n){
@@ -4801,6 +4817,7 @@ async function edExportPDF(){
   if(!original){ alert("ไม่พบ content"); return; }
 
   const captureWidth = 1280;   // กว้างพอดี A4 landscape (281mm)
+  const SCALE = 3;             // ความละเอียดถ่ายภาพ — สูงขึ้น = ตัวหนังสือคมขึ้น (เดิม 2 → ฟุ้ง)
   const cloneWrap = document.createElement("div");
   cloneWrap.style.cssText =
     `position:absolute;left:-99999px;top:0;width:${captureWidth}px;background:#fff;` +
@@ -4828,7 +4845,7 @@ async function edExportPDF(){
       const phRect = ph ? ph.getBoundingClientRect() : { width:0, height:0 };
       const img = document.createElement("img");
       img.src = dataUrl;
-      img.style.cssText = "display:block;width:100%;height:" + (phRect.height || oc.offsetHeight || 300) + "px;object-fit:contain";
+      img.style.cssText = "display:block;width:100%;height:auto";   // คงสัดส่วนเดิม (html2canvas ไม่รองรับ object-fit → กราฟวงกลมเคยเพี้ยนเป็นวงรี)
       cc.parentNode.replaceChild(img, cc);
     }catch(e){ console.warn("[edExportPDF] snapshot canvas failed:", e); }
   }
@@ -4851,7 +4868,7 @@ async function edExportPDF(){
 
     const cloneFullH = cloneWrap.scrollHeight;
     const canvas = await window.html2canvas(cloneWrap, {
-      scale: 2,
+      scale: SCALE,
       backgroundColor: "#ffffff",
       useCORS: true,
       logging: false,
@@ -4868,7 +4885,7 @@ async function edExportPDF(){
     if(cloneThead){
       const wrapRect  = cloneWrap.getBoundingClientRect();
       const theadRect = cloneThead.getBoundingClientRect();
-      const sc = 2;   // html2canvas scale
+      const sc = SCALE;   // html2canvas scale
       const theadYPx = Math.max(0, Math.round((theadRect.top - wrapRect.top) * sc));
       const theadHPx = Math.round(theadRect.height * sc);
       if(theadHPx > 0 && theadYPx + theadHPx <= canvas.height){
@@ -4900,7 +4917,7 @@ async function edExportPDF(){
       theadHmm = (_hImg.naturalHeight * imgW) / _hImg.naturalWidth;
     }
 
-    const logoData = await edLoadImg(co.logo);
+    const logoData = await edLoadImg(co.logoIcon||co.logo);
 
     // เก็บ y-coordinates ของขอบล่างทุก element ที่ไม่ควรตัด — tr, card, h3
     // เพื่อ snap slice ไปที่ boundary นี้ ไม่ตัดกลางตัวหนังสือ
@@ -4908,8 +4925,10 @@ async function edExportPDF(){
     const rowBounds = [];
     clone.querySelectorAll("tr, .card, .ed-card, h3, .page-head").forEach(el => {
       const r = el.getBoundingClientRect();
-      const yBottom = Math.round((r.bottom - wrapTopY) * 2);    // scale 2
-      if(yBottom > 0 && yBottom <= canvas.height) rowBounds.push(yBottom);
+      // ★ หัวข้อ (h3) ใช้ขอบ "บน" — ตัดหน้าก่อนหัวข้อ ไม่ทิ้งหัวข้อไว้ท้ายหน้าโดยตารางไปอยู่หน้าถัดไป (keep-with-next)
+      const edge = (el.tagName === "H3") ? r.top : r.bottom;
+      const yB = Math.round((edge - wrapTopY) * SCALE);
+      if(yB > 0 && yB <= canvas.height) rowBounds.push(yB);
     });
     rowBounds.sort((a,b) => a - b);
 
@@ -4972,7 +4991,7 @@ async function edExportPDF(){
       pdf.text(`หน้า ${i+1} / ${pdfPages.length}`, pageW - margin, pageH - 3, { align:"right" });
     }
 
-    const fname = `${co.name.replace(/\s+/g,"_")}_${curTab.id}_${stamp()}.pdf`;
+    const fname = `${co.name.replace(/\s+/g,"_")}_${curTab.l.replace(/\s+/g,"_")}_${stamp()}.pdf`;
     pdf.save(fname);
   }catch(err){
     console.error(err);
@@ -4982,6 +5001,178 @@ async function edExportPDF(){
     if(cloneWrap.parentNode) cloneWrap.remove();
     const o = document.getElementById("edPdfOv");
     if(o) o.remove();
+  }
+}
+
+/* ===== พิมพ์ทั้งรายงาน (6 หัวข้อ) เป็น PDF ไฟล์เดียว ===== */
+function edPdfDims(){
+  const pageW=297, pageH=210, margin=8, headerH=22, footerH=6;
+  return { captureWidth:1280, SCALE:3, pageW, pageH, margin, headerH, footerH,
+           imgW: pageW - 2*margin, yStart: headerH + margin/2, yEnd: pageH - footerH - margin };
+}
+
+/* เลขหน้า footer (เรียกตอนท้ายสุด เพราะต้องรู้จำนวนหน้ารวมก่อน) */
+function edDrawPdfFooters(pdf, dims){
+  const { pageW, pageH, margin } = dims;
+  const n = pdf.getNumberOfPages();
+  for(let i=1;i<=n;i++){
+    pdf.setPage(i);
+    pdf.setFont("helvetica","normal"); pdf.setFontSize(8); pdf.setTextColor(150,150,150);
+    pdf.text(`หน้า ${i} / ${n}`, pageW - margin, pageH - 3, { align:"right" });
+  }
+}
+
+/* แคป #edContent ปัจจุบัน → ต่อหน้าเข้า pdf ที่ส่งมา (ใช้ logic เดียวกับ edExportPDF: snapshot กราฟ, ตัด thead, snap หัวข้อ) */
+async function edCaptureContentToPdf(pdf, opts){
+  const { co, t, tab, d, logoData, dims, isFirstContent } = opts;
+  const { captureWidth, SCALE, pageW, headerH, margin, imgW, yStart, yEnd } = dims;
+  const original = document.getElementById("edContent");
+  if(!original) return;
+
+  const cloneWrap = document.createElement("div");
+  cloneWrap.style.cssText =
+    `position:absolute;left:-99999px;top:0;width:${captureWidth}px;background:#fff;` +
+    `font-family:'IBM Plex Sans Thai','IBM Plex Sans',ui-sans-serif,sans-serif;color:#0f172a;` +
+    `padding:24px;box-sizing:border-box;line-height:1.5`;
+  const clone = original.cloneNode(true);
+  clone.style.width = "100%"; clone.style.maxWidth = "none";
+  cloneWrap.appendChild(clone);
+  document.body.appendChild(cloneWrap);
+
+  try{
+    // snapshot canvas (Chart.js) → <img> คงสัดส่วน (height:auto กันวงรี)
+    const origCanvases  = Array.from(original.querySelectorAll("canvas"));
+    const cloneCanvases = Array.from(clone.querySelectorAll("canvas"));
+    for(let i=0;i<Math.min(origCanvases.length,cloneCanvases.length);i++){
+      const oc=origCanvases[i], cc=cloneCanvases[i];
+      if(!oc.width||!oc.height) continue;
+      try{
+        const img=document.createElement("img");
+        img.src=oc.toDataURL("image/png");
+        img.style.cssText="display:block;width:100%;height:auto";
+        cc.parentNode.replaceChild(img,cc);
+      }catch(e){ console.warn("[edPdf] snapshot canvas failed:",e); }
+    }
+    clone.querySelectorAll("[data-pdf-hide='1']").forEach(el=>el.remove());
+    clone.querySelectorAll("[data-pdf-only='1']").forEach(el=>{ el.style.display="block"; });
+    clone.querySelectorAll("select, input, button").forEach(el=>el.remove());
+    clone.querySelectorAll(".table-wrap").forEach(el=>{ el.style.maxHeight="none"; el.style.overflow="visible"; el.style.overflowY="visible"; });
+
+    await new Promise(r=>setTimeout(r,200));
+    const cloneFullH = cloneWrap.scrollHeight;
+    const canvas = await window.html2canvas(cloneWrap,{ scale:SCALE, backgroundColor:"#ffffff", useCORS:true, logging:false,
+      width:captureWidth, windowWidth:captureWidth, height:cloneFullH, windowHeight:cloneFullH });
+
+    // thead → ทำซ้ำหัวตารางทุกหน้า
+    let theadImg=null, theadHmm=0;
+    const cloneThead=clone.querySelector("table thead");
+    if(cloneThead){
+      const wrapRect=cloneWrap.getBoundingClientRect();
+      const theadRect=cloneThead.getBoundingClientRect();
+      const theadYPx=Math.max(0,Math.round((theadRect.top-wrapRect.top)*SCALE));
+      const theadHPx=Math.round(theadRect.height*SCALE);
+      if(theadHPx>0 && theadYPx+theadHPx<=canvas.height){
+        const tc=document.createElement("canvas"); tc.width=canvas.width; tc.height=theadHPx;
+        const cx=tc.getContext("2d"); cx.fillStyle="#ffffff"; cx.fillRect(0,0,tc.width,tc.height);
+        cx.drawImage(canvas,0,-theadYPx); theadImg=tc.toDataURL("image/png");
+      }
+    }
+    if(theadImg){
+      const _h=new Image(); _h.src=theadImg; await new Promise(r=>{_h.onload=r;});
+      theadHmm=(_h.naturalHeight*imgW)/_h.naturalWidth;
+    }
+
+    // row boundaries (h3 ใช้ขอบบน = keep-with-next)
+    const wrapTopY=cloneWrap.getBoundingClientRect().top;
+    const rowBounds=[];
+    clone.querySelectorAll("tr, .card, .ed-card, h3, .page-head").forEach(el=>{
+      const r=el.getBoundingClientRect();
+      const edge=(el.tagName==="H3")?r.top:r.bottom;
+      const yB=Math.round((edge-wrapTopY)*SCALE);
+      if(yB>0 && yB<=canvas.height) rowBounds.push(yB);
+    });
+    rowBounds.sort((a,b)=>a-b);
+
+    // slice
+    let yPx=0; const totalPx=canvas.height; const pdfPages=[];
+    while(yPx<totalPx){
+      const pageIdx=pdfPages.length;
+      let avail=yEnd-yStart;
+      const showThead=(pageIdx>0 && theadImg);
+      if(showThead) avail-=(theadHmm+1);
+      const slicePxMax=(avail*canvas.width)/imgW;
+      let slicePx=Math.min(slicePxMax,totalPx-yPx);
+      if(yPx+slicePx<totalPx){
+        const minSlice=slicePxMax*0.6;
+        const cands=rowBounds.filter(b=>b>yPx+minSlice && b<=yPx+slicePxMax);
+        if(cands.length) slicePx=cands[cands.length-1]-yPx;
+      }
+      if(slicePx<1) slicePx=Math.min(slicePxMax,totalPx-yPx);
+      pdfPages.push({yPx,slicePx,showThead}); yPx+=slicePx;
+    }
+
+    for(let i=0;i<pdfPages.length;i++){
+      if(!(isFirstContent && i===0)) pdf.addPage();
+      const pg=pdfPages[i];
+      drawPdfHeader(pdf, co, t, tab, d, logoData, pageW, headerH, margin);
+      let yMM=yStart;
+      if(pg.showThead && theadImg){ pdf.addImage(theadImg,"PNG",margin,yMM,imgW,theadHmm); yMM+=theadHmm+1; }
+      const slc=document.createElement("canvas"); slc.width=canvas.width; slc.height=pg.slicePx;
+      const cx=slc.getContext("2d"); cx.fillStyle="#ffffff"; cx.fillRect(0,0,slc.width,slc.height); cx.drawImage(canvas,0,-pg.yPx);
+      pdf.addImage(slc.toDataURL("image/png"),"PNG",margin,yMM,imgW,(pg.slicePx*imgW)/canvas.width);
+    }
+  } finally {
+    if(cloneWrap.parentNode) cloneWrap.remove();
+  }
+}
+
+async function edExportFullPDF(){
+  const co = COMPANIES.find(c=>c.id===state.company);
+  const t  = TOOLS.find(x=>x.id==="execdash");
+  const d  = edState();
+  const tabs = [
+    { id:"summary",  l:"Executive Summary" },
+    { id:"activity", l:"Cash Flow by Activity" },
+    { id:"category", l:"Category Analysis" },
+    { id:"banks",    l:"Bank Accounts" },
+    { id:"explorer", l:"Transaction Explorer" },
+    { id:"stmt",     l:"งบกระแสเงินสด" },
+  ];
+  const renderers = { summary:edRenderSummary, activity:edRenderActivity, category:edRenderCategory,
+                      banks:edRenderBanks, explorer:edRenderExplorer, stmt:edRenderStmt };
+  if(!window.html2canvas || !window.jspdf){ alert("PDF library โหลดยังไม่เสร็จ — รอสักครู่แล้วลองใหม่"); return; }
+
+  const ov = document.createElement("div"); ov.id="edPdfOv";
+  ov.style.cssText="position:fixed;inset:0;background:rgba(15,23,42,.6);z-index:9999;display:flex;align-items:center;justify-content:center;color:#fff;font-family:'IBM Plex Sans Thai',sans-serif";
+  const ovMsg=(s)=>{ ov.innerHTML=`<div style="background:#fff;color:#0f172a;padding:24px 36px;border-radius:14px;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.3)"><div style="font-size:16px;font-weight:700;margin-bottom:8px">กำลังสร้าง PDF ทั้งรายงาน...</div><div style="color:#64748b;font-size:13px">${s}</div></div>`; };
+  ovMsg("เริ่มต้น..."); document.body.appendChild(ov);
+
+  const prevTab = d.tab;
+  const dims = edPdfDims();
+  const prevAnim = (window.Chart && window.Chart.defaults) ? window.Chart.defaults.animation : undefined;
+  if(window.Chart && window.Chart.defaults) window.Chart.defaults.animation = false;  // วาดกราฟทันที ไม่ต้องรอ animation
+
+  try{
+    const { jsPDF } = window.jspdf;
+    const pdf = new jsPDF({ orientation:"landscape", unit:"mm", format:"a4" });
+    const logoData = await edLoadImg(co.logoIcon||co.logo);
+    for(let k=0;k<tabs.length;k++){
+      const tab=tabs[k];
+      ovMsg(`(${k+1}/${tabs.length}) ${tab.l}`);
+      d.tab = tab.id;
+      (renderers[tab.id]||edRenderSummary)();
+      await new Promise(r=>setTimeout(r,450));   // รอ layout + กราฟวาด
+      await edCaptureContentToPdf(pdf, { co, t, tab, d, logoData, dims, isFirstContent: k===0 });
+    }
+    edDrawPdfFooters(pdf, dims);
+    pdf.save(`${co.name.replace(/\s+/g,"_")}_รายงานฉบับเต็ม_${stamp()}.pdf`);
+  }catch(err){
+    console.error(err);
+    alert("สร้าง PDF ไม่สำเร็จ: " + (err.message||err));
+  }finally{
+    if(window.Chart && window.Chart.defaults) window.Chart.defaults.animation = prevAnim;
+    d.tab = prevTab; edRenderDashboard();
+    const o=document.getElementById("edPdfOv"); if(o) o.remove();
   }
 }
 
@@ -5039,7 +5230,7 @@ function edRenderHeaderRight(tabName, periodLabel, dateStr){
   // datetime — เล็ก
   ctx.font = "italic 22px 'IBM Plex Sans Thai',sans-serif";
   ctx.fillStyle = "#94a3b8";
-  ctx.fillText("พิมพ์เมื่อ " + dateStr, w - 10, 144);
+  ctx.fillText("พิมพ์เมื่อ " + dateStr + "  ·  หน่วย: บาท", w - 10, 144);
 
   return cv.toDataURL("image/png");
 }
@@ -5095,7 +5286,7 @@ function edRenderDashboard(){
       <div id="printHeader">
         <div class="ph-row">
           <div class="ph-co">
-            <img class="ph-logo" src="${esc(co.logo)}" onerror="this.style.display='none'">
+            <img class="ph-logo" src="${esc(co.logoIcon||co.logo)}" onerror="this.style.display='none'">
             <div>
               <div class="ph-co-name">${esc(co.fullName||co.name)}</div>
               <div class="ph-co-sub">${esc(co.brand||'')}</div>
@@ -5104,7 +5295,7 @@ function edRenderDashboard(){
           <div class="ph-meta">
             <div class="ph-title">${esc(curTab.l)}</div>
             <div class="ph-period">${esc(edPeriodLabel(data, d.monthFilter))}</div>
-            <div class="ph-ts">พิมพ์เมื่อ ${edNowStr()} · ${esc(AUTH.email||'')}</div>
+            <div class="ph-ts">พิมพ์เมื่อ ${edNowStr()} · ${esc(AUTH.email||'')} · หน่วย: บาท</div>
           </div>
         </div>
       </div>
@@ -5114,13 +5305,14 @@ function edRenderDashboard(){
           <img src="${esc(co.logo)}" onerror="this.style.display='none'" style="width:40px;height:40px;object-fit:contain;border-radius:8px">
           <div>
             <h1>${t.name} <span class="badge">${esc(co.name)}</span></h1>
-            <div class="sub">${esc(data.company||co.fullName||'—')} · ${data.transactions.length.toLocaleString()} รายการ · ${Object.keys(data.accounts).length} บัญชี · ${data.months.length} เดือน · <span style="color:var(--ok);font-weight:700">กระทบยอดผ่าน ✓</span>${d.savedAt?` · <span style="color:var(--ink-3);font-size:11.5px">บันทึกในเครื่องเมื่อ ${esc(new Date(d.savedAt).toLocaleString("th-TH",{dateStyle:"short",timeStyle:"short"}))}</span>`:""}</div>
+            <div class="sub">${esc(data.company||co.fullName||'—')} · ${data.transactions.length.toLocaleString()} รายการ · ${Object.keys(data.accounts).length} บัญชี · ${data.months.length} เดือน · <span style="color:var(--ok);font-weight:700">กระทบยอดผ่าน ✓</span> · <span style="color:var(--ink-3)">หน่วย: บาท</span>${d.savedAt?` · <span style="color:var(--ink-3);font-size:11.5px">บันทึกในเครื่องเมื่อ ${esc(new Date(d.savedAt).toLocaleString("th-TH",{dateStyle:"short",timeStyle:"short"}))}</span>`:""}</div>
           </div>
         </div>
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
           <label style="font-size:12px;color:var(--ink-3);font-weight:600">ช่วงเวลา</label>
           <select onchange="edSetMonth(this.value)" style="padding:7px 12px;border:1px solid #c3dafe;border-radius:8px;font-size:13px;background:#fff;font-family:inherit;color:#0f172a">${monthOptions}</select>
-          <button class="btn" onclick="edPrint()" style="background:linear-gradient(135deg,#4F8AF7,#3b82f6);border:none">พิมพ์ PDF</button>
+          <button class="btn" onclick="edPrint()" style="background:linear-gradient(135deg,#4F8AF7,#3b82f6);border:none" title="พิมพ์เฉพาะหัวข้อที่เปิดอยู่">พิมพ์ PDF</button>
+          <button class="btn" onclick="edExportFullPDF()" style="background:linear-gradient(135deg,#6366f1,#4f46e5);border:none" title="รวมทั้ง 6 หัวข้อเป็น PDF ไฟล์เดียว">พิมพ์ทั้งรายงาน</button>
           <button class="btn ghost btn sm" onclick="edReset()">อัปไฟล์ใหม่</button>
         </div>
       </div>
@@ -5148,7 +5340,7 @@ function edRenderSummary(){
 
   const kpiCard = (label, value, color, sub, onClick) => `
     <div ${onClick?`onclick="${onClick}" `:""}style="background:rgba(255,255,255,.85);backdrop-filter:blur(6px);border:1px solid #c3dafe;border-radius:14px;padding:16px 18px;transition:.15s${onClick?";cursor:pointer":""}" ${onClick?`onmouseover="this.style.borderColor='#4F8AF7';this.style.transform='translateY(-1px)'" onmouseout="this.style.borderColor='#c3dafe';this.style.transform='none'"`:""}>
-      <div style="font-size:10.5px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:.5px">${label}${onClick?' <span style="color:#94a3b8;font-weight:500;text-transform:none">· คลิกดูที่มา</span>':''}</div>
+      <div style="font-size:10.5px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:.5px">${label}</div>
       <div style="font-size:22px;font-weight:800;color:${color};margin-top:4px;letter-spacing:-.3px">${value}</div>
       ${sub?`<div style="font-size:11.5px;color:#64748b;margin-top:2px">${sub}</div>`:""}
     </div>`;
@@ -5156,16 +5348,16 @@ function edRenderSummary(){
   document.getElementById("edContent").innerHTML = `
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:16px">
       ${kpiCard("เงินสดต้นงวด", edFmt(A.opening), "#0f172a", "", "edDrillOpenClose('opening')")}
-      ${kpiCard("เงินรับรวม",   edFmt(A.totalIn), ED_COLORS.in, A.txs.filter(t=>t.in>0).length+" รายการ", "edDrillSummary('in')")}
-      ${kpiCard("เงินจ่ายรวม",  edFmt(A.totalOut), ED_COLORS.out, A.txs.filter(t=>t.out>0).length+" รายการ", "edDrillSummary('out')")}
-      ${kpiCard("กระแสเงินสุทธิ", edFmt(A.net), A.net>=0?ED_COLORS.in:ED_COLORS.out, A.net>=0?"เป็นบวก":"เป็นลบ — งวดนี้", "edDrillSummary('net')")}
+      ${kpiCard("เงินรับรวม",   edFmt(A.totalIn), ED_COLORS.in, "", "edDrillSummary('in')")}
+      ${kpiCard("เงินจ่ายรวม",  edFmt(A.totalOut), ED_COLORS.out, "", "edDrillSummary('out')")}
+      ${kpiCard("กระแสเงินสุทธิ", edFmt(A.net), A.net>=0?ED_COLORS.in:ED_COLORS.out, "", "edDrillSummary('net')")}
       ${kpiCard("เงินสดปลายงวด", edFmt(A.closing), "#0f172a", "", "edDrillOpenClose('closing')")}
     </div>
 
     <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px">
-      ${kpiCard("ดำเนินงาน (สุทธิ)", edFmt(A.byAct.operating.in - A.byAct.operating.out), A.byAct.operating.in>=A.byAct.operating.out?ED_COLORS.in:ED_COLORS.out, edFmt(A.byAct.operating.in)+" / "+edFmt(A.byAct.operating.out), "edDrillActivityIO('operating',null)")}
-      ${kpiCard("ลงทุน (สุทธิ)",    edFmt(A.byAct.investing.in - A.byAct.investing.out), A.byAct.investing.in>=A.byAct.investing.out?ED_COLORS.in:ED_COLORS.out, edFmt(A.byAct.investing.in)+" / "+edFmt(A.byAct.investing.out), "edDrillActivityIO('investing',null)")}
-      ${kpiCard("จัดหาเงิน (สุทธิ)", edFmt(A.byAct.financing.in - A.byAct.financing.out), A.byAct.financing.in>=A.byAct.financing.out?ED_COLORS.in:ED_COLORS.out, edFmt(A.byAct.financing.in)+" / "+edFmt(A.byAct.financing.out), "edDrillActivityIO('financing',null)")}
+      ${kpiCard("ดำเนินงาน (สุทธิ)", edFmt(A.byAct.operating.in - A.byAct.operating.out), A.byAct.operating.in>=A.byAct.operating.out?ED_COLORS.in:ED_COLORS.out, "", "edDrillActivityIO('operating',null)")}
+      ${kpiCard("ลงทุน (สุทธิ)",    edFmt(A.byAct.investing.in - A.byAct.investing.out), A.byAct.investing.in>=A.byAct.investing.out?ED_COLORS.in:ED_COLORS.out, "", "edDrillActivityIO('investing',null)")}
+      ${kpiCard("จัดหาเงิน (สุทธิ)", edFmt(A.byAct.financing.in - A.byAct.financing.out), A.byAct.financing.in>=A.byAct.financing.out?ED_COLORS.in:ED_COLORS.out, "", "edDrillActivityIO('financing',null)")}
     </div>
 
     <div style="display:grid;grid-template-columns:2fr 1fr;gap:12px;margin-bottom:16px">
@@ -5301,7 +5493,7 @@ function edRenderFinKpis(A, data, monthFilter){
   // single KPI card — คลิกได้ → drill modal
   const card = (kpiKey, label, value, color, sub, bench) => `
     <div onclick="edDrillFinKpi('${kpiKey}')" style="background:rgba(255,255,255,.85);backdrop-filter:blur(6px);border:1px solid #c3dafe;border-radius:14px;padding:14px 16px;display:flex;flex-direction:column;gap:4px;cursor:pointer;transition:.15s" onmouseover="this.style.borderColor='${ED_COLORS.brand}';this.style.transform='translateY(-1px)';this.style.boxShadow='0 4px 12px rgba(0,0,0,.06)'" onmouseout="this.style.borderColor='#c3dafe';this.style.transform='none';this.style.boxShadow='none'">
-      <div style="font-size:11px;font-weight:700;color:#475569">${label} <span style="color:#94a3b8;font-weight:500">· คลิกดูที่มา</span></div>
+      <div style="font-size:11px;font-weight:700;color:#475569">${label}</div>
       <div style="font-size:24px;font-weight:800;color:${color};letter-spacing:-.3px;margin-top:2px">${value}</div>
       ${sub?`<div style="font-size:11px;color:#64748b">${sub}</div>`:""}
       ${bench?`<div style="margin-top:6px;padding:4px 8px;background:rgba(99,102,241,.07);border:1px solid #e0e7ff;border-radius:6px;font-size:10.5px;color:#475569;align-self:flex-start">เกณฑ์มาตรฐาน: ${bench}</div>`:""}
@@ -5319,13 +5511,13 @@ function edRenderFinKpis(A, data, monthFilter){
           fmtPct(cashMargin),
           evalBench(cashMargin, 10, 5, "hi"),
           "Net / Total Income",
-          "≥5% (ดี) / ≥10% (ยอดเยี่ยม)")}
+          "ไม่ต่ำกว่า 5% (ดี) / ไม่ต่ำกว่า 10% (ยอดเยี่ยม)")}
 
         ${card("opRatio", "Operating Cash Flow Ratio",
           fmtPct(opRatio),
           evalBench(opRatio, 100, 50, "hi"),
           "Op Net / Op Income",
-          "≥50% (ดี) / ≥100% (แข็งแกร่ง)")}
+          "ไม่ต่ำกว่า 50% (ดี) / ไม่ต่ำกว่า 100% (แข็งแกร่ง)")}
 
         ${card("burn", "Cash Burn Rate",
           fmtCompactM(burn) + "/เดือน",
@@ -5337,19 +5529,19 @@ function edRenderFinKpis(A, data, monthFilter){
           fmtPct(opExRatio),
           evalBench(opExRatio, 100, 80, "lo"),
           "Op Expense / Op Income",
-          "≤80%")}
+          "ไม่เกิน 80%")}
 
         ${card("empRatio", "สัดส่วนค่าใช้จ่ายพนักงาน",
           fmtPct(empRatio),
           evalBench(empRatio, 50, 30, "lo"),
           "เงินเดือน / รายรับดำเนินงาน",
-          "≤30%")}
+          "ไม่เกิน 30%")}
 
         ${card("adRatio", "สัดส่วนค่าโฆษณาต่อยอดขาย",
           fmtPct(adRatio),
           evalBench(adRatio, 30, 20, "lo"),
           "ค่าโฆษณา / รายรับดำเนินงาน",
-          "≤20%")}
+          "ไม่เกิน 20%")}
       </div>
     </div>`;
 }
@@ -5594,7 +5786,7 @@ function edRenderCategory(){
   const d = edState();
   const A = edAgg(d.data, d.monthFilter, true);  // ★ exclude transfers
   const cats = Object.entries(A.byCat).map(([k,v])=>({ k, ...v, abs:Math.abs(v.net) })).sort((a,b)=>b.abs-a.abs);
-  const top20 = cats.slice(0,20);
+  const top20 = cats.slice(0,5);
 
   document.getElementById("edContent").innerHTML = `
     <div class="card">
@@ -5602,7 +5794,7 @@ function edRenderCategory(){
       <div style="position:relative;height:380px"><canvas id="edTreemap"></canvas></div>
     </div>
     <div class="card">
-      <h3>Pareto Top 20 — หมวดที่กระทบเงินสดมากสุด</h3>
+      <h3>Pareto Top 5 — หมวดที่กระทบเงินสดมากสุด</h3>
       <div style="position:relative;height:320px"><canvas id="edPareto"></canvas></div>
     </div>
     <div class="card">
@@ -5644,7 +5836,7 @@ function edRenderCategory(){
   const cumPct = par.map(x=>{ cum += x.abs; return total ? (cum/total*100) : 0; });
   edMakeChart("edPareto", {
     data:{
-      labels: par.map(x=>x.k.length>20?x.k.slice(0,18)+"…":x.k),
+      labels: par.map(x=>x.k.length>40?x.k.slice(0,38)+"…":x.k),
       datasets:[
         { type:"bar", label:"มูลค่า (Abs)", data:par.map(x=>x.abs), backgroundColor:par.map(x=>x.net>=0?ED_COLORS.in:ED_COLORS.out), order:2, yAxisID:"y" },
         { type:"line", label:"% สะสม", data:cumPct, borderColor:ED_COLORS.brand, backgroundColor:ED_COLORS.brand, tension:.2, yAxisID:"y1", order:1 }
@@ -6149,7 +6341,7 @@ const FOP_ROLES_WRITE = ["admin","finance_mgr","accountant","treasury"];
 function fopFmt(n){
   if(n==null || isNaN(n)) return "—";
   const v = Number(n);
-  const s = "฿" + Math.abs(v).toLocaleString("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2});
+  const s = Math.abs(v).toLocaleString("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2});
   return v < 0 ? "(" + s + ")" : s;
 }
 function fopDate(s){
@@ -6278,7 +6470,7 @@ async function renderToolBankBalance(){
     <div class="page-head" style="display:flex;justify-content:space-between;align-items:flex-end;gap:14px;flex-wrap:wrap">
       <div>
         <h1>${esc(t.name)} <span class="badge">${esc(co.name)}</span> · ${esc(selLabel)}</h1>
-        <div class="sub">🏆 บันทึกแล้ว ${savedCount}/${accts.length} บัญชี${pending>0?` — ค้าง ${pending}`:''}${isForecast?' · <b style="color:var(--brand)">โหมดคาดการณ์ (พรุ่งนี้)</b>':''}</div>
+        <div class="sub">🏆 บันทึกแล้ว ${savedCount}/${accts.length} บัญชี${pending>0?` — ค้าง ${pending}`:''}${isForecast?' · <b style="color:var(--brand)">โหมดคาดการณ์ (พรุ่งนี้)</b>':''} · <span style="color:var(--ink-3)">หน่วย: บาท</span></div>
       </div>
       ${canWrite ? `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
         <select class="input" style="padding:6px 8px;font-size:12px" onchange="bbDateSel()" id="bbSelY">${years.sort((a,b)=>a-b).map(y=>`<option value="${y}" ${y===selY?'selected':''}>${y}</option>`).join("")}</select>
@@ -7161,7 +7353,7 @@ async function renderToolApOutstanding(){
 
     <div class="card">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px">
-        <h3 style="margin:0">เจ้าหนี้คงค้าง</h3>
+        <h3 style="margin:0">เจ้าหนี้คงค้าง <span style="font-size:11px;font-weight:500;color:var(--ink-3)">· หน่วย: บาท</span></h3>
         ${canWrite ? `<div style="display:flex;gap:8px;flex-wrap:wrap">
           <input id="apoXmlFile" type="file" accept=".xml" style="display:none" onchange="apoHandleXml(this.files[0])">
           <input id="apoCsvFile" type="file" accept=".csv" style="display:none" onchange="apoHandleCsv(this.files[0])">
@@ -7799,7 +7991,7 @@ async function renderToolRecurring(){
   main.innerHTML = `
     <div class="page-head">
       <h1>${esc(t.name)} <span class="badge">${esc(co.name)}</span></h1>
-      <div class="sub">${esc(t.long)}</div>
+      <div class="sub">${esc(t.long)} · <span style="color:var(--ink-3)">หน่วย: บาท</span></div>
     </div>
     <div class="card"><div class="empty">กำลังโหลด...</div></div>`;
   try{ await recLoad(); }catch(e){
@@ -8634,7 +8826,7 @@ async function renderToolCashflowStaff(){
   const cats = Object.entries(byCat).sort((a,b) => b[1].total - a[1].total);
 
   const fmtDate = (iso) => new Date(iso).toLocaleDateString("th-TH", { day:"2-digit", month:"short" });
-  const fmt = (n) => "฿" + Math.abs(Number(n||0)).toLocaleString("th-TH", { minimumFractionDigits:2, maximumFractionDigits:2 });
+  const fmt = (n) => Math.abs(Number(n||0)).toLocaleString("th-TH", { minimumFractionDigits:2, maximumFractionDigits:2 });
   const fmtParen = (n) => Number(n||0) < 0 ? "(" + fmt(n) + ")" : fmt(n);
 
   const periodLabel = d.staffMode === "day" ? fmtDate(d.staffDate)
@@ -8646,7 +8838,7 @@ async function renderToolCashflowStaff(){
     <div class="page-head" style="display:flex;justify-content:space-between;align-items:flex-end;gap:14px;flex-wrap:wrap">
       <div>
         <h1>${esc(t.name)} <span class="badge">${esc(co.name)}</span></h1>
-        <div class="sub">ประมาณการรายรับ-รายจ่าย · ${esc(periodLabel)} · ยอดธนาคาร ณ ${fmtDate(todayISO)}</div>
+        <div class="sub">ประมาณการรายรับ-รายจ่าย · ${esc(periodLabel)} · ยอดธนาคาร ณ ${fmtDate(todayISO)} · <span style="color:var(--ink-3)">หน่วย: บาท</span></div>
       </div>
       <div style="display:flex;gap:6px;align-items:center">
         <div class="cf-chips" style="background:rgba(var(--brand-rgb),.08);padding:3px;border-radius:9px">
@@ -8802,7 +8994,7 @@ async function renderToolCashflowExec(){
     <div class="page-head" style="display:flex;justify-content:space-between;align-items:flex-end;gap:14px;flex-wrap:wrap">
       <div>
         <h1>${esc(t.name)} <span class="badge">${esc(co.name)}</span></h1>
-        <div class="sub">ข้อมูล ณ ${fopDate(R.days[0])} → ${fopDate(R.days[R.days.length-1])} · ${R.days.length} วัน · ${horizonLabel}</div>
+        <div class="sub">ข้อมูล ณ ${fopDate(R.days[0])} → ${fopDate(R.days[R.days.length-1])} · ${R.days.length} วัน · ${horizonLabel} · <span style="color:var(--ink-3)">หน่วย: บาท</span></div>
       </div>
       <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
         <div class="cf-chips" style="background:rgba(var(--brand-rgb),.08);padding:3px;border-radius:9px;margin-right:6px">
@@ -9018,7 +9210,7 @@ function cffOpenSnapshotStaff(){
   const netCash = openingCash - totalDue;
 
   const fmtDate = (iso) => new Date(iso).toLocaleDateString("th-TH", { day:"2-digit", month:"short" });
-  const fmtMoney = (n) => "฿" + Math.abs(Number(n||0)).toLocaleString("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2});
+  const fmtMoney = (n) => Math.abs(Number(n||0)).toLocaleString("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2});
   const fmtParen = (n) => Number(n||0) < 0 ? "(" + fmtMoney(n) + ")" : fmtMoney(n);
 
   const periodLabel = d.staffMode === "day" ? fmtDate(d.staffDate)

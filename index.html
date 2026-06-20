@@ -5873,16 +5873,31 @@ function edRenderCategory(){
   const d = edState();
   const A = edAgg(d.data, d.monthFilter, true);  // ★ exclude transfers
   const cats = Object.entries(A.byCat).map(([k,v])=>({ k, ...v, abs:Math.abs(v.net) })).sort((a,b)=>b.abs-a.abs);
-  const top20 = cats.slice(0,5);
+
+  // Top 5 รับ / จ่าย (+ รวมที่เหลือเป็น "อื่นๆ") สำหรับโดนัทชาร์ต
+  const buildTop = (dir) => {
+    const arr = Object.entries(A.byCat).map(([k,v])=>({k, v:v[dir]})).filter(x=>x.v>0).sort((a,b)=>b.v-a.v);
+    const top = arr.slice(0,5);
+    const restArr = arr.slice(5);
+    const rest = restArr.reduce((s,x)=>s+x.v,0);
+    const labels = top.map(x=>x.k.length>34?x.k.slice(0,32)+"…":x.k);
+    const data   = top.map(x=>x.v);
+    const keys   = top.map(x=>x.k);
+    if(rest>0){ labels.push(`อื่นๆ (${restArr.length} หมวด)`); data.push(rest); keys.push(null); }
+    return { labels, data, keys, total: arr.reduce((s,x)=>s+x.v,0) };
+  };
+  const inT = buildTop("in"), outT = buildTop("out");
 
   document.getElementById("edContent").innerHTML = `
-    <div class="card">
-      <h3>Treemap — สัดส่วนหมวดที่สำคัญ (ตามมูลค่าสุทธิ)</h3>
-      <div style="position:relative;height:380px"><canvas id="edTreemap"></canvas></div>
-    </div>
-    <div class="card">
-      <h3>Pareto Top 5 — หมวดที่กระทบเงินสดมากสุด</h3>
-      <div style="position:relative;height:320px"><canvas id="edPareto"></canvas></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
+      <div class="card" style="margin-bottom:0">
+        <h3>🟢 Top 5 รายรับ</h3>
+        ${inT.data.length?`<div style="position:relative;height:330px"><canvas id="edPieIn"></canvas></div>`:`<div class="empty" style="padding:30px">ไม่มีรายรับ</div>`}
+      </div>
+      <div class="card" style="margin-bottom:0">
+        <h3>🔴 Top 5 รายจ่าย</h3>
+        ${outT.data.length?`<div style="position:relative;height:330px"><canvas id="edPieOut"></canvas></div>`:`<div class="empty" style="padding:30px">ไม่มีรายจ่าย</div>`}
+      </div>
     </div>
     <div class="card">
       <h3>ตารางจัดอันดับ</h3>
@@ -5899,42 +5914,24 @@ function edRenderCategory(){
     </div>
   `;
 
-  // Treemap
-  try{
-    edMakeChart("edTreemap", {
-      type:"treemap",
-      data:{ datasets:[{
-        tree: cats.filter(c=>c.abs>0).map(c=>({ name:c.k, value:c.abs, net:c.net })),
-        key:"value",
-        labels:{ display:true, formatter:(ctx)=>{ const n=ctx.raw._data.name||""; return n.length>22?n.slice(0,20)+"…":n; }, color:"#fff", font:{ size:11, weight:700 } },
-        backgroundColor:(ctx)=>{ const n=ctx.raw && ctx.raw._data ? ctx.raw._data.net : 0; return n>=0 ? ED_COLORS.in : ED_COLORS.out; },
-        borderColor:"#fff", borderWidth:2, spacing:1
-      }]},
-      options:{ responsive:true, maintainAspectRatio:false,
-        plugins:{ legend:{display:false}, tooltip:{ callbacks:{ label:(c)=>{ const d=c.raw._data; return [d.name, "สุทธิ: "+edFmt(d.net)]; } } } } }
+  const inPalette  = ["#12B5A0","#2BD0B8","#5EBEC4","#6E9BE8","#4F8AF7","#9AA8BF"];   // เขียว/ฟ้า = รับ
+  const outPalette = ["#dc2626","#F2748A","#F2A968","#F0A02E","#E87CA6","#9AA8BF"];   // แดง/ส้ม = จ่าย
+  const mkPie = (id, T, palette, dir) => {
+    if(!T.data.length) return;
+    edMakeChart(id, {
+      type:"doughnut",
+      data:{ labels:T.labels, datasets:[{ data:T.data, backgroundColor:T.labels.map((_,i)=>palette[i%palette.length]), borderColor:"#fff", borderWidth:2, hoverOffset:6 }] },
+      options:{ responsive:true, maintainAspectRatio:false, cutout:"55%",
+        plugins:{
+          legend:{ position:"bottom", labels:{ font:{size:11.5}, boxWidth:12, padding:9 } },
+          tooltip:{ callbacks:{ label:c=>{ const pct=T.total?(c.parsed/T.total*100).toFixed(1):0; return " "+c.label+": "+edFmt(c.parsed)+" ("+pct+"%)"; } } }
+        },
+        onClick:(e,els)=>{ if(els&&els.length){ const k=T.keys[els[0].index]; if(k) edDrillCat(k, dir); } }
+      }
     });
-  }catch(e){
-    document.getElementById("edTreemap").parentElement.innerHTML = '<div class="empty">โหลด Treemap ไม่สำเร็จ — '+esc(e.message)+'</div>';
-  }
-
-  // Pareto
-  const par = top20;
-  let cum = 0; const total = par.reduce((s,x)=>s+x.abs,0);
-  const cumPct = par.map(x=>{ cum += x.abs; return total ? (cum/total*100) : 0; });
-  edMakeChart("edPareto", {
-    data:{
-      labels: par.map(x=>x.k.length>40?x.k.slice(0,38)+"…":x.k),
-      datasets:[
-        { type:"bar", label:"มูลค่า (Abs)", data:par.map(x=>x.abs), backgroundColor:par.map(x=>x.net>=0?ED_COLORS.in:ED_COLORS.out), order:2, yAxisID:"y" },
-        { type:"line", label:"% สะสม", data:cumPct, borderColor:ED_COLORS.brand, backgroundColor:ED_COLORS.brand, tension:.2, yAxisID:"y1", order:1 }
-      ]
-    },
-    options:{
-      responsive:true, maintainAspectRatio:false,
-      scales:{ y:{ position:"left", ticks:{ callback:v=>edFmtCompact(v) } }, y1:{ position:"right", min:0, max:100, ticks:{ callback:v=>v+"%" }, grid:{ display:false } } },
-      plugins:{ legend:{ position:"bottom" } }
-    }
-  });
+  };
+  mkPie("edPieIn", inT, inPalette, "in");
+  mkPie("edPieOut", outT, outPalette, "out");
 }
 
 /* ---------- Tab 4: Banks ---------- */

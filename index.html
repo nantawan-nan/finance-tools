@@ -4908,10 +4908,18 @@ async function edExportPDF(){
       }
     }
 
-    // PDF setup
+    // PDF setup — เลือกแนวตั้ง/แนวนอน + โหมดย่อ 1 หน้า
+    const tabId = curTab.id;
+    let orient, fitOne;
+    if(tabId === "stmt"){ orient = "landscape"; fitOne = true; }            // งบกระแสเงินสด: ล็อคแนวนอน + ย่อ 1 หน้า
+    else if(tabId === "explorer"){ orient = "landscape"; fitOne = false; }  // ทรานแซกชัน: หลายหน้าแนวนอน (ข้อมูลเยอะ)
+    else if(d.pdfOrient === "portrait"){ orient = "portrait"; fitOne = true; }
+    else { orient = "landscape"; fitOne = false; }
+
     const { jsPDF } = window.jspdf;
-    const pdf = new jsPDF({ orientation:"landscape", unit:"mm", format:"a4" });
-    const pageW = 297, pageH = 210;
+    const pdf = new jsPDF({ orientation: orient, unit:"mm", format:"a4" });
+    const pageW = orient === "portrait" ? 210 : 297;
+    const pageH = orient === "portrait" ? 297 : 210;
     const margin = 8;
     const headerH = 22;          // print header (logo + period)
     const footerH = 6;
@@ -4927,6 +4935,17 @@ async function edExportPDF(){
 
     const logoData = await edLoadImg(co.logoIcon||co.logo);
 
+    if(fitOne){
+      // ★ ย่อทั้งหน้าให้พอดี 1 หน้า (ไม่ตัดหน้า)
+      drawPdfHeader(pdf, co, t, curTab, d, logoData, pageW, headerH, margin);
+      const availW = imgW, availH = yEnd - yStart;
+      let wMM = availW, hMM = (canvas.height * wMM) / canvas.width;
+      if(hMM > availH){ const s = availH / hMM; hMM = availH; wMM = wMM * s; }
+      const x = margin + (availW - wMM) / 2;
+      pdf.addImage(canvas.toDataURL("image/jpeg", 0.92), "JPEG", x, yStart, wMM, hMM);
+      pdf.setFont("helvetica","normal"); pdf.setFontSize(8); pdf.setTextColor(150,150,150);
+      pdf.text("หน้า 1 / 1", pageW - margin, pageH - 3, { align:"right" });
+    } else {
     // เก็บ y-coordinates ของขอบล่างทุก element ที่ไม่ควรตัด — tr, card, h3
     // เพื่อ snap slice ไปที่ boundary นี้ ไม่ตัดกลางตัวหนังสือ
     const wrapTopY = cloneWrap.getBoundingClientRect().top;
@@ -4997,6 +5016,7 @@ async function edExportPDF(){
       pdf.setFontSize(8);
       pdf.setTextColor(150,150,150);
       pdf.text(`หน้า ${i+1} / ${pdfPages.length}`, pageW - margin, pageH - 3, { align:"right" });
+    }
     }
 
     const fname = `${co.name.replace(/\s+/g,"_")}_${curTab.l.replace(/\s+/g,"_")}_${stamp()}.pdf`;
@@ -5330,6 +5350,10 @@ function edRenderDashboard(){
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
           <label style="font-size:12px;color:var(--ink-3);font-weight:600">ช่วงเวลา</label>
           <select onchange="edSetMonth(this.value)" style="padding:7px 12px;border:1px solid #c3dafe;border-radius:8px;font-size:13px;background:#fff;font-family:inherit;color:#0f172a">${monthOptions}</select>
+          <select onchange="edState().pdfOrient=this.value" title="แนวกระดาษ PDF (งบกระแสเงินสด=แนวนอนเสมอ · ทรานแซกชัน=หลายหน้า)" style="padding:7px 10px;border:1px solid #c3dafe;border-radius:8px;font-size:13px;background:#fff;font-family:inherit;color:#0f172a">
+            <option value="landscape" ${d.pdfOrient!=='portrait'?'selected':''}>📄 แนวนอน (หลายหน้า)</option>
+            <option value="portrait" ${d.pdfOrient==='portrait'?'selected':''}>📐 แนวตั้ง (ย่อ 1 หน้า)</option>
+          </select>
           <button class="btn" onclick="edPrint()" style="background:linear-gradient(135deg,#4F8AF7,#3b82f6);border:none" title="พิมพ์เฉพาะหัวข้อที่เปิดอยู่">พิมพ์ PDF</button>
           <button class="btn" onclick="edExportFullPDF()" style="background:linear-gradient(135deg,#6366f1,#4f46e5);border:none" title="รวมทั้ง 6 หัวข้อเป็น PDF ไฟล์เดียว">พิมพ์ทั้งรายงาน</button>
           <button class="btn ghost btn sm" onclick="edReset()">อัปไฟล์ใหม่</button>

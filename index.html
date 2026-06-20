@@ -5360,14 +5360,14 @@ function edRenderSummary(){
       ${kpiCard("เงินสดต้นงวด", edFmt(A.opening), "#0f172a", "", "edDrillOpenClose('opening')")}
       ${kpiCard("เงินรับรวม",   edFmt(A.totalIn), ED_COLORS.in, "", "edDrillSummary('in')")}
       ${kpiCard("เงินจ่ายรวม",  edFmt(A.totalOut), ED_COLORS.out, "", "edDrillSummary('out')")}
-      ${kpiCard("กระแสเงินสุทธิ", edFmt(A.net), A.net>=0?ED_COLORS.in:ED_COLORS.out, "", "edDrillSummary('net')")}
+      ${kpiCard("กระแสเงินสุทธิ", edFmt(A.net), A.net>=0?ED_COLORS.in:"#dc2626", "", "edDrillSummary('net')")}
       ${kpiCard("เงินสดปลายงวด", edFmt(A.closing), "#0f172a", "", "edDrillOpenClose('closing')")}
     </div>
 
     <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px">
-      ${kpiCard("ดำเนินงาน (สุทธิ)", edFmt(A.byAct.operating.in - A.byAct.operating.out), A.byAct.operating.in>=A.byAct.operating.out?ED_COLORS.in:ED_COLORS.out, "", "edDrillActivityIO('operating',null)")}
-      ${kpiCard("ลงทุน (สุทธิ)",    edFmt(A.byAct.investing.in - A.byAct.investing.out), A.byAct.investing.in>=A.byAct.investing.out?ED_COLORS.in:ED_COLORS.out, "", "edDrillActivityIO('investing',null)")}
-      ${kpiCard("จัดหาเงิน (สุทธิ)", edFmt(A.byAct.financing.in - A.byAct.financing.out), A.byAct.financing.in>=A.byAct.financing.out?ED_COLORS.in:ED_COLORS.out, "", "edDrillActivityIO('financing',null)")}
+      ${kpiCard("ดำเนินงาน (สุทธิ)", edFmt(A.byAct.operating.in - A.byAct.operating.out), A.byAct.operating.in>=A.byAct.operating.out?ED_COLORS.in:"#dc2626", "", "edDrillActivityIO('operating',null)")}
+      ${kpiCard("ลงทุน (สุทธิ)",    edFmt(A.byAct.investing.in - A.byAct.investing.out), A.byAct.investing.in>=A.byAct.investing.out?ED_COLORS.in:"#dc2626", "", "edDrillActivityIO('investing',null)")}
+      ${kpiCard("จัดหาเงิน (สุทธิ)", edFmt(A.byAct.financing.in - A.byAct.financing.out), A.byAct.financing.in>=A.byAct.financing.out?ED_COLORS.in:"#dc2626", "", "edDrillActivityIO('financing',null)")}
     </div>
 
     <div style="display:grid;grid-template-columns:2fr 1fr;gap:12px;margin-bottom:16px">
@@ -5816,7 +5816,7 @@ function edRenderCategory(){
           <td style="text-align:right">${c.count}</td>
           <td style="text-align:right;color:var(--ok)">${c.in>0?edFmt(c.in):"—"}</td>
           <td style="text-align:right;color:var(--bad)">${c.out>0?edFmt(c.out):"—"}</td>
-          <td style="text-align:right;font-weight:700;color:${c.net>=0?ED_COLORS.in:ED_COLORS.out}">${edFmt(c.net)}</td>
+          <td style="text-align:right;font-weight:700;color:${c.net>=0?ED_COLORS.in:"#dc2626"}">${edFmt(c.net)}</td>
         </tr>`).join("")}</tbody>
       </table></div>
     </div>
@@ -5888,7 +5888,7 @@ function edRenderBanks(){
             <td style="text-align:right">${v.count}</td>
             <td style="text-align:right;color:var(--ok)">${edFmt(v.in)}</td>
             <td style="text-align:right;color:var(--bad)">${edFmt(v.out)}</td>
-            <td style="text-align:right;font-weight:700;color:${v.net>=0?ED_COLORS.in:ED_COLORS.out}">${edFmt(v.net)}</td>
+            <td style="text-align:right;font-weight:700;color:${v.net>=0?ED_COLORS.in:"#dc2626"}">${edFmt(v.net)}</td>
             <td style="text-align:right;font-weight:700">${edFmt(last)}</td>
           </tr>`;
         }).join("")}</tbody>
@@ -6125,61 +6125,75 @@ function edRenderStmt(){
   // helper: build clickable cell with onclick filter
   const dq = s => JSON.stringify(s == null ? null : s).replace(/"/g,'&quot;');
 
+  const STMT_RED = "#dc2626";                                   // ★ สีแดงสำหรับยอดติดลบ
+  const stmtClr = v => (Number(v) < -0.005 ? STMT_RED : ED_COLORS.in);  // ★ ติดลบ=แดง · ไม่ติดลบ=สี in (ฟ้าพาสเทล/teal)
+  const catNet  = c => c.in.map((v,i)=> v - c.out[i]);          // ★ net รับ-จ่าย ต่อเดือน (หัก refund กลบกันในหมวด)
+  const nonZero = arr => arr.some(v => Math.abs(v) > 0.005);
+  // ★ จัดประเภทหมวด → 'in'/'out' ตาม "ชื่อหมวด" (กันหมวดรายจ่ายที่มี refund บวก ไปโผล่ฝั่งรายรับ) · ชื่อไม่ชัด → ดู net รวม
+  const stmtSide = c => {
+    const n = c.cat || "";
+    if(/^\s*(รายรับ|รายได้|เงินสดรับ|เงินรับ)/.test(n)) return "in";
+    if(/^\s*(รายจ่าย|ค่าใช้จ่าย|เงินสดจ่าย|เงินจ่าย)/.test(n)) return "out";
+    return sumArr(catNet(c)) >= 0 ? "in" : "out";
+  };
+
   for(const act of ["operating","investing","financing","other"]){
     if(!groups[act].length) continue;
     // หัวกิจกรรม
     html += `<tr style="background:${C.actBg}"><td colspan="${ncols}" style="font-weight:800;color:${C.actText};padding:9px 12px;font-size:13.5px">${actLabels[act]}</td></tr>`;
 
-    // ==== เงินสดรับ ====
-    const inCats = groups[act].filter(c => c.in.some(v => v > 0))
-      .sort((a,b) => sumArr(b.in) - sumArr(a.in));
+    // ==== เงินสดรับ (หมวดประเภทรับ — แสดง net รับ-จ่าย) ====
+    const inCats = groups[act].filter(c => stmtSide(c)==="in" && nonZero(catNet(c)))
+      .sort((a,b) => sumArr(catNet(b)) - sumArr(catNet(a)));
     const inSub = Array(months.length).fill(0);
     if(inCats.length){
       html += `<tr style="background:${C.inBg}"><td colspan="${ncols}" style="font-weight:700;color:${C.inText};padding:6px 12px;font-size:12.5px">เงินสดรับจาก${actShort[act]}</td></tr>`;
       for(const c of inCats){
-        c.in.forEach((v,i) => inSub[i] += v);
-        const total = sumArr(c.in);
-        html += `<tr><td class="stmt-cat" style="padding-left:16px;color:#0f172a;cursor:pointer" onclick="edStmtToggle(this,${dq(c.cat)},'${act}','in')" title="คลิกเพื่อคลี่รายการ"><span class="stmt-caret" style="display:inline-block;width:12px;color:var(--ink-3);font-size:10px">▶</span> ${esc(c.cat)}</td>` +
-          c.in.map((v,i)=>`<td onclick="edDrillStmt(${dq(c.cat)},'${act}','${months[i]}','in')" style="text-align:right;cursor:pointer;color:${v>0?ED_COLORS.in:"var(--ink-3)"}" title="คลิกดูรายการ">${v>0?edFmt(v):"—"}</td>`).join("") +
-          `<td onclick="edDrillStmt(${dq(c.cat)},'${act}','all','in')" style="text-align:right;background:${C.inRowTotalBg};font-weight:700;cursor:pointer;color:${ED_COLORS.in}" title="คลิกดูรายการรวมทั้งปี">${edFmt(total)}</td></tr>`;
+        const net = catNet(c);
+        net.forEach((v,i) => inSub[i] += v);
+        const total = sumArr(net);
+        html += `<tr><td class="stmt-cat" style="padding-left:16px;color:#0f172a;cursor:pointer" onclick="edStmtToggle(this,${dq(c.cat)},'${act}',null)" title="คลิกเพื่อคลี่รายการ"><span class="stmt-caret" style="display:inline-block;width:12px;color:var(--ink-3);font-size:10px">▶</span> ${esc(c.cat)}</td>` +
+          net.map((v,i)=>`<td onclick="edDrillStmt(${dq(c.cat)},'${act}','${months[i]}',null)" style="text-align:right;cursor:pointer;color:${Math.abs(v)>0.005?stmtClr(v):"var(--ink-3)"}" title="คลิกดูรายการ">${Math.abs(v)>0.005?edFmt(v):"—"}</td>`).join("") +
+          `<td onclick="edDrillStmt(${dq(c.cat)},'${act}','all',null)" style="text-align:right;background:${C.inRowTotalBg};font-weight:700;cursor:pointer;color:${stmtClr(total)}" title="คลิกดูรายการรวมทั้งปี">${edFmt(total)}</td></tr>`;
       }
       html += `<tr style="background:${C.inSubBg};font-weight:700"><td style="padding-left:18px;color:${C.inText}">รวมเงินสดรับ</td>` +
-        inSub.map((v,i)=>`<td onclick="edDrillStmt(null,'${act}','${months[i]}','in')" style="text-align:right;cursor:pointer;color:${ED_COLORS.in}" title="คลิกดูที่มา">${edFmt(v)}</td>`).join("") +
-        `<td onclick="edDrillStmt(null,'${act}','all','in')" style="text-align:right;background:${C.inTotalBg};cursor:pointer;color:${ED_COLORS.in}" title="คลิกดูที่มา">${edFmt(sumArr(inSub))}</td></tr>`;
+        inSub.map((v,i)=>`<td onclick="edDrillStmt(null,'${act}','${months[i]}','in')" style="text-align:right;cursor:pointer;color:${stmtClr(v)}" title="คลิกดูที่มา">${edFmt(v)}</td>`).join("") +
+        `<td onclick="edDrillStmt(null,'${act}','all','in')" style="text-align:right;background:${C.inTotalBg};cursor:pointer;color:${stmtClr(sumArr(inSub))}" title="คลิกดูที่มา">${edFmt(sumArr(inSub))}</td></tr>`;
     }
 
-    // ==== เงินสดจ่าย ====
-    const outCats = groups[act].filter(c => c.out.some(v => v > 0))
-      .sort((a,b) => sumArr(b.out) - sumArr(a.out));
+    // ==== เงินสดจ่าย (หมวดประเภทจ่าย — net รับ-จ่าย, ปกติติดลบ; refund หักกลบในฝั่งนี้ ไม่ขึ้นรายรับ) ====
+    const outCats = groups[act].filter(c => stmtSide(c)==="out" && nonZero(catNet(c)))
+      .sort((a,b) => sumArr(catNet(a)) - sumArr(catNet(b)));   // ติดลบมากสุดก่อน
     const outSub = Array(months.length).fill(0);
     if(outCats.length){
       html += `<tr style="background:${C.outBg}"><td colspan="${ncols}" style="font-weight:700;color:${C.outText};padding:6px 12px;font-size:12.5px">เงินสดจ่ายจาก${actShort[act]}</td></tr>`;
       for(const c of outCats){
-        c.out.forEach((v,i) => outSub[i] += v);
-        const total = sumArr(c.out);
-        html += `<tr><td class="stmt-cat" style="padding-left:16px;color:#0f172a;cursor:pointer" onclick="edStmtToggle(this,${dq(c.cat)},'${act}','out')" title="คลิกเพื่อคลี่รายการ"><span class="stmt-caret" style="display:inline-block;width:12px;color:var(--ink-3);font-size:10px">▶</span> ${esc(c.cat)}</td>` +
-          c.out.map((v,i)=>`<td onclick="edDrillStmt(${dq(c.cat)},'${act}','${months[i]}','out')" style="text-align:right;cursor:pointer;color:${v>0?ED_COLORS.out:"var(--ink-3)"}" title="คลิกดูรายการ">${v>0?edFmt(-v):"—"}</td>`).join("") +
-          `<td onclick="edDrillStmt(${dq(c.cat)},'${act}','all','out')" style="text-align:right;background:${C.outRowTotalBg};font-weight:700;cursor:pointer;color:${ED_COLORS.out}" title="คลิกดูรายการรวมทั้งปี">${edFmt(-total)}</td></tr>`;
+        const net = catNet(c);
+        net.forEach((v,i) => outSub[i] += v);
+        const total = sumArr(net);
+        html += `<tr><td class="stmt-cat" style="padding-left:16px;color:#0f172a;cursor:pointer" onclick="edStmtToggle(this,${dq(c.cat)},'${act}',null)" title="คลิกเพื่อคลี่รายการ"><span class="stmt-caret" style="display:inline-block;width:12px;color:var(--ink-3);font-size:10px">▶</span> ${esc(c.cat)}</td>` +
+          net.map((v,i)=>`<td onclick="edDrillStmt(${dq(c.cat)},'${act}','${months[i]}',null)" style="text-align:right;cursor:pointer;color:${Math.abs(v)>0.005?stmtClr(v):"var(--ink-3)"}" title="คลิกดูรายการ">${Math.abs(v)>0.005?edFmt(v):"—"}</td>`).join("") +
+          `<td onclick="edDrillStmt(${dq(c.cat)},'${act}','all',null)" style="text-align:right;background:${C.outRowTotalBg};font-weight:700;cursor:pointer;color:${stmtClr(total)}" title="คลิกดูรายการรวมทั้งปี">${edFmt(total)}</td></tr>`;
       }
       html += `<tr style="background:${C.outSubBg};font-weight:700"><td style="padding-left:18px;color:${C.outText}">รวมเงินสดจ่าย</td>` +
-        outSub.map((v,i)=>`<td onclick="edDrillStmt(null,'${act}','${months[i]}','out')" style="text-align:right;cursor:pointer;color:${ED_COLORS.out}" title="คลิกดูที่มา">${edFmt(-v)}</td>`).join("") +
-        `<td onclick="edDrillStmt(null,'${act}','all','out')" style="text-align:right;background:${C.outTotalBg};cursor:pointer;color:${ED_COLORS.out}" title="คลิกดูที่มา">${edFmt(-sumArr(outSub))}</td></tr>`;
+        outSub.map((v,i)=>`<td onclick="edDrillStmt(null,'${act}','${months[i]}','out')" style="text-align:right;cursor:pointer;color:${stmtClr(v)}" title="คลิกดูที่มา">${edFmt(v)}</td>`).join("") +
+        `<td onclick="edDrillStmt(null,'${act}','all','out')" style="text-align:right;background:${C.outTotalBg};cursor:pointer;color:${stmtClr(sumArr(outSub))}" title="คลิกดูที่มา">${edFmt(sumArr(outSub))}</td></tr>`;
     }
 
     // ==== สุทธิของกิจกรรม ====
-    const netByMonth = inSub.map((v,i) => v - outSub[i]);
+    const netByMonth = inSub.map((v,i) => v + outSub[i]);
     const netTotal = sumArr(netByMonth);
     html += `<tr style="background:${C.netBg};font-weight:800;border-top:2px solid ${C.netTotalBg}"><td style="color:${C.netAccent}">กระแสเงินสดสุทธิจาก${actShort[act]}</td>` +
-      netByMonth.map((v,i)=>`<td onclick="edDrillStmt(null,'${act}','${months[i]}',null)" style="text-align:right;cursor:pointer;color:${v>=0?ED_COLORS.in:ED_COLORS.out}" title="คลิกดูที่มา">${edFmt(v)}</td>`).join("") +
-      `<td onclick="edDrillStmt(null,'${act}','all',null)" style="text-align:right;background:${C.netTotalBg};cursor:pointer;color:${netTotal>=0?C.netPosText:C.netNegText}" title="คลิกดูที่มา">${edFmt(netTotal)}</td></tr>`;
+      netByMonth.map((v,i)=>`<td onclick="edDrillStmt(null,'${act}','${months[i]}',null)" style="text-align:right;cursor:pointer;color:${stmtClr(v)}" title="คลิกดูที่มา">${edFmt(v)}</td>`).join("") +
+      `<td onclick="edDrillStmt(null,'${act}','all',null)" style="text-align:right;background:${C.netTotalBg};cursor:pointer;color:${stmtClr(netTotal)}" title="คลิกดูที่มา">${edFmt(netTotal)}</td></tr>`;
   }
   // net change row
   const netChange = months.map((m,i)=> closings[i]-openings[i]);
   const totalNet = netChange.reduce((s,v)=>s+v,0);
   html += `
     <tr style="background:${C.netBg};font-weight:800;border-top:2px solid ${C.netTotalBg}"><td style="color:${C.netAccent}">เปลี่ยนแปลงเงินสดสุทธิ</td>` +
-      netChange.map((v,i)=>`<td onclick="edDrillStmt(null,null,'${months[i]}',null)" style="text-align:right;cursor:pointer;color:${v>=0?ED_COLORS.in:ED_COLORS.out}" title="คลิกดูที่มา">${edFmt(v)}</td>`).join("") +
-      `<td onclick="edDrillStmt(null,null,'all',null)" style="text-align:right;background:${C.netTotalBg};cursor:pointer;color:${totalNet>=0?C.netPosText:C.netNegText}" title="คลิกดูที่มา">${edFmt(totalNet)}</td></tr>
+      netChange.map((v,i)=>`<td onclick="edDrillStmt(null,null,'${months[i]}',null)" style="text-align:right;cursor:pointer;color:${stmtClr(v)}" title="คลิกดูที่มา">${edFmt(v)}</td>`).join("") +
+      `<td onclick="edDrillStmt(null,null,'all',null)" style="text-align:right;background:${C.netTotalBg};cursor:pointer;color:${stmtClr(totalNet)}" title="คลิกดูที่มา">${edFmt(totalNet)}</td></tr>
     <tr style="background:${C.openBg};font-weight:700;cursor:pointer" title="คลิกดูยอดปิดงวดต่อบัญชี" onclick="edDrillOpenClose('closing')"><td>เงินสดปลายงวด</td>` +
       closings.map((v,i)=>`<td style="text-align:right" onclick="event.stopPropagation();edDrillOpenCloseMonth('closing','${months[i]}')">${edFmt(v)}</td>`).join("") +
       `<td style="text-align:right;background:${C.openCloseBg}">${edFmt(closings[closings.length-1])}</td></tr>

@@ -966,9 +966,20 @@ document.addEventListener("click",e=>{
 state.armap = state.armap || {};
 function armapGet(){
   if(!state.armap[state.company]){
-    state.armap[state.company] = { ar:null, sales:null, platforms:[], result:null, activeTab:'a' };
+    state.armap[state.company] = { ar:null, sales:null, platforms:[], result:null, activeTab:'a', reSeed:'' };
   }
   return state.armap[state.company];
+}
+/* ตั้งเลข RE เริ่มต้น (ผู้ใช้กรอก เช่น "2606000001") — ระบบ +1 ทุกแถวตอนสร้าง */
+function armapSetReSeed(v){ armapGet().reSeed = String(v||"").trim(); renderTool(); }
+/* รัน RE จากเลขเริ่ม + offset i — รักษาความยาว/zero-pad ตามเลขเริ่ม */
+function armapRunRE(seed, i){
+  if(!seed) return "";
+  const m = String(seed).match(/^(\D*)(\d+)$/);   // prefix อักษร (ถ้ามี) + ตัวเลข
+  if(!m) return "";
+  const prefix = m[1], num = m[2];
+  const next = (BigInt(num) + BigInt(i)).toString();
+  return prefix + next.padStart(num.length, "0");
 }
 
 /* ---------- helpers ---------- */
@@ -1504,6 +1515,11 @@ function armapResultHTML(R, tab){
         <button class="${tab==='b'?'active':''}" onclick="armapSetTab('b')">B · รอเงินเข้า <span class="c">${R.B.length}</span></button>
         <button class="${tab==='c'?'active':''}" onclick="armapSetTab('c')">C · ไม่มี IV <span class="c">${R.C.length}</span></button>
       </div>
+      ${tab==='a' ? `<div style="display:flex;gap:10px;align-items:center;margin:10px 0;padding:10px 12px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;flex-wrap:wrap">
+        <span style="font-size:13px;font-weight:600;color:#1e40af">🔢 เลขที่เอกสาร RE เริ่มต้น:</span>
+        <input type="text" placeholder="เช่น 2606000001" value="${esc(d.reSeed||'')}" oninput="armapSetReSeed(this.value)" style="font-family:monospace;font-size:13px;padding:5px 10px;border:1px solid #bfdbfe;border-radius:6px;width:180px">
+        <span style="font-size:12px;color:#64748b">ระบบจะรันต่อ +1 ทุกแถว · เว้นว่าง = ไม่ใส่เลข</span>
+      </div>` : ""}
       ${tab==='a' ? bucketAHTML(R.A) : tab==='b' ? bucketBHTML(R.B) : bucketCHTML(R.C)}
       <div class="btnrow" style="margin-top:14px">
         <button class="btn" onclick="armapExport()">⬇ ดาวน์โหลด Excel (3 ชีต)</button>
@@ -1515,13 +1531,28 @@ function armapResultHTML(R, tab){
 function armapSetTab(t){ armapGet().activeTab=t; renderTool(); }
 
 // เทมเพลตจริง 17 คอลัมน์ — ตรงกับไฟล์ "ตัวอย่างเทมเพลตที่ใช้บันทึก RE เข้าระบบ.xlsx"
-const A_HEAD=["ลำดับที่","วันที่ IV","เลข IV","แบรนด์","ยอดคงค้าง (IV)","รหัสออเดอร์","ช่องทาง","วันที่รับชำระ (DD/MM/YYYY)","วันที่รับชำระ (DD/MM/YY)","ยอดเงินเข้า (หลังหักค่าธรรมเนียม)","ส่วนต่างที่ต้องบันทึก","รหัสลูกค้า","เลือก LETT OTHER","Enter less other","เลือก Bank","เลขที่เอกสาร","ธนาคาร","หมายเหตุ"];
+// "เลขที่เอกสาร" ย้ายมาคอลัมน์ B (ตำแหน่ง 2 — หลังลำดับ) ตามที่ตกลง
+const A_HEAD=["ลำดับที่","เลขที่เอกสาร","วันที่ IV","เลข IV","แบรนด์","ยอดคงค้าง (IV)","รหัสออเดอร์","ช่องทาง","วันที่รับชำระ (DD/MM/YYYY)","วันที่รับชำระ (DD/MM/YY)","ยอดเงินเข้า (หลังหักค่าธรรมเนียม)","ส่วนต่างที่ต้องบันทึก","รหัสลูกค้า","เลือก LETT OTHER","Enter less other","เลือก Bank","ธนาคาร","หมายเหตุ"];
+
+/* เฉพาะ M Bark: bank down ตามรหัสลูกค้า (จากรายงานขาย) */
+function mbarkBankDownByCust(custCode){
+  const c = String(custCode||"").toUpperCase();
+  if(/LAZADA|\bLZ\b/.test(c)) return "{Down 11}";
+  if(/TIKTOK|\bTT\b|\bTK\b/.test(c)) return "{Down 12}";
+  if(/SHOPEE|\bSP\b|\bSH\b/.test(c)) return "{Down 13}";
+  return "";
+}
+
 function aRowOf(r,i,company){
-  // lookup ตามแบรนด์ที่ตรวจจับจากหลังบ้าน (BT/QI/MB) × ช่องทาง (SP/TT)
-  // ไม่ผูกกับ active company → กดประมวลผลที่หน้า M Bark แล้วอัปข้อมูลเบญญาก็ยังได้คอลัมน์ครบ
-  const downCmd=bankDownCmd(r.actualBrand, r.channel);
+  // เลข RE auto-run จาก seed ที่ผู้ใช้กรอก + offset i (2 บริษัทเหมือนกัน)
+  const seed = armapGet().reSeed;
+  // M Bark ใช้คำสั่งคงที่: enter={Down 18}, bank ตามรหัสลูกค้า · บริษัทอื่นใช้ BANK_DOWN (brand × channel) เดิม
+  const isMbark = company === "mbark";
+  const enterCmd = isMbark ? "{Down 18}" : "{Enter}";
+  const downCmd  = isMbark ? mbarkBankDownByCust(r.arCustCode) : bankDownCmd(r.actualBrand, r.channel);
   return {
     ลำดับ:i+1,
+    doc_no: armapRunRE(seed, i),         // ★ คอลัมน์ B — รัน RE +1 ทุกแถว
     iv_date:fmtDateDDMMYYYY(r.arDate),
     iv:r.arIv,
     brand:r.actualBrand||"",
@@ -1534,22 +1565,29 @@ function aRowOf(r,i,company){
     diff:round2(r.diff),
     cust:r.arCustCode,
     lett_other:"{Up 1}",
-    enter:"{Enter}",
+    enter:enterCmd,
     bank_down:downCmd,
-    doc_no:"",                          // เลขที่เอกสาร RE — แนนรันเอง
-    bank_code:r.bankCode||"",           // SB/SI/TB/TQ
+    bank_code:r.bankCode||"",            // SB/SI/TB/TQ
     warning:r.warning||""
   };
 }
 function bucketAHTML(A){
   if(!A.length) return `<div class="empty">ไม่มี IV ที่ match ครบ</div>`;
   const company=state.company;
-  const missingBrands=[...new Set(A.filter(r=>r.actualBrand && r.channel && !bankDownCmd(r.actualBrand,r.channel)).map(r=>`${r.actualBrand}/${r.channel}`))];
-  const banner=missingBrands.length ? `<div class="note" style="background:#fef3c7;color:#92400e;padding:8px 12px;border-radius:8px;margin-bottom:10px">⚠️ ยังไม่ตั้งตัวเลข AutoKey สำหรับ: <b>${missingBrands.join(", ")}</b> — คอลัมน์ "เลือก Bank" ของแถวเหล่านี้จะว่าง รอแนนบอกว่าใน dropdown ของระบบ AutoKey อยู่ตำแหน่งที่เท่าไหร่</div>` : "";
+  // M Bark map ตามรหัสลูกค้า (LAZADA/TIKTOK/SHOPEE) · Benya map ตาม brand×channel เดิม
+  let banner = "";
+  if(company === "mbark"){
+    const missingCust = [...new Set(A.filter(r=>r.arCustCode && !mbarkBankDownByCust(r.arCustCode)).map(r=>r.arCustCode))];
+    if(missingCust.length) banner = `<div class="note" style="background:#fef3c7;color:#92400e;padding:8px 12px;border-radius:8px;margin-bottom:10px">⚠️ ไม่รู้จักรหัสลูกค้า: <b>${missingCust.join(", ")}</b> — คอลัมน์ "เลือก Bank" จะว่าง (รองรับเฉพาะ LAZADA/TIKTOK/SHOPEE)</div>`;
+  } else {
+    const missingBrands=[...new Set(A.filter(r=>r.actualBrand && r.channel && !bankDownCmd(r.actualBrand,r.channel)).map(r=>`${r.actualBrand}/${r.channel}`))];
+    if(missingBrands.length) banner = `<div class="note" style="background:#fef3c7;color:#92400e;padding:8px 12px;border-radius:8px;margin-bottom:10px">⚠️ ยังไม่ตั้งตัวเลข AutoKey สำหรับ: <b>${missingBrands.join(", ")}</b></div>`;
+  }
   const rows=A.slice(0,300).map((r,i)=>{
     const a=aRowOf(r,i,company);
     return `<tr class="${r.warning?'warning-row':''}">
       <td>${a.ลำดับ}</td>
+      <td style="font-family:monospace;color:${a.doc_no?'#475569':'#94a3b8'}">${esc(a.doc_no||'(ว่าง)')}</td>
       <td>${esc(a.iv_date)}</td>
       <td>${esc(a.iv)}</td>
       <td>${esc(a.brand)}</td>
@@ -1564,7 +1602,6 @@ function bucketAHTML(A){
       <td style="font-family:monospace;font-size:11.5px;color:#475569">${esc(a.lett_other)}</td>
       <td style="font-family:monospace;font-size:11.5px;color:#475569">${esc(a.enter)}</td>
       <td style="font-family:monospace;font-size:11.5px;color:${a.bank_down?'#475569':'#dc2626'}">${esc(a.bank_down||'(?)')}</td>
-      <td>${esc(a.doc_no)}</td>
       <td>${esc(a.bank_code)}</td>
       <td style="font-size:11.5px">${esc(a.warning)}</td>
     </tr>`;
@@ -1625,13 +1662,13 @@ function armapExport(){
   // Sheet A — พร้อมคีย์รับชำระ (17 คอลัมน์ตรง template + หมายเหตุ)
   const aRows=[A_HEAD].concat(R.A.map((r,i)=>{
     const a=aRowOf(r,i,company);
-    return [a.ลำดับ, a.iv_date, a.iv, a.brand, a.outstanding, a.orderNo, a.channel,
+    return [a.ลำดับ, a.doc_no, a.iv_date, a.iv, a.brand, a.outstanding, a.orderNo, a.channel,
             a.pay_date_long, a.pay_date_short, a.net, a.diff, a.cust,
-            a.lett_other, a.enter, a.bank_down, a.doc_no, a.bank_code, a.warning];
+            a.lett_other, a.enter, a.bank_down, a.bank_code, a.warning];
   }));
-  // cols: 2=เลข IV, 5=รหัสออเดอร์, 11=รหัสลูกค้า — บังคับ text กัน Excel ตัดท้ายเลข 18+ หลัก
+  // cols: 1=เลขที่เอกสาร, 3=เลข IV, 6=รหัสออเดอร์, 12=รหัสลูกค้า — บังคับ text กัน Excel ตัดท้ายเลข 18+ หลัก
   const aSheet = XLSX.utils.aoa_to_sheet(aRows);
-  forceTextCells(aSheet, [2, 5, 11]);
+  forceTextCells(aSheet, [1, 3, 6, 12]);
   XLSX.utils.book_append_sheet(wb, aSheet, "A พร้อมคีย์รับชำระ");
   // Sheet B
   const bRows=[["ลำดับ","วันที่ IV","เลข IV","รหัสลูกค้า","ชื่อ","ยอดค้าง","เลขออเดอร์","สาเหตุ"]].concat(R.B.map((r,i)=>{
@@ -1657,12 +1694,12 @@ function armapExportCSV(){
   const company=state.company;
   const aRows=[A_HEAD].concat(d.result.A.map((r,i)=>{
     const a=aRowOf(r,i,company);
-    return [a.ลำดับ, a.iv_date, a.iv, a.brand, a.outstanding, a.orderNo, a.channel,
+    return [a.ลำดับ, a.doc_no, a.iv_date, a.iv, a.brand, a.outstanding, a.orderNo, a.channel,
             a.pay_date_long, a.pay_date_short, a.net, a.diff, a.cust,
-            a.lett_other, a.enter, a.bank_down, a.doc_no, a.bank_code, a.warning];
+            a.lett_other, a.enter, a.bank_down, a.bank_code, a.warning];
   }));
   const ws=XLSX.utils.aoa_to_sheet(aRows);
-  forceTextCells(ws, [2, 5, 11]);    // เลข IV, รหัสออเดอร์, รหัสลูกค้า
+  forceTextCells(ws, [1, 3, 6, 12]);    // เลขที่เอกสาร, เลข IV, รหัสออเดอร์, รหัสลูกค้า
   const csv=XLSX.utils.sheet_to_csv(ws);
   download("﻿"+csv, `ARMap_A_${COMPANIES.find(c=>c.id===state.company).name}_${stamp()}.csv`, "text/csv;charset=utf-8");
 }

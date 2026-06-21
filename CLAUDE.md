@@ -189,7 +189,7 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
   - `bmpParseChequeReport(text)` — Express CSV cp874 "เช็ครับ เรียงตามวันที่นำฝาก" · ดึง BQ + deposit date ของแต่ละเช็ค (ใช้ทั้ง gen BQ ใหม่ + รู้ว่าออเดอร์ไหน deposit แล้ว) · อ่าน "S/A #..." header → bank account ปลายทาง
   - CSV decode ใช้ `TextDecoder('windows-874')` + NBSP→space + custom CSV parser (รองรับ quoted fields + "" escape)
 - **Account routing (BMP_SHOP_ROUTING)** — map ตายตัว shop_name → company + bank + label:
-  - `mommam_official` → MBark SCB 136-2-270928-1 · descSuffix "Shopee mommam"
+  - `mommam_official` → MBark SCB 136-270928-1 (digits 1362709281 — บัญชีเดียวของ MBark) · descSuffix "Shopee mommam"
   - `benya_official` → Benya SCB 417-077164-0 · descSuffix "Shopee Qi care"
   - `betra_brand` → Benya BBL 865-0-98040-5 · descSuffix "Shopee Betra"
   - ตรวจ company match → ถ้าผิดบริษัทเสนอสลับให้
@@ -243,7 +243,7 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 - **Export**: 3 sheets (กระทบแล้ว / ค้าง Express / ค้าง Bank) เป็น XLSX
 - **บัญชีที่ระบบรองรับใน Phase 1**:
   - Benya: BBL 865-0-98040-5 · SCB 136-2-684889 · SCB 417-077164-0
-  - MBark: SCB 136-2-270928-1 (บัญชีเดียว ง่ายสุด)
+  - MBark: SCB 136-270928-1 (digits 1362709281 — บัญชีเดียว ง่ายสุด)
 - **Mockup** `for-design/bankrec-mockup.html` — static preview HTML (เปิดในเบราว์เซอร์ดู layout/สี/ปุ่ม) — ใช้ตอน design review ก่อนเขียนจริง
 - **Phase 2 (ยังไม่ทำ)**: Marketplace Recon (Shopee/TikTok payout ↔ เงินเข้า) — รอไฟล์ตัวอย่าง · 1-to-many matching · ปิดงวด · template UI
 

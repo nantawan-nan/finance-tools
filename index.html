@@ -9817,6 +9817,7 @@ function brecGet(){
     mp: { withdrawals:[], orders:[], mismatchOrders:[], lastImportId:null, expanded:new Set(), uploadOpen:false, files:{shopee:[],sales:[],receipt:[],cheque:[]}, parsing:false }
   };
   if(!state.brec[co].mp) state.brec[co].mp = { withdrawals:[], orders:[], mismatchOrders:[], lastImportId:null, expanded:new Set(), uploadOpen:false, files:{shopee:[],sales:[],receipt:[],cheque:[]}, parsing:false };
+  if(!state.brec[co].stmFilter) state.brec[co].stmFilter = { dir:"all", q:"" };
   // migration: legacy state → ensure sales slot exists
   if(!state.brec[co].mp.files) state.brec[co].mp.files = { shopee:[], sales:[], receipt:[], cheque:[] };
   if(!Array.isArray(state.brec[co].mp.files.shopee)) state.brec[co].mp.files.shopee = [];
@@ -10540,6 +10541,51 @@ function brecBuildBuckets(d){
   return { pending, confirmed, exOnly, bkOnly, matched: [...pending, ...confirmed] };
 }
 
+/* ---------- STM (bank statement) stats + filter ---------- */
+function brecStmStats(d){
+  const rows = d.bank || [];
+  let inN=0, inSum=0, outN=0, outSum=0;
+  for(const r of rows){
+    const dep = Number(r.deposit)||0, wd = Number(r.withdrawal)||0;
+    if(dep>0){ inN++; inSum+=dep; }
+    if(wd>0){ outN++; outSum+=wd; }
+  }
+  // ยอดยกมา = balance ของแถวแรก − (เงินเข้าแถวแรก − เงินออกแถวแรก)
+  let opening = null;
+  const sorted = rows.filter(r=>r.balance!=null).slice()
+    .sort((a,b)=> (a.txn_date||"").localeCompare(b.txn_date||"") || (a.raw_row||0)-(b.raw_row||0));
+  if(sorted.length){
+    const f = sorted[0];
+    opening = +(Number(f.balance||0) - (Number(f.deposit)||0) + (Number(f.withdrawal)||0)).toFixed(2);
+  }
+  return { inN, inSum:+inSum.toFixed(2), outN, outSum:+outSum.toFixed(2), opening, total: rows.length };
+}
+/* ใช้ filter dir + q กับ bank rows */
+function brecStmFilterRows(d, rows){
+  const f = d.stmFilter || { dir:"all", q:"" };
+  const q = (f.q||"").trim().toLowerCase();
+  return rows.filter(r => {
+    if(f.dir === "in" && !(Number(r.deposit)>0)) return false;
+    if(f.dir === "out" && !(Number(r.withdrawal)>0)) return false;
+    if(q){
+      const text = `${r.description||""} ${r.tr_desc||""} ${r.ref_note||""} ${r.cheque_no||""}`.toLowerCase();
+      if(!text.includes(q)) return false;
+    }
+    return true;
+  });
+}
+function brecSetStmFilter(kind, val){
+  const d = brecGet();
+  if(kind==="dir") d.stmFilter.dir = val;
+  else if(kind==="q") d.stmFilter.q = val;
+  // q ใช้ restore focus กัน input หลุด
+  if(kind==="q"){
+    const caret = (document.getElementById("brecStmQ")||{}).selectionStart;
+    renderToolBankRec();
+    requestAnimationFrame(()=>{ const n=document.getElementById("brecStmQ"); if(n){ n.focus(); if(caret!=null) try{n.setSelectionRange(caret,caret);}catch(e){} } });
+  } else renderToolBankRec();
+}
+
 /* ---------- CSS (inject once) ---------- */
 function brecInjectCSS(){
   if(document.getElementById("brec-styles")) return;
@@ -10563,6 +10609,14 @@ function brecInjectCSS(){
   .brec-btn:disabled{opacity:.5;cursor:not-allowed}
   .brec-btn i{width:14px;height:14px}
 
+  .brec-stmbar{display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap;background:#fff;border:1px solid var(--line,#e2e8f0);border-bottom:none;padding:10px 14px}
+  .brec-stmbar .stmstats{display:flex;gap:18px;flex-wrap:wrap}
+  .brec-stmbar .stmst{display:flex;flex-direction:column;gap:1px}
+  .brec-stmbar .stmst .l{font-size:10.5px;color:var(--ink-3,#94a3b8);font-weight:700;text-transform:uppercase;letter-spacing:.3px}
+  .brec-stmbar .stmst .v{font-size:13.5px;font-weight:700;font-feature-settings:'tnum';color:var(--ink,#0f172a)}
+  .brec-stmbar .stmst.in .v{color:#16a34a}
+  .brec-stmbar .stmst.out .v{color:#dc2626}
+  .brec-stmbar .stmfilt{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
   .brec-sum{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:14px}
   .brec-sc{background:#fff;border:1px solid var(--line,#e2e8f0);border-radius:12px;padding:12px 14px;position:relative}
   .brec-sc .l{font-size:10.5px;color:var(--ink-3,#94a3b8);font-weight:700;text-transform:uppercase;letter-spacing:.3px}
@@ -10742,13 +10796,33 @@ async function renderToolBankRec(){
       </div>`;
     }
   } else if(tab === "unmatched"){
+    const bkFiltered = brecStmFilterRows(d, buckets.bkOnly);
+    const sf = d.stmFilter || { dir:"all", q:"" };
+    const st = brecStmStats(d);
+    // ฝั่ง Express แสดงเมื่อ filter = all เท่านั้น (filter เน้นฝั่ง bank/STM)
+    const showEx = sf.dir === "all";
     const rows = [
-      ...buckets.exOnly.map(ex => ({ kind:"ex", ex })),
-      ...buckets.bkOnly.map(bk => ({ kind:"bk", bk }))
+      ...(showEx ? buckets.exOnly.map(ex => ({ kind:"ex", ex })) : []),
+      ...bkFiltered.map(bk => ({ kind:"bk", bk }))
     ].sort((a,b)=> (a.ex?.txn_date||a.bk?.txn_date||"").localeCompare(b.ex?.txn_date||b.bk?.txn_date||""));
-    if(!rows.length) body = `<div class="brec-empty"><i data-lucide="check-check"></i><div class="ttl">กระทบครบหมดแล้ว</div></div>`;
+    const statsBar = `<div class="brec-stmbar">
+      <div class="stmstats">
+        <div class="stmst"><span class="l">ยอดยกมา</span><span class="v">${st.opening!=null?fmt(st.opening):'—'}</span></div>
+        <div class="stmst in"><span class="l">เงินเข้า</span><span class="v">${st.inN} รายการ · ${fmt(st.inSum)}</span></div>
+        <div class="stmst out"><span class="l">เงินออก</span><span class="v">${st.outN} รายการ · ${fmt(st.outSum)}</span></div>
+      </div>
+      <div class="stmfilt">
+        <div class="brec-pmode">
+          <button class="${sf.dir==='all'?'active':''}" onclick="brecSetStmFilter('dir','all')">ทั้งหมด</button>
+          <button class="${sf.dir==='in'?'active':''}" onclick="brecSetStmFilter('dir','in')">เงินเข้า</button>
+          <button class="${sf.dir==='out'?'active':''}" onclick="brecSetStmFilter('dir','out')">เงินออก</button>
+        </div>
+        <input id="brecStmQ" value="${esc(sf.q||'')}" oninput="brecSetStmFilter('q',this.value)" placeholder="🔍 ค้นหาคำอธิบายรายการ / ref" style="border:1px solid var(--line,#e2e8f0);border-radius:8px;padding:6px 11px;font-size:13px;min-width:240px;font-family:inherit">
+      </div>
+    </div>`;
+    if(!rows.length){ body = statsBar + `<div class="brec-empty"><i data-lucide="filter"></i><div class="ttl">ไม่มีรายการตาม filter</div></div>`; }
     else {
-      body = `<div class="brec-table">
+      body = statsBar + `<div class="brec-table">
         <div class="brec-row head"><div></div><div>Express</div><div></div><div>Bank Statement</div><div>เหตุผล</div><div>การจัดการ</div></div>
         ${rows.map(r => {
           if(r.kind === "ex"){

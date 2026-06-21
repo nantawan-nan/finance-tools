@@ -12001,11 +12001,12 @@ function bmpRenderTab(d){
     const effMis = bmpEffMismatch(ords);
     const hasMismatch = effMis > 0;
     const dateThai = bmpFmtThaiShort(wd.withdraw_date);
-    const accountLabel = wd.bank_account_id
-      ? (d.accounts.find(a=>a.id===wd.bank_account_id)?.bank_code+" "+d.accounts.find(a=>a.id===wd.bank_account_id)?.account_no || "—")
-      : "—";
     const routing = bmpRouting(wd.shop_name);
     const depCode = routing.depositCode || "—";
+    // account label — lookup จาก d.accounts, fallback ไป routing
+    const acctRec = d.accounts.find(a=>a.id===wd.bank_account_id);
+    const accountLabel = acctRec ? (acctRec.bank_code+" "+acctRec.account_no)
+      : (routing.bankCode ? (routing.bankCode+" "+routing.accountNo) : "—");
     // ส่วนต่าง (ค่าธรรมเนียมที่คีย์หัก) = sum_gross + adj − ยอดเข้าแบงค์ (recompute สด ๆ เผื่อแก้)
     const liveGross = orderRows.reduce((s,o)=> s + Number(o.express_gross||0), 0);
     const liveAdj = adjRows.reduce((s,o)=> s + Number(o.shopee_net||0), 0);
@@ -12032,13 +12033,27 @@ function bmpRenderTab(d){
         </div>
         <div class="bmp-h2">
           <div><span class="lbl">วันที่ถอน</span><span class="val">${dateThai}</span></div>
-          <div><span class="lbl">BQ</span><span class="val mono">${esc(wd.bq_number||"-")}</span></div>
-          <div><span class="lbl">ยอดเข้าธนาคาร</span><span class="val money">${bmpFmtMoney(wd.withdraw_amount)}</span></div>
+          <div><span class="lbl">เลขที่ BQ</span><span class="val mono">${esc(wd.bq_number||"-")}</span></div>
           <div><span class="lbl">บัญชี (รหัส ${esc(depCode)})</span><span class="val">${esc(accountLabel)}</span></div>
-          <div><span class="lbl">หัก ค่าธรรมเนียม</span><span class="val money" style="${Math.abs(liveFee)>0.5?'color:#d97706':''}">${bmpFmtMoney(liveFee)}</span></div>
-          <div><span class="lbl">ออเดอร์</span><span class="val">${wd.order_count}</span></div>
+          <div><span class="lbl">ออเดอร์</span><span class="val">${wd.order_count}${adjRows.length?` + adj ${adjRows.length}`:''}</span></div>
         </div>
-        <div class="bmp-desc">📝 ${esc(wd.description||"")} · ยอดเช็ครวม ${bmpFmtMoney(liveGross)} − แบงค์ ${bmpFmtMoney(wd.withdraw_amount)} = หัก ${bmpFmtMoney(liveFee)}${isShortfall?' · ⚠️ order ไม่ครบยอดถอน อัปไฟล์ Shopee ย้อนหลังเพิ่ม':''}</div>
+        ${(() => {
+          const bankActual = bm.found ? Number(bm.row.deposit) : null;
+          const remain = +(liveGross + liveAdj - liveFee).toFixed(2);   // = withdraw_amount
+          const stmOk = bankActual!=null && Math.abs(remain - bankActual) < 0.5;
+          return `<div class="bmp-recon">
+            <div class="bx"><span class="k">รวมเช็ค (Express)</span><span class="v">${bmpFmtMoney(liveGross)}</span></div>
+            ${Math.abs(liveAdj)>0.005?`<div class="op">+</div><div class="bx"><span class="k">ปรับปรุงในกระเป๋า</span><span class="v">${bmpFmtMoney(liveAdj)}</span></div>`:''}
+            <div class="op">−</div>
+            <div class="bx fee"><span class="k">หัก ค่าธรรมเนียม <small>(บันทึก 1 ยอด)</small></span><span class="v">${bmpFmtMoney(liveFee)}</span></div>
+            <div class="op">=</div>
+            <div class="bx res"><span class="k">คงเหลือเข้าแบงค์</span><span class="v">${bmpFmtMoney(remain)}</span></div>
+            <div class="op">${stmOk?'✓':(bankActual!=null?'✗':'·')}</div>
+            <div class="bx ${stmOk?'good':(bankActual!=null?'no':'')}"><span class="k">เงินเข้าแบงค์จริง (STM)</span><span class="v">${bankActual!=null?bmpFmtMoney(bankActual):'— ไม่มี STM —'}</span></div>
+          </div>
+          ${isShortfall?`<div class="bmp-warnline">⚠️ order ในงวด assign ไม่ครบยอดถอน (มียอดยกมาจากก่อนงวด) — อัปไฟล์ Shopee ย้อนหลังเพิ่มเพื่อให้ครบ · ค่าธรรมเนียมที่โชว์ยังไม่ถูกต้อง</div>`:''}
+          ${(bankActual!=null && !stmOk)?`<div class="bmp-warnline">⚠️ คงเหลือ ${bmpFmtMoney(remain)} ≠ เงินเข้าแบงค์จริง ${bmpFmtMoney(bankActual)} — ต่าง ${bmpFmtMoney(remain-bankActual)}</div>`:''}`;
+        })()}
         <div class="bmp-toggle"><i data-lucide="${isExpanded?'chevron-up':'chevron-down'}"></i> ${isExpanded?'ซ่อน':'ขยาย'}ดูออเดอร์ (${orderRows.length}${adjRows.length?` + adj ${adjRows.length}`:''})</div>
       </div>
       ${isExpanded ? `<div class="bmp-body">
@@ -12150,6 +12165,20 @@ function bmpInjectCSS(){
   .bmp-stm.ok{background:#dcfce7;color:#166534}
   .bmp-stm.bad{background:#fee2e2;color:#991b1b}
   .bmp-stm.none{background:#f1f5f9;color:#94a3b8}
+  .bmp-recon{display:flex;align-items:stretch;gap:6px;flex-wrap:wrap;margin:8px 0 4px;padding:8px 10px;background:#f8fafc;border-radius:8px}
+  .bmp-recon .op{display:flex;align-items:center;font-size:15px;font-weight:700;color:var(--ink-3,#94a3b8);padding:0 2px}
+  .bmp-recon .bx{display:flex;flex-direction:column;gap:1px;padding:5px 10px;background:#fff;border:1px solid var(--line,#e2e8f0);border-radius:7px;min-width:96px}
+  .bmp-recon .bx .k{font-size:10px;color:var(--ink-3,#94a3b8);font-weight:600;white-space:nowrap}
+  .bmp-recon .bx .k small{font-size:9px}
+  .bmp-recon .bx .v{font-size:14px;font-weight:700;font-feature-settings:'tnum';color:var(--ink,#0f172a)}
+  .bmp-recon .bx.fee .v{color:#d97706}
+  .bmp-recon .bx.res{background:#eff6ff;border-color:#bfdbfe}
+  .bmp-recon .bx.res .v{color:#1e40af}
+  .bmp-recon .bx.good{background:#dcfce7;border-color:#86efac}
+  .bmp-recon .bx.good .v{color:#166534}
+  .bmp-recon .bx.no{background:#fee2e2;border-color:#fca5a5}
+  .bmp-recon .bx.no .v{color:#991b1b}
+  .bmp-warnline{font-size:11.5px;color:#92400e;background:#fef3c7;border-radius:6px;padding:5px 10px;margin-bottom:4px}
   .bmp-card.warn{border-left-color:#dc2626;background:#fffbfb}
   .bmp-head{padding:12px 14px;cursor:pointer;transition:.1s}
   .bmp-head:hover{background:#f8fafc}

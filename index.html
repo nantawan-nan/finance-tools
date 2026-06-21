@@ -11245,16 +11245,31 @@ function bmpGroupWithdrawals(parsed, arData, chqData, salesData, shopName, share
 
   const routing = bmpRouting(shopName);
   const withdrawals = [];
-  let buffer = [];
-  let prevWdTime = null;
+  // ★ FIFO wallet model — Shopee เป็นกระเป๋าสะสม การถอนไม่ผูก order ชุดเดียว
+  // queue เก็บ order+adjustment ที่ยังไม่ถูก assign · ถอนแต่ละครั้งดึง FIFO จนใกล้ยอดถอนสุด
+  const queue = [];
   for(const tx of txns){
     if(tx.type === "การถอนเงิน"){
-      // close group
-      const orders = buffer.filter(t => t.type === "รายรับจากคำสั่งซื้อ");
-      const adjustments = buffer.filter(t => t.type === "รายการปรับปรุง");
+      const wdAmount = Math.abs(tx.amount);
+      // FIFO pull: ดึงจากหน้า queue สะสมจน "ใกล้ยอดถอนสุด"
+      const assigned = [];
+      let acc = 0;
+      while(queue.length){
+        const front = queue[0];
+        const amt = front.amount; // order = +net, adjustment = ส่วนใหญ่ติดลบ
+        // ถ้าเป็น order แล้วบวกเข้าไปจะเกินยอดถอน → ใส่ต่อเฉพาะถ้าทำให้ "ใกล้ขึ้น"
+        if(front.type === "รายรับจากคำสั่งซื้อ" && (acc + amt) > wdAmount){
+          if(Math.abs((acc + amt) - wdAmount) < Math.abs(acc - wdAmount)){
+            acc += amt; assigned.push(queue.shift());
+          }
+          break;
+        }
+        acc += amt; assigned.push(queue.shift());
+      }
+      const orders = assigned.filter(t => t.type === "รายรับจากคำสั่งซื้อ");
+      const adjustments = assigned.filter(t => t.type === "รายการปรับปรุง");
       const sumNet = orders.reduce((s,o)=> s + o.amount, 0);
       const adjAmount = adjustments.reduce((s,a)=> s + a.amount, 0);
-      const wdAmount = Math.abs(tx.amount);
       const bq = nextBq(tx.txn_date);
 
       const orderRows = orders.map(o => {
@@ -11312,8 +11327,12 @@ function bmpGroupWithdrawals(parsed, arData, chqData, salesData, shopName, share
       }));
 
       const sumGross = orderRows.reduce((s,o)=> s + (o.express_gross||0), 0);
-      const totalFee = orderRows.reduce((s,o)=> s + (o.fee_diff||0), 0);
+      // ค่าธรรมเนียม/ส่วนต่าง = ยอดเช็คที่คีย์ (gross) − ยอดเข้าแบงค์จริง
+      // (FIFO เกือบลงตัว — เศษเป็น carry เล็กน้อยที่ยกไปงวดถัดไป)
+      const carryDiff = +(sumGross + adjAmount - wdAmount).toFixed(2);
       const mismatchCount = orderRows.filter(o=>o.mismatch_flag).length;
+      // เตือนถ้ายอด assign ต่ำกว่ายอดถอนมาก (มียอดยกมาจากก่อนงวด — orders ไม่ครบ)
+      const shortfall = (sumGross + adjAmount) < (wdAmount - 1);
 
       withdrawals.push({
         channel: routing.channel,
@@ -11330,17 +11349,15 @@ function bmpGroupWithdrawals(parsed, arData, chqData, salesData, shopName, share
         order_count: orderRows.length,
         sum_gross: +sumGross.toFixed(2),
         sum_net: +sumNet.toFixed(2),
-        total_fee: +totalFee.toFixed(2),
+        total_fee: carryDiff,
         adjustment_amount: +adjAmount.toFixed(2),
+        carry_shortfall: shortfall,
         mismatch_count: mismatchCount,
         orders: orderRows,
         adjustments: adjRows
       });
-
-      buffer = [];
-      prevWdTime = tx.datetime;
     } else if(tx.type === "รายรับจากคำสั่งซื้อ" || tx.type === "รายการปรับปรุง"){
-      buffer.push(tx);
+      queue.push(tx);
     }
   }
   return withdrawals;
@@ -11808,8 +11825,9 @@ function bmpExportCsv(){
     // คำนวณ depositCode สด ๆ จาก shop_name (เผื่อ schema ยังไม่ persist deposit_code)
     const routing = bmpRouting(wd.shop_name);
     const depCode = routing.depositCode || "";
-    // recompute ค่าธรรมเนียมรวม สด ๆ จาก order (เผื่อ user แก้ gross/เลขเช็คไปแล้ว)
-    const feeTotal = list.reduce((s,o)=> s + (Number(o.express_gross||0) - Number(o.shopee_net||0)), 0);
+    // recompute ค่าธรรมเนียมรวม = ยอดเช็ครวม + adjustment − ยอดเข้าแบงค์ (สด ๆ เผื่อแก้ gross)
+    const adjSum = allOrds.filter(o=>o.txn_type==="adjustment").reduce((s,o)=> s + Number(o.shopee_net||0), 0);
+    const feeTotal = list.reduce((s,o)=> s + Number(o.express_gross||0), 0) + adjSum - Number(wd.withdraw_amount||0);
     list.forEach((o, idx) => {
       no++;
       const isFirst = idx === 0;
@@ -11913,12 +11931,19 @@ function bmpRenderTab(d){
       : "—";
     const routing = bmpRouting(wd.shop_name);
     const depCode = routing.depositCode || "—";
+    // ส่วนต่าง (ค่าธรรมเนียมที่คีย์หัก) = sum_gross + adj − ยอดเข้าแบงค์ (recompute สด ๆ เผื่อแก้)
+    const liveGross = orderRows.reduce((s,o)=> s + Number(o.express_gross||0), 0);
+    const liveAdj = adjRows.reduce((s,o)=> s + Number(o.shopee_net||0), 0);
+    const liveFee = +(liveGross + liveAdj - Number(wd.withdraw_amount||0)).toFixed(2);
+    // shortfall: order ในงวด assign ไม่ครบยอดถอน (มียอดยกมาจากก่อนงวด)
+    const isShortfall = (liveGross + liveAdj) < (Number(wd.withdraw_amount||0) - 1);
 
     return `<div class="bmp-card ${hasMismatch?'warn':''}">
       <div class="bmp-head" onclick="bmpToggleExpand('${wd.id}')">
         <div class="bmp-h1">
           <span class="bmp-chip">🛒 ${esc(wd.channel)}</span>
           <span class="bmp-shop">${esc(wd.shop_name||"")}</span>
+          ${isShortfall ? `<span class="bmp-warn" style="background:#fef3c7;color:#92400e">⚠️ ยอดยกมาจากก่อนงวด</span>` : ''}
           ${hasMismatch ? `<span class="bmp-warn">⚠️ ไม่ตรง ${effMis}</span>` : `<span class="bmp-ok">✓ ตรงครบ${(wd.mismatch_count||0)>0?' (แก้แล้ว)':''}</span>`}
         </div>
         <div class="bmp-h2">
@@ -11926,10 +11951,10 @@ function bmpRenderTab(d){
           <div><span class="lbl">BQ</span><span class="val mono">${esc(wd.bq_number||"-")}</span></div>
           <div><span class="lbl">ยอดเข้าธนาคาร</span><span class="val money">${bmpFmtMoney(wd.withdraw_amount)}</span></div>
           <div><span class="lbl">บัญชี (รหัส ${esc(depCode)})</span><span class="val">${esc(accountLabel)}</span></div>
-          <div><span class="lbl">ค่าธรรมเนียม</span><span class="val money">${bmpFmtMoney(wd.total_fee)}</span></div>
+          <div><span class="lbl">หัก ค่าธรรมเนียม</span><span class="val money" style="${Math.abs(liveFee)>0.5?'color:#d97706':''}">${bmpFmtMoney(liveFee)}</span></div>
           <div><span class="lbl">ออเดอร์</span><span class="val">${wd.order_count}</span></div>
         </div>
-        <div class="bmp-desc">📝 ${esc(wd.description||"")}</div>
+        <div class="bmp-desc">📝 ${esc(wd.description||"")} · ยอดเช็ครวม ${bmpFmtMoney(liveGross)} − แบงค์ ${bmpFmtMoney(wd.withdraw_amount)} = หัก ${bmpFmtMoney(liveFee)}${isShortfall?' · ⚠️ order ไม่ครบยอดถอน อัปไฟล์ Shopee ย้อนหลังเพิ่ม':''}</div>
         <div class="bmp-toggle"><i data-lucide="${isExpanded?'chevron-up':'chevron-down'}"></i> ${isExpanded?'ซ่อน':'ขยาย'}ดูออเดอร์ (${orderRows.length}${adjRows.length?` + adj ${adjRows.length}`:''})</div>
       </div>
       ${isExpanded ? `<div class="bmp-body">
@@ -11981,7 +12006,7 @@ function bmpRenderTab(d){
     <div class="bmp-sum">
       <div class="bmp-sc"><div class="l">Withdrawal</div><div class="v">${wds.length}</div></div>
       <div class="bmp-sc"><div class="l">รวม net เข้าแบงค์</div><div class="v">${bmpFmtMoney(totalNet)}</div></div>
-      <div class="bmp-sc"><div class="l">รวมค่าธรรมเนียม</div><div class="v">${bmpFmtMoney(totalFee)}</div></div>
+      <div class="bmp-sc"><div class="l">รวมหัก ค่าธรรมเนียม</div><div class="v">${bmpFmtMoney(totalFee)}</div></div>
       <div class="bmp-sc ${totalMismatch?'warn':'ok'}"><div class="l">${totalMismatch?'⚠️ ออเดอร์ไม่ตรง':'✓ ผ่านการตรวจ'}</div><div class="v">${totalMismatch||"0"}</div></div>
       <div class="bmp-sc"><div class="l">พร้อม export</div><div class="v">${exportable}/${wds.length}</div></div>
     </div>

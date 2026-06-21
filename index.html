@@ -10827,10 +10827,11 @@ async function renderToolBankRec(){
 
 /* ------- shop name → company + bank routing ------- */
 const BMP_SHOP_ROUTING = {
-  // shop_name (lowercase) → { companyId, bankCode, accountNo, channel, channelLabel, descSuffix }
-  "mommam_official": { companyId:"mbark", bankCode:"SCB", accountNo:"1362270928", channel:"shopee", channelLabel:"Shopee mommam", descSuffix:"Shopee mommam" },
-  "benya_official":  { companyId:"benya", bankCode:"SCB", accountNo:"4170771640", channel:"shopee", channelLabel:"Shopee Qi care",  descSuffix:"Shopee Qi care" },
-  "betra_brand":     { companyId:"benya", bankCode:"BBL", accountNo:"8650980405", channel:"shopee", channelLabel:"Shopee Betra",    descSuffix:"Shopee Betra" }
+  // shop_name (lowercase) → { companyId, bankCode, accountNo, depositCode, channel, channelLabel, descSuffix }
+  // depositCode = รหัสบัญชีฝากใน AutoKey ของ Express (01/02/S1)
+  "mommam_official": { companyId:"mbark", bankCode:"SCB", accountNo:"1362270928", depositCode:"S1", channel:"shopee", channelLabel:"Shopee mommam", descSuffix:"Shopee mommam" },
+  "benya_official":  { companyId:"benya", bankCode:"SCB", accountNo:"4170771640", depositCode:"01", channel:"shopee", channelLabel:"Shopee Qi care",  descSuffix:"Shopee Qi care" },
+  "betra_brand":     { companyId:"benya", bankCode:"BBL", accountNo:"8650980405", depositCode:"02", channel:"shopee", channelLabel:"Shopee Betra",    descSuffix:"Shopee Betra" }
 };
 
 function bmpRouting(shopName){
@@ -11157,6 +11158,7 @@ function bmpGroupWithdrawals(parsed, arData, chqData, shopName){
         shop_name: shopName,
         bank_code: routing.bankCode,
         bank_account_no: routing.accountNo,
+        deposit_code: routing.depositCode || "",
         company_id_slug: routing.companyId,
         withdraw_datetime: tx.datetime,
         withdraw_date: tx.txn_date,
@@ -11473,7 +11475,7 @@ function bmpExportCsv(){
     ordersByWd.get(o.withdrawal_id).push(o);
   }
   const lines = [
-    ["No","เลขที่ BQ","วันที่เงินเข้าบัญชี (DD/MM/YY)","เลขที่เช็ค","มูลค่าเช็ค EXPRESS","เงินที่ออกสุทธิของออเดอร์","ผลต่าง","ค่าธรรมเนียมรวม","คำอธิบายรายการ"]
+    ["No","เลขที่ BQ","วันที่เงินเข้าบัญชี (DD/MM/YY)","เงินเข้าบัญชี","เลขที่เช็ค","มูลค่าเช็ค EXPRESS","เงินที่ออกสุทธิของออเดอร์","ผลต่าง","ค่าธรรมเนียมรวม","คำอธิบายรายการ"]
   ];
   let no = 0;
   for(const wd of d.mp.withdrawals){
@@ -11481,6 +11483,9 @@ function bmpExportCsv(){
     // skip ทั้ง withdrawal ถ้ามี mismatch (กันคีย์ผิด)
     if(wd.mismatch_count > 0) continue;
     const dt = bmpFmtThaiShort(wd.withdraw_date);
+    // คำนวณ depositCode สด ๆ จาก shop_name (เผื่อ schema ยังไม่ persist deposit_code)
+    const routing = bmpRouting(wd.shop_name);
+    const depCode = routing.depositCode || "";
     list.forEach((o, idx) => {
       no++;
       const isFirst = idx === 0;
@@ -11488,6 +11493,7 @@ function bmpExportCsv(){
         no,
         isFirst ? wd.bq_number : "",
         isFirst ? dt : "",
+        isFirst ? depCode : "",
         o.cheque_no || "",
         Number(o.express_gross||0).toFixed(2),
         Number(o.shopee_net||0).toFixed(2),
@@ -11579,6 +11585,8 @@ function bmpRenderTab(d){
     const accountLabel = wd.bank_account_id
       ? (d.accounts.find(a=>a.id===wd.bank_account_id)?.bank_code+" "+d.accounts.find(a=>a.id===wd.bank_account_id)?.account_no || "—")
       : "—";
+    const routing = bmpRouting(wd.shop_name);
+    const depCode = routing.depositCode || "—";
 
     return `<div class="bmp-card ${hasMismatch?'warn':''}">
       <div class="bmp-head" onclick="bmpToggleExpand('${wd.id}')">
@@ -11591,7 +11599,7 @@ function bmpRenderTab(d){
           <div><span class="lbl">วันที่ถอน</span><span class="val">${dateThai}</span></div>
           <div><span class="lbl">BQ</span><span class="val mono">${esc(wd.bq_number||"-")}</span></div>
           <div><span class="lbl">ยอดเข้าธนาคาร</span><span class="val money">${bmpFmtMoney(wd.withdraw_amount)}</span></div>
-          <div><span class="lbl">บัญชีปลายทาง</span><span class="val">${esc(accountLabel)}</span></div>
+          <div><span class="lbl">บัญชี (รหัส ${esc(depCode)})</span><span class="val">${esc(accountLabel)}</span></div>
           <div><span class="lbl">ค่าธรรมเนียม</span><span class="val money">${bmpFmtMoney(wd.total_fee)}</span></div>
           <div><span class="lbl">ออเดอร์</span><span class="val">${wd.order_count}</span></div>
         </div>

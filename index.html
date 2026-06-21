@@ -11306,8 +11306,8 @@ function bmpRenderUploadModal(){
           ${bmpFileBox('cheque', 'Express รายงานเช็ครับ (เรียงตามวันที่นำฝาก)', '.csv', f.cheque)}
         </div>
         <div style="display:flex;gap:8px;margin-top:18px">
-          <button class="brec-btn" onclick="bmpCloseUpload()" style="flex:1">ยกเลิก</button>
-          <button class="brec-btn primary" onclick="bmpRunUpload()" style="flex:1" ${ready?'':'disabled'}><i data-lucide="zap"></i> วิเคราะห์ + บันทึก</button>
+          <button class="brec-btn" onclick="bmpCloseUpload()" style="flex:1" ${d.mp.parsing?'disabled':''}>ยกเลิก</button>
+          <button class="brec-btn primary" onclick="bmpRunUpload()" style="flex:1" ${(ready && !d.mp.parsing)?'':'disabled'}><i data-lucide="${d.mp.parsing?'loader-2':'zap'}"></i> ${d.mp.parsing?'กำลังประมวลผล...':'วิเคราะห์ + บันทึก'}</button>
         </div>
       </div>
     </div>`;
@@ -11356,6 +11356,8 @@ function bmpFileRemove(kind, i){
 
 async function bmpRunUpload(){
   const d = brecGet();
+  // ★ guard double-click — ถ้ามีการอัปอยู่ อย่าให้รันซ้ำ
+  if(d.mp.parsing){ console.warn("bmpRunUpload: already in progress, ignored"); return; }
   const f = d.mp.files;
   if(!f.shopee.length || !f.sales.length || !f.receipt.length || !f.cheque.length){ alert("เลือกไฟล์ครบทั้ง 4 ช่องก่อน"); return; }
   const co = d.companyId || await fopCompanyId();
@@ -11527,6 +11529,7 @@ async function bmpRunUpload(){
 
     d.tab = "mp";
     await bmpLoadFromDb();
+    d.mp.parsing = false;   // ★ reset flag ก่อนปิด modal กัน state ค้าง
     bmpCloseUpload();
     let msg = `อัปสำเร็จ\n${perShopSummary.join("\n")}\n\nรวม: ${grandTotalWd} withdrawal · ${grandTotalOrd} order · ไม่ตรง ${grandTotalMis}`;
     if(skipped.length) msg += `\n\nข้าม: ${skipped.join(", ")}`;

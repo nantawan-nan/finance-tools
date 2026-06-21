@@ -176,6 +176,43 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-06-21 — Bank Reconciliation Phase 2 (Marketplace Withdrawal Recon — Shopee)
+- เพิ่ม **แท็บที่ 5 "🛒 ถอน Marketplace"** ใต้ `renderToolBankRec` · helper prefix **`bmp*`** · ปุ่ม "Marketplace (3 ไฟล์)" บน toolbar เปิด modal อัป 3 ไฟล์พร้อมกัน
+- **Schema** `supabase/bankrec-mp-phase2.sql` — 3 ตาราง:
+  - `brec_mp_imports` (ประวัติอัป + `file_hash` กันซ้ำ · `channel`,`shop_name`,`shopee_filename`,`receipt_filename`,`cheque_filename`)
+  - `brec_mp_withdrawals` (1 row = 1 withdrawal event · `bq_number`,`description`,`withdraw_amount`,`sum_gross`,`sum_net`,`total_fee`,`mismatch_count`,`bank_row_id`,`bank_match_status`)
+  - `brec_mp_orders` (1 row = 1 order ภายใน withdrawal · `express_gross`,`shopee_net`,`fee_diff`,`has_receipt`,`has_cheque_deposit`,`existing_bq`,`mismatch_flag`,`mismatch_reason`)
+  - RLS เดิม + soft delete
+- **Parsers 3 ตัว** (vanilla JS):
+  - `bmpParseShopeeBalance(workbook)` — Shopee `.xlsx` "Transaction Report" (shop name row 6, periods row 7-8, header row ~18). 3 ประเภท txn: รายรับจากคำสั่งซื้อ / การถอนเงิน / รายการปรับปรุง. sort asc by datetime
+  - `bmpParseArReceipt(text)` — Express CSV cp874 "รับชำระหนี้" · scan SP/TT/LZ pattern ในแต่ละแถวต่อ receipt header → ดึง gross + receipt_no
+  - `bmpParseChequeReport(text)` — Express CSV cp874 "เช็ครับ เรียงตามวันที่นำฝาก" · ดึง BQ + deposit date ของแต่ละเช็ค (ใช้ทั้ง gen BQ ใหม่ + รู้ว่าออเดอร์ไหน deposit แล้ว) · อ่าน "S/A #..." header → bank account ปลายทาง
+  - CSV decode ใช้ `TextDecoder('windows-874')` + NBSP→space + custom CSV parser (รองรับ quoted fields + "" escape)
+- **Account routing (BMP_SHOP_ROUTING)** — map ตายตัว shop_name → company + bank + label:
+  - `mommam_official` → MBark SCB 136-2-270928-1 · descSuffix "Shopee mommam"
+  - `benya_official` → Benya SCB 417-077164-0 · descSuffix "Shopee Qi care"
+  - `betra_brand` → Benya BBL 865-0-98040-5 · descSuffix "Shopee Betra"
+  - ตรวจ company match → ถ้าผิดบริษัทเสนอสลับให้
+- **Grouping engine** `bmpGroupWithdrawals()`:
+  - sort all Shopee txns ascending by datetime
+  - buffer orders + adjustments until เจอ "การถอนเงิน" → close group · withdrawal นี้รวม orders ก่อนหน้ามัน
+  - ทุก order ในกลุ่ม lookup ใน arData (รับชำระ) → ดึง gross · lookup ใน chqData (เช็ครับ) → check existing BQ + amount mismatch
+  - mismatch flag: ไม่พบใน รับชำระ / เช็ครับ amount ≠ รับชำระ amount
+- **BQ generation**:
+  - parse "เช็ครับ" → max(seq) ต่อ YYMMDD
+  - withdrawal ใหม่: BQ = `${YYMMDD}${(maxSeq+1).padStart(4,'0')}` เช่น `2606040001`
+  - กันชน — เก็บ counter ใน Map ระหว่างกระบวนการ
+- **UI การ์ดละ 1 withdrawal**: chip channel + shop · row 6 fields (วันที่ถอน, BQ, ยอด, บัญชี, ค่าธรรมเนียม, จำนวนออเดอร์) · description · ขยาย/ซ่อน orders ในการ์ด
+  - การ์ดสีเขียว = ตรงครบ · การ์ดสีแดง = `mismatch_count > 0`
+  - ตาราง orders ภายในขยาย: เลขที่เช็ค · gross · net · ผลต่าง · สถานะ (มี deposit แล้ว → โชว์ BQ เก่า / mismatch → โชว์เหตุผล)
+  - แถว `adjustment` (ค่าธรรมเนียมในกระเป๋า) แสดงด้วย icon 📌 พร้อม description
+- **Export 2 ปุ่ม** (รวมทุก withdrawal ใน 1 ไฟล์):
+  - **CSV หลัก** (9 cols: No / เลขที่ BQ / วันที่เงินเข้าบัญชี DD/MM/YY / เลขที่เช็ค / มูลค่าเช็ค EXPRESS / เงินที่ออกสุทธิของออเดอร์ / ผลต่าง / ค่าธรรมเนียมรวม / คำอธิบายรายการ) · **ข้าม** withdrawal ที่ mismatch_count > 0 (กันคีย์ผิด) · BOM UTF-8 (เปิด Excel ไทยไม่เพี้ยน)
+  - **Excel รายงานไม่ตรง** — ดึงเฉพาะออเดอร์ที่ mismatch สำหรับฝ่ายการเงินตรวจ
+- **Validation rule (strict 100%)**: gross Express ของ order ต้องตรง — ยกเว้นค่าธรรมเนียมในกระเป๋าที่ Shopee หัก (อยู่ในแถว adjustment)
+- **กันไฟล์ซ้ำ**: `file_hash` (djb2 ของ 3 filenames + sizes) → confirm ถ้าซ้ำ
+- **Phase 3 (ยังไม่ทำ)**: TikTok Shop + Lazada payout report (รอ user ส่งไฟล์ตัวอย่าง) · auto-link mp withdrawal กับ bank row ใน statement · ปิดงวด
+
 ### 2026-06-20 — Bank Reconciliation Phase 1 (Express ↔ Bank Statement)
 - โมดูล `bankrec` เปลี่ยนจาก `soon` → live · ฟังก์ชันหลัก `renderToolBankRec` + helper prefix **`brec*`**
 - **Schema** `supabase/bankrec-phase1.sql` — 4 ตาราง:

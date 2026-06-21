@@ -9813,8 +9813,10 @@ function brecGet(){
     period:{ mode:"month", month: new Date().toISOString().slice(0,7), from:null, to:null },
     express:[], bank:[], matches:[],
     tab:"pending", sel:{ ex:new Set(), bk:new Set() },
-    busy:false, lastImport:null
+    busy:false, lastImport:null,
+    mp: { withdrawals:[], orders:[], mismatchOrders:[], lastImportId:null, expanded:new Set(), uploadOpen:false, files:{shopee:null,receipt:null,cheque:null}, parsing:false }
   };
+  if(!state.brec[co].mp) state.brec[co].mp = { withdrawals:[], orders:[], mismatchOrders:[], lastImportId:null, expanded:new Set(), uploadOpen:false, files:{shopee:null,receipt:null,cheque:null}, parsing:false };
   return state.brec[co];
 }
 function brecCanWrite(){ return !!(AUTH.role && ["admin","finance_mgr","accountant","treasury"].includes(AUTH.role)); }
@@ -10639,11 +10641,14 @@ async function renderToolBankRec(){
   const fmt = (n)=> (typeof fopFmt==="function" ? fopFmt(n) : Number(n||0).toLocaleString("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2}));
 
   // tabs
+  const mpWds = (d.mp && d.mp.withdrawals) || [];
+  const mpMismatch = (d.mp && d.mp.mismatchOrders) || [];
   const tabs = [
     { id:"pending",   l:"รอยืนยัน",     ic:"clock-3",       c: buckets.pending.length },
     { id:"unmatched", l:"รอกระทบยอด",   ic:"circle-alert",  c: buckets.exOnly.length + buckets.bkOnly.length },
     { id:"done",      l:"กระทบแล้ว",    ic:"check-check",   c: buckets.confirmed.length },
     { id:"all",       l:"ทั้งหมด",      ic:"list",          c: d.express.length + d.bank.length },
+    { id:"mp",        l:"🛒 ถอน Marketplace", ic:"shopping-bag", c: mpWds.length },
   ];
   const tab = d.tab || "pending";
 
@@ -10741,6 +10746,8 @@ async function renderToolBankRec(){
         : `<div class="brec-row unbk"><div></div><div class="brec-side empty">—</div><div></div>${brecSideHTML(x.r,"bk",false)}<div></div><div></div></div>`
       ).join("")}
     </div>`;
+  } else if(tab === "mp"){
+    body = bmpRenderTab(d);
   }
 
   // Compose
@@ -10775,6 +10782,7 @@ async function renderToolBankRec(){
         <button class="brec-btn" onclick="brecUpload('stmt')" ${brecCanWrite()?'':'disabled'}><i data-lucide="upload"></i> Statement</button>
         <button class="brec-btn primary" onclick="brecRunAutoMatch()" ${brecCanWrite()&&!noAcct?'':'disabled'}><i data-lucide="zap"></i> จับคู่อัตโนมัติ</button>
         <button class="brec-btn" onclick="brecExportXlsx()" ${noAcct?'disabled':''}><i data-lucide="download"></i> Export</button>
+        <button class="brec-btn" onclick="bmpOpenUpload()" ${brecCanWrite()?'':'disabled'} style="background:#fef3c7;border-color:#fde68a;color:#92400e"><i data-lucide="shopping-bag"></i> Marketplace (3 ไฟล์)</button>
       </div>
 
       <div class="brec-sum">
@@ -10801,6 +10809,821 @@ async function renderToolBankRec(){
   `;
   if(window.lucide && window.lucide.createIcons){ try{ window.lucide.createIcons(); }catch(e){} }
 }
+
+
+/* ============================================================
+   BANK RECONCILIATION — PHASE 2 (Marketplace Withdrawal Recon)
+   Shopee balance + Express รับชำระ + Express เช็ครับ
+   - Group orders ตาม withdrawal event ของ Shopee wallet
+   - Generate BQ (YYMMDD + seq) จาก max ที่มีใน "เช็ครับ"
+   - Validate Express AR gross ↔ Shopee net (per-order mismatch detect)
+   - Output CSV 9 cols + Excel รายการ mismatch
+   helper prefix: bmp*
+   ============================================================ */
+
+/* ------- shop name → company + bank routing ------- */
+const BMP_SHOP_ROUTING = {
+  // shop_name (lowercase) → { companyId, bankCode, accountNo, channel, channelLabel, descSuffix }
+  "mommam_official": { companyId:"mbark", bankCode:"SCB", accountNo:"1362270928", channel:"shopee", channelLabel:"Shopee mommam", descSuffix:"Shopee mommam" },
+  "benya_official":  { companyId:"benya", bankCode:"SCB", accountNo:"4170771640", channel:"shopee", channelLabel:"Shopee Qi care",  descSuffix:"Shopee Qi care" },
+  "betra_brand":     { companyId:"benya", bankCode:"BBL", accountNo:"8650980405", channel:"shopee", channelLabel:"Shopee Betra",    descSuffix:"Shopee Betra" }
+};
+
+function bmpRouting(shopName){
+  const k = String(shopName||"").trim().toLowerCase();
+  if(BMP_SHOP_ROUTING[k]) return BMP_SHOP_ROUTING[k];
+  // fallback — generic shopee, no routing
+  return { companyId:null, bankCode:null, accountNo:null, channel:"shopee", channelLabel:`Shopee ${shopName}`, descSuffix:`Shopee ${shopName}` };
+}
+
+/* ------- TIS-620 / windows-874 CSV parsing ------- */
+function bmpDecodeCp874(buf){
+  return new TextDecoder("windows-874").decode(buf);
+}
+function bmpParseCsvText(text){
+  // simple CSV parser supporting quoted fields with "" escape + NBSP normalization
+  text = text.replace(/ /g," "); // NBSP → space
+  const rows = []; let row = []; let cur = ""; let inQuote = false;
+  for(let i=0;i<text.length;i++){
+    const ch = text[i];
+    if(inQuote){
+      if(ch === '"'){
+        if(text[i+1] === '"'){ cur += '"'; i++; }
+        else inQuote = false;
+      } else cur += ch;
+    } else {
+      if(ch === '"') inQuote = true;
+      else if(ch === ','){ row.push(cur); cur = ""; }
+      else if(ch === '\n'){ row.push(cur); rows.push(row); row=[]; cur=""; }
+      else if(ch === '\r'){ /* skip */ }
+      else cur += ch;
+    }
+  }
+  if(cur.length || row.length) { row.push(cur); rows.push(row); }
+  return rows;
+}
+
+/* ------- Thai BE date dd/mm/yyyy(BE) → ISO YYYY-MM-DD (CE) ------- */
+function bmpThaiDate(s){
+  if(!s) return null;
+  const m = String(s).trim().match(/(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
+  if(!m) return null;
+  let y = parseInt(m[3],10);
+  if(y < 100) y += 2500;
+  if(y >= 2400) y -= 543;
+  return `${y}-${m[2].padStart(2,"0")}-${m[1].padStart(2,"0")}`;
+}
+
+/* ============================================================
+   PARSER 1 — Shopee Balance Transaction Report (.xlsx)
+   - Header row ~18 (วันที่/ประเภทการทำธุรกรรม/...)
+   - Shop name in row 6
+   - Period in rows 7-8
+   ============================================================ */
+function bmpParseShopeeBalance(workbook){
+  const sheet = workbook.Sheets[workbook.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json(sheet, { header:1, defval:"", raw:true });
+  let shopName = null, periodFrom = null, periodTo = null;
+  // scan first 15 rows for header info
+  for(let i=0;i<Math.min(rows.length,16);i++){
+    const a = String((rows[i]||[])[0]||"").trim();
+    const b = (rows[i]||[])[1];
+    if(/ชื่อผู้ใช้ของผู้ขาย/.test(a)) shopName = String(b||"").trim();
+    else if(a === "จาก") periodFrom = bmpIsoFromAny(b);
+    else if(a === "ไปยัง") periodTo = bmpIsoFromAny(b);
+  }
+  // find header row containing "วันที่" + "ประเภทการทำธุรกรรม"
+  let hr = -1;
+  for(let i=0;i<Math.min(rows.length,30);i++){
+    const r = (rows[i]||[]).map(x=>String(x||"").trim());
+    if(r[0]==="วันที่" && r.some(x=>x==="ประเภทการทำธุรกรรม")){ hr = i; break; }
+  }
+  if(hr < 0) throw new Error("ไม่พบ header Shopee balance (วันที่ / ประเภทการทำธุรกรรม)");
+  const head = rows[hr].map(x=>String(x||"").trim());
+  const idx = (n)=> head.indexOf(n);
+  const cDt=idx("วันที่"), cType=idx("ประเภทการทำธุรกรรม"), cDesc=idx("คำอธิบาย"),
+        cOid=idx("รหัสคำสั่งซื้อ"), cFlow=idx("รูปแบบธุรกรรม"), cAmt=idx("จำนวนเงิน"),
+        cStatus=idx("สถานะ"), cBal=idx("ยอดเงินหลังทำธุรกรรมเสร็จสิ้น");
+
+  const txns = [];
+  for(let i=hr+1;i<rows.length;i++){
+    const r = rows[i]; if(!r) continue;
+    const dtRaw = r[cDt]; if(!dtRaw) continue;
+    const txType = String(r[cType]||"").trim();
+    if(!txType) continue;
+    const dt = String(dtRaw).trim();
+    // dt is like "2026-06-20 20:38:33"
+    const dateOnly = dt.slice(0,10);
+    const amount = Number(r[cAmt])||0;
+    txns.push({
+      datetime: dt,
+      txn_date: dateOnly,
+      type: txType,
+      desc: String(r[cDesc]||"").trim(),
+      order_id: String(r[cOid]||"").trim().replace(/^[#-]+/,""),
+      flow: String(r[cFlow]||"").trim(),
+      amount: amount,
+      status: String(r[cStatus]||"").trim(),
+      balance_after: Number(r[cBal])||0,
+      raw_row: i+1
+    });
+  }
+  // sort ascending by datetime (Shopee report is descending)
+  txns.sort((a,b)=> a.datetime.localeCompare(b.datetime));
+  return { shopName, periodFrom, periodTo, txns };
+}
+function bmpIsoFromAny(v){
+  if(!v) return null;
+  if(v instanceof Date){
+    return `${v.getFullYear()}-${String(v.getMonth()+1).padStart(2,"0")}-${String(v.getDate()).padStart(2,"0")}`;
+  }
+  const s = String(v).trim();
+  let m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if(m) return `${m[1]}-${m[2]}-${m[3]}`;
+  return bmpThaiDate(s);
+}
+
+/* ============================================================
+   PARSER 2 — Express รับชำระหนี้ CSV (cp874)
+   ใช้เพื่อดึง gross ของแต่ละ SP cheque + RE receipt no
+   ============================================================ */
+function bmpParseArReceipt(text){
+  const rows = bmpParseCsvText(text);
+  // find header row index — มี "เลขที่ใบเสร็จ" + "ยอดตามใบกำกับ"
+  let hr = -1, head = null;
+  for(let i=0;i<Math.min(rows.length,15);i++){
+    const r = (rows[i]||[]).map(x=>String(x||"").trim());
+    if(r.includes("เลขที่ใบเสร็จ") && r.includes("ยอดตามใบกำกับ")){ hr = i; head = r; break; }
+  }
+  if(hr < 0) throw new Error("ไม่พบ header รับชำระหนี้ (เลขที่ใบเสร็จ + ยอดตามใบกำกับ)");
+  const idx = (n)=> head.indexOf(n);
+  // คอลัมน์ที่สนใจ
+  const cReceipt = idx("เลขที่ใบเสร็จ");
+  const cCust    = idx("ชื่อลูกค้า");
+  const cDate    = idx("วันที่");
+  const cTotal   = idx("ยอดตามใบกำกับ");
+
+  // cheque ปรากฏในแถวต่อจาก receipt row โดยใส่ค่าใน col "รับชำระโดย" + "จำนวน"
+  // เนื่องจากเป็นรายงานของ Express ที่ pivot โดย row แตกย่อย,
+  // ใช้วิธี scan: ถ้าเจอ SP/TT/LZ pattern ใน row ที่ไม่มี receipt header → cheque ต่อ receipt ก่อนหน้า
+  const cheques = []; // { cheque_no, amount, receipt_no, customer, date, channel }
+  let curReceipt = null, curCust = null, curDate = null;
+  for(let i=hr+1;i<rows.length;i++){
+    const r = rows[i]; if(!r) continue;
+    const recVal = String(r[cReceipt]||"").trim();
+    if(/^RE\d/.test(recVal)){
+      curReceipt = recVal;
+      curCust = String(r[cCust]||"").trim();
+      curDate = bmpThaiDate(r[cDate]);
+    }
+    // scan row for SP/TT/LZ + number — that's a cheque line
+    for(let c=0;c<r.length;c++){
+      const v = String(r[c]||"").trim();
+      const m = v.match(/^((?:SP|TT|LZ)[\w\d]{6,})$/);
+      if(m){
+        const chq = m[1];
+        // amount = next numeric in same row
+        let amt = 0, chanName = "";
+        for(let k=c+1;k<r.length;k++){
+          const vv = String(r[k]||"").trim();
+          if(!vv) continue;
+          if(/^Shopee|TikTok|Lazada/i.test(vv)){ chanName = vv; continue; }
+          // skip date strings
+          if(/^\d{1,2}\/\d{1,2}\/\d{2,4}$/.test(vv)) continue;
+          const n = Number(vv.replace(/,/g,""));
+          if(!isNaN(n) && n > 0){ amt = n; break; }
+        }
+        cheques.push({ cheque_no: chq, order_id: chq.replace(/^(SP|TT|LZ)/,""), amount: amt,
+                       receipt_no: curReceipt, customer: curCust, date: curDate, channel: chanName });
+        break;
+      }
+    }
+  }
+  return { cheques };
+}
+
+/* ============================================================
+   PARSER 3 — Express เช็ครับ เรียงตามวันที่นำฝาก CSV (cp874)
+   ใช้เพื่อ:
+   - รู้ BQ ที่ใช้แล้ว (กัน gen ซ้ำ)
+   - หา deposit date ของเช็ค SP ที่ deposit แล้ว
+   - หา bank account ปลายทาง (จาก "S/A #..." header)
+   ============================================================ */
+function bmpParseChequeReport(text){
+  const rows = bmpParseCsvText(text);
+  let hr = -1, head = null;
+  for(let i=0;i<Math.min(rows.length,15);i++){
+    const r = (rows[i]||[]).map(x=>String(x||"").trim());
+    if(r.includes("วันที่นำฝาก") && r.includes("เลขที่เช็ค") && r.includes("ใบนำฝาก#")){ hr = i; head = r; break; }
+  }
+  if(hr < 0) throw new Error("ไม่พบ header เช็ครับ (วันที่นำฝาก + เลขที่เช็ค + ใบนำฝาก#)");
+  const idx = (n)=> head.indexOf(n);
+  const cDep=idx("วันที่นำฝาก"), cChqDate=idx("วันที่เช็ค"), cBank=idx("ธ."),
+        cChq=idx("เลขที่เช็ค"), cBQ=idx("ใบนำฝาก#"), cAmt=idx("จำนวนเงิน"), cFrom=idx("รับจาก");
+
+  const deposits = []; // each entry = one cheque under a deposit slip
+  let curBankAccount = null; // raw header value "S/A #SCB 417-077164-0"
+  for(let i=hr+1;i<rows.length;i++){
+    const r = rows[i]; if(!r) continue;
+    // detect "นำฝากเข้าบัญชี :" row → update curBankAccount
+    const j = r.findIndex(c => String(c||"").trim() === "นำฝากเข้าบัญชี :");
+    if(j >= 0){
+      // value is in subsequent cells
+      const parts = r.slice(j+1).map(x=>String(x||"").trim()).filter(Boolean);
+      curBankAccount = parts.join(" ");
+      continue;
+    }
+    const chq = String(r[cChq]||"").trim();
+    if(!/^(?:SP|TT|LZ)\w+/.test(chq)) continue;
+    const bq = String(r[cBQ]||"").trim();
+    const amt = Number(String(r[cAmt]||"").replace(/,/g,""))||0;
+    deposits.push({
+      cheque_no: chq,
+      order_id: chq.replace(/^(SP|TT|LZ)/,""),
+      bq: bq,
+      deposit_date: bmpThaiDate(r[cDep]),
+      cheque_date: bmpThaiDate(r[cChqDate]),
+      bank: String(r[cBank]||"").trim(),
+      amount: amt,
+      from: String(r[cFrom]||"").trim(),
+      bank_account_raw: curBankAccount
+    });
+  }
+  return { deposits };
+}
+
+/* ============================================================
+   GROUPING + VALIDATION
+   - sort txns asc by datetime
+   - buffer orders + adjustments until เจอ "การถอนเงิน"
+   - close group, create withdrawal
+   ============================================================ */
+function bmpGroupWithdrawals(parsed, arData, chqData, shopName){
+  const txns = parsed.txns;
+  const arByOrder = new Map();
+  for(const c of (arData.cheques||[])) arByOrder.set(c.order_id, c);
+  const chqByOrder = new Map();
+  for(const d of (chqData.deposits||[])) chqByOrder.set(d.order_id, d);
+
+  // build maxSeq per YYMMDD from existing BQ
+  const seqByDay = new Map(); // "YYMMDD" → max seq int
+  for(const dep of (chqData.deposits||[])){
+    const m = String(dep.bq||"").match(/^(\d{6})(\d{1,4})$/);
+    if(m){
+      const day = m[1], seq = parseInt(m[2],10);
+      if(!seqByDay.has(day) || seqByDay.get(day) < seq) seqByDay.set(day, seq);
+    }
+  }
+  function nextBq(isoDate){
+    // isoDate "2026-06-04" → "260604"
+    const [y,m,d] = isoDate.split("-");
+    const key = y.slice(2) + m + d;
+    const next = (seqByDay.get(key)||0) + 1;
+    seqByDay.set(key, next);
+    return key + String(next).padStart(4,"0");
+  }
+
+  const routing = bmpRouting(shopName);
+  const withdrawals = [];
+  let buffer = [];
+  let prevWdTime = null;
+  for(const tx of txns){
+    if(tx.type === "การถอนเงิน"){
+      // close group
+      const orders = buffer.filter(t => t.type === "รายรับจากคำสั่งซื้อ");
+      const adjustments = buffer.filter(t => t.type === "รายการปรับปรุง");
+      const sumNet = orders.reduce((s,o)=> s + o.amount, 0);
+      const adjAmount = adjustments.reduce((s,a)=> s + a.amount, 0);
+      const wdAmount = Math.abs(tx.amount);
+      const bq = nextBq(tx.txn_date);
+
+      const orderRows = orders.map(o => {
+        const ar = arByOrder.get(o.order_id);
+        const chq = chqByOrder.get(o.order_id);
+        const gross = ar ? ar.amount : 0;
+        const net = o.amount;
+        const feeDiff = gross ? +(gross - net).toFixed(2) : 0;
+        let mismatch = false; let reason = "";
+        if(!ar){ mismatch = true; reason = "ไม่พบใน รับชำระ (ยังไม่ออก receipt?)"; }
+        else if(chq && Math.abs(chq.amount - ar.amount) > 0.005){
+          mismatch = true; reason = `เช็ครับ ${chq.amount} ≠ รับชำระ ${ar.amount}`;
+        }
+        return {
+          channel: routing.channel,
+          order_id: o.order_id,
+          cheque_no: "SP" + o.order_id,
+          txn_datetime: o.datetime,
+          txn_type: "order",
+          express_gross: gross,
+          shopee_net: net,
+          fee_diff: feeDiff,
+          receipt_no: ar ? ar.receipt_no : null,
+          has_receipt: !!ar,
+          has_cheque_deposit: !!chq,
+          existing_bq: chq ? chq.bq : null,
+          mismatch_flag: mismatch,
+          mismatch_reason: reason
+        };
+      });
+
+      const adjRows = adjustments.map(a => ({
+        channel: routing.channel,
+        order_id: a.order_id || "-",
+        cheque_no: a.order_id ? ("SP"+a.order_id) : null,
+        txn_datetime: a.datetime,
+        txn_type: "adjustment",
+        express_gross: 0,
+        shopee_net: a.amount,
+        fee_diff: 0,
+        receipt_no: null,
+        has_receipt: false,
+        has_cheque_deposit: false,
+        existing_bq: null,
+        mismatch_flag: false,
+        mismatch_reason: "",
+        desc: a.desc
+      }));
+
+      const sumGross = orderRows.reduce((s,o)=> s + (o.express_gross||0), 0);
+      const totalFee = orderRows.reduce((s,o)=> s + (o.fee_diff||0), 0);
+      const mismatchCount = orderRows.filter(o=>o.mismatch_flag).length;
+
+      withdrawals.push({
+        channel: routing.channel,
+        shop_name: shopName,
+        bank_code: routing.bankCode,
+        bank_account_no: routing.accountNo,
+        company_id_slug: routing.companyId,
+        withdraw_datetime: tx.datetime,
+        withdraw_date: tx.txn_date,
+        withdraw_amount: wdAmount,
+        bq_number: bq,
+        description: `รับเงินจากการขาย ${routing.descSuffix}`,
+        order_count: orderRows.length,
+        sum_gross: +sumGross.toFixed(2),
+        sum_net: +sumNet.toFixed(2),
+        total_fee: +totalFee.toFixed(2),
+        adjustment_amount: +adjAmount.toFixed(2),
+        mismatch_count: mismatchCount,
+        orders: orderRows,
+        adjustments: adjRows
+      });
+
+      buffer = [];
+      prevWdTime = tx.datetime;
+    } else if(tx.type === "รายรับจากคำสั่งซื้อ" || tx.type === "รายการปรับปรุง"){
+      buffer.push(tx);
+    }
+  }
+  return withdrawals;
+}
+
+/* ============================================================
+   UPLOAD MODAL + FLOW
+   ============================================================ */
+function bmpOpenUpload(){
+  const d = brecGet();
+  d.mp.uploadOpen = true;
+  renderToolBankRec();
+  // build modal
+  bmpRenderUploadModal();
+}
+function bmpCloseUpload(){
+  const d = brecGet();
+  d.mp.uploadOpen = false;
+  d.mp.files = { shopee:null, receipt:null, cheque:null };
+  const m = document.getElementById("bmpUploadModal"); if(m) m.remove();
+  renderToolBankRec();
+}
+function bmpRenderUploadModal(){
+  const old = document.getElementById("bmpUploadModal"); if(old) old.remove();
+  const d = brecGet();
+  const f = d.mp.files;
+  const ready = !!(f.shopee && f.receipt && f.cheque);
+  const html = `
+    <div id="bmpUploadModal" style="position:fixed;inset:0;background:rgba(15,23,42,.5);display:flex;align-items:center;justify-content:center;z-index:9999;backdrop-filter:blur(4px)">
+      <div style="background:#fff;width:600px;max-width:90vw;border-radius:16px;padding:22px;box-shadow:0 20px 60px rgba(0,0,0,.3)">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><i data-lucide="shopping-bag" style="color:#f59e0b"></i><h3 style="margin:0;font-size:17px">อัปโหลด Marketplace — 3 ไฟล์</h3></div>
+        <div style="font-size:12.5px;color:var(--ink-3);margin-bottom:14px">ต้องอัปครบทั้ง 3 ไฟล์ — ระบบจะดึง shop name → company + bank อัตโนมัติ</div>
+        <div style="display:flex;flex-direction:column;gap:10px">
+          ${bmpFileBox('shopee', 'Shopee Balance Transaction Report', '.xlsx', f.shopee)}
+          ${bmpFileBox('receipt', 'Express รายงานการรับชำระหนี้', '.csv', f.receipt)}
+          ${bmpFileBox('cheque', 'Express รายงานเช็ครับ (เรียงตามวันที่นำฝาก)', '.csv', f.cheque)}
+        </div>
+        <div style="display:flex;gap:8px;margin-top:18px">
+          <button class="brec-btn" onclick="bmpCloseUpload()" style="flex:1">ยกเลิก</button>
+          <button class="brec-btn primary" onclick="bmpRunUpload()" style="flex:1" ${ready?'':'disabled'}><i data-lucide="zap"></i> วิเคราะห์ + บันทึก</button>
+        </div>
+      </div>
+    </div>`;
+  document.body.insertAdjacentHTML("beforeend", html);
+  if(window.lucide) try{ window.lucide.createIcons(); }catch(e){}
+}
+function bmpFileBox(key, label, accept, file){
+  const filled = !!file;
+  return `<div style="border:2px dashed ${filled?'#16a34a':'#cbd5e1'};border-radius:10px;padding:12px;background:${filled?'#f0fdf4':'#f8fafc'}">
+    <div style="display:flex;align-items:center;gap:10px">
+      <i data-lucide="${filled?'check-circle-2':'upload'}" style="color:${filled?'#16a34a':'#64748b'};width:20px;height:20px"></i>
+      <div style="flex:1">
+        <div style="font-size:13px;font-weight:600;color:var(--ink)">${label}</div>
+        <div style="font-size:11.5px;color:var(--ink-3)">${filled? file.name : 'รองรับ '+accept}</div>
+      </div>
+      <label style="background:#fff;border:1px solid var(--line);padding:5px 10px;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer">
+        ${filled?'เปลี่ยน':'เลือกไฟล์'}
+        <input type="file" accept="${accept}" style="display:none" onchange="bmpFilePicked('${key}',this.files[0])">
+      </label>
+    </div>
+  </div>`;
+}
+function bmpFilePicked(kind, file){
+  const d = brecGet();
+  d.mp.files[kind] = file;
+  bmpRenderUploadModal();
+}
+
+async function bmpRunUpload(){
+  const d = brecGet();
+  const f = d.mp.files;
+  if(!f.shopee || !f.receipt || !f.cheque){ alert("เลือกไฟล์ครบ 3 ไฟล์ก่อน"); return; }
+  const co = d.companyId || await fopCompanyId();
+  if(!co){ alert("หา company_id ไม่เจอ"); return; }
+  d.companyId = co; d.mp.parsing = true; bmpRenderUploadModal();
+  try{
+    // parse 3 files
+    const shopeeBuf = await f.shopee.arrayBuffer();
+    const shopeeWb = XLSX.read(shopeeBuf, { type:"array", cellDates:false });
+    const shopeeData = bmpParseShopeeBalance(shopeeWb);
+
+    const recText = bmpDecodeCp874(await f.receipt.arrayBuffer());
+    const arData = bmpParseArReceipt(recText);
+
+    const chqText = bmpDecodeCp874(await f.cheque.arrayBuffer());
+    const chqData = bmpParseChequeReport(chqText);
+
+    // route by shop name → check company match
+    const routing = bmpRouting(shopeeData.shopName);
+    if(routing.companyId && routing.companyId !== state.company){
+      const ok = confirm(`Shop "${shopeeData.shopName}" ควรอยู่ที่บริษัท ${routing.companyId} แต่ตอนนี้เลือก ${state.company}\n\nสลับบริษัทแล้วลองใหม่ — กดตกลงเพื่อสลับ`);
+      if(ok){ setCompany(routing.companyId); bmpCloseUpload(); return; }
+    }
+
+    // ensure bank account exists
+    let acctId = null;
+    if(routing.bankCode && routing.accountNo){
+      acctId = await brecEnsureAccount(co, routing.bankCode, routing.accountNo);
+    }
+
+    // group withdrawals
+    const withdrawals = bmpGroupWithdrawals(shopeeData, arData, chqData, shopeeData.shopName);
+    if(!withdrawals.length){
+      alert("ไม่พบ withdrawal events ในไฟล์ Shopee");
+      d.mp.parsing = false; bmpRenderUploadModal(); return;
+    }
+    const totalOrders = withdrawals.reduce((s,w)=> s + w.orders.length, 0);
+    const totalMismatch = withdrawals.reduce((s,w)=> s + w.mismatch_count, 0);
+
+    // file_hash + insert import row
+    const hash = brecHash(`${f.shopee.name}|${f.shopee.size}|${f.receipt.name}|${f.receipt.size}|${f.cheque.name}|${f.cheque.size}`);
+    const { data:dup } = await sb.from("brec_mp_imports").select("id,created_at")
+      .eq("company_id", co).eq("file_hash", hash).is("deleted_at", null);
+    if(dup && dup.length){
+      const cont = confirm(`ไฟล์ชุดนี้เคยอัปเมื่อ ${new Date(dup[0].created_at).toLocaleString("th-TH")}\n\nดำเนินการต่อจะนำเข้าซ้ำ — ใช่ไหม?`);
+      if(!cont){ d.mp.parsing=false; bmpRenderUploadModal(); return; }
+    }
+    const { data:imp, error:ie } = await sb.from("brec_mp_imports").insert({
+      company_id: co, bank_account_id: acctId,
+      channel: routing.channel, shop_name: shopeeData.shopName,
+      shopee_filename: f.shopee.name, receipt_filename: f.receipt.name, cheque_filename: f.cheque.name,
+      file_hash: hash,
+      period_from: shopeeData.periodFrom, period_to: shopeeData.periodTo,
+      withdrawal_count: withdrawals.length, order_count: totalOrders, mismatch_count: totalMismatch
+    }).select("id").single();
+    if(ie) throw ie;
+    const importId = imp.id;
+
+    // insert withdrawals + orders
+    for(const wd of withdrawals){
+      const { data:wdRow, error:we } = await sb.from("brec_mp_withdrawals").insert({
+        company_id: co, bank_account_id: acctId, import_id: importId,
+        channel: wd.channel, shop_name: wd.shop_name,
+        withdraw_datetime: wd.withdraw_datetime, withdraw_date: wd.withdraw_date,
+        withdraw_amount: wd.withdraw_amount, bq_number: wd.bq_number,
+        description: wd.description, order_count: wd.order_count,
+        sum_gross: wd.sum_gross, sum_net: wd.sum_net,
+        total_fee: wd.total_fee, adjustment_amount: wd.adjustment_amount,
+        mismatch_count: wd.mismatch_count
+      }).select("id").single();
+      if(we) throw we;
+      const wdId = wdRow.id;
+      const orderInserts = [...wd.orders, ...wd.adjustments].map(o => ({
+        company_id: co, withdrawal_id: wdId, channel: o.channel,
+        order_id: o.order_id, cheque_no: o.cheque_no,
+        txn_datetime: o.txn_datetime, txn_type: o.txn_type,
+        express_gross: o.express_gross, shopee_net: o.shopee_net, fee_diff: o.fee_diff,
+        receipt_no: o.receipt_no, has_receipt: o.has_receipt,
+        has_cheque_deposit: o.has_cheque_deposit, existing_bq: o.existing_bq,
+        mismatch_flag: o.mismatch_flag, mismatch_reason: o.mismatch_reason,
+        note: o.desc || null
+      }));
+      const CHUNK = 200;
+      for(let i=0;i<orderInserts.length;i+=CHUNK){
+        const { error:oe } = await sb.from("brec_mp_orders").insert(orderInserts.slice(i,i+CHUNK));
+        if(oe) throw oe;
+      }
+    }
+
+    d.mp.lastImportId = importId;
+    d.tab = "mp";
+    await bmpLoadFromDb();
+    bmpCloseUpload();
+    alert(`อัปสำเร็จ — withdrawal ${withdrawals.length} รายการ · order ${totalOrders} · ไม่ตรง ${totalMismatch}`);
+  } catch(e){
+    alert("อัปไม่สำเร็จ: " + (e.message||e));
+    d.mp.parsing = false; bmpRenderUploadModal();
+  }
+}
+
+/* ------- LOAD from DB (latest import per company) ------- */
+async function bmpLoadFromDb(){
+  const d = brecGet();
+  const co = d.companyId || await fopCompanyId();
+  if(!co) return;
+  d.companyId = co;
+  // load all mp withdrawals + orders for the period (use brec period)
+  const { from, to } = brecComputePeriod(d);
+  const { data:wds, error:we } = await sb.from("brec_mp_withdrawals").select("*")
+    .eq("company_id", co).is("deleted_at", null)
+    .gte("withdraw_date", from).lte("withdraw_date", to)
+    .order("withdraw_datetime",{ascending:true});
+  if(we){ console.warn("mp wds load fail", we); return; }
+  const wdIds = (wds||[]).map(w=>w.id);
+  let orders = [];
+  if(wdIds.length){
+    const { data:os } = await sb.from("brec_mp_orders").select("*")
+      .in("withdrawal_id", wdIds).is("deleted_at", null);
+    orders = os || [];
+  }
+  d.mp.withdrawals = wds || [];
+  d.mp.orders = orders;
+  d.mp.mismatchOrders = orders.filter(o => o.mismatch_flag);
+}
+
+/* ------- DELETE a withdrawal (soft) ------- */
+async function bmpDeleteWithdrawal(id){
+  if(!confirm("ลบ withdrawal นี้?")) return;
+  const ts = new Date().toISOString();
+  await sb.from("brec_mp_withdrawals").update({ deleted_at: ts }).eq("id", id);
+  await sb.from("brec_mp_orders").update({ deleted_at: ts }).eq("withdrawal_id", id);
+  await bmpLoadFromDb(); renderToolBankRec();
+}
+
+/* ------- EXPAND / COLLAPSE card ------- */
+function bmpToggleExpand(id){
+  const d = brecGet();
+  if(d.mp.expanded.has(id)) d.mp.expanded.delete(id); else d.mp.expanded.add(id);
+  renderToolBankRec();
+}
+
+/* ------- EXPORT main CSV (9 cols) ------- */
+function bmpExportCsv(){
+  const d = brecGet();
+  if(!d.mp.withdrawals.length){ alert("ไม่มีข้อมูลให้ export"); return; }
+  const co = COMPANIES.find(c=>c.id===state.company);
+  const ordersByWd = new Map();
+  for(const o of d.mp.orders){
+    if(!ordersByWd.has(o.withdrawal_id)) ordersByWd.set(o.withdrawal_id, []);
+    ordersByWd.get(o.withdrawal_id).push(o);
+  }
+  const lines = [
+    ["No","เลขที่ BQ","วันที่เงินเข้าบัญชี (DD/MM/YY)","เลขที่เช็ค","มูลค่าเช็ค EXPRESS","เงินที่ออกสุทธิของออเดอร์","ผลต่าง","ค่าธรรมเนียมรวม","คำอธิบายรายการ"]
+  ];
+  let no = 0;
+  for(const wd of d.mp.withdrawals){
+    const list = (ordersByWd.get(wd.id)||[]).filter(o=>o.txn_type==="order");
+    // skip ทั้ง withdrawal ถ้ามี mismatch (กันคีย์ผิด)
+    if(wd.mismatch_count > 0) continue;
+    const dt = bmpFmtThaiShort(wd.withdraw_date);
+    list.forEach((o, idx) => {
+      no++;
+      const isFirst = idx === 0;
+      lines.push([
+        no,
+        isFirst ? wd.bq_number : "",
+        isFirst ? dt : "",
+        o.cheque_no || "",
+        Number(o.express_gross||0).toFixed(2),
+        Number(o.shopee_net||0).toFixed(2),
+        Number(o.fee_diff||0).toFixed(2),
+        isFirst ? Number(wd.total_fee||0).toFixed(2) : "",
+        isFirst ? (wd.description||"") : ""
+      ]);
+    });
+  }
+  // CSV with BOM for Excel Thai
+  const csv = "﻿" + lines.map(r => r.map(v => {
+    const s = String(v==null?"":v);
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g,'""')}"` : s;
+  }).join(",")).join("\r\n");
+  const blob = new Blob([csv], { type:"text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  const p = brecComputePeriod(d);
+  a.href = url; a.download = `BQ_${co.code}_${p.from}_${p.to}.csv`; a.click();
+  URL.revokeObjectURL(url);
+}
+
+/* ------- EXPORT mismatch (Excel) ------- */
+function bmpExportMismatchXlsx(){
+  const d = brecGet();
+  if(!d.mp.mismatchOrders.length){ alert("ไม่พบรายการที่ไม่ตรง"); return; }
+  const co = COMPANIES.find(c=>c.id===state.company);
+  const wdById = new Map(d.mp.withdrawals.map(w=>[w.id,w]));
+  const rows = d.mp.mismatchOrders.map(o => {
+    const wd = wdById.get(o.withdrawal_id);
+    return {
+      "วันที่ถอน": wd?.withdraw_date,
+      "BQ (gen)": wd?.bq_number,
+      "เลขที่เช็ค": o.cheque_no,
+      "Express gross": Number(o.express_gross||0),
+      "Shopee net": Number(o.shopee_net||0),
+      "ผลต่าง": Number(o.fee_diff||0),
+      "มี receipt?": o.has_receipt ? "✓" : "✗",
+      "มี deposit แล้ว?": o.has_cheque_deposit ? "✓ ("+(o.existing_bq||"")+")" : "✗",
+      "เหตุผล": o.mismatch_reason
+    };
+  });
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), "ออเดอร์ไม่ตรง");
+  const p = brecComputePeriod(d);
+  XLSX.writeFile(wb, `Mismatch_${co.code}_${p.from}_${p.to}.xlsx`);
+}
+
+/* ------- helpers for UI ------- */
+function bmpFmtThaiShort(iso){
+  if(!iso) return "";
+  const [y,m,d] = iso.split("-");
+  return `${d}/${m}/${y.slice(2)}`;
+}
+function bmpFmtMoney(n){
+  return Number(n||0).toLocaleString("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2});
+}
+
+/* ============================================================
+   RENDER — Marketplace tab body
+   ============================================================ */
+function bmpRenderTab(d){
+  const wds = d.mp.withdrawals || [];
+  const orders = d.mp.orders || [];
+  if(!wds.length){
+    return `<div class="brec-empty">
+      <i data-lucide="shopping-bag" style="color:#f59e0b"></i>
+      <div class="ttl">ยังไม่มีรายการ Marketplace</div>
+      <div>กดปุ่ม <b>Marketplace (3 ไฟล์)</b> ที่ toolbar เพื่ออัป Shopee balance + Express รับชำระ + Express เช็ครับ</div>
+    </div>`;
+  }
+  const ordersByWd = new Map();
+  for(const o of orders){
+    if(!ordersByWd.has(o.withdrawal_id)) ordersByWd.set(o.withdrawal_id,[]);
+    ordersByWd.get(o.withdrawal_id).push(o);
+  }
+  const totalNet = wds.reduce((s,w)=> s + Number(w.withdraw_amount||0), 0);
+  const totalFee = wds.reduce((s,w)=> s + Number(w.total_fee||0), 0);
+  const totalMismatch = wds.reduce((s,w)=> s + (w.mismatch_count||0), 0);
+  const exportable = wds.filter(w => (w.mismatch_count||0) === 0).length;
+
+  const cards = wds.map(wd => {
+    const ords = ordersByWd.get(wd.id) || [];
+    const orderRows = ords.filter(o => o.txn_type === "order");
+    const adjRows = ords.filter(o => o.txn_type === "adjustment");
+    const isExpanded = d.mp.expanded.has(wd.id);
+    const hasMismatch = (wd.mismatch_count||0) > 0;
+    const dateThai = bmpFmtThaiShort(wd.withdraw_date);
+    const accountLabel = wd.bank_account_id
+      ? (d.accounts.find(a=>a.id===wd.bank_account_id)?.bank_code+" "+d.accounts.find(a=>a.id===wd.bank_account_id)?.account_no || "—")
+      : "—";
+
+    return `<div class="bmp-card ${hasMismatch?'warn':''}">
+      <div class="bmp-head" onclick="bmpToggleExpand('${wd.id}')">
+        <div class="bmp-h1">
+          <span class="bmp-chip">🛒 ${esc(wd.channel)}</span>
+          <span class="bmp-shop">${esc(wd.shop_name||"")}</span>
+          ${hasMismatch ? `<span class="bmp-warn">⚠️ ไม่ตรง ${wd.mismatch_count}</span>` : `<span class="bmp-ok">✓ ตรงครบ</span>`}
+        </div>
+        <div class="bmp-h2">
+          <div><span class="lbl">วันที่ถอน</span><span class="val">${dateThai}</span></div>
+          <div><span class="lbl">BQ</span><span class="val mono">${esc(wd.bq_number||"-")}</span></div>
+          <div><span class="lbl">ยอดเข้าธนาคาร</span><span class="val money">${bmpFmtMoney(wd.withdraw_amount)}</span></div>
+          <div><span class="lbl">บัญชีปลายทาง</span><span class="val">${esc(accountLabel)}</span></div>
+          <div><span class="lbl">ค่าธรรมเนียม</span><span class="val money">${bmpFmtMoney(wd.total_fee)}</span></div>
+          <div><span class="lbl">ออเดอร์</span><span class="val">${wd.order_count}</span></div>
+        </div>
+        <div class="bmp-desc">📝 ${esc(wd.description||"")}</div>
+        <div class="bmp-toggle"><i data-lucide="${isExpanded?'chevron-up':'chevron-down'}"></i> ${isExpanded?'ซ่อน':'ขยาย'}ดูออเดอร์ (${orderRows.length}${adjRows.length?` + adj ${adjRows.length}`:''})</div>
+      </div>
+      ${isExpanded ? `<div class="bmp-body">
+        <table class="bmp-tbl">
+          <thead><tr>
+            <th>#</th><th>เลขที่เช็ค</th><th class="r">gross EXPRESS</th><th class="r">net Shopee</th><th class="r">ผลต่าง</th><th>สถานะ</th>
+          </tr></thead>
+          <tbody>
+            ${orderRows.map((o,i) => `<tr class="${o.mismatch_flag?'mis':''}">
+              <td>${i+1}</td>
+              <td class="mono">${esc(o.cheque_no||"")}</td>
+              <td class="r money">${bmpFmtMoney(o.express_gross)}</td>
+              <td class="r money">${bmpFmtMoney(o.shopee_net)}</td>
+              <td class="r money">${bmpFmtMoney(o.fee_diff)}</td>
+              <td>${o.mismatch_flag?`<span class="bmp-misflag">⚠️ ${esc(o.mismatch_reason)}</span>`:(o.existing_bq?`<span style="font-size:11px;color:#475569">deposit แล้ว → BQ ${esc(o.existing_bq)}</span>`:`<span style="color:#16a34a">✓</span>`)}</td>
+            </tr>`).join("")}
+            ${adjRows.map(a => `<tr class="adj">
+              <td>·</td>
+              <td colspan="3">📌 ${esc(a.note||"adjustment")}</td>
+              <td class="r money">${bmpFmtMoney(a.shopee_net)}</td>
+              <td><span style="color:#64748b">ปรับปรุง</span></td>
+            </tr>`).join("")}
+          </tbody>
+        </table>
+        <div style="margin-top:8px;display:flex;justify-content:flex-end;gap:6px">
+          <button class="brec-btn warn" onclick="bmpDeleteWithdrawal('${wd.id}')"><i data-lucide="trash-2"></i> ลบ withdrawal นี้</button>
+        </div>
+      </div>` : ''}
+    </div>`;
+  }).join("");
+
+  return `
+    <div class="bmp-sum">
+      <div class="bmp-sc"><div class="l">Withdrawal</div><div class="v">${wds.length}</div></div>
+      <div class="bmp-sc"><div class="l">รวม net เข้าแบงค์</div><div class="v">${bmpFmtMoney(totalNet)}</div></div>
+      <div class="bmp-sc"><div class="l">รวมค่าธรรมเนียม</div><div class="v">${bmpFmtMoney(totalFee)}</div></div>
+      <div class="bmp-sc ${totalMismatch?'warn':'ok'}"><div class="l">${totalMismatch?'⚠️ ออเดอร์ไม่ตรง':'✓ ผ่านการตรวจ'}</div><div class="v">${totalMismatch||"0"}</div></div>
+      <div class="bmp-sc"><div class="l">พร้อม export</div><div class="v">${exportable}/${wds.length}</div></div>
+    </div>
+    <div style="display:flex;gap:8px;margin:0 0 12px">
+      <button class="brec-btn primary" onclick="bmpExportCsv()"><i data-lucide="download"></i> ⬇ Export CSV (ข้ามที่ไม่ตรง)</button>
+      <button class="brec-btn" onclick="bmpExportMismatchXlsx()" ${totalMismatch?'':'disabled'}><i data-lucide="file-warning"></i> ⬇ รายงานไม่ตรง (Excel)</button>
+    </div>
+    <div class="bmp-cards">${cards}</div>
+  `;
+}
+
+/* ============================================================
+   CSS for marketplace
+   ============================================================ */
+function bmpInjectCSS(){
+  if(document.getElementById("bmp-styles")) return;
+  const s = document.createElement("style"); s.id = "bmp-styles";
+  s.textContent = `
+  .bmp-sum{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-top:14px;margin-bottom:12px}
+  .bmp-sc{background:#fff;border:1px solid var(--line,#e2e8f0);border-radius:12px;padding:12px 14px}
+  .bmp-sc .l{font-size:11px;color:var(--ink-3,#94a3b8);font-weight:700;text-transform:uppercase;letter-spacing:.3px}
+  .bmp-sc .v{font-size:20px;font-weight:700;font-feature-settings:'tnum';margin-top:4px}
+  .bmp-sc.warn .v{color:#dc2626}
+  .bmp-sc.ok .v{color:#16a34a}
+  .bmp-cards{display:flex;flex-direction:column;gap:10px}
+  .bmp-card{background:#fff;border:1px solid var(--line,#e2e8f0);border-left:4px solid #16a34a;border-radius:12px;overflow:hidden;box-shadow:0 1px 2px rgba(15,23,42,.04)}
+  .bmp-card.warn{border-left-color:#dc2626;background:#fffbfb}
+  .bmp-head{padding:12px 14px;cursor:pointer;transition:.1s}
+  .bmp-head:hover{background:#f8fafc}
+  .bmp-card.warn .bmp-head:hover{background:#fef2f2}
+  .bmp-h1{display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap}
+  .bmp-chip{background:#fef3c7;color:#92400e;font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px;letter-spacing:.3px}
+  .bmp-shop{font-size:13px;font-weight:700;color:var(--ink-2,#475569);font-family:"IBM Plex Sans",monospace}
+  .bmp-warn{background:#fee2e2;color:#991b1b;font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px;margin-left:auto}
+  .bmp-ok{background:#dcfce7;color:#166534;font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px;margin-left:auto}
+  .bmp-h2{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:8px}
+  .bmp-h2>div{display:flex;flex-direction:column;gap:1px}
+  .bmp-h2 .lbl{font-size:10.5px;color:var(--ink-3,#94a3b8);font-weight:600;text-transform:uppercase;letter-spacing:.2px}
+  .bmp-h2 .val{font-size:13.5px;font-weight:600;color:var(--ink,#0f172a)}
+  .bmp-h2 .val.money{font-feature-settings:'tnum'}
+  .bmp-h2 .val.mono{font-family:"IBM Plex Sans",monospace;font-size:12.5px}
+  .bmp-desc{font-size:12.5px;color:var(--ink-2,#475569);margin-bottom:8px;padding:6px 10px;background:#f1f5f9;border-radius:6px}
+  .bmp-toggle{font-size:12px;color:#2563eb;font-weight:600;display:flex;align-items:center;gap:4px}
+  .bmp-toggle i{width:14px;height:14px}
+  .bmp-body{padding:8px 14px 14px;border-top:1px solid var(--line,#e2e8f0);background:#fafbfc}
+  .bmp-tbl{width:100%;border-collapse:collapse;font-size:12.5px}
+  .bmp-tbl th,.bmp-tbl td{padding:6px 8px;border-bottom:1px solid #f1f5f9;text-align:left}
+  .bmp-tbl th{font-size:10.5px;color:var(--ink-2,#475569);text-transform:uppercase;letter-spacing:.3px;font-weight:700;background:#f8fafc}
+  .bmp-tbl td.r,.bmp-tbl th.r{text-align:right}
+  .bmp-tbl td.mono{font-family:"IBM Plex Sans",monospace;font-size:11.5px}
+  .bmp-tbl td.money{font-feature-settings:'tnum'}
+  .bmp-tbl tr.mis{background:#fef2f2}
+  .bmp-tbl tr.mis td{color:#991b1b}
+  .bmp-tbl tr.adj{background:#f8fafc;font-style:italic}
+  .bmp-misflag{background:#fee2e2;color:#991b1b;font-size:10.5px;font-weight:600;padding:2px 7px;border-radius:5px}
+  .brec-btn.warn{background:#fee2e2;color:#991b1b;border-color:#fecaca}
+  .brec-btn.warn:hover{background:#fecaca}
+  `;
+  document.head.appendChild(s);
+}
+
+/* hook: inject CSS + auto load mp data when bankrec opens */
+const _origBrecInjectCSS = brecInjectCSS;
+brecInjectCSS = function(){ _origBrecInjectCSS(); bmpInjectCSS(); };
+
+const _origBrecLoad = brecLoad;
+brecLoad = async function(){
+  await _origBrecLoad();
+  try{ await bmpLoadFromDb(); }catch(e){ console.warn("bmp load fail", e); }
+};
 
 
 /* ---------- init ---------- */

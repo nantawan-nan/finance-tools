@@ -10191,13 +10191,20 @@ async function brecEnsureAccount(co, bankCode, accountNo){
   // Normalize accountNo: strip non-digits
   const norm = String(accountNo||"").replace(/\D/g,"");
   if(!norm || !bankCode) return null;
-  const { data } = await sb.from("bank_accounts").select("id,account_no,bank_code")
-    .eq("company_id", co).is("deleted_at", null);
+  // ★ ดึง "ทุก" บัญชี รวมที่ soft-delete แล้ว (unique constraint ไม่สนใจ deleted_at)
+  const { data } = await sb.from("bank_accounts").select("id,account_no,bank_code,deleted_at")
+    .eq("company_id", co);
   for(const a of (data||[])){
     if(String(a.bank_code||"").toUpperCase() === bankCode.toUpperCase()
-       && String(a.account_no||"").replace(/\D/g,"") === norm) return a.id;
+       && String(a.account_no||"").replace(/\D/g,"") === norm){
+      // ถ้าเคยถูกลบ → กู้คืน (un-delete) แทนการ insert ซ้ำ
+      if(a.deleted_at){
+        await sb.from("bank_accounts").update({ deleted_at:null, deleted_by:null, is_active:true }).eq("id", a.id);
+      }
+      return a.id;
+    }
   }
-  // create
+  // create ใหม่จริง ๆ
   const { data:ins, error } = await sb.from("bank_accounts").insert({
     company_id: co, bank_code: bankCode.toUpperCase(),
     account_no: norm, nickname: `${bankCode} ${norm}`,

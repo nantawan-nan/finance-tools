@@ -11970,9 +11970,10 @@ function bmpExportCsv(){
     // คำนวณ depositCode สด ๆ จาก shop_name (เผื่อ schema ยังไม่ persist deposit_code)
     const routing = bmpRouting(wd.shop_name);
     const depCode = routing.depositCode || "";
-    // recompute ค่าธรรมเนียมรวม = ยอดเช็ครวม + adjustment − ยอดเข้าแบงค์ (สด ๆ เผื่อแก้ gross)
+    // recompute ค่าธรรมเนียมที่บันทึก = |ยอดเช็ค+adj−แบงค์| − |adj| · เลขบวกเสมอ (Express คีย์บวก=หัก)
     const adjSum = allOrds.filter(o=>o.txn_type==="adjustment").reduce((s,o)=> s + Number(o.shopee_net||0), 0);
-    const feeTotal = list.reduce((s,o)=> s + Number(o.express_gross||0), 0) + adjSum - Number(wd.withdraw_amount||0);
+    const gapTotal = list.reduce((s,o)=> s + Number(o.express_gross||0), 0) + adjSum - Number(wd.withdraw_amount||0);
+    const feeTotal = Math.abs(gapTotal) - Math.abs(adjSum);
     list.forEach((o, idx) => {
       no++;
       const isFirst = idx === 0;
@@ -12092,7 +12093,10 @@ function bmpRenderTab(d){
     // ส่วนต่าง (ค่าธรรมเนียมที่คีย์หัก) = sum_gross + adj − ยอดเข้าแบงค์ (recompute สด ๆ เผื่อแก้)
     const liveGross = orderRows.reduce((s,o)=> s + Number(o.express_gross||0), 0);
     const liveAdj = adjRows.reduce((s,o)=> s + Number(o.shopee_net||0), 0);
-    const liveFee = +(liveGross + liveAdj - Number(wd.withdraw_amount||0)).toFixed(2);
+    const liveGap = +(liveGross + liveAdj - Number(wd.withdraw_amount||0)).toFixed(2);
+    // ★ ค่าธรรมเนียมที่บันทึกใน Express = บวกเสมอ + หักลบยอดปรับปรุงในกระเป๋า
+    //   เช่น gap 130, ปรับปรุง 73 → บันทึก 57 (Express คีย์เลขบวก = หักออก)
+    const liveFee = +(Math.abs(liveGap) - Math.abs(liveAdj)).toFixed(2);
     // shortfall: order ในงวด assign ไม่ครบยอดถอน (มียอดยกมาจากก่อนงวด)
     const isShortfall = (liveGross + liveAdj) < (Number(wd.withdraw_amount||0) - 1);
 
@@ -12121,20 +12125,20 @@ function bmpRenderTab(d){
         </div>
         ${(() => {
           const bankActual = bm.found ? Number(bm.row.deposit) : null;
-          const remain = +(liveGross + liveAdj - liveFee).toFixed(2);   // = withdraw_amount
+          const remain = Number(wd.withdraw_amount||0);   // ยอดเข้าแบงค์จริงตามรายงานถอน
           const stmOk = bankActual!=null && Math.abs(remain - bankActual) < 0.5;
           return `<div class="bmp-recon">
             <div class="bx"><span class="k">รวมเช็ค (Express)</span><span class="v">${bmpFmtMoney(liveGross)}</span></div>
             ${Math.abs(liveAdj)>0.005?`<div class="op">+</div><div class="bx"><span class="k">ปรับปรุงในกระเป๋า</span><span class="v">${bmpFmtMoney(liveAdj)}</span></div>`:''}
             <div class="op">−</div>
-            <div class="bx fee"><span class="k">หัก ค่าธรรมเนียม <small>(บันทึก 1 ยอด)</small></span><span class="v">${bmpFmtMoney(liveFee)}</span></div>
+            <div class="bx fee"><span class="k">หัก ค่าธรรมเนียม <small>(บันทึก 1 ยอด, เลขบวก)</small></span><span class="v">${bmpFmtMoney(liveFee)}</span></div>
             <div class="op">=</div>
             <div class="bx res"><span class="k">คงเหลือเข้าแบงค์</span><span class="v">${bmpFmtMoney(remain)}</span></div>
             <div class="op">${stmOk?'✓':(bankActual!=null?'✗':'·')}</div>
             <div class="bx ${stmOk?'good':(bankActual!=null?'no':'')}"><span class="k">เงินเข้าแบงค์จริง (STM)</span><span class="v">${bankActual!=null?bmpFmtMoney(bankActual):'— ไม่มี STM —'}</span></div>
           </div>
           ${isShortfall?`<div class="bmp-warnline">⚠️ order ในงวด assign ไม่ครบยอดถอน (มียอดยกมาจากก่อนงวด) — อัปไฟล์ Shopee ย้อนหลังเพิ่มเพื่อให้ครบ · ค่าธรรมเนียมที่โชว์ยังไม่ถูกต้อง</div>`:''}
-          ${(bankActual!=null && !stmOk)?`<div class="bmp-warnline">⚠️ คงเหลือ ${bmpFmtMoney(remain)} ≠ เงินเข้าแบงค์จริง ${bmpFmtMoney(bankActual)} — ต่าง ${bmpFmtMoney(remain-bankActual)}</div>`:''}`;
+          ${(bankActual!=null && !stmOk)?`<div class="bmp-warnline">⚠️ ยอดถอน ${bmpFmtMoney(remain)} ≠ เงินเข้าแบงค์จริง ${bmpFmtMoney(bankActual)} — ต่าง ${bmpFmtMoney(remain-bankActual)}</div>`:''}`;
         })()}
         <div class="bmp-toggle"><i data-lucide="${isExpanded?'chevron-up':'chevron-down'}"></i> ${isExpanded?'ซ่อน':'ขยาย'}ดูออเดอร์ (${orderRows.length}${adjRows.length?` + adj ${adjRows.length}`:''})</div>
       </div>

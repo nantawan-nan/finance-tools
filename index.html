@@ -11708,7 +11708,7 @@ async function bmpLoadFromDb(){
   }
   d.mp.withdrawals = wds || [];
   d.mp.orders = orders;
-  d.mp.mismatchOrders = orders.filter(o => o.mismatch_flag);
+  d.mp.mismatchOrders = orders.filter(o => o.mismatch_flag && !o.resolved);
 }
 
 /* ------- DELETE a withdrawal (soft) ------- */
@@ -11741,6 +11741,28 @@ function bmpToggleExpand(id){
   renderToolBankRec();
 }
 
+/* ------- effective mismatch (mismatch ที่ยังไม่ถูก resolved) ------- */
+function bmpEffMismatch(orders){
+  return (orders||[]).filter(o => o.mismatch_flag && !o.resolved).length;
+}
+
+/* ------- ติ๊ก "แก้แล้ว" ต่อ order ------- */
+async function bmpResolveOrder(orderId, checked){
+  if(!brecCanWrite()){ alert("ไม่มีสิทธิ์"); return; }
+  const d = brecGet();
+  // optimistic update local
+  const o = (d.mp.orders||[]).find(x=>x.id===orderId);
+  if(o) o.resolved = checked;
+  renderToolBankRec();
+  const patch = checked
+    ? { resolved:true, resolved_at: new Date().toISOString() }
+    : { resolved:false, resolved_at: null };
+  const { error } = await sb.from("brec_mp_orders").update(patch).eq("id", orderId);
+  if(error){ alert("บันทึกไม่สำเร็จ: "+(error.message||error)); if(o) o.resolved=!checked; renderToolBankRec(); return; }
+  d.mp.mismatchOrders = (d.mp.orders||[]).filter(x => x.mismatch_flag && !x.resolved);
+  renderToolBankRec();
+}
+
 /* ------- EXPORT main CSV (9 cols) ------- */
 function bmpExportCsv(){
   const d = brecGet();
@@ -11756,9 +11778,10 @@ function bmpExportCsv(){
   ];
   let no = 0;
   for(const wd of d.mp.withdrawals){
-    const list = (ordersByWd.get(wd.id)||[]).filter(o=>o.txn_type==="order");
-    // skip ทั้ง withdrawal ถ้ามี mismatch (กันคีย์ผิด)
-    if(wd.mismatch_count > 0) continue;
+    const allOrds = ordersByWd.get(wd.id)||[];
+    const list = allOrds.filter(o=>o.txn_type==="order");
+    // skip ทั้ง withdrawal ถ้ายังมี mismatch ที่ไม่ได้ติ๊ก "แก้แล้ว" (กันคีย์ผิด)
+    if(bmpEffMismatch(allOrds) > 0) continue;
     const dt = bmpFmtThaiShort(wd.withdraw_date);
     // คำนวณ depositCode สด ๆ จาก shop_name (เผื่อ schema ยังไม่ persist deposit_code)
     const routing = bmpRouting(wd.shop_name);
@@ -11849,15 +11872,17 @@ function bmpRenderTab(d){
   }
   const totalNet = wds.reduce((s,w)=> s + Number(w.withdraw_amount||0), 0);
   const totalFee = wds.reduce((s,w)=> s + Number(w.total_fee||0), 0);
-  const totalMismatch = wds.reduce((s,w)=> s + (w.mismatch_count||0), 0);
-  const exportable = wds.filter(w => (w.mismatch_count||0) === 0).length;
+  // ★ ใช้ effective mismatch (ไม่นับตัวที่ติ๊ก "แก้แล้ว")
+  const totalMismatch = wds.reduce((s,w)=> s + bmpEffMismatch(ordersByWd.get(w.id)||[]), 0);
+  const exportable = wds.filter(w => bmpEffMismatch(ordersByWd.get(w.id)||[]) === 0).length;
 
   const cards = wds.map(wd => {
     const ords = ordersByWd.get(wd.id) || [];
     const orderRows = ords.filter(o => o.txn_type === "order");
     const adjRows = ords.filter(o => o.txn_type === "adjustment");
     const isExpanded = d.mp.expanded.has(wd.id);
-    const hasMismatch = (wd.mismatch_count||0) > 0;
+    const effMis = bmpEffMismatch(ords);
+    const hasMismatch = effMis > 0;
     const dateThai = bmpFmtThaiShort(wd.withdraw_date);
     const accountLabel = wd.bank_account_id
       ? (d.accounts.find(a=>a.id===wd.bank_account_id)?.bank_code+" "+d.accounts.find(a=>a.id===wd.bank_account_id)?.account_no || "—")
@@ -11870,7 +11895,7 @@ function bmpRenderTab(d){
         <div class="bmp-h1">
           <span class="bmp-chip">🛒 ${esc(wd.channel)}</span>
           <span class="bmp-shop">${esc(wd.shop_name||"")}</span>
-          ${hasMismatch ? `<span class="bmp-warn">⚠️ ไม่ตรง ${wd.mismatch_count}</span>` : `<span class="bmp-ok">✓ ตรงครบ</span>`}
+          ${hasMismatch ? `<span class="bmp-warn">⚠️ ไม่ตรง ${effMis}</span>` : `<span class="bmp-ok">✓ ตรงครบ${(wd.mismatch_count||0)>0?' (แก้แล้ว)':''}</span>`}
         </div>
         <div class="bmp-h2">
           <div><span class="lbl">วันที่ถอน</span><span class="val">${dateThai}</span></div>
@@ -11886,25 +11911,32 @@ function bmpRenderTab(d){
       ${isExpanded ? `<div class="bmp-body">
         <table class="bmp-tbl">
           <thead><tr>
-            <th>#</th><th>เลขที่เช็ค</th><th class="r">gross EXPRESS</th><th class="r">net Shopee</th><th class="r">ผลต่าง</th><th>สถานะ</th>
+            <th>#</th><th>เลขที่เช็ค</th><th class="r">gross EXPRESS</th><th class="r">net Shopee</th><th class="r">ผลต่าง</th><th>สถานะ</th><th style="text-align:center">แก้แล้ว</th>
           </tr></thead>
           <tbody>
-            ${orderRows.map((o,i) => `<tr class="${o.mismatch_flag?'mis':''}">
+            ${orderRows.map((o,i) => {
+              const isMis = o.mismatch_flag;
+              const isResolved = !!o.resolved;
+              const rowCls = isMis && !isResolved ? "mis" : (isMis && isResolved ? "fixed" : "");
+              return `<tr class="${rowCls}">
               <td>${i+1}</td>
               <td class="mono">${esc(o.cheque_no||"")}</td>
               <td class="r money">${bmpFmtMoney(o.express_gross)}</td>
               <td class="r money">${bmpFmtMoney(o.shopee_net)}</td>
               <td class="r money">${bmpFmtMoney(o.fee_diff)}</td>
-              <td>${o.mismatch_flag?`<span class="bmp-misflag">⚠️ ${esc(o.mismatch_reason)}</span>`:(o.existing_bq?`<span style="font-size:11px;color:#475569">deposit แล้ว → BQ ${esc(o.existing_bq)}</span>`:`<span style="color:#16a34a">✓</span>`)}</td>
-            </tr>`).join("")}
+              <td>${isMis?(isResolved?`<span style="font-size:11px;color:#16a34a;font-weight:600">✓ แก้ไขแล้ว</span>`:`<span class="bmp-misflag">⚠️ ${esc(o.mismatch_reason)}</span>`):(o.existing_bq?`<span style="font-size:11px;color:#475569">deposit แล้ว → BQ ${esc(o.existing_bq)}</span>`:`<span style="color:#16a34a">✓</span>`)}</td>
+              <td style="text-align:center">${isMis?`<input type="checkbox" ${isResolved?'checked':''} onclick="event.stopPropagation()" onchange="bmpResolveOrder('${o.id}', this.checked)" style="width:16px;height:16px;accent-color:#16a34a;cursor:pointer" title="ติ๊กถ้าแก้ไขใน Express แล้ว — จะนับ withdrawal นี้พร้อม export">`:''}</td>
+            </tr>`;
+            }).join("")}
             ${adjRows.map(a => `<tr class="adj">
               <td>·</td>
               <td colspan="3">📌 ${esc(a.note||"adjustment")}</td>
               <td class="r money">${bmpFmtMoney(a.shopee_net)}</td>
-              <td><span style="color:#64748b">ปรับปรุง</span></td>
+              <td colspan="2"><span style="color:#64748b">ปรับปรุง</span></td>
             </tr>`).join("")}
           </tbody>
         </table>
+        ${effMis>0?`<div style="margin-top:6px;font-size:11.5px;color:#92400e;background:#fef3c7;border-radius:6px;padding:6px 10px">💡 ติ๊ก "แก้แล้ว" ที่ออเดอร์ที่จัดการใน Express เรียบร้อยแล้ว — เมื่อครบทุกตัว withdrawal นี้จะพร้อม export โดยไม่ต้องดึงรายงานใหม่</div>`:''}
         <div style="margin-top:8px;display:flex;justify-content:flex-end;gap:6px">
           <button class="brec-btn warn" onclick="bmpDeleteWithdrawal('${wd.id}')"><i data-lucide="trash-2"></i> ลบ withdrawal นี้</button>
         </div>
@@ -11972,6 +12004,8 @@ function bmpInjectCSS(){
   .bmp-tbl td.money{font-feature-settings:'tnum'}
   .bmp-tbl tr.mis{background:#fef2f2}
   .bmp-tbl tr.mis td{color:#991b1b}
+  .bmp-tbl tr.fixed{background:#f0fdf4}
+  .bmp-tbl tr.fixed td{color:#166534}
   .bmp-tbl tr.adj{background:#f8fafc;font-style:italic}
   .bmp-misflag{background:#fee2e2;color:#991b1b;font-size:10.5px;font-weight:600;padding:2px 7px;border-radius:5px}
   .brec-btn.warn{background:#fee2e2;color:#991b1b;border-color:#fecaca}

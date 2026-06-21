@@ -11730,31 +11730,26 @@ async function bmpLoadFromDb(){
   d.mp.orders = orders;
   d.mp.mismatchOrders = orders.filter(o => o.mismatch_flag && !o.resolved);
 
-  // ★ โหลด bank deposit rows ของทุกบัญชีที่ withdrawal เข้า → match กับ STM
-  const acctIds = [...new Set((wds||[]).map(w=>w.bank_account_id).filter(Boolean))];
-  d.mp.bankByAcct = {};
-  if(acctIds.length){
-    const { data:bankRows } = await sb.from("brec_bank_rows").select("id,bank_account_id,txn_date,deposit,description,ref_note")
-      .in("bank_account_id", acctIds)
-      .is("deleted_at", null)
-      .gt("deposit", 0);
-    for(const r of (bankRows||[])){
-      const k = r.bank_account_id;
-      if(!d.mp.bankByAcct[k]) d.mp.bankByAcct[k] = [];
-      d.mp.bankByAcct[k].push(r);
-    }
-  }
+  // ★ โหลด bank deposit rows "ทั้งบริษัท" (ไม่ผูก account_id) → match กับ STM
+  // เพราะ withdrawal กับ statement อาจอยู่คนละ account record (เลขบัญชี normalize ต่างกัน)
+  const { data:bankRows } = await sb.from("brec_bank_rows")
+    .select("id,bank_account_id,txn_date,deposit,description,ref_note")
+    .eq("company_id", co)
+    .is("deleted_at", null)
+    .gt("deposit", 0)
+    .order("txn_date",{ascending:true});
+  d.mp.bankRows = bankRows || [];
 }
 
-/* match 1 withdrawal กับ bank statement (deposit ตรงวัน+ยอด) → คืน bank row หรือ null */
+/* match 1 withdrawal กับ bank statement (deposit ตรงวัน+ยอด ทั้งบริษัท) */
 function bmpMatchBank(d, wd){
-  const rows = (d.mp.bankByAcct||{})[wd.bank_account_id];
-  if(!rows || !rows.length) return { found:false, hasStmt:false };
+  const rows = d.mp.bankRows || [];
+  if(!rows.length) return { found:false, hasStmt:false };
   const amt = Number(wd.withdraw_amount||0);
-  // วันตรงเป๊ะ + ยอดตรง (กฎเดียวกับ Full Bank Recon)
+  // วันตรงเป๊ะ + ยอดตรง
   let hit = rows.find(r => r.txn_date === wd.withdraw_date && Math.abs(Number(r.deposit)-amt) < 0.5);
   if(hit) return { found:true, exact:true, row:hit, hasStmt:true };
-  // ยอดตรง วันต่าง (±2 วัน) — เผื่อ value date
+  // ยอดตรง วันต่าง — เผื่อ value date / timing
   hit = rows.find(r => Math.abs(Number(r.deposit)-amt) < 0.5);
   if(hit) return { found:true, exact:false, row:hit, hasStmt:true };
   return { found:false, hasStmt:true };

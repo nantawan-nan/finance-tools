@@ -9823,6 +9823,9 @@ function brecGet(){
   if(!Array.isArray(state.brec[co].mp.files.sales))   state.brec[co].mp.files.sales = [];
   if(!Array.isArray(state.brec[co].mp.files.receipt)) state.brec[co].mp.files.receipt = [];
   if(!Array.isArray(state.brec[co].mp.files.cheque))  state.brec[co].mp.files.cheque = [];
+  if(!state.brec[co].mp.selected) state.brec[co].mp.selected = new Set();
+  if(!state.brec[co].mp.filterChannel) state.brec[co].mp.filterChannel = "all";
+  if(!state.brec[co].mp.filterAccount) state.brec[co].mp.filterAccount = "all";
   return state.brec[co];
 }
 function brecCanWrite(){ return !!(AUTH.role && ["admin","finance_mgr","accountant","treasury"].includes(AUTH.role)); }
@@ -11758,6 +11761,35 @@ function bmpToggleExpand(id){
   renderToolBankRec();
 }
 
+/* ------- เลือก withdrawal สำหรับ export ------- */
+function bmpToggleSelectWd(id){
+  const d = brecGet();
+  if(d.mp.selected.has(id)) d.mp.selected.delete(id); else d.mp.selected.add(id);
+  renderToolBankRec();
+}
+function bmpSelectAllWd(ids){
+  const d = brecGet();
+  const all = ids.every(i=>d.mp.selected.has(i));
+  if(all) ids.forEach(i=>d.mp.selected.delete(i)); else ids.forEach(i=>d.mp.selected.add(i));
+  renderToolBankRec();
+}
+function bmpSetFilter(kind, val){
+  const d = brecGet();
+  if(kind==="channel") d.mp.filterChannel = val;
+  else if(kind==="account") d.mp.filterAccount = val;
+  renderToolBankRec();
+}
+/* ออก withdrawal ที่ผ่าน filter ปัจจุบัน */
+function bmpFilteredWds(d){
+  const fc = d.mp.filterChannel || "all";
+  const fa = d.mp.filterAccount || "all";
+  return (d.mp.withdrawals||[]).filter(w => {
+    if(fc !== "all" && (w.channel||"") !== fc) return false;
+    if(fa !== "all" && (w.bank_account_id||"") !== fa) return false;
+    return true;
+  });
+}
+
 /* ------- effective mismatch (mismatch ที่ยังไม่ถูก resolved) ------- */
 function bmpEffMismatch(orders){
   return (orders||[]).filter(o => o.mismatch_flag && !o.resolved).length;
@@ -11815,8 +11847,13 @@ function bmpExportCsv(){
   const lines = [
     ["No","เลขที่ BQ","วันที่เงินเข้าบัญชี (DD/MM/YY)","เงินเข้าบัญชี","เลขที่เช็ค","มูลค่าเช็ค EXPRESS","เงินที่ออกสุทธิของออเดอร์","ผลต่าง","ค่าธรรมเนียมรวม","คำอธิบายรายการ"]
   ];
+  // ถ้าเลือก withdrawal ไว้ → export เฉพาะที่เลือก · ไม่เลือก → export ทั้งหมด (ตาม filter)
+  const selectedIds = d.mp.selected;
+  const useSelection = selectedIds.size > 0;
+  const exportWds = bmpFilteredWds(d).filter(w => !useSelection || selectedIds.has(w.id));
+  if(!exportWds.length){ alert("ไม่มี withdrawal ให้ export (ตรวจ filter / การเลือก)"); return; }
   let no = 0;
-  for(const wd of d.mp.withdrawals){
+  for(const wd of exportWds){
     const allOrds = ordersByWd.get(wd.id)||[];
     const list = allOrds.filter(o=>o.txn_type==="order");
     // skip ทั้ง withdrawal ถ้ายังมี mismatch ที่ไม่ได้ติ๊ก "แก้แล้ว" (กันคีย์ผิด)
@@ -11912,13 +11949,22 @@ function bmpRenderTab(d){
     if(!ordersByWd.has(o.withdrawal_id)) ordersByWd.set(o.withdrawal_id,[]);
     ordersByWd.get(o.withdrawal_id).push(o);
   }
-  const totalNet = wds.reduce((s,w)=> s + Number(w.withdraw_amount||0), 0);
-  const totalFee = wds.reduce((s,w)=> s + Number(w.total_fee||0), 0);
-  // ★ ใช้ effective mismatch (ไม่นับตัวที่ติ๊ก "แก้แล้ว")
-  const totalMismatch = wds.reduce((s,w)=> s + bmpEffMismatch(ordersByWd.get(w.id)||[]), 0);
-  const exportable = wds.filter(w => bmpEffMismatch(ordersByWd.get(w.id)||[]) === 0).length;
+  // ----- filter bar (ช่องทาง + บัญชี) -----
+  const allChannels = [...new Set(wds.map(w=>w.channel).filter(Boolean))];
+  const acctIds = [...new Set(wds.map(w=>w.bank_account_id).filter(Boolean))];
+  const acctLabel = (id) => { const a=d.accounts.find(x=>x.id===id); return a? (a.bank_code+" "+a.account_no) : id; };
+  const fc = d.mp.filterChannel||"all", fa = d.mp.filterAccount||"all";
+  const filtered = bmpFilteredWds(d);
 
-  const cards = wds.map(wd => {
+  const totalNet = filtered.reduce((s,w)=> s + Number(w.withdraw_amount||0), 0);
+  const totalFee = filtered.reduce((s,w)=> s + Number(w.total_fee||0), 0);
+  // ★ ใช้ effective mismatch (ไม่นับตัวที่ติ๊ก "แก้แล้ว")
+  const totalMismatch = filtered.reduce((s,w)=> s + bmpEffMismatch(ordersByWd.get(w.id)||[]), 0);
+  const exportable = filtered.filter(w => bmpEffMismatch(ordersByWd.get(w.id)||[]) === 0).length;
+  const filteredIds = filtered.map(w=>w.id);
+  const selCount = filteredIds.filter(i=>d.mp.selected.has(i)).length;
+
+  const cards = filtered.map(wd => {
     const ords = ordersByWd.get(wd.id) || [];
     const orderRows = ords.filter(o => o.txn_type === "order");
     const adjRows = ords.filter(o => o.txn_type === "adjustment");
@@ -11938,9 +11984,11 @@ function bmpRenderTab(d){
     // shortfall: order ในงวด assign ไม่ครบยอดถอน (มียอดยกมาจากก่อนงวด)
     const isShortfall = (liveGross + liveAdj) < (Number(wd.withdraw_amount||0) - 1);
 
-    return `<div class="bmp-card ${hasMismatch?'warn':''}">
+    const isSel = d.mp.selected.has(wd.id);
+    return `<div class="bmp-card ${hasMismatch?'warn':''} ${isSel?'sel':''}">
       <div class="bmp-head" onclick="bmpToggleExpand('${wd.id}')">
         <div class="bmp-h1">
+          <input type="checkbox" ${isSel?'checked':''} onclick="event.stopPropagation();bmpToggleSelectWd('${wd.id}')" style="width:16px;height:16px;accent-color:var(--brand);cursor:pointer" title="เลือก export">
           <span class="bmp-chip">🛒 ${esc(wd.channel)}</span>
           <span class="bmp-shop">${esc(wd.shop_name||"")}</span>
           ${isShortfall ? `<span class="bmp-warn" style="background:#fef3c7;color:#92400e">⚠️ ยอดยกมาจากก่อนงวด</span>` : ''}
@@ -12002,18 +12050,38 @@ function bmpRenderTab(d){
     </div>`;
   }).join("");
 
+  // filter chips: channel + account
+  const chanChips = allChannels.length > 1 ? `
+    <div class="bmp-filt">
+      <span class="fl">ช่องทาง:</span>
+      <button class="${fc==='all'?'on':''}" onclick="bmpSetFilter('channel','all')">ทั้งหมด</button>
+      ${allChannels.map(c=>`<button class="${fc===c?'on':''}" onclick="bmpSetFilter('channel','${c}')">🛒 ${esc(c)}</button>`).join("")}
+    </div>` : "";
+  const acctChips = acctIds.length > 1 ? `
+    <div class="bmp-filt">
+      <span class="fl">บัญชีเงินเข้า:</span>
+      <button class="${fa==='all'?'on':''}" onclick="bmpSetFilter('account','all')">ทั้งหมด</button>
+      ${acctIds.map(id=>`<button class="${fa===id?'on':''}" onclick="bmpSetFilter('account','${id}')">${esc(acctLabel(id))}</button>`).join("")}
+    </div>` : "";
+  const allSelected = filteredIds.length>0 && filteredIds.every(i=>d.mp.selected.has(i));
+
   return `
     <div class="bmp-sum">
-      <div class="bmp-sc"><div class="l">Withdrawal</div><div class="v">${wds.length}</div></div>
+      <div class="bmp-sc"><div class="l">Withdrawal</div><div class="v">${filtered.length}</div></div>
       <div class="bmp-sc"><div class="l">รวม net เข้าแบงค์</div><div class="v">${bmpFmtMoney(totalNet)}</div></div>
       <div class="bmp-sc"><div class="l">รวมหัก ค่าธรรมเนียม</div><div class="v">${bmpFmtMoney(totalFee)}</div></div>
       <div class="bmp-sc ${totalMismatch?'warn':'ok'}"><div class="l">${totalMismatch?'⚠️ ออเดอร์ไม่ตรง':'✓ ผ่านการตรวจ'}</div><div class="v">${totalMismatch||"0"}</div></div>
-      <div class="bmp-sc"><div class="l">พร้อม export</div><div class="v">${exportable}/${wds.length}</div></div>
+      <div class="bmp-sc"><div class="l">พร้อม export</div><div class="v">${exportable}/${filtered.length}</div></div>
     </div>
-    <div style="display:flex;gap:8px;margin:0 0 12px;flex-wrap:wrap">
-      <button class="brec-btn primary" onclick="bmpExportCsv()"><i data-lucide="download"></i> ⬇ Export CSV (ข้ามที่ไม่ตรง)</button>
-      <button class="brec-btn" onclick="bmpExportMismatchXlsx()" ${totalMismatch?'':'disabled'}><i data-lucide="file-warning"></i> ⬇ รายงานไม่ตรง (Excel)</button>
+    ${(chanChips||acctChips)?`<div style="display:flex;flex-wrap:wrap;gap:14px;margin-bottom:10px">${chanChips}${acctChips}</div>`:''}
+    <div style="display:flex;gap:8px;margin:0 0 12px;flex-wrap:wrap;align-items:center">
+      <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;cursor:pointer">
+        <input type="checkbox" ${allSelected?'checked':''} onclick="bmpSelectAllWd(${JSON.stringify(filteredIds)})" style="width:15px;height:15px;accent-color:var(--brand)"> เลือกทั้งหมด
+      </label>
+      <span style="font-size:12.5px;color:var(--ink-2,#475569)">เลือก ${selCount}/${filtered.length}</span>
       <div style="flex:1"></div>
+      <button class="brec-btn primary" onclick="bmpExportCsv()"><i data-lucide="download"></i> ⬇ Export CSV ${selCount?`(${selCount} ที่เลือก)`:'(ทั้งหมด)'}</button>
+      <button class="brec-btn" onclick="bmpExportMismatchXlsx()" ${totalMismatch?'':'disabled'}><i data-lucide="file-warning"></i> ⬇ รายงานไม่ตรง (Excel)</button>
       <button class="brec-btn warn" onclick="bmpPurgePeriod()"><i data-lucide="trash-2"></i> ลบทั้งหมดในงวด</button>
     </div>
     <div class="bmp-cards">${cards}</div>
@@ -12033,8 +12101,14 @@ function bmpInjectCSS(){
   .bmp-sc .v{font-size:20px;font-weight:700;font-feature-settings:'tnum';margin-top:4px}
   .bmp-sc.warn .v{color:#dc2626}
   .bmp-sc.ok .v{color:#16a34a}
+  .bmp-filt{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+  .bmp-filt .fl{font-size:11.5px;color:var(--ink-3,#94a3b8);font-weight:700}
+  .bmp-filt button{border:1px solid var(--line,#e2e8f0);background:#fff;padding:4px 11px;border-radius:999px;font-size:12px;font-weight:600;color:var(--ink-2,#475569);cursor:pointer;font-family:inherit}
+  .bmp-filt button:hover{background:#f8fafc}
+  .bmp-filt button.on{background:var(--brand);color:#fff;border-color:var(--brand)}
   .bmp-cards{display:flex;flex-direction:column;gap:10px}
   .bmp-card{background:#fff;border:1px solid var(--line,#e2e8f0);border-left:4px solid #16a34a;border-radius:12px;overflow:hidden;box-shadow:0 1px 2px rgba(15,23,42,.04)}
+  .bmp-card.sel{box-shadow:0 0 0 2px var(--brand,#0d9488);border-left-color:var(--brand,#0d9488)}
   .bmp-card.warn{border-left-color:#dc2626;background:#fffbfb}
   .bmp-head{padding:12px 14px;cursor:pointer;transition:.1s}
   .bmp-head:hover{background:#f8fafc}

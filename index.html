@@ -11063,7 +11063,7 @@ function bmpParseChequeReport(text){
    - buffer orders + adjustments until เจอ "การถอนเงิน"
    - close group, create withdrawal
    ============================================================ */
-function bmpGroupWithdrawals(parsed, arData, chqData, shopName){
+function bmpGroupWithdrawals(parsed, arData, chqData, shopName, sharedSeqByDay){
   const txns = parsed.txns;
   const arByOrder = new Map();
   for(const c of (arData.cheques||[])) arByOrder.set(c.order_id, c);
@@ -11071,12 +11071,16 @@ function bmpGroupWithdrawals(parsed, arData, chqData, shopName){
   for(const d of (chqData.deposits||[])) chqByOrder.set(d.order_id, d);
 
   // build maxSeq per YYMMDD from existing BQ
-  const seqByDay = new Map(); // "YYMMDD" → max seq int
-  for(const dep of (chqData.deposits||[])){
-    const m = String(dep.bq||"").match(/^(\d{6})(\d{1,4})$/);
-    if(m){
-      const day = m[1], seq = parseInt(m[2],10);
-      if(!seqByDay.has(day) || seqByDay.get(day) < seq) seqByDay.set(day, seq);
+  // ★ ใช้ sharedSeqByDay (ส่งเข้ามาจากภายนอก) ถ้าหลาย shop process ในงวดเดียวกัน
+  // จะได้ไม่ได้ BQ ซ้ำกันข้าม shop
+  const seqByDay = sharedSeqByDay || new Map();
+  if(!sharedSeqByDay){
+    for(const dep of (chqData.deposits||[])){
+      const m = String(dep.bq||"").match(/^(\d{6})(\d{1,4})$/);
+      if(m){
+        const day = m[1], seq = parseInt(m[2],10);
+        if(!seqByDay.has(day) || seqByDay.get(day) < seq) seqByDay.set(day, seq);
+      }
     }
   }
   function nextBq(isoDate){
@@ -11273,31 +11277,31 @@ async function bmpRunUpload(){
   if(!co){ alert("หา company_id ไม่เจอ"); return; }
   d.companyId = co; d.mp.parsing = true; bmpRenderUploadModal();
   try{
-    // ----- merge Shopee files (multiple xlsx) -----
-    let mergedShopeeTxns = [];
-    let shopName = null, shopPeriodFrom = null, shopPeriodTo = null;
+    // ----- parse Shopee files แยกตาม shop_name (รองรับหลาย shop ในรอบเดียว) -----
+    const shopeeByName = new Map(); // shopName → { shopName, txns, periodFrom, periodTo, files:[] }
     for(const sf of f.shopee){
       const buf = await sf.arrayBuffer();
       const wb = XLSX.read(buf, { type:"array", cellDates:false });
       const sd = bmpParseShopeeBalance(wb);
-      if(!shopName) shopName = sd.shopName;
-      else if(sd.shopName && sd.shopName !== shopName){
-        throw new Error(`ไฟล์ Shopee shop name ไม่ตรงกัน: "${shopName}" vs "${sd.shopName}"`);
-      }
-      if(sd.periodFrom && (!shopPeriodFrom || sd.periodFrom < shopPeriodFrom)) shopPeriodFrom = sd.periodFrom;
-      if(sd.periodTo && (!shopPeriodTo || sd.periodTo > shopPeriodTo)) shopPeriodTo = sd.periodTo;
-      mergedShopeeTxns = mergedShopeeTxns.concat(sd.txns);
+      const sn = sd.shopName || "(unknown)";
+      if(!shopeeByName.has(sn)) shopeeByName.set(sn, { shopName:sn, txns:[], periodFrom:null, periodTo:null, files:[] });
+      const g = shopeeByName.get(sn);
+      g.txns = g.txns.concat(sd.txns);
+      g.files.push(sf.name);
+      if(sd.periodFrom && (!g.periodFrom || sd.periodFrom < g.periodFrom)) g.periodFrom = sd.periodFrom;
+      if(sd.periodTo && (!g.periodTo || sd.periodTo > g.periodTo)) g.periodTo = sd.periodTo;
     }
-    // dedupe by datetime+type+amount+order_id (กันอัปไฟล์ที่ overlap งวด)
-    const seen = new Set();
-    mergedShopeeTxns = mergedShopeeTxns.filter(t => {
-      const k = `${t.datetime}|${t.type}|${t.amount}|${t.order_id}|${t.desc.slice(0,20)}`;
-      if(seen.has(k)) return false; seen.add(k); return true;
-    });
-    mergedShopeeTxns.sort((a,b)=> a.datetime.localeCompare(b.datetime));
-    const shopeeData = { shopName, periodFrom: shopPeriodFrom, periodTo: shopPeriodTo, txns: mergedShopeeTxns };
+    // dedupe + sort per shop
+    for(const g of shopeeByName.values()){
+      const seen = new Set();
+      g.txns = g.txns.filter(t => {
+        const k = `${t.datetime}|${t.type}|${t.amount}|${t.order_id}|${t.desc.slice(0,20)}`;
+        if(seen.has(k)) return false; seen.add(k); return true;
+      });
+      g.txns.sort((a,b)=> a.datetime.localeCompare(b.datetime));
+    }
 
-    // ----- merge AR receipt CSVs -----
+    // ----- merge AR receipt CSVs (ใช้ร่วมกันทุก shop ของบริษัท) -----
     let mergedCheques = [];
     for(const rf of f.receipt){
       const text = bmpDecodeCp874(await rf.arrayBuffer());
@@ -11326,35 +11330,31 @@ async function bmpRunUpload(){
     });
     const chqData = { deposits: mergedDeposits };
 
-    // route by shop name → ต้องตรงกับ company ปัจจุบัน
-    const routing = bmpRouting(shopeeData.shopName);
-    if(!routing.companyId){
-      alert(`ไม่รู้จัก shop "${shopeeData.shopName}" — เพิ่ม mapping ใน BMP_SHOP_ROUTING ก่อน`);
+    // ----- ตรวจ routing ทุก shop ก่อน → company ต้องตรง -----
+    const shopsToProcess = [];
+    const skipped = [];
+    for(const [shopName, shopData] of shopeeByName.entries()){
+      const routing = bmpRouting(shopName);
+      if(!routing.companyId){ skipped.push(`${shopName} (routing ไม่รู้จัก)`); continue; }
+      if(routing.companyId !== state.company){ skipped.push(`${shopName} (อยู่ ${routing.companyId} ไม่ใช่ ${state.company})`); continue; }
+      shopsToProcess.push({ shopName, shopData, routing });
+    }
+    if(!shopsToProcess.length){
+      alert(`ไม่มี shop ที่ตรงบริษัท ${state.company}\nข้าม: ${skipped.join(", ") || "(ทั้งหมด)"}`);
       d.mp.parsing=false; bmpRenderUploadModal(); return;
     }
-    if(routing.companyId !== state.company){
-      const ok = confirm(`Shop "${shopeeData.shopName}" → บริษัท ${routing.companyId}\nแต่ตอนนี้เลือก ${state.company}\n\nกด OK เพื่อสลับบริษัท / Cancel เพื่อยกเลิกการอัป`);
-      if(ok){ setCompany(routing.companyId); bmpCloseUpload(); return; }
-      // user cancelled → abort เลย ห้ามต่อ (กันสร้าง account ผิดบริษัท)
-      d.mp.parsing=false; bmpRenderUploadModal(); return;
+
+    // shared seqByDay สำหรับ gen BQ — กันชน BQ ข้าม shop ใน company เดียวกัน
+    const sharedSeq = new Map();
+    for(const dep of (chqData.deposits||[])){
+      const m = String(dep.bq||"").match(/^(\d{6})(\d{1,4})$/);
+      if(m){
+        const day = m[1], seq = parseInt(m[2],10);
+        if(!sharedSeq.has(day) || sharedSeq.get(day) < seq) sharedSeq.set(day, seq);
+      }
     }
 
-    // ensure bank account exists — ตอนนี้รับประกันว่า co === routing.companyId แล้ว
-    let acctId = null;
-    if(routing.bankCode && routing.accountNo){
-      acctId = await brecEnsureAccount(co, routing.bankCode, routing.accountNo);
-    }
-
-    // group withdrawals
-    const withdrawals = bmpGroupWithdrawals(shopeeData, arData, chqData, shopeeData.shopName);
-    if(!withdrawals.length){
-      alert("ไม่พบ withdrawal events ในไฟล์ Shopee");
-      d.mp.parsing = false; bmpRenderUploadModal(); return;
-    }
-    const totalOrders = withdrawals.reduce((s,w)=> s + w.orders.length, 0);
-    const totalMismatch = withdrawals.reduce((s,w)=> s + w.mismatch_count, 0);
-
-    // file_hash + insert import row (รวมทุกไฟล์เข้า hash)
+    // file_hash รวม
     const hashSrc = [
       ...f.shopee.map(x => x.name+"|"+x.size),
       ...f.receipt.map(x => x.name+"|"+x.size),
@@ -11368,55 +11368,72 @@ async function bmpRunUpload(){
       if(!cont){ d.mp.parsing=false; bmpRenderUploadModal(); return; }
     }
     const fnameJoin = arr => arr.map(x=>x.name).join("; ");
-    const { data:imp, error:ie } = await sb.from("brec_mp_imports").insert({
-      company_id: co, bank_account_id: acctId,
-      channel: routing.channel, shop_name: shopeeData.shopName,
-      shopee_filename: fnameJoin(f.shopee),
-      receipt_filename: fnameJoin(f.receipt),
-      cheque_filename: fnameJoin(f.cheque),
-      file_hash: hash,
-      period_from: shopeeData.periodFrom, period_to: shopeeData.periodTo,
-      withdrawal_count: withdrawals.length, order_count: totalOrders, mismatch_count: totalMismatch
-    }).select("id").single();
-    if(ie) throw ie;
-    const importId = imp.id;
 
-    // insert withdrawals + orders
-    for(const wd of withdrawals){
-      const { data:wdRow, error:we } = await sb.from("brec_mp_withdrawals").insert({
-        company_id: co, bank_account_id: acctId, import_id: importId,
-        channel: wd.channel, shop_name: wd.shop_name,
-        withdraw_datetime: wd.withdraw_datetime, withdraw_date: wd.withdraw_date,
-        withdraw_amount: wd.withdraw_amount, bq_number: wd.bq_number,
-        description: wd.description, order_count: wd.order_count,
-        sum_gross: wd.sum_gross, sum_net: wd.sum_net,
-        total_fee: wd.total_fee, adjustment_amount: wd.adjustment_amount,
-        mismatch_count: wd.mismatch_count
-      }).select("id").single();
-      if(we) throw we;
-      const wdId = wdRow.id;
-      const orderInserts = [...wd.orders, ...wd.adjustments].map(o => ({
-        company_id: co, withdrawal_id: wdId, channel: o.channel,
-        order_id: o.order_id, cheque_no: o.cheque_no,
-        txn_datetime: o.txn_datetime, txn_type: o.txn_type,
-        express_gross: o.express_gross, shopee_net: o.shopee_net, fee_diff: o.fee_diff,
-        receipt_no: o.receipt_no, has_receipt: o.has_receipt,
-        has_cheque_deposit: o.has_cheque_deposit, existing_bq: o.existing_bq,
-        mismatch_flag: o.mismatch_flag, mismatch_reason: o.mismatch_reason,
-        note: o.desc || null
-      }));
-      const CHUNK = 200;
-      for(let i=0;i<orderInserts.length;i+=CHUNK){
-        const { error:oe } = await sb.from("brec_mp_orders").insert(orderInserts.slice(i,i+CHUNK));
-        if(oe) throw oe;
+    // process ทุก shop ในรอบเดียว (BQ counter shared)
+    const perShopSummary = [];
+    let grandTotalWd = 0, grandTotalOrd = 0, grandTotalMis = 0;
+    for(const { shopName, shopData, routing } of shopsToProcess){
+      const acctId = (routing.bankCode && routing.accountNo)
+        ? await brecEnsureAccount(co, routing.bankCode, routing.accountNo) : null;
+      const withdrawals = bmpGroupWithdrawals(shopData, arData, chqData, shopName, sharedSeq);
+      if(!withdrawals.length){
+        perShopSummary.push(`${shopName}: ไม่มี withdrawal`);
+        continue;
       }
+      const totalOrders = withdrawals.reduce((s,w)=> s + w.orders.length, 0);
+      const totalMismatch = withdrawals.reduce((s,w)=> s + w.mismatch_count, 0);
+      const { data:imp, error:ie } = await sb.from("brec_mp_imports").insert({
+        company_id: co, bank_account_id: acctId,
+        channel: routing.channel, shop_name: shopName,
+        shopee_filename: shopData.files.join("; "),
+        receipt_filename: fnameJoin(f.receipt),
+        cheque_filename: fnameJoin(f.cheque),
+        file_hash: shopsToProcess.length > 1 ? null : hash, // กันชน unique index ถ้าหลาย shop
+        period_from: shopData.periodFrom, period_to: shopData.periodTo,
+        withdrawal_count: withdrawals.length, order_count: totalOrders, mismatch_count: totalMismatch
+      }).select("id").single();
+      if(ie) throw ie;
+      const importId = imp.id;
+      for(const wd of withdrawals){
+        const { data:wdRow, error:we } = await sb.from("brec_mp_withdrawals").insert({
+          company_id: co, bank_account_id: acctId, import_id: importId,
+          channel: wd.channel, shop_name: wd.shop_name,
+          withdraw_datetime: wd.withdraw_datetime, withdraw_date: wd.withdraw_date,
+          withdraw_amount: wd.withdraw_amount, bq_number: wd.bq_number,
+          description: wd.description, order_count: wd.order_count,
+          sum_gross: wd.sum_gross, sum_net: wd.sum_net,
+          total_fee: wd.total_fee, adjustment_amount: wd.adjustment_amount,
+          mismatch_count: wd.mismatch_count
+        }).select("id").single();
+        if(we) throw we;
+        const wdId = wdRow.id;
+        const orderInserts = [...wd.orders, ...wd.adjustments].map(o => ({
+          company_id: co, withdrawal_id: wdId, channel: o.channel,
+          order_id: o.order_id, cheque_no: o.cheque_no,
+          txn_datetime: o.txn_datetime, txn_type: o.txn_type,
+          express_gross: o.express_gross, shopee_net: o.shopee_net, fee_diff: o.fee_diff,
+          receipt_no: o.receipt_no, has_receipt: o.has_receipt,
+          has_cheque_deposit: o.has_cheque_deposit, existing_bq: o.existing_bq,
+          mismatch_flag: o.mismatch_flag, mismatch_reason: o.mismatch_reason,
+          note: o.desc || null
+        }));
+        const CHUNK = 200;
+        for(let i=0;i<orderInserts.length;i+=CHUNK){
+          const { error:oe } = await sb.from("brec_mp_orders").insert(orderInserts.slice(i,i+CHUNK));
+          if(oe) throw oe;
+        }
+      }
+      d.mp.lastImportId = importId;
+      perShopSummary.push(`${shopName}: ${withdrawals.length} withdrawal · ${totalOrders} order${totalMismatch?` · ไม่ตรง ${totalMismatch}`:''}`);
+      grandTotalWd += withdrawals.length; grandTotalOrd += totalOrders; grandTotalMis += totalMismatch;
     }
 
-    d.mp.lastImportId = importId;
     d.tab = "mp";
     await bmpLoadFromDb();
     bmpCloseUpload();
-    alert(`อัปสำเร็จ — withdrawal ${withdrawals.length} รายการ · order ${totalOrders} · ไม่ตรง ${totalMismatch}`);
+    let msg = `อัปสำเร็จ\n${perShopSummary.join("\n")}\n\nรวม: ${grandTotalWd} withdrawal · ${grandTotalOrd} order · ไม่ตรง ${grandTotalMis}`;
+    if(skipped.length) msg += `\n\nข้าม: ${skipped.join(", ")}`;
+    alert(msg);
   } catch(e){
     alert("อัปไม่สำเร็จ: " + (e.message||e));
     d.mp.parsing = false; bmpRenderUploadModal();

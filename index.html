@@ -11590,15 +11590,32 @@ async function bmpRunUpload(){
     }
     const fnameJoin = arr => arr.map(x=>x.name).join("; ");
 
+    // ★ load existing withdrawals → dedup โดย (withdraw_datetime + bank_account_id)
+    // กัน user upload ซ้ำสร้าง withdrawal เดียวกัน BQ ซ้ำหลายครั้ง
+    const { data:existingWds2 } = await sb.from("brec_mp_withdrawals")
+      .select("withdraw_datetime,bank_account_id,bq_number,withdraw_amount")
+      .eq("company_id", co).is("deleted_at", null);
+    const existingKey = new Set((existingWds2||[]).map(w => `${w.withdraw_datetime}|${w.bank_account_id}|${w.withdraw_amount}`));
+
     // process ทุก shop ในรอบเดียว (BQ counter shared)
     const perShopSummary = [];
-    let grandTotalWd = 0, grandTotalOrd = 0, grandTotalMis = 0;
+    let grandTotalWd = 0, grandTotalOrd = 0, grandTotalMis = 0, grandTotalSkip = 0;
     for(const { shopName, shopData, routing } of shopsToProcess){
       const acctId = (routing.bankCode && routing.accountNo)
         ? await brecEnsureAccount(co, routing.bankCode, routing.accountNo) : null;
-      const withdrawals = bmpGroupWithdrawals(shopData, arData, chqData, salesData, shopName, sharedSeq);
+      const allWithdrawals = bmpGroupWithdrawals(shopData, arData, chqData, salesData, shopName, sharedSeq);
+      // ★ dedup: ข้าม withdrawal ที่ DB มีอยู่แล้ว (key = datetime + bank_account_id + amount)
+      const withdrawals = [];
+      let shopSkipped = 0;
+      for(const wd of allWithdrawals){
+        const k = `${wd.withdraw_datetime}|${acctId}|${wd.withdraw_amount}`;
+        if(existingKey.has(k)){ shopSkipped++; continue; }
+        existingKey.add(k);
+        withdrawals.push(wd);
+      }
+      grandTotalSkip += shopSkipped;
       if(!withdrawals.length){
-        perShopSummary.push(`${shopName}: ไม่มี withdrawal`);
+        perShopSummary.push(`${shopName}: ไม่มี withdrawal ใหม่${shopSkipped?` (มี ${shopSkipped} ที่มีอยู่แล้ว)`:''}`);
         continue;
       }
       const totalOrders = withdrawals.reduce((s,w)=> s + w.orders.length, 0);
@@ -11609,7 +11626,7 @@ async function bmpRunUpload(){
         shopee_filename: shopData.files.join("; "),
         receipt_filename: fnameJoin(f.receipt) + " | sales: " + fnameJoin(f.sales),
         cheque_filename: fnameJoin(f.cheque),
-        file_hash: shopsToProcess.length > 1 ? null : hash, // กันชน unique index ถ้าหลาย shop
+        file_hash: shopsToProcess.length > 1 ? null : hash,
         period_from: shopData.periodFrom, period_to: shopData.periodTo,
         withdrawal_count: withdrawals.length, order_count: totalOrders, mismatch_count: totalMismatch
       }).select("id").single();
@@ -11654,6 +11671,7 @@ async function bmpRunUpload(){
     d.mp.parsing = false;   // ★ reset flag ก่อนปิด modal กัน state ค้าง
     bmpCloseUpload();
     let msg = `อัปสำเร็จ\n${perShopSummary.join("\n")}\n\nรวม: ${grandTotalWd} withdrawal · ${grandTotalOrd} order · ไม่ตรง ${grandTotalMis}`;
+    if(grandTotalSkip) msg += `\n\n⏭ ข้าม ${grandTotalSkip} withdrawal ที่มีอยู่ใน DB แล้ว (ดูจาก datetime+ยอด+บัญชี)`;
     if(skipped.length) msg += `\n\nข้าม: ${skipped.join(", ")}`;
     alert(msg);
   } catch(e){

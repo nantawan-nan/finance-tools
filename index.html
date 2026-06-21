@@ -11038,13 +11038,23 @@ function bmpParseSalesReport(text){
     if(!/^(?:IV|SR|CN)\d{10}$/.test(t[0])) return null;
     if(!/^\d{2}\/\d{2}\/\d{2}$/.test(t[1])) return null;
     const last = t.length - 1;
-    const ref = String(t[last]||"").replace(/"$/,"").trim();
-    if(!ref) return null;
+    // หา due_date ตำแหน่งสุดท้าย dd/mm/yy ใน row
     let dueIdx = -1;
-    for(let i=last-1; i>=2; i--){
+    for(let i=last; i>=2; i--){
       if(/^\d{2}\/\d{2}\/\d{2}$/.test(t[i])){ dueIdx = i; break; }
     }
     if(dueIdx < 0) return null;
+    // ref = token แรกหลัง dueIdx ที่ลงท้ายด้วย " (CSV escape artifact)
+    // กรณีรายงานมีคอลัมน์สถิติ (ยอดขาย/ต้นทุน/กำไร/%) ตามหลัง ref ก็ใช้ได้
+    let refIdx = -1;
+    for(let i=dueIdx+1; i<=last; i++){
+      if(/"$/.test(t[i] || "")){ refIdx = i; break; }
+    }
+    // fallback: ถ้าไม่เจอ " ใช้ token แรกหลัง flag (dueIdx+2)
+    if(refIdx < 0) refIdx = dueIdx + 2;
+    const ref = String(t[refIdx]||"").replace(/"+$/,"").trim();
+    if(!ref) return null;
+    // total = numeric ตัวสุดท้ายก่อน due_date
     let total = 0;
     for(let i=dueIdx-1; i>=2; i--){
       const v = String(t[i]||"").replace(/,/g,"");

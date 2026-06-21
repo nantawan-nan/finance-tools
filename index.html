@@ -11423,6 +11423,31 @@ async function bmpRunUpload(){
     mergedIvs = mergedIvs.filter(iv => { if(ivSeen.has(iv.doc_no)) return false; ivSeen.add(iv.doc_no); return true; });
     const salesData = { ivs: mergedIvs };
 
+    // ----- ★ ตรวจ period coverage: sales report ต้องครอบ Shopee balance -----
+    const salesDates = mergedIvs.map(iv => iv.doc_date).filter(Boolean).sort();
+    const salesMin = salesDates[0] || null;
+    const salesMax = salesDates[salesDates.length-1] || null;
+    let shopMin = null, shopMax = null;
+    for(const g of shopeeByName.values()){
+      if(g.periodFrom && (!shopMin || g.periodFrom < shopMin)) shopMin = g.periodFrom;
+      if(g.periodTo && (!shopMax || g.periodTo > shopMax)) shopMax = g.periodTo;
+    }
+    if(salesMin && salesMax && shopMin && shopMax){
+      const tooEarly = salesMin > shopMin;
+      const tooLate  = salesMax < shopMax;
+      if(tooEarly || tooLate){
+        const fmtTh = (s) => { if(!s) return "?"; const [y,m,d]=s.split("-"); return `${d}/${m}/${y}`; };
+        const issues = [];
+        if(tooEarly) issues.push(`sales เริ่ม ${fmtTh(salesMin)} แต่ Shopee เริ่ม ${fmtTh(shopMin)} — ขาดช่วงต้น`);
+        if(tooLate)  issues.push(`sales ถึง ${fmtTh(salesMax)} แต่ Shopee ถึง ${fmtTh(shopMax)} — ขาดช่วงปลาย`);
+        const msg = `⚠️ รายงานขาย 723-5 ครอบ Shopee ไม่ครบ:\n\n• ${issues.join("\n• ")}\n\n` +
+                    `→ Order Shopee ที่อยู่นอกช่วง sales จะถูก flag "ไม่ตรง" ทั้งหมด\n\n` +
+                    `แนะนำ: ยกเลิก → ไปดึงรายงาน 723-5 ใหม่ให้ครอบ ${fmtTh(shopMin)} ถึง ${fmtTh(shopMax)}\n\n` +
+                    `กด OK เพื่อดำเนินการต่อ (จะ mismatch เยอะ) / Cancel เพื่อยกเลิก`;
+        if(!confirm(msg)){ d.mp.parsing=false; bmpRenderUploadModal(); return; }
+      }
+    }
+
     // ----- parse receipt -----
     let mergedCheques = [];
     for(const item of csvByType.receipt){

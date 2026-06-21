@@ -10226,16 +10226,17 @@ async function brecEnsureAccount(co, bankCode, accountNo){
   }
   return ins.id;
 }
-async function brecLoadRows(co, acctId, from, to){
-  if(!acctId) return { express:[], bank:[] };
+async function brecLoadRows(co, acctIds, from, to){
+  const ids = Array.isArray(acctIds) ? acctIds : [acctIds];
+  if(!ids.length || !ids[0]) return { express:[], bank:[] };
   const [exRes, bkRes] = await Promise.all([
     sb.from("brec_express_rows").select("*")
-      .eq("company_id", co).eq("bank_account_id", acctId)
+      .eq("company_id", co).in("bank_account_id", ids)
       .is("deleted_at", null)
       .gte("txn_date", from).lte("txn_date", to)
       .order("txn_date",{ascending:true}).order("raw_row",{ascending:true}),
     sb.from("brec_bank_rows").select("*")
-      .eq("company_id", co).eq("bank_account_id", acctId)
+      .eq("company_id", co).in("bank_account_id", ids)
       .is("deleted_at", null)
       .gte("txn_date", from).lte("txn_date", to)
       .order("txn_date",{ascending:true}).order("raw_row",{ascending:true})
@@ -10244,13 +10245,28 @@ async function brecLoadRows(co, acctId, from, to){
   if(bkRes.error) throw bkRes.error;
   return { express: exRes.data||[], bank: bkRes.data||[] };
 }
-async function brecLoadMatches(co, acctId, from, to){
+async function brecLoadMatches(co, acctIds, from, to){
+  const ids = Array.isArray(acctIds) ? acctIds : [acctIds];
+  if(!ids.length || !ids[0]) return [];
   const { data, error } = await sb.from("brec_matches").select("*")
-    .eq("company_id", co).eq("bank_account_id", acctId)
+    .eq("company_id", co).in("bank_account_id", ids)
     .is("deleted_at", null)
     .gte("txn_date", from).lte("txn_date", to);
   if(error) throw error;
   return data || [];
+}
+/* คืน id ของบัญชีทั้งหมดที่ "เลข normalize เดียวกัน" กับ acctId ที่เลือก
+   (กันบัญชีแตกหลาย record — statement กับ marketplace ลงคนละ id) */
+function brecSiblingAccountIds(d, acctId){
+  const sel = d.accounts.find(a=>a.id===acctId);
+  if(!sel) return [acctId];
+  const norm = String(sel.account_no||"").replace(/\D/g,"");
+  const code = String(sel.bank_code||"").toUpperCase();
+  const ids = d.accounts.filter(a =>
+    String(a.bank_code||"").toUpperCase()===code &&
+    String(a.account_no||"").replace(/\D/g,"")===norm
+  ).map(a=>a.id);
+  return ids.length ? ids : [acctId];
 }
 function brecComputePeriod(d){
   if(d.period.mode === "month"){
@@ -10274,9 +10290,10 @@ async function brecLoad(){
     if(!d.accountId && d.accounts.length) d.accountId = d.accounts[0].id;
     if(d.accountId){
       const { from, to } = brecComputePeriod(d);
+      const ids = brecSiblingAccountIds(d, d.accountId);  // รวมบัญชีเลขเดียวกันที่แตก record
       const [rows, matches] = await Promise.all([
-        brecLoadRows(co, d.accountId, from, to),
-        brecLoadMatches(co, d.accountId, from, to)
+        brecLoadRows(co, ids, from, to),
+        brecLoadMatches(co, ids, from, to)
       ]);
       d.express = rows.express; d.bank = rows.bank; d.matches = matches;
     } else { d.express=[]; d.bank=[]; d.matches=[]; }

@@ -587,6 +587,10 @@ const TOOLS = [
     multiInput:true, status:"live", adminOnly:true },
 
   // ───── 2. การขาย ─────
+  { id:"orders", stage:"การขาย", ic:"▦", icon:"package-search",
+    name:"ทะเบียนคำสั่งซื้อ", desc:"รับรู้ออเดอร์ทุกช่องทาง · ตั้งแต่ก่อนคีย์ IV",
+    long:"อัปรายงานขายหลังบ้าน 4 ช่องทาง (Shopee/TikTok/Lazada/BigSeller) → เก็บทุกออเดอร์ · ค้นหา/timeline · ส่งออกออเดอร์ที่ยังไม่คีย์ IV",
+    multiInput:true, status:"live" },
   { id:"dashboard", stage:"การขาย", ic:"◉", icon:"bar-chart-3",
     name:"Sales Dashboard", desc:"สรุปออเดอร์รายวัน",
     long:"คีย์ IV ถึงวันไหน · ยังค้างกี่ใบ · แยกตามช่องทาง — ข้อมูลจาก Supabase",
@@ -805,6 +809,7 @@ function renderTool(){
     if (t.id==="recurring")      return renderToolRecurring();
     if (t.id==="cashflow")       return renderToolCashflowForecast();
     if (t.id==="bankrec")        return renderToolBankRec();
+    if (t.id==="orders")         return renderToolOrders();
     if (t.id==="ar")       return renderToolAr();
     if (t.id==="armap") return renderToolArmap();
     if (t.id==="bigseller") return renderToolBigSeller();
@@ -11795,49 +11800,267 @@ function ordChannelGroup(channel, customer){
   if(/line|facebook|\bfb\b|\big\b|หน้าร้าน|dealer|\bdr\b/.test(s)) return "offline";
   return "other";
 }
-/* upsert orders จาก salesData.ivs (เฉพาะ IV) → คืน {added, updated, total} */
-async function ordIngestFromSales(co, salesData, srcLabel){
-  const ivs = (salesData?.ivs || []).filter(iv => iv.doc_type === "IV" && iv.doc_no);
-  if(!ivs.length) return { added:0, updated:0, total:0 };
-  // ดึง order เดิม (iv_no → {id,status})
-  const { data:existing } = await sb.from("orders").select("id,iv_no,status")
+/* ===== Phase A: parser รายงานขายหลังบ้าน 4 ช่องทาง (item-level → group เป็นออเดอร์) ===== */
+const ORD_CH = {
+  shopee:    { sig:["หมายเลขคำสั่งซื้อ","สถานะการสั่งซื้อ"], order:"หมายเลขคำสั่งซื้อ", status:"สถานะการสั่งซื้อ", date:"วันที่ทำการสั่งซื้อ", product:"ชื่อสินค้า", qty:"จำนวน", ret:"จำนวนที่ส่งคืน", net:"ราคาขายสุทธิ", ship:"ค่าจัดส่งที่ชำระโดยผู้ซื้อ", disc:"โค้ดส่วนลดชำระโดยผู้ขาย", cancelKw:"ยกเลิก", group:"shopee" },
+  tiktok:    { sig:["Order ID","Order Status"], order:"Order ID", status:"Order Status", date:"Created Time", product:"Product Name", qty:"Quantity", ret:"Sku Quantity of return", net:"SKU Subtotal After Discount", ship:"Shipping Fee After Discount", disc:"SKU Seller Discount", cancelKw:"ยกเลิก|Cancel", group:"tiktok" },
+  lazada:    { sig:["orderNumber","sellerSku"], order:"orderNumber", status:"status", date:"createTime", product:"itemName", qty:null, ret:null, net:"paidPrice", ship:"shippingFee", disc:"sellerDiscountTotal", refund:"refundAmount", cancelKw:"cancel", group:"lazada" },
+  bigseller: { sig:["หมายเลขคำสั่งซื้อ","ร้านค้า BigSeller"], order:"หมายเลขคำสั่งซื้อ", status:"สถานะคำสั่งซื้อ", platform:"แพลตฟอร์ม", date:"เวลาสั่งซื้อ", product:"ชื่อสินค้า", qty:"จำนวน", net:"รวมค่าสินค้า", ship:"ค่าจัดส่ง", disc:"ส่วนลดผู้ขาย", cancelKw:"ยกเลิก", group:"bigseller" }
+};
+function ordDetectChannel(headers){
+  const H = headers.map(h=>String(h||"").trim());
+  for(const [ch,cfg] of Object.entries(ORD_CH)){
+    if(cfg.sig.every(s => H.includes(s))) return ch;
+  }
+  return null;
+}
+function ordNum(v){ if(v==null||v==="")return 0; const n=Number(String(v).replace(/[,%\s]/g,"")); return isNaN(n)?0:n; }
+function ordISO(v){ if(!v) return null; const s=String(v).trim(); let m=s.match(/^(\d{4})-(\d{2})-(\d{2})/); if(m) return `${m[1]}-${m[2]}-${m[3]}`; return bmpThaiDate(s); }
+/* parse 1 ไฟล์รายงานขาย → คืน { channel, orders:[...] } */
+function ordParseSalesFile(rows){
+  if(!rows.length) return null;
+  const headers = rows[0].map(x=>String(x||"").trim());
+  const ch = ordDetectChannel(headers);
+  if(!ch) return null;
+  const cfg = ORD_CH[ch];
+  const idx = (name)=> name ? headers.indexOf(name) : -1;
+  const ci = { order:idx(cfg.order), status:idx(cfg.status), date:idx(cfg.date), product:idx(cfg.product),
+    qty:idx(cfg.qty), ret:idx(cfg.ret), net:idx(cfg.net), ship:idx(cfg.ship), disc:idx(cfg.disc),
+    refund:idx(cfg.refund), platform:idx(cfg.platform) };
+  const groups = new Map();
+  for(let r=1;r<rows.length;r++){
+    const row = rows[r]; if(!row) continue;
+    const oid = String(row[ci.order]||"").trim(); if(!oid) continue;
+    // BigSeller: เอาเฉพาะ platform ที่ไม่ใช่ shopee/tiktok/lazada
+    if(ch==="bigseller" && ci.platform>=0){
+      const pf = String(row[ci.platform]||"").toLowerCase();
+      if(/shopee|tiktok|lazada/.test(pf)) continue;
+    }
+    if(!groups.has(oid)) groups.set(oid, { order_id:oid, items:[], status:"", date:null, products:new Set(), qty:0, ret:0, net:0, ship:0, disc:0, refund:0, platform:"" });
+    const g = groups.get(oid);
+    if(ci.status>=0 && !g.status) g.status = String(row[ci.status]||"").trim();
+    if(ci.date>=0 && !g.date) g.date = ordISO(row[ci.date]);
+    if(ci.product>=0){ const p=String(row[ci.product]||"").trim(); if(p) g.products.add(p); }
+    g.qty += ci.qty>=0 ? ordNum(row[ci.qty]) : 1;
+    if(ci.ret>=0) g.ret += ordNum(row[ci.ret]);
+    g.net += ci.net>=0 ? ordNum(row[ci.net]) : 0;
+    if(ci.ship>=0) g.ship = Math.max(g.ship, ordNum(row[ci.ship]));  // order-level (ซ้ำทุกแถว)
+    if(ci.disc>=0) g.disc += ordNum(row[ci.disc]);
+    if(ci.refund>=0) g.refund += ordNum(row[ci.refund]);
+    if(ci.platform>=0 && !g.platform) g.platform = String(row[ci.platform]||"").trim();
+  }
+  const cancelRe = new RegExp(cfg.cancelKw, "i");
+  const orders = [...groups.values()].map(g => {
+    const cancelled = cancelRe.test(g.status);
+    const returned = g.ret > 0 || /คืน|return|refund/i.test(g.status);
+    const prodArr = [...g.products];
+    return {
+      order_id: g.order_id,
+      channel_group: cfg.group,
+      channel: cfg.group + (g.platform?(" · "+g.platform):""),
+      order_date: g.date,
+      status: cancelled ? "cancelled" : "active",
+      sale_status_raw: g.status,
+      products: prodArr.slice(0,5).join(" | ") + (prodArr.length>5?` (+${prodArr.length-5})`:""),
+      item_count: g.qty,
+      order_total: +g.net.toFixed(2),
+      shipping_fee: +g.ship.toFixed(2),
+      seller_discount: +g.disc.toFixed(2),
+      returned_qty: g.ret,
+      is_returned: returned
+    };
+  });
+  return { channel: ch, orders };
+}
+/* upsert ออเดอร์จากช่องทาง (dedup by order_id) → คืน {added, updated, total} */
+async function ordIngestChannelOrders(co, parsed, srcLabel){
+  const orders = parsed.orders || [];
+  if(!orders.length) return { added:0, updated:0, total:0 };
+  const { data:existing } = await sb.from("orders").select("id,order_id,status,iv_no")
     .eq("company_id", co).is("deleted_at", null);
-  const byIv = new Map((existing||[]).map(o=>[o.iv_no, o]));
-  const inserts = []; const statusUpd = [];
+  const byOid = new Map((existing||[]).filter(o=>o.order_id).map(o=>[o.order_id, o]));
+  const inserts = [], updates = [];
+  const seen = new Set();
+  const now = new Date().toISOString();
+  for(const o of orders){
+    if(seen.has(o.order_id)) continue; seen.add(o.order_id);
+    const ex = byOid.get(o.order_id);
+    const rec = {
+      company_id: co, order_id: o.order_id, channel: o.channel, channel_group: o.channel_group,
+      status: o.status, order_date: o.order_date, sale_status_raw: o.sale_status_raw,
+      products: o.products, item_count: o.item_count, order_total: o.order_total,
+      shipping_fee: o.shipping_fee, seller_discount: o.seller_discount,
+      returned_qty: o.returned_qty, is_returned: o.is_returned,
+      order_src: srcLabel, order_ingested_at: now
+    };
+    if(!ex) inserts.push(rec);
+    else updates.push({ id: ex.id, status:o.status, sale_status_raw:o.sale_status_raw, is_returned:o.is_returned, returned_qty:o.returned_qty, order_total:o.order_total });
+  }
+  const CH=400;
+  for(let i=0;i<inserts.length;i+=CH){ const {error}=await sb.from("orders").insert(inserts.slice(i,i+CH)); if(error){console.warn("ord ins",error);break;} }
+  for(const u of updates){ await sb.from("orders").update({ status:u.status, sale_status_raw:u.sale_status_raw, is_returned:u.is_returned, returned_qty:u.returned_qty }).eq("id", u.id); }
+  return { added: inserts.length, updated: updates.length, total: orders.length };
+}
+
+/* 723-5: "จับ IV ใส่ออเดอร์" — match by order_id (ref) → tag iv_no/iv_date/ยอด
+   ออเดอร์ที่ยังไม่มีในระบบ (ยังไม่อัปรายงานช่องทาง) → สร้าง fallback กันตกหล่น
+   คืน {tagged, created, total} */
+async function ordIngestFromSales(co, salesData, srcLabel){
+  const ivs = (salesData?.ivs || []).filter(iv => iv.doc_type === "IV" && iv.doc_no && iv.ref_order_id);
+  if(!ivs.length) return { tagged:0, created:0, total:0 };
+  const { data:existing } = await sb.from("orders").select("id,order_id,iv_no,status")
+    .eq("company_id", co).is("deleted_at", null);
+  const byOid = new Map((existing||[]).filter(o=>o.order_id).map(o=>[o.order_id, o]));
+  const ivTaken = new Set((existing||[]).filter(o=>o.iv_no).map(o=>o.iv_no));
+  const inserts = []; const ivUpd = [];
   const seen = new Set();
   for(const iv of ivs){
-    if(seen.has(iv.doc_no)) continue; seen.add(iv.doc_no);
+    if(seen.has(iv.ref_order_id)) continue; seen.add(iv.ref_order_id);
     const newStatus = iv.voided ? "cancelled" : "active";
-    const ex = byIv.get(iv.doc_no);
-    if(!ex){
+    const ex = byOid.get(iv.ref_order_id);
+    if(ex){
+      // tag IV ใส่ออเดอร์ที่มีอยู่ (ถ้ายังไม่มี iv หรือ iv เปลี่ยน)
+      if(ex.iv_no !== iv.doc_no || (iv.voided && ex.status!=="cancelled")){
+        ivUpd.push({ id:ex.id, iv_no:iv.doc_no, iv_date:iv.doc_date||null, sale_amount:Number(iv.total)||0,
+                     status: iv.voided ? "cancelled" : ex.status, sale_keyed_at:new Date().toISOString(), sale_src:srcLabel });
+      }
+    } else if(!ivTaken.has(iv.doc_no)){
+      // ออเดอร์ยังไม่มี (ยังไม่อัปรายงานช่องทาง) → สร้าง fallback
       inserts.push({
-        company_id: co, iv_no: iv.doc_no,
-        order_id: iv.ref_order_id || null,
-        channel: iv.channel || null,
-        channel_group: ordChannelGroup(iv.channel, iv.customer),
-        customer: iv.customer || null,
-        status: newStatus,
-        order_date: iv.doc_date || null,
-        iv_date: iv.doc_date || null,
-        sale_amount: Number(iv.total)||0,
-        sale_keyed_at: new Date().toISOString(),
-        sale_src: srcLabel || "รายงานขาย 723-5"
+        company_id: co, order_id: iv.ref_order_id, iv_no: iv.doc_no,
+        channel: iv.channel || null, channel_group: ordChannelGroup(iv.channel, iv.customer),
+        customer: iv.customer || null, status: newStatus,
+        order_date: iv.doc_date || null, iv_date: iv.doc_date || null,
+        sale_amount: Number(iv.total)||0, order_total: Number(iv.total)||0,
+        sale_keyed_at: new Date().toISOString(), sale_src: (srcLabel||"723-5")+" (fallback)"
       });
-    } else if(ex.status !== newStatus){
-      statusUpd.push({ id: ex.id, status: newStatus });
     }
   }
-  // batch insert
-  const CH = 400;
-  for(let i=0;i<inserts.length;i+=CH){
-    const { error } = await sb.from("orders").insert(inserts.slice(i,i+CH));
-    if(error){ console.warn("ord insert", error); break; }
-  }
-  // status updates (cancelled)
-  for(const u of statusUpd){
-    await sb.from("orders").update({ status:u.status }).eq("id", u.id);
-  }
-  return { added: inserts.length, updated: statusUpd.length, total: ivs.length };
+  const CH=400;
+  for(let i=0;i<inserts.length;i+=CH){ const {error}=await sb.from("orders").insert(inserts.slice(i,i+CH)); if(error){console.warn("ord ins",error);break;} }
+  for(const u of ivUpd){ await sb.from("orders").update({ iv_no:u.iv_no, iv_date:u.iv_date, sale_amount:u.sale_amount, status:u.status, sale_keyed_at:u.sale_keyed_at, sale_src:u.sale_src }).eq("id", u.id); }
+  return { tagged: ivUpd.length, created: inserts.length, total: ivs.length };
+}
+
+/* ============================================================
+   หน้า "ทะเบียนคำสั่งซื้อ" (Order Ledger) — Phase A
+   ============================================================ */
+function ordGet(){
+  if(!state.ord) state.ord = {};
+  const co = state.company;
+  if(!state.ord[co]) state.ord[co] = { rows:[], busy:false, q:"", fCh:"all", fIv:"all", loaded:false };
+  return state.ord[co];
+}
+async function ordUploadFiles(){
+  if(!brecCanWrite()){ alert("ไม่มีสิทธิ์"); return; }
+  const co = await fopCompanyId(); if(!co){ alert("หา company_id ไม่เจอ"); return; }
+  const files = await new Promise(res=>{ const i=document.createElement("input"); i.type="file"; i.accept=".xlsx,.xls,.csv"; i.multiple=true; i.onchange=()=>res([...i.files]); i.click(); });
+  if(!files||!files.length) return;
+  const d = ordGet(); d.busy=true; renderToolOrders();
+  try{
+    let totAdd=0, totUpd=0, perCh={};
+    for(const file of files){
+      let rows;
+      if(/\.csv$/i.test(file.name)){
+        const text = new TextDecoder("utf-8").decode(await file.arrayBuffer());
+        rows = bmpParseCsvText(text);
+      } else {
+        const wb = XLSX.read(await file.arrayBuffer(), { type:"array", cellDates:false });
+        rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header:1, defval:"", raw:false });
+      }
+      const parsed = ordParseSalesFile(rows);
+      if(!parsed){ console.warn("unknown format", file.name); perCh[file.name]="ไม่รู้จักฟอร์แมต"; continue; }
+      const r = await ordIngestChannelOrders(co, parsed, file.name);
+      totAdd+=r.added; totUpd+=r.updated;
+      perCh[parsed.channel]=(perCh[parsed.channel]||0)+r.total;
+    }
+    await ordLoad();
+    alert(`อัปสำเร็จ\nบันทึกใหม่ ${totAdd} · อัปเดต ${totUpd} ออเดอร์\n\nต่อช่องทาง: ${Object.entries(perCh).map(([k,v])=>k+"="+v).join(" · ")}`);
+  }catch(e){ alert("อัปไม่สำเร็จ: "+(e.message||e)); }
+  d.busy=false; renderToolOrders();
+}
+async function ordLoad(){
+  const d = ordGet(); const co = await fopCompanyId(); if(!co) return;
+  const { data } = await sb.from("orders").select("*").eq("company_id", co).is("deleted_at", null)
+    .order("order_date",{ascending:false}).order("order_id",{ascending:true}).limit(5000);
+  d.rows = data||[]; d.loaded=true;
+}
+function ordSet(k,v){ const d=ordGet(); d[k]=v;
+  if(k==="q"){ const c=(document.getElementById("ordQ")||{}).selectionStart; renderToolOrders(); requestAnimationFrame(()=>{const n=document.getElementById("ordQ"); if(n){n.focus(); if(c!=null)try{n.setSelectionRange(c,c);}catch(e){}}}); }
+  else renderToolOrders();
+}
+function ordFiltered(d){
+  const q=(d.q||"").trim().toLowerCase();
+  return (d.rows||[]).filter(o=>{
+    if(d.fCh!=="all" && o.channel_group!==d.fCh) return false;
+    if(d.fIv==="noiv" && o.iv_no) return false;
+    if(d.fIv==="hasiv" && !o.iv_no) return false;
+    if(q){ const t=`${o.order_id||""} ${o.iv_no||""} ${o.products||""} ${o.channel||""}`.toLowerCase(); if(!t.includes(q)) return false; }
+    return true;
+  });
+}
+function ordExportNoIv(){
+  const d=ordGet();
+  const rows = ordFiltered(d).filter(o=>!o.iv_no && o.status!=="cancelled");
+  if(!rows.length){ alert("ไม่มีออเดอร์ที่ยังไม่คีย์ IV ตาม filter"); return; }
+  const co = COMPANIES.find(c=>c.id===state.company);
+  const data = rows.map((o,i)=>({ "No":i+1, "วันที่ขาย":o.order_date||"", "ช่องทาง":o.channel||o.channel_group, "รหัสคำสั่งซื้อ":o.order_id, "สินค้า":o.products||"", "จำนวนชิ้น":o.item_count||0, "ยอดขาย":Number(o.order_total||0), "ค่าส่ง":Number(o.shipping_fee||0), "ส่วนลดผู้ขาย":Number(o.seller_discount||0) }));
+  const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data), "ยังไม่คีย์ IV");
+  XLSX.writeFile(wb, `ออเดอร์ยังไม่คีย์IV_${co.code}_${new Date().toISOString().slice(0,10)}.xlsx`);
+}
+async function renderToolOrders(){
+  const t = TOOLS.find(x=>x.id==="orders"); const co = COMPANIES.find(c=>c.id===state.company);
+  const d = ordGet(); const main = document.getElementById("main");
+  homeInjectCSS();
+  if(!d.loaded && !d.busy){ main.innerHTML=`<div class="page-head"><h1>${esc(t.name)}</h1><div class="sub">กำลังโหลด...</div></div>`; try{ await ordLoad(); }catch(e){} }
+  const rows = ordFiltered(d);
+  const stats = (d.rows||[]).reduce((a,o)=>{ a.total++; if(o.iv_no)a.iv++; else if(o.status!=="cancelled")a.noiv++; if(o.status==="cancelled")a.cancel++; a.sum+=Number(o.order_total||0); return a; }, {total:0,iv:0,noiv:0,cancel:0,sum:0});
+  const chCount = {}; (d.rows||[]).forEach(o=>{ chCount[o.channel_group]=(chCount[o.channel_group]||0)+1; });
+  const fmt=(n)=>Number(n||0).toLocaleString("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2});
+  const chChip=(v,l)=>`<button class="hd-chip ${d.fCh===v?'on':''}" onclick="ordSet('fCh','${v}')">${l}${v!=='all'&&chCount[v]?` ${chCount[v]}`:''}</button>`;
+  main.innerHTML = `
+  <div class="hd">
+    <div class="page-head"><h1>${esc(t.name)} <span class="badge">${esc(co.name)}</span></h1><div class="sub">${esc(t.long)}</div></div>
+    <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin:14px 0">
+      <div class="hd-kpi"><div style="font-size:11px;color:var(--ink3,#94a3b8);font-weight:700;text-transform:uppercase">ทั้งหมด</div><div class="tnum" style="font-size:24px;font-weight:700">${stats.total}</div></div>
+      <div class="hd-kpi"><div style="font-size:11px;color:#16a34a;font-weight:700;text-transform:uppercase">คีย์ IV แล้ว</div><div class="tnum" style="font-size:24px;font-weight:700;color:#16a34a">${stats.iv}</div></div>
+      <div class="hd-kpi"><div style="font-size:11px;color:#d97706;font-weight:700;text-transform:uppercase">ยังไม่คีย์ IV</div><div class="tnum" style="font-size:24px;font-weight:700;color:#d97706">${stats.noiv}</div></div>
+      <div class="hd-kpi"><div style="font-size:11px;color:#dc2626;font-weight:700;text-transform:uppercase">ยกเลิก</div><div class="tnum" style="font-size:24px;font-weight:700;color:#dc2626">${stats.cancel}</div></div>
+      <div class="hd-kpi"><div style="font-size:11px;color:var(--ink3,#94a3b8);font-weight:700;text-transform:uppercase">ยอดขายรวม</div><div class="tnum" style="font-size:20px;font-weight:700">${fmt(stats.sum)}</div></div>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px">
+      <button class="brec-btn primary" onclick="ordUploadFiles()" ${brecCanWrite()?'':'disabled'}><i data-lucide="upload"></i> อัปรายงานขาย (เลือกได้หลายช่องทาง)</button>
+      <button class="brec-btn" onclick="ordExportNoIv()"><i data-lucide="download"></i> ส่งออกออเดอร์ยังไม่คีย์ IV</button>
+      <div style="flex:1"></div>
+      <input id="ordQ" value="${esc(d.q||'')}" oninput="ordSet('q',this.value)" placeholder="🔍 ค้นหา order / IV / สินค้า" style="border:1px solid var(--line,#e2e8f0);border-radius:8px;padding:7px 11px;font-size:13px;min-width:240px;font-family:inherit">
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+      ${chChip('all','ทุกช่อง')}${chChip('shopee','Shopee')}${chChip('tiktok','TikTok')}${chChip('lazada','Lazada')}${chChip('bigseller','BigSeller')}${chChip('offline','หน้าร้าน/อื่น')}
+      <div style="width:14px"></div>
+      <button class="hd-chip ${d.fIv==='all'?'on':''}" onclick="ordSet('fIv','all')">IV ทั้งหมด</button>
+      <button class="hd-chip ${d.fIv==='noiv'?'on':''}" onclick="ordSet('fIv','noiv')">ยังไม่คีย์ IV</button>
+      <button class="hd-chip ${d.fIv==='hasiv'?'on':''}" onclick="ordSet('fIv','hasiv')">คีย์แล้ว</button>
+    </div>
+    ${d.busy?`<div class="brec-empty"><i data-lucide="loader-2"></i><div class="ttl">กำลังประมวลผล…</div></div>`:`
+    <div style="background:#fff;border:1px solid var(--line,#e2e8f0);border-radius:12px;overflow:hidden">
+      <div style="display:grid;grid-template-columns:96px 90px 130px 1fr 90px 100px 90px;gap:8px;padding:10px 14px;background:#f8fafc;font-size:11px;font-weight:700;color:var(--ink2,#475569);text-transform:uppercase">
+        <div>วันที่</div><div>ช่องทาง</div><div>รหัสคำสั่งซื้อ</div><div>สินค้า</div><div>ยอดขาย</div><div>IV</div><div>สถานะ</div>
+      </div>
+      <div style="max-height:60vh;overflow-y:auto">
+        ${rows.slice(0,1000).map(o=>`<div style="display:grid;grid-template-columns:96px 90px 130px 1fr 90px 100px 90px;gap:8px;padding:9px 14px;border-bottom:1px solid #f1f5f9;font-size:12.5px;align-items:center;${o.status==='cancelled'?'opacity:.5':''}">
+          <div class="tnum">${o.order_date||'—'}</div>
+          <div style="font-size:11px">${esc(o.channel_group||'')}</div>
+          <div class="mono" style="font-size:11px;font-family:monospace">${esc(o.order_id||'')}</div>
+          <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(o.products||'')}">${esc(o.products||'')}</div>
+          <div class="tnum" style="text-align:right">${fmt(o.order_total)}</div>
+          <div style="font-size:11px;font-family:monospace">${o.iv_no?`<span style="color:#16a34a">${esc(o.iv_no)}</span>`:`<span style="color:#d97706">ยังไม่คีย์</span>`}</div>
+          <div>${o.status==='cancelled'?'<span style="color:#dc2626;font-size:11px">ยกเลิก</span>':(o.is_returned?'<span style="color:#d97706;font-size:11px">คืน</span>':'<span style="color:#16a34a;font-size:11px">ปกติ</span>')}</div>
+        </div>`).join("") || `<div class="brec-empty" style="border:none"><i data-lucide="package-search"></i><div class="ttl">ยังไม่มีออเดอร์</div><div>กดปุ่ม "อัปรายงานขาย" เพื่อนำเข้าจาก 4 ช่องทาง</div></div>`}
+      </div>
+      ${rows.length>1000?`<div style="padding:8px 14px;font-size:12px;color:var(--ink3,#94a3b8)">แสดง 1,000 จาก ${rows.length} รายการ — ใช้ filter/ค้นหาเพื่อแคบลง</div>`:''}
+    </div>`}
+  </div>`;
+  if(window.lucide&&window.lucide.createIcons){ try{ window.lucide.createIcons(); }catch(e){} }
 }
 
 async function bmpRunUpload(){
@@ -12100,7 +12323,7 @@ async function bmpRunUpload(){
     let msg = `อัปสำเร็จ\n${perShopSummary.join("\n")}\n\nรวม: ${grandTotalWd} withdrawal · ${grandTotalOrd} order · ไม่ตรง ${grandTotalMis}`;
     if(grandTotalSkip) msg += `\n\n⏭ ข้าม ${grandTotalSkip} withdrawal ที่มีอยู่ใน DB แล้ว (ดูจาก datetime+ยอด+บัญชี)`;
     if(skipped.length) msg += `\n\nข้าม: ${skipped.join(", ")}`;
-    msg += `\n\n📒 ทะเบียนคำสั่งซื้อ: บันทึกใหม่ ${ordResult.added} · อัปเดตสถานะ ${ordResult.updated} (จาก IV ${ordResult.total})`;
+    msg += `\n\n📒 จับ IV ใส่ออเดอร์: ${ordResult.tagged} · สร้าง fallback ${ordResult.created} (จาก IV ${ordResult.total})`;
     alert(msg);
   } catch(e){
     alert("อัปไม่สำเร็จ: " + (e.message||e));

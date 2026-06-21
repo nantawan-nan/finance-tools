@@ -3333,8 +3333,40 @@ function homeInjectCSS(){
   document.head.appendChild(s);
 }
 
+async function homeLoadStats(){
+  try{
+    const co = await fopCompanyId(); if(!co) return;
+    const todayISO = new Date().toISOString().slice(0,10);
+    const [ordRes, apRes, balRes] = await Promise.all([
+      sb.from("orders").select("iv_no,re_no,status,order_total,bank_in_date,order_date").eq("company_id",co).is("deleted_at",null).limit(20000),
+      sb.from("ap_invoices").select("amount_outstanding").eq("company_id",co).is("deleted_at",null),
+      sb.rpc("fn_balance_as_of",{ p_company:co, p_as_of: todayISO })
+    ]);
+    const orders = ordRes.data||[];
+    const active = orders.filter(o=>o.status!=="cancelled");
+    const withIv = active.filter(o=>o.iv_no);
+    const rePending = withIv.filter(o=>!o.re_no);
+    const apSum = (apRes.data||[]).reduce((s,r)=>s+Number(r.amount_outstanding||0),0);
+    const cash = (balRes.data||[]).reduce((s,r)=>s+Number(r.amount||0),0);
+    const saleSum = active.reduce((s,o)=>s+Number(o.order_total||0),0);
+    state.home.stats = {
+      ivPct: active.length? Math.round(withIv.length/active.length*100):0,
+      ivKeyed: withIv.length, ordTotal: active.length, cancelled: orders.length-active.length,
+      rePending: rePending.length, bankIn: active.filter(o=>o.bank_in_date).length,
+      apSum, cash, saleSum, _loaded:true
+    };
+  }catch(e){ console.warn("home stats", e); }
+}
 function renderToolHome(){
   homeInjectCSS();
+  // โหลดสถิติจริงครั้งแรก แล้ว re-render
+  if(!state.home.stats || state.home.stats._co !== state.company){
+    state.home.stats = state.home.stats || {};
+    state.home.stats._co = state.company;
+    homeLoadStats().then(()=>{ if(state.tool==="home"){ state.home.stats._co=state.company; renderToolHome(); } });
+  }
+  const S = state.home.stats || {};
+  const fmtB = (n)=> "฿"+Number(n||0).toLocaleString("th-TH",{maximumFractionDigits:0});
   const co = COMPANIES.find(c=>c.id===state.company);
   const userName = (AUTH.user && AUTH.user.user_metadata && AUTH.user.user_metadata.display_name)
     || (AUTH.email ? AUTH.email.split("@")[0] : "ทีมการเงิน");
@@ -3404,11 +3436,11 @@ function renderToolHome(){
 
     <!-- KPI CARDS -->
     <div class="hd-kpis" style="display:grid;grid-template-columns:repeat(5,1fr);gap:16px;margin-top:22px">
-      ${kpiCard({ icon:"file-text", iconBg:"var(--brand-soft)", iconColor:"var(--brand-dark)", tag:"ตามแผน", tagColor:"var(--brand-dark)", tagBg:"#E6F7F1", label:"การคีย์ IV", value:`86<span style="font-size:16px;color:var(--ink3)">%</span>`, sub:"คีย์ถึง 18 มิ.ย. · 18/21 วันทำการ", bar:86, barColor:"linear-gradient(90deg,var(--brand),var(--brand-dark))", link:"ไปที่ BigSeller → IV", tool:"bigseller" })}
-      ${kpiCard({ icon:"hand-coins", iconBg:"#FBF1DC", iconColor:"#C77E14", tag:"ต้องติดตาม", tagColor:"#C77E14", tagBg:"#FBEFD7", label:"การรับชำระเงิน (RE)", value:`24<span style="font-size:15px;color:var(--ink3);font-weight:500"> รายการค้าง</span>`, sub:"บันทึกถึง 17 มิ.ย. · ความคืบหน้า 78%", bar:78, barColor:"linear-gradient(90deg,#F0A02E,#E08C16)", link:"ดูรายการค้าง", linkColor:"#C77E14", tool:"ar", delay:".06s" })}
-      ${kpiCard({ icon:"git-compare-arrows", iconBg:"#FBF1DC", iconColor:"#C77E14", tag:"ค้าง 36", tagColor:"#C77E14", tagBg:"#FBEFD7", label:"Bank Reconciliation", value:`1,248<span style="font-size:16px;color:var(--ink3)">/1,284</span>`, sub:`ตรงกันแล้ว 97% · <span style="color:#E23D4B;font-weight:600">ไม่ตรง 36</span>`, bar:97, barColor:"linear-gradient(90deg,var(--brand),var(--brand-dark))", link:"ตรวจรายการไม่ตรง", linkColor:"#C77E14", tool:"bankrec", delay:".12s" })}
-      ${kpiCard({ icon:"file-warning", iconBg:"#FDECEE", iconColor:"#E23D4B", tag:"เร่งด่วน", tagColor:"#E23D4B", tagBg:"#FDECEE", label:"AP Outstanding", value:`฿1,250,000`, sub:`ค้างชำระ 42 รายการ · <span style="color:#E23D4B;font-weight:600">ใกล้ครบ 8</span>`, bar:54, barColor:"linear-gradient(90deg,#F36C79,#E23D4B)", link:"ตรวจสอบเจ้าหนี้", linkColor:"#E23D4B", tool:"ap_outstanding", delay:".18s" })}
-      ${kpiCard({ dark:true, icon:"wallet", tag:"▲ +12%", label:"ยอดเงินในบัญชี ณ วันนี้ (รวม)", value:"฿2,845,000", sub:"เทียบต้นเดือน +305,000", spark:true, tool:"bank_balance", delay:".24s" })}
+      ${kpiCard({ icon:"file-text", iconBg:"var(--brand-soft)", iconColor:"var(--brand-dark)", tag: S._loaded?"ข้อมูลจริง":"...", tagColor:"var(--brand-dark)", tagBg:"#E6F7F1", label:"การคีย์ IV", value:`${S.ivPct??'—'}<span style="font-size:16px;color:var(--ink3)">%</span>`, sub:`คีย์ ${S.ivKeyed??0}/${S.ordTotal??0} ออเดอร์`, bar:S.ivPct??0, barColor:"linear-gradient(90deg,var(--brand),var(--brand-dark))", link:"ดูทะเบียนคำสั่งซื้อ", tool:"orders" })}
+      ${kpiCard({ icon:"hand-coins", iconBg:"#FBF1DC", iconColor:"#C77E14", tag:"ต้องติดตาม", tagColor:"#C77E14", tagBg:"#FBEFD7", label:"รอรับชำระ (RE)", value:`${S.rePending??'—'}<span style="font-size:15px;color:var(--ink3);font-weight:500"> ออเดอร์</span>`, sub:`มี IV แล้วแต่ยังไม่รับชำระ`, bar: (S.ivKeyed? Math.round((S.ivKeyed-(S.rePending||0))/S.ivKeyed*100):0), barColor:"linear-gradient(90deg,#F0A02E,#E08C16)", link:"ดูทะเบียนคำสั่งซื้อ", linkColor:"#C77E14", tool:"orders", delay:".06s" })}
+      ${kpiCard({ icon:"git-compare-arrows", iconBg:"var(--brand-soft)", iconColor:"var(--brand-dark)", tag:"เงินเข้าแบงค์", tagColor:"var(--brand-dark)", tagBg:"#E6F7F1", label:"ออเดอร์เงินเข้าแบงค์แล้ว", value:`${S.bankIn??'—'}<span style="font-size:16px;color:var(--ink3)">/${S.ordTotal??0}</span>`, sub:`ติดตามถึง stage เงินเข้าบัญชี`, bar:(S.ordTotal? Math.round((S.bankIn||0)/S.ordTotal*100):0), barColor:"linear-gradient(90deg,var(--brand),var(--brand-dark))", link:"กระทบยอด", linkColor:"var(--brand-dark)", tool:"bankrec", delay:".12s" })}
+      ${kpiCard({ icon:"file-warning", iconBg:"#FDECEE", iconColor:"#E23D4B", tag:"เจ้าหนี้", tagColor:"#E23D4B", tagBg:"#FDECEE", label:"AP Outstanding", value: S._loaded?fmtB(S.apSum):"—", sub:`ยอดเจ้าหนี้คงค้างจริง`, bar:54, barColor:"linear-gradient(90deg,#F36C79,#E23D4B)", link:"ตรวจสอบเจ้าหนี้", linkColor:"#E23D4B", tool:"ap_outstanding", delay:".18s" })}
+      ${kpiCard({ dark:true, icon:"wallet", tag: S._loaded?"จริง":"...", label:"ยอดเงินในบัญชี ณ วันนี้ (รวม)", value: S._loaded?fmtB(S.cash):"—", sub:`ยอดล่าสุดที่บันทึก`, spark:true, tool:"bank_balance", delay:".24s" })}
     </div>
 
     <!-- TASKS + PROGRESS -->
@@ -11942,13 +11974,54 @@ async function ordIngestFromSales(co, salesData, srcLabel){
   return { tagged: ivUpd.length, created: inserts.length, total: ivs.length };
 }
 
+/* ===== Phase B: แท็กรับชำระ (RE/SP/net) ใส่ออเดอร์ ผ่าน iv_no ===== */
+async function ordTagReceipts(co, arData){
+  const m = arData && arData.ivToCheque;
+  if(!m || !m.size) return 0;
+  const { data:orders } = await sb.from("orders").select("id,iv_no,re_no")
+    .eq("company_id", co).is("deleted_at", null).not("iv_no","is",null);
+  let n=0; const now=new Date().toISOString();
+  for(const o of (orders||[])){
+    const chq = m.get(o.iv_no);
+    if(chq && (!o.re_no || o.re_no!==chq.receipt_no)){
+      const fee = (Number(o.sale_amount)||0) ? +(Number(o.sale_amount) - Number(chq.amount)).toFixed(2) : null;
+      await sb.from("orders").update({ re_no:chq.receipt_no, cheque_no:chq.cheque_no,
+        receipt_net:Number(chq.amount)||0, receipt_gross:Number(o.sale_amount)||null,
+        receipt_fee:fee, received_at:now }).eq("id", o.id);
+      n++;
+    }
+  }
+  return n;
+}
+/* ===== Phase C: แท็กฝากเช็ค (BQ) + เงินเข้าแบงค์ จาก withdrawal ผ่าน order_id ===== */
+async function ordTagBankFromWithdrawals(co, withdrawals){
+  const byOid = new Map();
+  for(const wd of (withdrawals||[])){
+    for(const o of (wd.orders||[])){ if(o.order_id) byOid.set(o.order_id, { bq:wd.bq_number, date:wd.withdraw_date, bankAcct:wd.bank_account_no }); }
+  }
+  if(!byOid.size) return 0;
+  const { data:orders } = await sb.from("orders").select("id,order_id,bq_no")
+    .eq("company_id", co).is("deleted_at", null).not("order_id","is",null);
+  let n=0;
+  for(const o of (orders||[])){
+    const info = byOid.get(o.order_id);
+    if(info && !o.bq_no){
+      await sb.from("orders").update({ bq_no:info.bq, deposit_date:info.date,
+        bank_in_date:info.date, bank_matched:true }).eq("id", o.id);
+      n++;
+    }
+  }
+  return n;
+}
+
 /* ============================================================
-   หน้า "ทะเบียนคำสั่งซื้อ" (Order Ledger) — Phase A
+   หน้า "ทะเบียนคำสั่งซื้อ" (Order Ledger) — Phase A-D
    ============================================================ */
 function ordGet(){
   if(!state.ord) state.ord = {};
   const co = state.company;
-  if(!state.ord[co]) state.ord[co] = { rows:[], busy:false, q:"", fCh:"all", fIv:"all", loaded:false };
+  if(!state.ord[co]) state.ord[co] = { rows:[], busy:false, q:"", fCh:"all", fIv:"all", loaded:false, expanded:new Set() };
+  if(!state.ord[co].expanded) state.ord[co].expanded = new Set();
   return state.ord[co];
 }
 async function ordUploadFiles(){
@@ -11999,6 +12072,29 @@ function ordFiltered(d){
     return true;
   });
 }
+function ordToggleRow(id){ const d=ordGet(); if(d.expanded.has(id))d.expanded.delete(id); else d.expanded.add(id); renderToolOrders(); }
+function ordTimeline(o){
+  const fmt=(n)=>Number(n||0).toLocaleString("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2});
+  const steps = [
+    { on:!!o.order_date, ic:"shopping-cart", t:"ขาย (หลังบ้าน)", d:`${o.order_date||'—'} · ${esc(o.channel||o.channel_group||'')} · ${fmt(o.order_total)} บาท${o.shipping_fee?` · ค่าส่ง ${fmt(o.shipping_fee)}`:''}${o.seller_discount?` · ส่วนลด ${fmt(o.seller_discount)}`:''}` },
+    { on:!!o.iv_no, ic:"file-text", t:"คีย์ IV", d: o.iv_no?`${esc(o.iv_no)} · ${o.iv_date||''} · ยอด ${fmt(o.sale_amount)}`:'ยังไม่คีย์ IV' },
+    { on:!!o.re_no, ic:"hand-coins", t:"รับชำระ (RE)", d: o.re_no?`${esc(o.re_no)} · เช็ค ${esc(o.cheque_no||'')} · net ${fmt(o.receipt_net)}${o.receipt_fee!=null?` · fee ${fmt(o.receipt_fee)}`:''}`:'ยังไม่รับชำระ' },
+    { on:!!o.bq_no, ic:"file-check", t:"ฝากเช็ค (BQ)", d: o.bq_no?`${esc(o.bq_no)} · ${o.deposit_date||''}`:'ยังไม่ฝาก' },
+    { on:!!o.bank_in_date, ic:"landmark", t:"เงินเข้าแบงค์", d: o.bank_in_date?`${o.bank_in_date}${o.bank_matched?' · ✓ ตรง STM':''}`:'ยังไม่เข้าแบงค์' },
+  ];
+  return `<div style="display:flex;flex-direction:column;gap:0;padding:12px 16px;background:#fafbfc">
+    ${steps.map((s,i)=>`<div style="display:flex;gap:12px;align-items:flex-start">
+      <div style="display:flex;flex-direction:column;align-items:center">
+        <div style="width:30px;height:30px;border-radius:50%;background:${s.on?'#dcfce7':'#f1f5f9'};color:${s.on?'#16a34a':'#94a3b8'};display:flex;align-items:center;justify-content:center"><i data-lucide="${s.on?'check':s.ic}" style="width:15px;height:15px"></i></div>
+        ${i<steps.length-1?`<div style="width:2px;height:22px;background:${s.on?'#86efac':'#e2e8f0'}"></div>`:''}
+      </div>
+      <div style="padding-bottom:14px;flex:1">
+        <div style="font-size:13px;font-weight:600;color:${s.on?'#0f172a':'#94a3b8'}">${s.t}</div>
+        <div style="font-size:12px;color:${s.on?'#475569':'#cbd5e1'}">${s.d}</div>
+      </div>
+    </div>`).join("")}
+  </div>`;
+}
 function ordExportNoIv(){
   const d=ordGet();
   const rows = ordFiltered(d).filter(o=>!o.iv_no && o.status!=="cancelled");
@@ -12047,15 +12143,18 @@ async function renderToolOrders(){
         <div>วันที่</div><div>ช่องทาง</div><div>รหัสคำสั่งซื้อ</div><div>สินค้า</div><div>ยอดขาย</div><div>IV</div><div>สถานะ</div>
       </div>
       <div style="max-height:60vh;overflow-y:auto">
-        ${rows.slice(0,1000).map(o=>`<div style="display:grid;grid-template-columns:96px 90px 130px 1fr 90px 100px 90px;gap:8px;padding:9px 14px;border-bottom:1px solid #f1f5f9;font-size:12.5px;align-items:center;${o.status==='cancelled'?'opacity:.5':''}">
-          <div class="tnum">${o.order_date||'—'}</div>
-          <div style="font-size:11px">${esc(o.channel_group||'')}</div>
-          <div class="mono" style="font-size:11px;font-family:monospace">${esc(o.order_id||'')}</div>
-          <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(o.products||'')}">${esc(o.products||'')}</div>
-          <div class="tnum" style="text-align:right">${fmt(o.order_total)}</div>
-          <div style="font-size:11px;font-family:monospace">${o.iv_no?`<span style="color:#16a34a">${esc(o.iv_no)}</span>`:`<span style="color:#d97706">ยังไม่คีย์</span>`}</div>
-          <div>${o.status==='cancelled'?'<span style="color:#dc2626;font-size:11px">ยกเลิก</span>':(o.is_returned?'<span style="color:#d97706;font-size:11px">คืน</span>':'<span style="color:#16a34a;font-size:11px">ปกติ</span>')}</div>
-        </div>`).join("") || `<div class="brec-empty" style="border:none"><i data-lucide="package-search"></i><div class="ttl">ยังไม่มีออเดอร์</div><div>กดปุ่ม "อัปรายงานขาย" เพื่อนำเข้าจาก 4 ช่องทาง</div></div>`}
+        ${rows.slice(0,1000).map(o=>{ const exp=d.expanded.has(o.id); return `<div style="border-bottom:1px solid #f1f5f9">
+          <div onclick="ordToggleRow('${o.id}')" style="display:grid;grid-template-columns:96px 90px 130px 1fr 90px 100px 90px;gap:8px;padding:9px 14px;font-size:12.5px;align-items:center;cursor:pointer;${o.status==='cancelled'?'opacity:.5':''}${exp?'background:#f8fafc':''}">
+            <div class="tnum">${o.order_date||'—'}</div>
+            <div style="font-size:11px">${esc(o.channel_group||'')}</div>
+            <div class="mono" style="font-size:11px;font-family:monospace">${esc(o.order_id||'')}</div>
+            <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(o.products||'')}">${esc(o.products||'')}</div>
+            <div class="tnum" style="text-align:right">${fmt(o.order_total)}</div>
+            <div style="font-size:11px;font-family:monospace">${o.iv_no?`<span style="color:#16a34a">${esc(o.iv_no)}</span>`:`<span style="color:#d97706">ยังไม่คีย์</span>`}</div>
+            <div>${o.status==='cancelled'?'<span style="color:#dc2626;font-size:11px">ยกเลิก</span>':(o.is_returned?'<span style="color:#d97706;font-size:11px">คืน</span>':'<span style="color:#16a34a;font-size:11px">ปกติ</span>')}</div>
+          </div>
+          ${exp?ordTimeline(o):''}
+        </div>`; }).join("") || `<div class="brec-empty" style="border:none"><i data-lucide="package-search"></i><div class="ttl">ยังไม่มีออเดอร์</div><div>กดปุ่ม "อัปรายงานขาย" เพื่อนำเข้าจาก 4 ช่องทาง</div></div>`}
       </div>
       ${rows.length>1000?`<div style="padding:8px 14px;font-size:12px;color:var(--ink3,#94a3b8)">แสดง 1,000 จาก ${rows.length} รายการ — ใช้ filter/ค้นหาเพื่อแคบลง</div>`:''}
     </div>`}
@@ -12160,10 +12259,14 @@ async function bmpRunUpload(){
       expressFromCache = true;
     }
 
-    // ★ Phase A: ป้อน orders จากรายงานขาย (ทุกครั้งที่มี salesData — upsert dedup)
-    let ordResult = { added:0, updated:0, total:0 };
+    // ★ Phase A: จับ IV ใส่ออเดอร์ จากรายงานขาย 723-5
+    let ordResult = { tagged:0, created:0, total:0 };
     try{ ordResult = await ordIngestFromSales(co, salesData, "รายงานขาย 723-5 (ผ่าน Marketplace)"); }
     catch(e){ console.warn("ord ingest", e); }
+    // ★ Phase B: แท็กรับชำระ (RE/SP/net/fee) ใส่ออเดอร์ ผ่าน iv_no
+    let ordTagRe = 0;
+    try{ ordTagRe = await ordTagReceipts(co, arData); }catch(e){ console.warn("ord tag re", e); }
+    const allWdForTag = [];   // เก็บ withdrawal ทุก shop ไว้ tag เงินเข้าแบงค์ (Phase C)
 
     // ----- ★ ตรวจ period coverage: sales report ต้องครอบ Shopee balance -----
     const salesDates = (salesData.ivs||[]).map(iv => iv.doc_date).filter(Boolean).sort();
@@ -12270,6 +12373,7 @@ async function bmpRunUpload(){
       }
       const totalOrders = withdrawals.reduce((s,w)=> s + w.orders.length, 0);
       const totalMismatch = withdrawals.reduce((s,w)=> s + w.mismatch_count, 0);
+      allWdForTag.push(...withdrawals);   // เก็บไว้ tag เงินเข้าแบงค์ (Phase C)
       const { data:imp, error:ie } = await sb.from("brec_mp_imports").insert({
         company_id: co, bank_account_id: acctId,
         channel: routing.channel, shop_name: shopName,
@@ -12316,6 +12420,10 @@ async function bmpRunUpload(){
       grandTotalWd += withdrawals.length; grandTotalOrd += totalOrders; grandTotalMis += totalMismatch;
     }
 
+    // ★ Phase C: แท็กเงินเข้าแบงค์ (BQ/วันเงินเข้า) ใส่ออเดอร์ จาก withdrawal ทุก shop
+    let ordTagBank = 0;
+    try{ ordTagBank = await ordTagBankFromWithdrawals(co, allWdForTag); }catch(e){ console.warn("ord tag bank", e); }
+
     d.tab = "mp";
     await bmpLoadFromDb();
     d.mp.parsing = false;   // ★ reset flag ก่อนปิด modal กัน state ค้าง
@@ -12323,7 +12431,7 @@ async function bmpRunUpload(){
     let msg = `อัปสำเร็จ\n${perShopSummary.join("\n")}\n\nรวม: ${grandTotalWd} withdrawal · ${grandTotalOrd} order · ไม่ตรง ${grandTotalMis}`;
     if(grandTotalSkip) msg += `\n\n⏭ ข้าม ${grandTotalSkip} withdrawal ที่มีอยู่ใน DB แล้ว (ดูจาก datetime+ยอด+บัญชี)`;
     if(skipped.length) msg += `\n\nข้าม: ${skipped.join(", ")}`;
-    msg += `\n\n📒 จับ IV ใส่ออเดอร์: ${ordResult.tagged} · สร้าง fallback ${ordResult.created} (จาก IV ${ordResult.total})`;
+    msg += `\n\n📒 ทะเบียนคำสั่งซื้อ — จับ IV: ${ordResult.tagged} · แท็กรับชำระ: ${ordTagRe} · แท็กเงินเข้าแบงค์: ${ordTagBank}`;
     alert(msg);
   } catch(e){
     alert("อัปไม่สำเร็จ: " + (e.message||e));

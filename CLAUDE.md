@@ -102,6 +102,7 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 |---|---|---|---|
 | `home` | `renderToolHome` | live | Hub grid + greeting "สวัสดี <user>" — auto-fill toolcard |
 | `execdash` | `renderToolExecDash` | live (admin only) | **★ ห้ามแก้ — นิ่งแล้ว** ใช้เป็น reference สี/สไตล์ |
+| `orders` | `renderToolOrders` | live | **ทะเบียนคำสั่งซื้อ** (Order Ledger) — รับรู้ออเดอร์ 4 ช่องทางก่อนมี IV · timeline ขาย→IV→รับชำระ→แบงค์ · ord* helpers |
 | `dashboard` | `renderToolDashboard` | live | Sales Dashboard |
 | `bigseller` | `renderToolBigSeller` | live | BigSeller → IV import |
 | `expressmatch` | `renderToolExpressMatch` | live | แมพ IV จาก Express CSV |
@@ -175,6 +176,19 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 - `phase0-foundation.sql` trigger `trg_sync_user_profile` ต้องเป็น `AFTER INSERT only` (ไม่ใช่ `INSERT OR UPDATE`)
 
 ## Recent changes (chronological)
+
+### 2026-06-21 — Order Ledger (ทะเบียนคำสั่งซื้อ) Phase A-E + Home dashboard redesign
+- **วิสัยทัศน์ใหม่:** จาก "เครื่องมือ export คีย์" → ระบบติดตามคำสั่งซื้อกลาง · ทุกอัปโหลดแท็กลง order เดียวกัน → timeline ขาย→IV→รับชำระ→ฝากเช็ค→เงินเข้าแบงค์ (1 order = 1 IV)
+- **Schema** `orders-phase-a.sql` + `orders-phase-a2.sql`: ตาราง `orders` (key company+order_id, unique · iv_no nullable เติมทีหลัง) + `order_events` log + stage columns ครบ 5 stage
+- **โมดูล `orders`** (`renderToolOrders`, helper `ord*`) — หน้า "ทะเบียนคำสั่งซื้อ" ใต้ stage การขาย:
+  - **Phase A** parser รายงานขายหลังบ้าน 4 ช่องทาง (`ORD_CH` config · generic group item→order): Shopee/TikTok(xlsx+csv)/Lazada/BigSeller · BigSeller กรองเอาเฉพาะ platform ≠ Shopee/TikTok/Lazada · `ordParseSalesFile` + `ordIngestChannelOrders` (upsert by order_id)
+  - **Phase A 723-5** `ordIngestFromSales` เปลี่ยนเป็น "จับ IV ใส่ออเดอร์" (match order_id → tag iv_no/ยอด) + fallback สร้าง
+  - **Phase B** `ordTagReceipts(co, arData)` — แท็ก RE/SP/net/fee ผ่าน iv_no (hook ใน bmpRunUpload)
+  - **Phase C** `ordTagBankFromWithdrawals(co, withdrawals)` — แท็ก BQ/วันเงินเข้าแบงค์ ผ่าน order_id
+  - **Phase D** timeline ต่อออเดอร์ (`ordTimeline`) — คลิกแถวดู 5 stage · filter ช่อง/IV + ค้นหา + ปุ่มส่งออกออเดอร์ยังไม่คีย์ IV (xlsx)
+  - **Phase E** `homeLoadStats` — wire dashboard KPI เป็นข้อมูลจริง (% คีย์ IV, รอรับชำระ, เงินเข้าแบงค์, AP จริง, เงินสดจริง)
+- **Home redesign** (`renderToolHome`): dashboard ภาพรวม (จาก design handoff) — 5 KPI + งานวันนี้/progress/cashflow/quick access/activity · สีตาม `var(--brand)` ต่อบริษัท
+
 
 ### 2026-06-21 — Bank Reconciliation Phase 2 (Marketplace Withdrawal Recon — Shopee)
 - เพิ่ม **แท็บที่ 5 "🛒 ถอน Marketplace"** ใต้ `renderToolBankRec` · helper prefix **`bmp*`** · ปุ่ม "Marketplace (3 ไฟล์)" บน toolbar เปิด modal อัป 3 ไฟล์พร้อมกัน

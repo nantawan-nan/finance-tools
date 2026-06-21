@@ -11046,8 +11046,9 @@ function bmpParseArReceipt(text){
     }
     for(let j=0;j<row.length;j++){
       const v = String(row[j]||"").trim();
-      const m = v.match(/^((?:SP|SI|TI|TT|LZ)[A-Z0-9]{6,})$/);
-      if(m){
+      const m = v.match(/^([A-Z]{2,4}\d{8,12})$/);
+      // exclude document prefixes (IV/RE/BQ/TXRE/CN/SR) — เหลือเช็คทุก prefix (SP/SB/SI/TT/TI/TB/TQ/LZ/LD/LI/FB)
+      if(m && !/^(?:IV|RE|BQ|TXRE|CN|SR)\d/.test(m[1])){
         const chq = m[1];
         let amt = 0, chan = "";
         for(let k=j+1;k<row.length;k++){
@@ -11059,7 +11060,7 @@ function bmpParseArReceipt(text){
           if(!isNaN(n) && n > 0){ amt = n; break; }
         }
         curReceipt.cheques.push({ cheque_no: chq, amount: amt, channel: chan });
-        cheques.push({ cheque_no: chq, order_id: chq.replace(/^(SP|SI|TI|TT|LZ)/,""), amount: amt,
+        cheques.push({ cheque_no: chq, order_id: chq.replace(/^[A-Z]+/,""), amount: amt,
                        receipt_no: curReceipt.receipt_no, channel: chan });
         break;
       }

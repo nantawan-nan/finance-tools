@@ -10964,57 +10964,109 @@ function bmpIsoFromAny(v){
    ============================================================ */
 function bmpParseArReceipt(text){
   const rows = bmpParseCsvText(text);
-  // find header row index — มี "เลขที่ใบเสร็จ" + "ยอดตามใบกำกับ"
   let hr = -1, head = null;
   for(let i=0;i<Math.min(rows.length,15);i++){
     const r = (rows[i]||[]).map(x=>String(x||"").trim());
     if(r.includes("เลขที่ใบเสร็จ") && r.includes("ยอดตามใบกำกับ")){ hr = i; head = r; break; }
   }
   if(hr < 0) throw new Error("ไม่พบ header รับชำระหนี้ (เลขที่ใบเสร็จ + ยอดตามใบกำกับ)");
-  const idx = (n)=> head.indexOf(n);
-  // คอลัมน์ที่สนใจ
-  const cReceipt = idx("เลขที่ใบเสร็จ");
-  const cCust    = idx("ชื่อลูกค้า");
-  const cDate    = idx("วันที่");
-  const cTotal   = idx("ยอดตามใบกำกับ");
 
-  // cheque ปรากฏในแถวต่อจาก receipt row โดยใส่ค่าใน col "รับชำระโดย" + "จำนวน"
-  // เนื่องจากเป็นรายงานของ Express ที่ pivot โดย row แตกย่อย,
-  // ใช้วิธี scan: ถ้าเจอ SP/TT/LZ pattern ใน row ที่ไม่มี receipt header → cheque ต่อ receipt ก่อนหน้า
-  const cheques = []; // { cheque_no, amount, receipt_no, customer, date, channel }
-  let curReceipt = null, curCust = null, curDate = null;
-  for(let i=hr+1;i<rows.length;i++){
-    const r = rows[i]; if(!r) continue;
-    const recVal = String(r[cReceipt]||"").trim();
-    if(/^RE\d/.test(recVal)){
-      curReceipt = recVal;
-      curCust = String(r[cCust]||"").trim();
-      curDate = bmpThaiDate(r[cDate]);
+  // โครงสร้างแต่ละ block: RE row + cheque rows (SP/SI/TI/TT/LZ) + IV rows (IV...)
+  // ★ build map: IV doc_no → { cheque_no, amount, channel, receipt_no }
+  const cheques = [];
+  const ivToCheque = new Map();
+  let curReceipt = null;
+
+  function flushReceipt(){
+    if(!curReceipt) return;
+    const r = curReceipt;
+    if(r.ivs.length && r.cheques.length){
+      if(r.cheques.length === 1){
+        for(const iv of r.ivs){
+          ivToCheque.set(iv.doc_no, {
+            cheque_no: r.cheques[0].cheque_no, amount: r.cheques[0].amount,
+            channel: r.cheques[0].channel, receipt_no: r.receipt_no
+          });
+        }
+      } else if(r.cheques.length === r.ivs.length){
+        for(let i=0;i<r.ivs.length;i++){
+          ivToCheque.set(r.ivs[i].doc_no, {
+            cheque_no: r.cheques[i].cheque_no, amount: r.cheques[i].amount,
+            channel: r.cheques[i].channel, receipt_no: r.receipt_no
+          });
+        }
+      } else {
+        const used = new Set();
+        for(const iv of r.ivs){
+          let mi = -1;
+          for(let k=0;k<r.cheques.length;k++){
+            if(used.has(k)) continue;
+            if(Math.abs(r.cheques[k].amount - iv.amount) < 0.005){ mi = k; break; }
+          }
+          if(mi >= 0){
+            used.add(mi);
+            ivToCheque.set(iv.doc_no, {
+              cheque_no: r.cheques[mi].cheque_no, amount: r.cheques[mi].amount,
+              channel: r.cheques[mi].channel, receipt_no: r.receipt_no
+            });
+          }
+        }
+      }
     }
-    // scan row for SP/TT/LZ + number — that's a cheque line
-    for(let c=0;c<r.length;c++){
-      const v = String(r[c]||"").trim();
-      const m = v.match(/^((?:SP|TT|LZ)[\w\d]{6,})$/);
-      if(m){
-        const chq = m[1];
-        // amount = next numeric in same row
-        let amt = 0, chanName = "";
-        for(let k=c+1;k<r.length;k++){
-          const vv = String(r[k]||"").trim();
+    curReceipt = null;
+  }
+
+  for(let i=hr+1;i<rows.length;i++){
+    const row = rows[i] || [];
+    let reFound = null;
+    for(const cell of row){
+      const v = String(cell||"").trim();
+      if(/^RE\d{10}$/.test(v)){ reFound = v; break; }
+    }
+    if(reFound){
+      flushReceipt();
+      curReceipt = { receipt_no: reFound, ivs:[], cheques:[] };
+      continue;
+    }
+    if(!curReceipt) continue;
+    for(let j=0;j<row.length;j++){
+      const v = String(row[j]||"").trim();
+      if(/^IV\d{10}$/.test(v)){
+        let amt = 0;
+        for(let k=j+1;k<row.length;k++){
+          const vv = String(row[k]||"").trim();
           if(!vv) continue;
-          if(/^Shopee|TikTok|Lazada/i.test(vv)){ chanName = vv; continue; }
-          // skip date strings
           if(/^\d{1,2}\/\d{1,2}\/\d{2,4}$/.test(vv)) continue;
           const n = Number(vv.replace(/,/g,""));
           if(!isNaN(n) && n > 0){ amt = n; break; }
         }
-        cheques.push({ cheque_no: chq, order_id: chq.replace(/^(SP|TT|LZ)/,""), amount: amt,
-                       receipt_no: curReceipt, customer: curCust, date: curDate, channel: chanName });
+        curReceipt.ivs.push({ doc_no: v, amount: amt });
+        break;
+      }
+    }
+    for(let j=0;j<row.length;j++){
+      const v = String(row[j]||"").trim();
+      const m = v.match(/^((?:SP|SI|TI|TT|LZ)[A-Z0-9]{6,})$/);
+      if(m){
+        const chq = m[1];
+        let amt = 0, chan = "";
+        for(let k=j+1;k<row.length;k++){
+          const vv = String(row[k]||"").trim();
+          if(!vv) continue;
+          if(/^Shopee|TikTok|Lazada/i.test(vv)){ chan = vv; continue; }
+          if(/^\d{1,2}\/\d{1,2}\/\d{2,4}$/.test(vv)) continue;
+          const n = Number(vv.replace(/,/g,""));
+          if(!isNaN(n) && n > 0){ amt = n; break; }
+        }
+        curReceipt.cheques.push({ cheque_no: chq, amount: amt, channel: chan });
+        cheques.push({ cheque_no: chq, order_id: chq.replace(/^(SP|SI|TI|TT|LZ)/,""), amount: amt,
+                       receipt_no: curReceipt.receipt_no, channel: chan });
         break;
       }
     }
   }
-  return { cheques };
+  flushReceipt();
+  return { cheques, ivToCheque };
 }
 
 /* ============================================================
@@ -11205,34 +11257,35 @@ function bmpGroupWithdrawals(parsed, arData, chqData, salesData, shopName, share
       const bq = nextBq(tx.txn_date);
 
       const orderRows = orders.map(o => {
-        // ★ chain: Shopee Order → IV (sales report) → ดู gross + IV doc no
+        // ★ chain: Shopee Order → IV (sales) → SP cheque (รับชำระ)
         const iv = ivByOrderRef.get(o.order_id);
-        const gross = iv ? Number(iv.total) : 0;
+        const chq = iv ? (arData.ivToCheque ? arData.ivToCheque.get(iv.doc_no) : null) : null;
+        // "มูลค่าเช็ค EXPRESS" = ยอดเช็ค SP (หักส่วนลด/commission แล้ว)
+        const gross = chq ? Number(chq.amount) : (iv ? Number(iv.total) : 0);
         const net = o.amount;
         const feeDiff = gross ? +(gross - net).toFixed(2) : 0;
-        // เลขที่เช็ค: ใช้ IV doc_no ถ้ามี (เพราะ Express สร้าง cheque ตอน receipt) — แสดงเป็น "อ้างอิงถึง IV"
-        // ถ้ามี SP cheque ที่ deposit แล้ว ใช้ SP เลข
-        // สำหรับ output cheque column: เลือก IV เป็น default (ไม่มี SP โดยตรง)
-        // แต่ user อาจจะอยากเห็น IV — เก็บไว้ทั้งคู่
+        // "เลขที่เช็ค" = SP/SI/TI prefix จาก รับชำระ (ไม่ใช่ IV)
+        const chequeNo = chq ? chq.cheque_no
+                             : (iv ? ("PENDING-" + iv.doc_no) : ("UNKNOWN-" + o.order_id));
         let mismatch = false; let reason = "";
         if(!iv){ mismatch = true; reason = "ไม่พบใน รายงานขาย — ยังไม่ออก IV"; }
         else if(iv.voided){ mismatch = true; reason = "IV ถูก void"; }
-        // คำเตือนเชิงคุณภาพ: ถ้า net > gross มาก = แปลก
-        else if(gross > 0 && net > gross * 1.02){
-          mismatch = true; reason = `Shopee net (${net.toFixed(2)}) > IV gross (${gross.toFixed(2)})`;
+        else if(!chq){ mismatch = true; reason = "ยังไม่ได้ออกใบเสร็จ (ไม่มีเช็คใน รับชำระ)"; }
+        else if(Math.abs(chq.amount - net) > 0.05){
+          mismatch = true; reason = "ยอดเช็ค " + chq.amount.toFixed(2) + " ≠ Shopee net " + net.toFixed(2);
         }
         return {
           channel: routing.channel,
           order_id: o.order_id,
-          cheque_no: iv ? iv.doc_no : ("UNKNOWN-" + o.order_id),
+          cheque_no: chequeNo,
           txn_datetime: o.datetime,
           txn_type: "order",
           express_gross: gross,
           shopee_net: net,
           fee_diff: feeDiff,
-          receipt_no: iv ? iv.doc_no : null,
+          receipt_no: chq ? chq.receipt_no : (iv ? iv.doc_no : null),
           has_receipt: !!iv,
-          has_cheque_deposit: false,        // ไม่มี per-order deposit info ที่เชื่อถือได้
+          has_cheque_deposit: !!chq,
           existing_bq: null,
           mismatch_flag: mismatch,
           mismatch_reason: reason

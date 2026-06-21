@@ -11763,6 +11763,28 @@ async function bmpResolveOrder(orderId, checked){
   renderToolBankRec();
 }
 
+/* ------- แก้เลขที่เช็ค / ยอด gross ต่อ order (สำหรับ order ที่ไม่ตรง) ------- */
+async function bmpEditOrderField(orderId, field, value){
+  if(!brecCanWrite()){ alert("ไม่มีสิทธิ์"); return; }
+  const d = brecGet();
+  const o = (d.mp.orders||[]).find(x=>x.id===orderId);
+  if(!o) return;
+  let patch = {};
+  if(field === "cheque_no"){
+    o.cheque_no = String(value||"").trim();
+    patch.cheque_no = o.cheque_no;
+  } else if(field === "express_gross"){
+    const g = Number(String(value||"").replace(/,/g,"")) || 0;
+    o.express_gross = g;
+    o.fee_diff = +(g - Number(o.shopee_net||0)).toFixed(2);
+    patch.express_gross = g;
+    patch.fee_diff = o.fee_diff;
+  }
+  const { error } = await sb.from("brec_mp_orders").update(patch).eq("id", orderId);
+  if(error){ alert("บันทึกไม่สำเร็จ: "+(error.message||error)); }
+  renderToolBankRec();
+}
+
 /* ------- EXPORT main CSV (9 cols) ------- */
 function bmpExportCsv(){
   const d = brecGet();
@@ -11786,6 +11808,8 @@ function bmpExportCsv(){
     // คำนวณ depositCode สด ๆ จาก shop_name (เผื่อ schema ยังไม่ persist deposit_code)
     const routing = bmpRouting(wd.shop_name);
     const depCode = routing.depositCode || "";
+    // recompute ค่าธรรมเนียมรวม สด ๆ จาก order (เผื่อ user แก้ gross/เลขเช็คไปแล้ว)
+    const feeTotal = list.reduce((s,o)=> s + (Number(o.express_gross||0) - Number(o.shopee_net||0)), 0);
     list.forEach((o, idx) => {
       no++;
       const isFirst = idx === 0;
@@ -11798,7 +11822,7 @@ function bmpExportCsv(){
         Number(o.express_gross||0).toFixed(2),
         Number(o.shopee_net||0).toFixed(2),
         Number(o.fee_diff||0).toFixed(2),
-        isFirst ? Number(wd.total_fee||0).toFixed(2) : "",
+        isFirst ? feeTotal.toFixed(2) : "",
         isFirst ? (wd.description||"") : ""
       ]);
     });
@@ -11918,10 +11942,16 @@ function bmpRenderTab(d){
               const isMis = o.mismatch_flag;
               const isResolved = !!o.resolved;
               const rowCls = isMis && !isResolved ? "mis" : (isMis && isResolved ? "fixed" : "");
+              const chqCell = isMis
+                ? `<input value="${esc(o.cheque_no||"")}" onclick="event.stopPropagation()" onchange="bmpEditOrderField('${o.id}','cheque_no',this.value)" class="bmp-edit mono" placeholder="เลขที่เช็ค" title="แก้เลขที่เช็คจริงจาก Express">`
+                : `<span class="mono">${esc(o.cheque_no||"")}</span>`;
+              const grossCell = isMis
+                ? `<input value="${Number(o.express_gross||0).toFixed(2)}" onclick="event.stopPropagation()" onchange="bmpEditOrderField('${o.id}','express_gross',this.value)" class="bmp-edit num" title="แก้ยอดเช็คจริง">`
+                : bmpFmtMoney(o.express_gross);
               return `<tr class="${rowCls}">
               <td>${i+1}</td>
-              <td class="mono">${esc(o.cheque_no||"")}</td>
-              <td class="r money">${bmpFmtMoney(o.express_gross)}</td>
+              <td>${chqCell}</td>
+              <td class="r money">${grossCell}</td>
               <td class="r money">${bmpFmtMoney(o.shopee_net)}</td>
               <td class="r money">${bmpFmtMoney(o.fee_diff)}</td>
               <td>${isMis?(isResolved?`<span style="font-size:11px;color:#16a34a;font-weight:600">✓ แก้ไขแล้ว</span>`:`<span class="bmp-misflag">⚠️ ${esc(o.mismatch_reason)}</span>`):(o.existing_bq?`<span style="font-size:11px;color:#475569">deposit แล้ว → BQ ${esc(o.existing_bq)}</span>`:`<span style="color:#16a34a">✓</span>`)}</td>
@@ -12006,6 +12036,12 @@ function bmpInjectCSS(){
   .bmp-tbl tr.mis td{color:#991b1b}
   .bmp-tbl tr.fixed{background:#f0fdf4}
   .bmp-tbl tr.fixed td{color:#166534}
+  .bmp-edit{border:1px solid #fca5a5;border-radius:5px;padding:3px 6px;font-size:12px;font-family:inherit;background:#fff;width:130px}
+  .bmp-edit.num{width:90px;text-align:right;font-feature-settings:'tnum'}
+  .bmp-edit.mono{font-family:"IBM Plex Sans",monospace}
+  .bmp-edit:focus{outline:2px solid #fecaca;border-color:#dc2626}
+  .bmp-tbl tr.fixed .bmp-edit{border-color:#86efac}
+  .bmp-tbl tr.fixed .bmp-edit:focus{outline:2px solid #bbf7d0;border-color:#16a34a}
   .bmp-tbl tr.adj{background:#f8fafc;font-style:italic}
   .bmp-misflag{background:#fee2e2;color:#991b1b;font-size:10.5px;font-weight:600;padding:2px 7px;border-radius:5px}
   .brec-btn.warn{background:#fee2e2;color:#991b1b;border-color:#fecaca}

@@ -9814,13 +9814,15 @@ function brecGet(){
     express:[], bank:[], matches:[],
     tab:"pending", sel:{ ex:new Set(), bk:new Set() },
     busy:false, lastImport:null,
-    mp: { withdrawals:[], orders:[], mismatchOrders:[], lastImportId:null, expanded:new Set(), uploadOpen:false, files:{shopee:[],receipt:[],cheque:[]}, parsing:false }
+    mp: { withdrawals:[], orders:[], mismatchOrders:[], lastImportId:null, expanded:new Set(), uploadOpen:false, files:{shopee:[],sales:[],receipt:[],cheque:[]}, parsing:false }
   };
-  if(!state.brec[co].mp) state.brec[co].mp = { withdrawals:[], orders:[], mismatchOrders:[], lastImportId:null, expanded:new Set(), uploadOpen:false, files:{shopee:[],receipt:[],cheque:[]}, parsing:false };
-  // migration: legacy single-file state → array
-  if(state.brec[co].mp.files && !Array.isArray(state.brec[co].mp.files.shopee)){
-    state.brec[co].mp.files = { shopee:[], receipt:[], cheque:[] };
-  }
+  if(!state.brec[co].mp) state.brec[co].mp = { withdrawals:[], orders:[], mismatchOrders:[], lastImportId:null, expanded:new Set(), uploadOpen:false, files:{shopee:[],sales:[],receipt:[],cheque:[]}, parsing:false };
+  // migration: legacy state → ensure sales slot exists
+  if(!state.brec[co].mp.files) state.brec[co].mp.files = { shopee:[], sales:[], receipt:[], cheque:[] };
+  if(!Array.isArray(state.brec[co].mp.files.shopee)) state.brec[co].mp.files.shopee = [];
+  if(!Array.isArray(state.brec[co].mp.files.sales))   state.brec[co].mp.files.sales = [];
+  if(!Array.isArray(state.brec[co].mp.files.receipt)) state.brec[co].mp.files.receipt = [];
+  if(!Array.isArray(state.brec[co].mp.files.cheque))  state.brec[co].mp.files.cheque = [];
   return state.brec[co];
 }
 function brecCanWrite(){ return !!(AUTH.role && ["admin","finance_mgr","accountant","treasury"].includes(AUTH.role)); }
@@ -11008,6 +11010,66 @@ function bmpParseArReceipt(text){
 }
 
 /* ============================================================
+   PARSER 2.5 — Express รายงานขาย 723-5 (cp874)
+   หา IV + amount + "อ้างอิง" (Shopee Order ID) + ระบุ channel
+   จาก customer header section (Shopee Betra / Shopee Qi Care / Lazada Qi care / etc.)
+   ============================================================ */
+function bmpParseSalesReport(text){
+  const rows = bmpParseCsvText(text);
+  const ivs = []; // [{doc_no, doc_date, total, ref_order_id, customer, channel}]
+  let curCustomer = null, curChannel = null;
+  // IV pattern: "  IV2606000111 01/06/69    0   30.00   0.00  486.00  0.00  486.00  01/06/69  N  260601UR5GWNR3\""
+  // หรือ SR (sales return) — เริ่มด้วย SR
+  // หรือ ขึ้นต้นด้วย * (IV ที่ออกแล้ว void/cancel — ข้าม)
+  const ivRe = /^\*?\s*(IV|SR|CN)(\d{10})\s+(\d{2}\/\d{2}\/\d{2})\s+\d+\s+([\d,.\-]+)\s+([\d,.\-]+)\s+([\d,.\-]+)\s+([\d,.\-]+)\s+([\d,.\-]+)\s+(\d{2}\/\d{2}\/\d{2})\s+\S*\s+(.*?)\"/;
+  // customer header pattern: "  ลูกค้าทั่วไป-Shopee Betra /SHOPEE BE" or "  ลูกค้าทั่วไป-Shopee Qi Care /SHOPEE QI"
+  const custRe = /^\s*(ลูกค้า.+?)\s*\/(.+?)$/;
+  // sum-row prefix to ignore: "รวม"
+  for(const row of rows){
+    if(!row || !row.length) continue;
+    const line = row[0] || ""; if(!line) continue;
+    const trimmed = line.trim();
+    // skip dividers/header/blank
+    if(!trimmed || /^-+$/.test(trimmed)) continue;
+    // sum row
+    if(/^รวม/.test(trimmed)) continue;
+    // customer header
+    const cm = trimmed.match(custRe);
+    if(cm && !ivRe.test(trimmed)){
+      curCustomer = cm[1].replace(/\s+/g," ").trim();
+      curChannel = cm[2].replace(/\s+/g," ").trim();
+      continue;
+    }
+    // IV row
+    const m = trimmed.match(ivRe);
+    if(m){
+      const docPrefix = m[1], docNum = m[2];
+      const docNo = docPrefix + docNum;
+      const isStartedAsterisk = line.trim().startsWith("*");
+      const ref = String(m[10]||"").trim().replace(/[\s ]+/g," ").split(/\s/)[0];
+      const total = Number(String(m[8]).replace(/,/g,""))||0;
+      ivs.push({
+        doc_type: docPrefix,                // IV / SR / CN
+        doc_no: docNo,
+        doc_date_be: m[3],                  // dd/mm/yy(BE)
+        doc_date: bmpThaiDate(m[3]),        // ISO
+        discount: Number(String(m[4]).replace(/,/g,""))||0,
+        deposit:  Number(String(m[5]).replace(/,/g,""))||0,
+        goods:    Number(String(m[6]).replace(/,/g,""))||0,
+        vat:      Number(String(m[7]).replace(/,/g,""))||0,
+        total:    total,                    // ยอดรวมทั้งสิ้น (ที่ user เรียก "ยอดตามใบกำกับ")
+        due_date: bmpThaiDate(m[9]),
+        ref_order_id: ref || null,
+        customer: curCustomer,
+        channel: curChannel,
+        voided: isStartedAsterisk
+      });
+    }
+  }
+  return { ivs };
+}
+
+/* ============================================================
    PARSER 3 — Express เช็ครับ เรียงตามวันที่นำฝาก CSV (cp874)
    ใช้เพื่อ:
    - รู้ BQ ที่ใช้แล้ว (กัน gen ซ้ำ)
@@ -11063,12 +11125,28 @@ function bmpParseChequeReport(text){
    - buffer orders + adjustments until เจอ "การถอนเงิน"
    - close group, create withdrawal
    ============================================================ */
-function bmpGroupWithdrawals(parsed, arData, chqData, shopName, sharedSeqByDay){
+function bmpGroupWithdrawals(parsed, arData, chqData, salesData, shopName, sharedSeqByDay){
   const txns = parsed.txns;
-  const arByOrder = new Map();
-  for(const c of (arData.cheques||[])) arByOrder.set(c.order_id, c);
-  const chqByOrder = new Map();
-  for(const d of (chqData.deposits||[])) chqByOrder.set(d.order_id, d);
+
+  // ---- index 1: Shopee Order ID → IV (จาก sales report) ----
+  // นี่คือ bridge ที่ขาดอยู่ — เชื่อม Shopee Order กับระบบ Express
+  const ivByOrderRef = new Map();
+  for(const iv of (salesData?.ivs || [])){
+    if(iv.voided) continue;
+    if(!iv.ref_order_id) continue;
+    ivByOrderRef.set(iv.ref_order_id, iv);
+  }
+
+  // ---- index 2: IV doc_no → cheque (จาก รับชำระ) ----
+  // รับชำระ structure: cheques.receipt_no = RE → but we want IV link
+  // Actually old parser only captured cheques w/ SP prefix — ไม่ link กับ IV ตรงๆ
+  // เปลี่ยน strategy: คงไว้ที่ cheque info จาก SP cheque list, ใช้สำหรับ existing BQ
+  const arBySp = new Map();
+  for(const c of (arData.cheques||[])) arBySp.set(c.cheque_no, c);
+
+  // ---- index 3: SP cheque → deposit info (จาก เช็ครับ) ----
+  const chqBySp = new Map();
+  for(const d of (chqData.deposits||[])) chqBySp.set(d.cheque_no, d);
 
   // build maxSeq per YYMMDD from existing BQ
   // ★ ใช้ sharedSeqByDay (ส่งเข้ามาจากภายนอก) ถ้าหลาย shop process ในงวดเดียวกัน
@@ -11107,29 +11185,35 @@ function bmpGroupWithdrawals(parsed, arData, chqData, shopName, sharedSeqByDay){
       const bq = nextBq(tx.txn_date);
 
       const orderRows = orders.map(o => {
-        const ar = arByOrder.get(o.order_id);
-        const chq = chqByOrder.get(o.order_id);
-        const gross = ar ? ar.amount : 0;
+        // ★ chain: Shopee Order → IV (sales report) → ดู gross + IV doc no
+        const iv = ivByOrderRef.get(o.order_id);
+        const gross = iv ? Number(iv.total) : 0;
         const net = o.amount;
         const feeDiff = gross ? +(gross - net).toFixed(2) : 0;
+        // เลขที่เช็ค: ใช้ IV doc_no ถ้ามี (เพราะ Express สร้าง cheque ตอน receipt) — แสดงเป็น "อ้างอิงถึง IV"
+        // ถ้ามี SP cheque ที่ deposit แล้ว ใช้ SP เลข
+        // สำหรับ output cheque column: เลือก IV เป็น default (ไม่มี SP โดยตรง)
+        // แต่ user อาจจะอยากเห็น IV — เก็บไว้ทั้งคู่
         let mismatch = false; let reason = "";
-        if(!ar){ mismatch = true; reason = "ไม่พบใน รับชำระ (ยังไม่ออก receipt?)"; }
-        else if(chq && Math.abs(chq.amount - ar.amount) > 0.005){
-          mismatch = true; reason = `เช็ครับ ${chq.amount} ≠ รับชำระ ${ar.amount}`;
+        if(!iv){ mismatch = true; reason = "ไม่พบใน รายงานขาย — ยังไม่ออก IV"; }
+        else if(iv.voided){ mismatch = true; reason = "IV ถูก void"; }
+        // คำเตือนเชิงคุณภาพ: ถ้า net > gross มาก = แปลก
+        else if(gross > 0 && net > gross * 1.02){
+          mismatch = true; reason = `Shopee net (${net.toFixed(2)}) > IV gross (${gross.toFixed(2)})`;
         }
         return {
           channel: routing.channel,
           order_id: o.order_id,
-          cheque_no: "SP" + o.order_id,
+          cheque_no: iv ? iv.doc_no : ("UNKNOWN-" + o.order_id),
           txn_datetime: o.datetime,
           txn_type: "order",
           express_gross: gross,
           shopee_net: net,
           fee_diff: feeDiff,
-          receipt_no: ar ? ar.receipt_no : null,
-          has_receipt: !!ar,
-          has_cheque_deposit: !!chq,
-          existing_bq: chq ? chq.bq : null,
+          receipt_no: iv ? iv.doc_no : null,
+          has_receipt: !!iv,
+          has_cheque_deposit: false,        // ไม่มี per-order deposit info ที่เชื่อถือได้
+          existing_bq: null,
           mismatch_flag: mismatch,
           mismatch_reason: reason
         };
@@ -11201,7 +11285,7 @@ function bmpOpenUpload(){
 function bmpCloseUpload(){
   const d = brecGet();
   d.mp.uploadOpen = false;
-  d.mp.files = { shopee:[], receipt:[], cheque:[] };
+  d.mp.files = { shopee:[], sales:[], receipt:[], cheque:[] };
   const m = document.getElementById("bmpUploadModal"); if(m) m.remove();
   renderToolBankRec();
 }
@@ -11209,14 +11293,15 @@ function bmpRenderUploadModal(){
   const old = document.getElementById("bmpUploadModal"); if(old) old.remove();
   const d = brecGet();
   const f = d.mp.files;
-  const ready = !!(f.shopee.length && f.receipt.length && f.cheque.length);
+  const ready = !!(f.shopee.length && f.sales.length && f.receipt.length && f.cheque.length);
   const html = `
     <div id="bmpUploadModal" style="position:fixed;inset:0;background:rgba(15,23,42,.5);display:flex;align-items:center;justify-content:center;z-index:9999;backdrop-filter:blur(4px)">
-      <div style="background:#fff;width:640px;max-width:90vw;max-height:90vh;overflow-y:auto;border-radius:16px;padding:22px;box-shadow:0 20px 60px rgba(0,0,0,.3)">
+      <div style="background:#fff;width:680px;max-width:90vw;max-height:90vh;overflow-y:auto;border-radius:16px;padding:22px;box-shadow:0 20px 60px rgba(0,0,0,.3)">
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><i data-lucide="shopping-bag" style="color:#f59e0b"></i><h3 style="margin:0;font-size:17px">อัปโหลด Marketplace</h3></div>
         <div style="font-size:12.5px;color:var(--ink-3);margin-bottom:14px">เลือกได้หลายไฟล์ต่อช่อง (Ctrl/Shift+คลิก) — ระบบจะ merge ให้</div>
         <div style="display:flex;flex-direction:column;gap:10px">
           ${bmpFileBox('shopee', 'Shopee Balance Transaction Report', '.xlsx', f.shopee)}
+          ${bmpFileBox('sales', 'Express รายงานขาย 723-5 (อ้างอิง = Shopee Order)', '.csv', f.sales)}
           ${bmpFileBox('receipt', 'Express รายงานการรับชำระหนี้', '.csv', f.receipt)}
           ${bmpFileBox('cheque', 'Express รายงานเช็ครับ (เรียงตามวันที่นำฝาก)', '.csv', f.cheque)}
         </div>
@@ -11272,7 +11357,7 @@ function bmpFileRemove(kind, i){
 async function bmpRunUpload(){
   const d = brecGet();
   const f = d.mp.files;
-  if(!f.shopee.length || !f.receipt.length || !f.cheque.length){ alert("เลือกไฟล์ครบทั้ง 3 ช่องก่อน"); return; }
+  if(!f.shopee.length || !f.sales.length || !f.receipt.length || !f.cheque.length){ alert("เลือกไฟล์ครบทั้ง 4 ช่องก่อน"); return; }
   const co = d.companyId || await fopCompanyId();
   if(!co){ alert("หา company_id ไม่เจอ"); return; }
   d.companyId = co; d.mp.parsing = true; bmpRenderUploadModal();
@@ -11300,6 +11385,18 @@ async function bmpRunUpload(){
       });
       g.txns.sort((a,b)=> a.datetime.localeCompare(b.datetime));
     }
+
+    // ----- merge Sales Report (723-5) CSVs — bridge Shopee Order ↔ IV -----
+    let mergedIvs = [];
+    for(const sf of f.sales){
+      const text = bmpDecodeCp874(await sf.arrayBuffer());
+      const sd = bmpParseSalesReport(text);
+      mergedIvs = mergedIvs.concat(sd.ivs);
+    }
+    // dedupe by doc_no
+    const ivSeen = new Set();
+    mergedIvs = mergedIvs.filter(iv => { if(ivSeen.has(iv.doc_no)) return false; ivSeen.add(iv.doc_no); return true; });
+    const salesData = { ivs: mergedIvs };
 
     // ----- merge AR receipt CSVs (ใช้ร่วมกันทุก shop ของบริษัท) -----
     let mergedCheques = [];
@@ -11375,7 +11472,7 @@ async function bmpRunUpload(){
     for(const { shopName, shopData, routing } of shopsToProcess){
       const acctId = (routing.bankCode && routing.accountNo)
         ? await brecEnsureAccount(co, routing.bankCode, routing.accountNo) : null;
-      const withdrawals = bmpGroupWithdrawals(shopData, arData, chqData, shopName, sharedSeq);
+      const withdrawals = bmpGroupWithdrawals(shopData, arData, chqData, salesData, shopName, sharedSeq);
       if(!withdrawals.length){
         perShopSummary.push(`${shopName}: ไม่มี withdrawal`);
         continue;
@@ -11386,7 +11483,7 @@ async function bmpRunUpload(){
         company_id: co, bank_account_id: acctId,
         channel: routing.channel, shop_name: shopName,
         shopee_filename: shopData.files.join("; "),
-        receipt_filename: fnameJoin(f.receipt),
+        receipt_filename: fnameJoin(f.receipt) + " | sales: " + fnameJoin(f.sales),
         cheque_filename: fnameJoin(f.cheque),
         file_hash: shopsToProcess.length > 1 ? null : hash, // กันชน unique index ถ้าหลาย shop
         period_from: shopData.periodFrom, period_to: shopData.periodTo,

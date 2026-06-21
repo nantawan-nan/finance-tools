@@ -11783,6 +11783,63 @@ function bmpFileRemove(kind, i){
   bmpRenderUploadModal();
 }
 
+/* ============================================================
+   ORDER LEDGER — Phase A
+   ป้อน orders จากรายงานขาย 723-5 · 1 order = 1 IV · dedup by iv_no
+   ============================================================ */
+function ordChannelGroup(channel, customer){
+  const s = `${channel||""} ${customer||""}`.toLowerCase();
+  if(/shopee|\bsp\b|\bsh\b/.test(s)) return "shopee";
+  if(/tiktok|\btt\b|\btk\b/.test(s)) return "tiktok";
+  if(/lazada|\blz\b/.test(s)) return "lazada";
+  if(/line|facebook|\bfb\b|\big\b|หน้าร้าน|dealer|\bdr\b/.test(s)) return "offline";
+  return "other";
+}
+/* upsert orders จาก salesData.ivs (เฉพาะ IV) → คืน {added, updated, total} */
+async function ordIngestFromSales(co, salesData, srcLabel){
+  const ivs = (salesData?.ivs || []).filter(iv => iv.doc_type === "IV" && iv.doc_no);
+  if(!ivs.length) return { added:0, updated:0, total:0 };
+  // ดึง order เดิม (iv_no → {id,status})
+  const { data:existing } = await sb.from("orders").select("id,iv_no,status")
+    .eq("company_id", co).is("deleted_at", null);
+  const byIv = new Map((existing||[]).map(o=>[o.iv_no, o]));
+  const inserts = []; const statusUpd = [];
+  const seen = new Set();
+  for(const iv of ivs){
+    if(seen.has(iv.doc_no)) continue; seen.add(iv.doc_no);
+    const newStatus = iv.voided ? "cancelled" : "active";
+    const ex = byIv.get(iv.doc_no);
+    if(!ex){
+      inserts.push({
+        company_id: co, iv_no: iv.doc_no,
+        order_id: iv.ref_order_id || null,
+        channel: iv.channel || null,
+        channel_group: ordChannelGroup(iv.channel, iv.customer),
+        customer: iv.customer || null,
+        status: newStatus,
+        order_date: iv.doc_date || null,
+        iv_date: iv.doc_date || null,
+        sale_amount: Number(iv.total)||0,
+        sale_keyed_at: new Date().toISOString(),
+        sale_src: srcLabel || "รายงานขาย 723-5"
+      });
+    } else if(ex.status !== newStatus){
+      statusUpd.push({ id: ex.id, status: newStatus });
+    }
+  }
+  // batch insert
+  const CH = 400;
+  for(let i=0;i<inserts.length;i+=CH){
+    const { error } = await sb.from("orders").insert(inserts.slice(i,i+CH));
+    if(error){ console.warn("ord insert", error); break; }
+  }
+  // status updates (cancelled)
+  for(const u of statusUpd){
+    await sb.from("orders").update({ status:u.status }).eq("id", u.id);
+  }
+  return { added: inserts.length, updated: statusUpd.length, total: ivs.length };
+}
+
 async function bmpRunUpload(){
   const d = brecGet();
   // ★ guard double-click — ถ้ามีการอัปอยู่ อย่าให้รันซ้ำ
@@ -11879,6 +11936,11 @@ async function bmpRunUpload(){
       salesData = cached.salesData; arData = cached.arData; chqData = cached.chqData;
       expressFromCache = true;
     }
+
+    // ★ Phase A: ป้อน orders จากรายงานขาย (ทุกครั้งที่มี salesData — upsert dedup)
+    let ordResult = { added:0, updated:0, total:0 };
+    try{ ordResult = await ordIngestFromSales(co, salesData, "รายงานขาย 723-5 (ผ่าน Marketplace)"); }
+    catch(e){ console.warn("ord ingest", e); }
 
     // ----- ★ ตรวจ period coverage: sales report ต้องครอบ Shopee balance -----
     const salesDates = (salesData.ivs||[]).map(iv => iv.doc_date).filter(Boolean).sort();
@@ -12038,6 +12100,7 @@ async function bmpRunUpload(){
     let msg = `อัปสำเร็จ\n${perShopSummary.join("\n")}\n\nรวม: ${grandTotalWd} withdrawal · ${grandTotalOrd} order · ไม่ตรง ${grandTotalMis}`;
     if(grandTotalSkip) msg += `\n\n⏭ ข้าม ${grandTotalSkip} withdrawal ที่มีอยู่ใน DB แล้ว (ดูจาก datetime+ยอด+บัญชี)`;
     if(skipped.length) msg += `\n\nข้าม: ${skipped.join(", ")}`;
+    msg += `\n\n📒 ทะเบียนคำสั่งซื้อ: บันทึกใหม่ ${ordResult.added} · อัปเดตสถานะ ${ordResult.updated} (จาก IV ${ordResult.total})`;
     alert(msg);
   } catch(e){
     alert("อัปไม่สำเร็จ: " + (e.message||e));

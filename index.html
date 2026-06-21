@@ -11324,14 +11324,20 @@ async function bmpRunUpload(){
     });
     const chqData = { deposits: mergedDeposits };
 
-    // route by shop name → check company match
+    // route by shop name → ต้องตรงกับ company ปัจจุบัน
     const routing = bmpRouting(shopeeData.shopName);
-    if(routing.companyId && routing.companyId !== state.company){
-      const ok = confirm(`Shop "${shopeeData.shopName}" ควรอยู่ที่บริษัท ${routing.companyId} แต่ตอนนี้เลือก ${state.company}\n\nสลับบริษัทแล้วลองใหม่ — กดตกลงเพื่อสลับ`);
+    if(!routing.companyId){
+      alert(`ไม่รู้จัก shop "${shopeeData.shopName}" — เพิ่ม mapping ใน BMP_SHOP_ROUTING ก่อน`);
+      d.mp.parsing=false; bmpRenderUploadModal(); return;
+    }
+    if(routing.companyId !== state.company){
+      const ok = confirm(`Shop "${shopeeData.shopName}" → บริษัท ${routing.companyId}\nแต่ตอนนี้เลือก ${state.company}\n\nกด OK เพื่อสลับบริษัท / Cancel เพื่อยกเลิกการอัป`);
       if(ok){ setCompany(routing.companyId); bmpCloseUpload(); return; }
+      // user cancelled → abort เลย ห้ามต่อ (กันสร้าง account ผิดบริษัท)
+      d.mp.parsing=false; bmpRenderUploadModal(); return;
     }
 
-    // ensure bank account exists
+    // ensure bank account exists — ตอนนี้รับประกันว่า co === routing.companyId แล้ว
     let acctId = null;
     if(routing.bankCode && routing.accountNo){
       acctId = await brecEnsureAccount(co, routing.bankCode, routing.accountNo);

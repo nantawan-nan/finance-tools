@@ -11369,12 +11369,32 @@ function bmpGroupWithdrawals(parsed, arData, chqData, salesData, shopName, share
 /* ============================================================
    UPLOAD MODAL + FLOW
    ============================================================ */
-function bmpOpenUpload(){
+async function bmpOpenUpload(){
   const d = brecGet();
   d.mp.uploadOpen = true;
   renderToolBankRec();
-  // build modal
   bmpRenderUploadModal();
+  // โหลดข้อมูล Express cache (ครั้งก่อนอัปไว้) → ครั้งนี้อัปแค่ Shopee พอ
+  try{
+    const co = d.companyId || await fopCompanyId();
+    if(co){
+      const { data } = await sb.from("brec_mp_express_cache")
+        .select("sales_files,ar_files,cheque_files,updated_at").eq("company_id", co).maybeSingle();
+      d.mp.expressCache = data || null;
+      bmpRenderUploadModal();
+    }
+  }catch(e){ console.warn("express cache load", e); }
+}
+/* โหลด parsed Express จาก cache → คืน {salesData, arData, chqData} หรือ null */
+async function bmpLoadExpressFromCache(co){
+  const { data, error } = await sb.from("brec_mp_express_cache")
+    .select("sales_json,ar_json,cheque_json").eq("company_id", co).maybeSingle();
+  if(error || !data) return null;
+  const salesData = data.sales_json || { ivs:[] };
+  const arRaw = data.ar_json || { cheques:[], ivToCheque:[] };
+  const arData = { cheques: arRaw.cheques||[], ivToCheque: new Map(arRaw.ivToCheque||[]) };
+  const chqData = data.cheque_json || { deposits:[] };
+  return { salesData, arData, chqData };
 }
 function bmpCloseUpload(){
   const d = brecGet();
@@ -11387,17 +11407,30 @@ function bmpRenderUploadModal(){
   const old = document.getElementById("bmpUploadModal"); if(old) old.remove();
   const d = brecGet();
   const f = d.mp.files;
-  const ready = !!(f.shopee.length && f.sales.length && f.receipt.length && f.cheque.length);
+  const cache = d.mp.expressCache;
+  const hasCache = !!cache;
+  // มี Express ครบ (อัปใหม่ครบ 3) หรือ มี cache อยู่แล้ว
+  const expressOk = (f.sales.length && f.receipt.length && f.cheque.length) || hasCache;
+  const ready = !!(f.shopee.length && expressOk);
+  const cacheNote = (key, label) => {
+    if((d.mp.files[key]||[]).length) return ""; // มีไฟล์ใหม่แล้ว ไม่ต้องโชว์ cache
+    if(!hasCache) return "";
+    return `<div style="font-size:11px;color:#16a34a;margin-top:6px">✓ ใช้ที่อัปไว้ล่าสุด — ไม่ต้องอัปใหม่ (อัปใหม่เฉพาะถ้ามีข้อมูลเพิ่ม)</div>`;
+  };
+  const cacheBanner = hasCache
+    ? `<div style="font-size:12px;color:#1e40af;background:#dbeafe;border-radius:8px;padding:8px 12px;margin-bottom:12px">💾 มี Express เก็บไว้แล้ว (อัปเมื่อ ${new Date(cache.updated_at).toLocaleString("th-TH")}) — <b>ครั้งนี้อัปแค่ Shopee พอ</b> · อัป Express ใหม่เฉพาะตอนมี IV/รับชำระเพิ่ม</div>`
+    : "";
   const html = `
     <div id="bmpUploadModal" style="position:fixed;inset:0;background:rgba(15,23,42,.5);display:flex;align-items:center;justify-content:center;z-index:9999;backdrop-filter:blur(4px)">
       <div style="background:#fff;width:680px;max-width:90vw;max-height:90vh;overflow-y:auto;border-radius:16px;padding:22px;box-shadow:0 20px 60px rgba(0,0,0,.3)">
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><i data-lucide="shopping-bag" style="color:#f59e0b"></i><h3 style="margin:0;font-size:17px">อัปโหลด Marketplace</h3></div>
         <div style="font-size:12.5px;color:var(--ink-3);margin-bottom:14px">เลือกได้หลายไฟล์ต่อช่อง (Ctrl/Shift+คลิก) — ระบบจะ merge ให้</div>
+        ${cacheBanner}
         <div style="display:flex;flex-direction:column;gap:10px">
           ${bmpFileBox('shopee', 'Shopee Balance Transaction Report', '.xlsx', f.shopee)}
-          ${bmpFileBox('sales', 'Express รายงานขาย 723-5 (อ้างอิง = Shopee Order)', '.csv', f.sales)}
-          ${bmpFileBox('receipt', 'Express รายงานการรับชำระหนี้', '.csv', f.receipt)}
-          ${bmpFileBox('cheque', 'Express รายงานเช็ครับ (เรียงตามวันที่นำฝาก)', '.csv', f.cheque)}
+          ${bmpFileBox('sales', 'Express รายงานขาย 723-5'+(hasCache?' (มีเก็บไว้แล้ว)':''), '.csv', f.sales)}${cacheNote('sales')}
+          ${bmpFileBox('receipt', 'Express รายงานการรับชำระหนี้'+(hasCache?' (มีเก็บไว้แล้ว)':''), '.csv', f.receipt)}${cacheNote('receipt')}
+          ${bmpFileBox('cheque', 'Express รายงานเช็ครับ'+(hasCache?' (มีเก็บไว้แล้ว)':''), '.csv', f.cheque)}${cacheNote('cheque')}
         </div>
         <div style="display:flex;gap:8px;margin-top:18px">
           <button class="brec-btn" onclick="bmpCloseUpload()" style="flex:1" ${d.mp.parsing?'disabled':''}>ยกเลิก</button>
@@ -11453,9 +11486,12 @@ async function bmpRunUpload(){
   // ★ guard double-click — ถ้ามีการอัปอยู่ อย่าให้รันซ้ำ
   if(d.mp.parsing){ console.warn("bmpRunUpload: already in progress, ignored"); return; }
   const f = d.mp.files;
-  if(!f.shopee.length || !f.sales.length || !f.receipt.length || !f.cheque.length){ alert("เลือกไฟล์ครบทั้ง 4 ช่องก่อน"); return; }
+  const hasExpressFiles = !!(f.sales.length || f.receipt.length || f.cheque.length);
+  if(!f.shopee.length){ alert("เลือกไฟล์ Shopee Balance ก่อน"); return; }
   const co = d.companyId || await fopCompanyId();
   if(!co){ alert("หา company_id ไม่เจอ"); return; }
+  // ถ้าไม่อัป Express ใหม่ → ต้องมี cache เดิม
+  if(!hasExpressFiles && !d.mp.expressCache){ alert("ยังไม่มี Express เก็บไว้ — อัป Express 3 ไฟล์ครั้งแรกก่อน"); return; }
   d.companyId = co; d.mp.parsing = true; bmpRenderUploadModal();
   try{
     // ----- parse Shopee files แยกตาม shop_name (รองรับหลาย shop ในรอบเดียว) -----
@@ -11482,35 +11518,68 @@ async function bmpRunUpload(){
       g.txns.sort((a,b)=> a.datetime.localeCompare(b.datetime));
     }
 
-    // ----- รวม CSV ทั้งหมด (sales+receipt+cheque) แล้ว auto-route ตาม content -----
-    // ไม่สนใจว่า user วางในช่องไหน — detect จาก header ของไฟล์
-    const allCsvFiles = [...f.sales, ...f.receipt, ...f.cheque];
-    const csvByType = { receipt:[], cheque:[], sales:[], unknown:[] };
-    for(const cf of allCsvFiles){
-      const text = bmpDecodeCp874(await cf.arrayBuffer());
-      const t = bmpDetectCsvType(text);
-      csvByType[t].push({ file: cf, text });
-    }
-    if(csvByType.unknown.length){
-      const names = csvByType.unknown.map(x=>x.file.name).join(", ");
-      throw new Error(`ไฟล์ CSV ไม่รู้จัก: ${names} — ต้องเป็น รับชำระ / เช็ครับ / รายงานขาย 723-5`);
-    }
-    if(!csvByType.cheque.length) throw new Error('ขาดไฟล์ "รายงานเช็ครับ เรียงตามวันที่นำฝาก"');
-    if(!csvByType.receipt.length) throw new Error('ขาดไฟล์ "รายงานการรับชำระหนี้"');
-    if(!csvByType.sales.length) throw new Error('ขาดไฟล์ "รายงานขาย 723-5"');
+    // ===== Express: ถ้าอัปไฟล์ใหม่ → parse + save cache · ถ้าไม่ → ใช้ cache =====
+    let salesData, arData, chqData, expressFromCache = false;
+    if(hasExpressFiles){
+      // ----- รวม CSV ทั้งหมด (sales+receipt+cheque) auto-route ตาม content -----
+      const allCsvFiles = [...f.sales, ...f.receipt, ...f.cheque];
+      const csvByType = { receipt:[], cheque:[], sales:[], unknown:[] };
+      for(const cf of allCsvFiles){
+        const text = bmpDecodeCp874(await cf.arrayBuffer());
+        const t = bmpDetectCsvType(text);
+        csvByType[t].push({ file: cf, text });
+      }
+      if(csvByType.unknown.length){
+        const names = csvByType.unknown.map(x=>x.file.name).join(", ");
+        throw new Error(`ไฟล์ CSV ไม่รู้จัก: ${names} — ต้องเป็น รับชำระ / เช็ครับ / รายงานขาย 723-5`);
+      }
+      if(!csvByType.cheque.length) throw new Error('ขาดไฟล์ "รายงานเช็ครับ เรียงตามวันที่นำฝาก"');
+      if(!csvByType.receipt.length) throw new Error('ขาดไฟล์ "รายงานการรับชำระหนี้"');
+      if(!csvByType.sales.length) throw new Error('ขาดไฟล์ "รายงานขาย 723-5"');
 
-    // ----- parse sales -----
-    let mergedIvs = [];
-    for(const item of csvByType.sales){
-      const sd = bmpParseSalesReport(item.text);
-      mergedIvs = mergedIvs.concat(sd.ivs);
+      // parse sales
+      let mergedIvs = [];
+      for(const item of csvByType.sales){ mergedIvs = mergedIvs.concat(bmpParseSalesReport(item.text).ivs); }
+      const ivSeen = new Set();
+      mergedIvs = mergedIvs.filter(iv => { if(ivSeen.has(iv.doc_no)) return false; ivSeen.add(iv.doc_no); return true; });
+      salesData = { ivs: mergedIvs };
+      // parse receipt
+      let mergedCheques = []; const mergedIvToCheque = new Map();
+      for(const item of csvByType.receipt){
+        const rd = bmpParseArReceipt(item.text);
+        mergedCheques = mergedCheques.concat(rd.cheques);
+        if(rd.ivToCheque){ for(const [iv, chq] of rd.ivToCheque.entries()){ if(!mergedIvToCheque.has(iv)) mergedIvToCheque.set(iv, chq); } }
+      }
+      const arSeen = new Set();
+      mergedCheques = mergedCheques.filter(c => { if(!c.cheque_no || arSeen.has(c.cheque_no)) return false; arSeen.add(c.cheque_no); return true; });
+      arData = { cheques: mergedCheques, ivToCheque: mergedIvToCheque };
+      // parse cheque report
+      let mergedDeposits = [];
+      for(const item of csvByType.cheque){ mergedDeposits = mergedDeposits.concat(bmpParseChequeReport(item.text).deposits); }
+      const chSeen = new Set();
+      mergedDeposits = mergedDeposits.filter(d2 => { const k = `${d2.cheque_no}|${d2.bq}`; if(chSeen.has(k)) return false; chSeen.add(k); return true; });
+      chqData = { deposits: mergedDeposits };
+      // ★ save cache
+      await sb.from("brec_mp_express_cache").upsert({
+        company_id: co,
+        sales_json: salesData,
+        ar_json: { cheques: arData.cheques, ivToCheque: [...arData.ivToCheque] },
+        cheque_json: chqData,
+        sales_files: f.sales.map(x=>x.name).join("; "),
+        ar_files: f.receipt.map(x=>x.name).join("; "),
+        cheque_files: f.cheque.map(x=>x.name).join("; "),
+        updated_at: new Date().toISOString()
+      }, { onConflict:"company_id" });
+    } else {
+      // ใช้ Express จาก cache
+      const cached = await bmpLoadExpressFromCache(co);
+      if(!cached) throw new Error("ไม่พบ Express cache — อัป Express 3 ไฟล์ครั้งแรกก่อน");
+      salesData = cached.salesData; arData = cached.arData; chqData = cached.chqData;
+      expressFromCache = true;
     }
-    const ivSeen = new Set();
-    mergedIvs = mergedIvs.filter(iv => { if(ivSeen.has(iv.doc_no)) return false; ivSeen.add(iv.doc_no); return true; });
-    const salesData = { ivs: mergedIvs };
 
     // ----- ★ ตรวจ period coverage: sales report ต้องครอบ Shopee balance -----
-    const salesDates = mergedIvs.map(iv => iv.doc_date).filter(Boolean).sort();
+    const salesDates = (salesData.ivs||[]).map(iv => iv.doc_date).filter(Boolean).sort();
     const salesMin = salesDates[0] || null;
     const salesMax = salesDates[salesDates.length-1] || null;
     let shopMin = null, shopMax = null;
@@ -11533,38 +11602,6 @@ async function bmpRunUpload(){
         if(!confirm(msg)){ d.mp.parsing=false; bmpRenderUploadModal(); return; }
       }
     }
-
-    // ----- parse receipt -----
-    let mergedCheques = [];
-    const mergedIvToCheque = new Map();   // ★ merge ivToCheque ทุกไฟล์
-    for(const item of csvByType.receipt){
-      const rd = bmpParseArReceipt(item.text);
-      mergedCheques = mergedCheques.concat(rd.cheques);
-      if(rd.ivToCheque){
-        for(const [iv, chq] of rd.ivToCheque.entries()){
-          if(!mergedIvToCheque.has(iv)) mergedIvToCheque.set(iv, chq);
-        }
-      }
-    }
-    const arSeen = new Set();
-    mergedCheques = mergedCheques.filter(c => {
-      if(!c.cheque_no || arSeen.has(c.cheque_no)) return arSeen.has(c.cheque_no) ? false : (arSeen.add(c.cheque_no), true);
-      arSeen.add(c.cheque_no); return true;
-    });
-    const arData = { cheques: mergedCheques, ivToCheque: mergedIvToCheque };
-
-    // ----- parse cheque report -----
-    let mergedDeposits = [];
-    for(const item of csvByType.cheque){
-      const cd = bmpParseChequeReport(item.text);
-      mergedDeposits = mergedDeposits.concat(cd.deposits);
-    }
-    const chSeen = new Set();
-    mergedDeposits = mergedDeposits.filter(d2 => {
-      const k = `${d2.cheque_no}|${d2.bq}`;
-      if(chSeen.has(k)) return false; chSeen.add(k); return true;
-    });
-    const chqData = { deposits: mergedDeposits };
 
     // ----- ตรวจ routing ทุก shop ก่อน → company ต้องตรง -----
     const shopsToProcess = [];
@@ -11650,7 +11687,7 @@ async function bmpRunUpload(){
         company_id: co, bank_account_id: acctId,
         channel: routing.channel, shop_name: shopName,
         shopee_filename: shopData.files.join("; "),
-        receipt_filename: fnameJoin(f.receipt) + " | sales: " + fnameJoin(f.sales),
+        receipt_filename: expressFromCache ? "(ใช้ Express cache)" : (fnameJoin(f.receipt) + " | sales: " + fnameJoin(f.sales)),
         cheque_filename: fnameJoin(f.cheque),
         file_hash: shopsToProcess.length > 1 ? null : hash,
         period_from: shopData.periodFrom, period_to: shopData.periodTo,

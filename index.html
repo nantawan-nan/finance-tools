@@ -11516,16 +11516,22 @@ async function bmpRunUpload(){
 
     // ----- parse receipt -----
     let mergedCheques = [];
+    const mergedIvToCheque = new Map();   // ★ merge ivToCheque ทุกไฟล์
     for(const item of csvByType.receipt){
       const rd = bmpParseArReceipt(item.text);
       mergedCheques = mergedCheques.concat(rd.cheques);
+      if(rd.ivToCheque){
+        for(const [iv, chq] of rd.ivToCheque.entries()){
+          if(!mergedIvToCheque.has(iv)) mergedIvToCheque.set(iv, chq);
+        }
+      }
     }
     const arSeen = new Set();
     mergedCheques = mergedCheques.filter(c => {
       if(!c.cheque_no || arSeen.has(c.cheque_no)) return arSeen.has(c.cheque_no) ? false : (arSeen.add(c.cheque_no), true);
       arSeen.add(c.cheque_no); return true;
     });
-    const arData = { cheques: mergedCheques };
+    const arData = { cheques: mergedCheques, ivToCheque: mergedIvToCheque };
 
     // ----- parse cheque report -----
     let mergedDeposits = [];

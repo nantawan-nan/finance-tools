@@ -10349,8 +10349,14 @@ async function brecUpload(kind){
       .eq("company_id", co).eq("source", parsed.source).eq("file_hash", hash)
       .is("deleted_at", null);
     if(dup && dup.length){
-      const cont = confirm(`ไฟล์นี้เคยอัปโหลดแล้ว (${dup[0].filename} · ${new Date(dup[0].created_at).toLocaleString("th-TH")})\n\nดำเนินการต่อจะนำเข้าซ้ำ — ใช่ไหม?`);
+      const cont = confirm(`ไฟล์นี้เคยอัปโหลดแล้ว (${dup[0].filename} · ${new Date(dup[0].created_at).toLocaleString("th-TH")})\n\nดำเนินการต่อจะ "แทนที่ของเดิม" — ใช่ไหม?`);
       if(!cont){ d.busy=false; brecRefresh(); return; }
+      // ★ แทนที่: soft-delete import เก่า + rows เก่า (กันชน unique hash + กันข้อมูลซ้ำ)
+      const ts = new Date().toISOString();
+      const oldIds = dup.map(x=>x.id);
+      const oldTable = parsed.source === "express" ? "brec_express_rows" : "brec_bank_rows";
+      await sb.from(oldTable).update({ deleted_at: ts }).in("import_id", oldIds);
+      await sb.from("brec_imports").update({ deleted_at: ts }).in("id", oldIds);
     }
 
     // INSERT import + rows

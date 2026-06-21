@@ -11935,7 +11935,7 @@ function bmpRenderTab(d){
       ${isExpanded ? `<div class="bmp-body">
         <table class="bmp-tbl">
           <thead><tr>
-            <th>#</th><th>เลขที่เช็ค</th><th class="r">gross EXPRESS</th><th class="r">net Shopee</th><th class="r">ผลต่าง</th><th>สถานะ</th><th style="text-align:center">แก้แล้ว</th>
+            <th>#</th><th>รหัสคำสั่งซื้อ Shopee</th><th>IV / อ้างอิง</th><th>เลขที่เช็ค</th><th class="r">gross EXPRESS</th><th class="r">net Shopee</th><th class="r">ผลต่าง</th><th>สถานะ</th><th style="text-align:center">แก้แล้ว</th>
           </tr></thead>
           <tbody>
             ${orderRows.map((o,i) => {
@@ -11948,8 +11948,11 @@ function bmpRenderTab(d){
               const grossCell = isMis
                 ? `<input value="${Number(o.express_gross||0).toFixed(2)}" onclick="event.stopPropagation()" onchange="bmpEditOrderField('${o.id}','express_gross',this.value)" class="bmp-edit num" title="แก้ยอดเช็คจริง">`
                 : bmpFmtMoney(o.express_gross);
+              const ivRef = o.receipt_no || (o.cheque_no && o.cheque_no.startsWith("PENDING-") ? o.cheque_no.replace("PENDING-","") : "");
               return `<tr class="${rowCls}">
               <td>${i+1}</td>
+              <td class="mono" style="font-size:11px">${esc(o.order_id||"")}</td>
+              <td class="mono" style="font-size:11px;color:var(--ink-2,#475569)">${esc(ivRef)}</td>
               <td>${chqCell}</td>
               <td class="r money">${grossCell}</td>
               <td class="r money">${bmpFmtMoney(o.shopee_net)}</td>
@@ -11960,7 +11963,7 @@ function bmpRenderTab(d){
             }).join("")}
             ${adjRows.map(a => `<tr class="adj">
               <td>·</td>
-              <td colspan="3">📌 ${esc(a.note||"adjustment")}</td>
+              <td colspan="5">📌 ${esc(a.note||"adjustment")}</td>
               <td class="r money">${bmpFmtMoney(a.shopee_net)}</td>
               <td colspan="2"><span style="color:#64748b">ปรับปรุง</span></td>
             </tr>`).join("")}

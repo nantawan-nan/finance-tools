@@ -9814,9 +9814,13 @@ function brecGet(){
     express:[], bank:[], matches:[],
     tab:"pending", sel:{ ex:new Set(), bk:new Set() },
     busy:false, lastImport:null,
-    mp: { withdrawals:[], orders:[], mismatchOrders:[], lastImportId:null, expanded:new Set(), uploadOpen:false, files:{shopee:null,receipt:null,cheque:null}, parsing:false }
+    mp: { withdrawals:[], orders:[], mismatchOrders:[], lastImportId:null, expanded:new Set(), uploadOpen:false, files:{shopee:[],receipt:[],cheque:[]}, parsing:false }
   };
-  if(!state.brec[co].mp) state.brec[co].mp = { withdrawals:[], orders:[], mismatchOrders:[], lastImportId:null, expanded:new Set(), uploadOpen:false, files:{shopee:null,receipt:null,cheque:null}, parsing:false };
+  if(!state.brec[co].mp) state.brec[co].mp = { withdrawals:[], orders:[], mismatchOrders:[], lastImportId:null, expanded:new Set(), uploadOpen:false, files:{shopee:[],receipt:[],cheque:[]}, parsing:false };
+  // migration: legacy single-file state → array
+  if(state.brec[co].mp.files && !Array.isArray(state.brec[co].mp.files.shopee)){
+    state.brec[co].mp.files = { shopee:[], receipt:[], cheque:[] };
+  }
   return state.brec[co];
 }
 function brecCanWrite(){ return !!(AUTH.role && ["admin","finance_mgr","accountant","treasury"].includes(AUTH.role)); }
@@ -11191,7 +11195,7 @@ function bmpOpenUpload(){
 function bmpCloseUpload(){
   const d = brecGet();
   d.mp.uploadOpen = false;
-  d.mp.files = { shopee:null, receipt:null, cheque:null };
+  d.mp.files = { shopee:[], receipt:[], cheque:[] };
   const m = document.getElementById("bmpUploadModal"); if(m) m.remove();
   renderToolBankRec();
 }
@@ -11199,12 +11203,12 @@ function bmpRenderUploadModal(){
   const old = document.getElementById("bmpUploadModal"); if(old) old.remove();
   const d = brecGet();
   const f = d.mp.files;
-  const ready = !!(f.shopee && f.receipt && f.cheque);
+  const ready = !!(f.shopee.length && f.receipt.length && f.cheque.length);
   const html = `
     <div id="bmpUploadModal" style="position:fixed;inset:0;background:rgba(15,23,42,.5);display:flex;align-items:center;justify-content:center;z-index:9999;backdrop-filter:blur(4px)">
-      <div style="background:#fff;width:600px;max-width:90vw;border-radius:16px;padding:22px;box-shadow:0 20px 60px rgba(0,0,0,.3)">
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><i data-lucide="shopping-bag" style="color:#f59e0b"></i><h3 style="margin:0;font-size:17px">อัปโหลด Marketplace — 3 ไฟล์</h3></div>
-        <div style="font-size:12.5px;color:var(--ink-3);margin-bottom:14px">ต้องอัปครบทั้ง 3 ไฟล์ — ระบบจะดึง shop name → company + bank อัตโนมัติ</div>
+      <div style="background:#fff;width:640px;max-width:90vw;max-height:90vh;overflow-y:auto;border-radius:16px;padding:22px;box-shadow:0 20px 60px rgba(0,0,0,.3)">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><i data-lucide="shopping-bag" style="color:#f59e0b"></i><h3 style="margin:0;font-size:17px">อัปโหลด Marketplace</h3></div>
+        <div style="font-size:12.5px;color:var(--ink-3);margin-bottom:14px">เลือกได้หลายไฟล์ต่อช่อง (Ctrl/Shift+คลิก) — ระบบจะ merge ให้</div>
         <div style="display:flex;flex-direction:column;gap:10px">
           ${bmpFileBox('shopee', 'Shopee Balance Transaction Report', '.xlsx', f.shopee)}
           ${bmpFileBox('receipt', 'Express รายงานการรับชำระหนี้', '.csv', f.receipt)}
@@ -11219,46 +11223,106 @@ function bmpRenderUploadModal(){
   document.body.insertAdjacentHTML("beforeend", html);
   if(window.lucide) try{ window.lucide.createIcons(); }catch(e){}
 }
-function bmpFileBox(key, label, accept, file){
-  const filled = !!file;
+function bmpFileBox(key, label, accept, files){
+  const list = files || [];
+  const filled = list.length > 0;
+  const items = list.map((f,i) => `<div style="display:flex;align-items:center;gap:6px;padding:4px 8px;background:#fff;border:1px solid #d1fae5;border-radius:6px;font-size:11.5px">
+    <i data-lucide="file-text" style="width:12px;height:12px;color:#16a34a"></i>
+    <span style="flex:1;color:var(--ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(f.name)}</span>
+    <button onclick="bmpFileRemove('${key}',${i})" style="background:none;border:0;color:#dc2626;cursor:pointer;font-size:14px;padding:0 4px" title="ลบ">×</button>
+  </div>`).join("");
   return `<div style="border:2px dashed ${filled?'#16a34a':'#cbd5e1'};border-radius:10px;padding:12px;background:${filled?'#f0fdf4':'#f8fafc'}">
-    <div style="display:flex;align-items:center;gap:10px">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:${filled?'8px':'0'}">
       <i data-lucide="${filled?'check-circle-2':'upload'}" style="color:${filled?'#16a34a':'#64748b'};width:20px;height:20px"></i>
       <div style="flex:1">
-        <div style="font-size:13px;font-weight:600;color:var(--ink)">${label}</div>
-        <div style="font-size:11.5px;color:var(--ink-3)">${filled? file.name : 'รองรับ '+accept}</div>
+        <div style="font-size:13px;font-weight:600;color:var(--ink)">${label} ${filled?`<span style="font-size:11px;color:#16a34a;font-weight:700">(${list.length})</span>`:''}</div>
+        <div style="font-size:11.5px;color:var(--ink-3)">${filled? 'เลือกอีกได้ — ระบบรวมให้' : 'รองรับ '+accept+' · เลือกได้หลายไฟล์'}</div>
       </div>
       <label style="background:#fff;border:1px solid var(--line);padding:5px 10px;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer">
-        ${filled?'เปลี่ยน':'เลือกไฟล์'}
-        <input type="file" accept="${accept}" style="display:none" onchange="bmpFilePicked('${key}',this.files[0])">
+        ${filled?'+ เพิ่ม':'เลือกไฟล์'}
+        <input type="file" accept="${accept}" multiple style="display:none" onchange="bmpFilesPicked('${key}',this.files)">
       </label>
     </div>
+    ${filled ? `<div style="display:flex;flex-direction:column;gap:4px;margin-top:4px">${items}</div>` : ''}
   </div>`;
 }
-function bmpFilePicked(kind, file){
+function bmpFilesPicked(kind, fileList){
   const d = brecGet();
-  d.mp.files[kind] = file;
+  if(!Array.isArray(d.mp.files[kind])) d.mp.files[kind] = [];
+  // dedupe by name+size
+  const existing = new Set(d.mp.files[kind].map(f=>f.name+"|"+f.size));
+  for(const f of fileList){
+    const k = f.name+"|"+f.size;
+    if(!existing.has(k)){ d.mp.files[kind].push(f); existing.add(k); }
+  }
+  bmpRenderUploadModal();
+}
+function bmpFileRemove(kind, i){
+  const d = brecGet();
+  d.mp.files[kind].splice(i,1);
   bmpRenderUploadModal();
 }
 
 async function bmpRunUpload(){
   const d = brecGet();
   const f = d.mp.files;
-  if(!f.shopee || !f.receipt || !f.cheque){ alert("เลือกไฟล์ครบ 3 ไฟล์ก่อน"); return; }
+  if(!f.shopee.length || !f.receipt.length || !f.cheque.length){ alert("เลือกไฟล์ครบทั้ง 3 ช่องก่อน"); return; }
   const co = d.companyId || await fopCompanyId();
   if(!co){ alert("หา company_id ไม่เจอ"); return; }
   d.companyId = co; d.mp.parsing = true; bmpRenderUploadModal();
   try{
-    // parse 3 files
-    const shopeeBuf = await f.shopee.arrayBuffer();
-    const shopeeWb = XLSX.read(shopeeBuf, { type:"array", cellDates:false });
-    const shopeeData = bmpParseShopeeBalance(shopeeWb);
+    // ----- merge Shopee files (multiple xlsx) -----
+    let mergedShopeeTxns = [];
+    let shopName = null, shopPeriodFrom = null, shopPeriodTo = null;
+    for(const sf of f.shopee){
+      const buf = await sf.arrayBuffer();
+      const wb = XLSX.read(buf, { type:"array", cellDates:false });
+      const sd = bmpParseShopeeBalance(wb);
+      if(!shopName) shopName = sd.shopName;
+      else if(sd.shopName && sd.shopName !== shopName){
+        throw new Error(`ไฟล์ Shopee shop name ไม่ตรงกัน: "${shopName}" vs "${sd.shopName}"`);
+      }
+      if(sd.periodFrom && (!shopPeriodFrom || sd.periodFrom < shopPeriodFrom)) shopPeriodFrom = sd.periodFrom;
+      if(sd.periodTo && (!shopPeriodTo || sd.periodTo > shopPeriodTo)) shopPeriodTo = sd.periodTo;
+      mergedShopeeTxns = mergedShopeeTxns.concat(sd.txns);
+    }
+    // dedupe by datetime+type+amount+order_id (กันอัปไฟล์ที่ overlap งวด)
+    const seen = new Set();
+    mergedShopeeTxns = mergedShopeeTxns.filter(t => {
+      const k = `${t.datetime}|${t.type}|${t.amount}|${t.order_id}|${t.desc.slice(0,20)}`;
+      if(seen.has(k)) return false; seen.add(k); return true;
+    });
+    mergedShopeeTxns.sort((a,b)=> a.datetime.localeCompare(b.datetime));
+    const shopeeData = { shopName, periodFrom: shopPeriodFrom, periodTo: shopPeriodTo, txns: mergedShopeeTxns };
 
-    const recText = bmpDecodeCp874(await f.receipt.arrayBuffer());
-    const arData = bmpParseArReceipt(recText);
+    // ----- merge AR receipt CSVs -----
+    let mergedCheques = [];
+    for(const rf of f.receipt){
+      const text = bmpDecodeCp874(await rf.arrayBuffer());
+      const rd = bmpParseArReceipt(text);
+      mergedCheques = mergedCheques.concat(rd.cheques);
+    }
+    // dedupe by cheque_no — keep first
+    const arSeen = new Set();
+    mergedCheques = mergedCheques.filter(c => {
+      if(!c.cheque_no || arSeen.has(c.cheque_no)) return arSeen.has(c.cheque_no) ? false : (arSeen.add(c.cheque_no), true);
+      arSeen.add(c.cheque_no); return true;
+    });
+    const arData = { cheques: mergedCheques };
 
-    const chqText = bmpDecodeCp874(await f.cheque.arrayBuffer());
-    const chqData = bmpParseChequeReport(chqText);
+    // ----- merge cheque report CSVs -----
+    let mergedDeposits = [];
+    for(const cf of f.cheque){
+      const text = bmpDecodeCp874(await cf.arrayBuffer());
+      const cd = bmpParseChequeReport(text);
+      mergedDeposits = mergedDeposits.concat(cd.deposits);
+    }
+    const chSeen = new Set();
+    mergedDeposits = mergedDeposits.filter(d2 => {
+      const k = `${d2.cheque_no}|${d2.bq}`;
+      if(chSeen.has(k)) return false; chSeen.add(k); return true;
+    });
+    const chqData = { deposits: mergedDeposits };
 
     // route by shop name → check company match
     const routing = bmpRouting(shopeeData.shopName);
@@ -11282,18 +11346,26 @@ async function bmpRunUpload(){
     const totalOrders = withdrawals.reduce((s,w)=> s + w.orders.length, 0);
     const totalMismatch = withdrawals.reduce((s,w)=> s + w.mismatch_count, 0);
 
-    // file_hash + insert import row
-    const hash = brecHash(`${f.shopee.name}|${f.shopee.size}|${f.receipt.name}|${f.receipt.size}|${f.cheque.name}|${f.cheque.size}`);
+    // file_hash + insert import row (รวมทุกไฟล์เข้า hash)
+    const hashSrc = [
+      ...f.shopee.map(x => x.name+"|"+x.size),
+      ...f.receipt.map(x => x.name+"|"+x.size),
+      ...f.cheque.map(x => x.name+"|"+x.size)
+    ].join("||");
+    const hash = brecHash(hashSrc);
     const { data:dup } = await sb.from("brec_mp_imports").select("id,created_at")
       .eq("company_id", co).eq("file_hash", hash).is("deleted_at", null);
     if(dup && dup.length){
       const cont = confirm(`ไฟล์ชุดนี้เคยอัปเมื่อ ${new Date(dup[0].created_at).toLocaleString("th-TH")}\n\nดำเนินการต่อจะนำเข้าซ้ำ — ใช่ไหม?`);
       if(!cont){ d.mp.parsing=false; bmpRenderUploadModal(); return; }
     }
+    const fnameJoin = arr => arr.map(x=>x.name).join("; ");
     const { data:imp, error:ie } = await sb.from("brec_mp_imports").insert({
       company_id: co, bank_account_id: acctId,
       channel: routing.channel, shop_name: shopeeData.shopName,
-      shopee_filename: f.shopee.name, receipt_filename: f.receipt.name, cheque_filename: f.cheque.name,
+      shopee_filename: fnameJoin(f.shopee),
+      receipt_filename: fnameJoin(f.receipt),
+      cheque_filename: fnameJoin(f.cheque),
       file_hash: hash,
       period_from: shopeeData.periodFrom, period_to: shopeeData.periodTo,
       withdrawal_count: withdrawals.length, order_count: totalOrders, mismatch_count: totalMismatch

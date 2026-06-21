@@ -11729,6 +11729,35 @@ async function bmpLoadFromDb(){
   d.mp.withdrawals = wds || [];
   d.mp.orders = orders;
   d.mp.mismatchOrders = orders.filter(o => o.mismatch_flag && !o.resolved);
+
+  // ★ โหลด bank deposit rows ของทุกบัญชีที่ withdrawal เข้า → match กับ STM
+  const acctIds = [...new Set((wds||[]).map(w=>w.bank_account_id).filter(Boolean))];
+  d.mp.bankByAcct = {};
+  if(acctIds.length){
+    const { data:bankRows } = await sb.from("brec_bank_rows").select("id,bank_account_id,txn_date,deposit,description,ref_note")
+      .in("bank_account_id", acctIds)
+      .is("deleted_at", null)
+      .gt("deposit", 0);
+    for(const r of (bankRows||[])){
+      const k = r.bank_account_id;
+      if(!d.mp.bankByAcct[k]) d.mp.bankByAcct[k] = [];
+      d.mp.bankByAcct[k].push(r);
+    }
+  }
+}
+
+/* match 1 withdrawal กับ bank statement (deposit ตรงวัน+ยอด) → คืน bank row หรือ null */
+function bmpMatchBank(d, wd){
+  const rows = (d.mp.bankByAcct||{})[wd.bank_account_id];
+  if(!rows || !rows.length) return { found:false, hasStmt:false };
+  const amt = Number(wd.withdraw_amount||0);
+  // วันตรงเป๊ะ + ยอดตรง (กฎเดียวกับ Full Bank Recon)
+  let hit = rows.find(r => r.txn_date === wd.withdraw_date && Math.abs(Number(r.deposit)-amt) < 0.5);
+  if(hit) return { found:true, exact:true, row:hit, hasStmt:true };
+  // ยอดตรง วันต่าง (±2 วัน) — เผื่อ value date
+  hit = rows.find(r => Math.abs(Number(r.deposit)-amt) < 0.5);
+  if(hit) return { found:true, exact:false, row:hit, hasStmt:true };
+  return { found:false, hasStmt:true };
 }
 
 /* ------- DELETE a withdrawal (soft) ------- */
@@ -11963,6 +11992,8 @@ function bmpRenderTab(d){
   const exportable = filtered.filter(w => bmpEffMismatch(ordersByWd.get(w.id)||[]) === 0).length;
   const filteredIds = filtered.map(w=>w.id);
   const selCount = filteredIds.filter(i=>d.mp.selected.has(i)).length;
+  // STM match stats
+  const stmStats = filtered.reduce((a,w)=>{ const m=bmpMatchBank(d,w); if(!m.hasStmt)a.nostmt++; else if(m.found)a.ok++; else a.miss++; return a; }, {ok:0,miss:0,nostmt:0});
 
   const cards = filtered.map(wd => {
     const ords = ordersByWd.get(wd.id) || [];
@@ -11985,11 +12016,18 @@ function bmpRenderTab(d){
     const isShortfall = (liveGross + liveAdj) < (Number(wd.withdraw_amount||0) - 1);
 
     const isSel = d.mp.selected.has(wd.id);
+    const bm = bmpMatchBank(d, wd);
+    const stmBadge = !bm.hasStmt
+      ? `<span class="bmp-stm none" title="ยังไม่ได้อัป Statement ของบัญชีนี้">STM —</span>`
+      : bm.found
+        ? `<span class="bmp-stm ok" title="พบเงินเข้าตรงใน Statement: ${esc(bm.row.txn_date)} ${bmpFmtMoney(bm.row.deposit)}">✓ ตรง STM${bm.exact?'':' (วันต่าง)'}</span>`
+        : `<span class="bmp-stm bad" title="ไม่พบเงินเข้ายอดนี้ใน Statement">⚠️ ไม่พบใน STM</span>`;
     return `<div class="bmp-card ${hasMismatch?'warn':''} ${isSel?'sel':''}">
       <div class="bmp-head" onclick="bmpToggleExpand('${wd.id}')">
         <div class="bmp-h1">
           <input type="checkbox" ${isSel?'checked':''} onclick="event.stopPropagation();bmpToggleSelectWd('${wd.id}')" style="width:16px;height:16px;accent-color:var(--brand);cursor:pointer" title="เลือก export">
           <span class="bmp-chip">🛒 ${esc(wd.channel)}</span>
+          ${stmBadge}
           <span class="bmp-shop">${esc(wd.shop_name||"")}</span>
           ${isShortfall ? `<span class="bmp-warn" style="background:#fef3c7;color:#92400e">⚠️ ยอดยกมาจากก่อนงวด</span>` : ''}
           ${hasMismatch ? `<span class="bmp-warn">⚠️ ไม่ตรง ${effMis}</span>` : `<span class="bmp-ok">✓ ตรงครบ${(wd.mismatch_count||0)>0?' (แก้แล้ว)':''}</span>`}
@@ -12071,8 +12109,9 @@ function bmpRenderTab(d){
       <div class="bmp-sc"><div class="l">รวม net เข้าแบงค์</div><div class="v">${bmpFmtMoney(totalNet)}</div></div>
       <div class="bmp-sc"><div class="l">รวมหัก ค่าธรรมเนียม</div><div class="v">${bmpFmtMoney(totalFee)}</div></div>
       <div class="bmp-sc ${totalMismatch?'warn':'ok'}"><div class="l">${totalMismatch?'⚠️ ออเดอร์ไม่ตรง':'✓ ผ่านการตรวจ'}</div><div class="v">${totalMismatch||"0"}</div></div>
-      <div class="bmp-sc"><div class="l">พร้อม export</div><div class="v">${exportable}/${filtered.length}</div></div>
+      <div class="bmp-sc ${stmStats.miss?'warn':'ok'}"><div class="l">ตรงกับ STM</div><div class="v">${stmStats.ok}/${filtered.length}</div><div class="s" style="font-size:11px;color:var(--ink-3,#94a3b8)">${stmStats.nostmt?`ยังไม่อัป STM ${stmStats.nostmt}`:(stmStats.miss?`ไม่พบ ${stmStats.miss}`:'ครบ')}</div></div>
     </div>
+    ${stmStats.nostmt>0?`<div style="font-size:12px;color:#1e40af;background:#dbeafe;border-radius:8px;padding:8px 12px;margin-bottom:10px">💡 บาง withdrawal ยังไม่มี Statement ของบัญชีนั้น — อัป Statement ผ่านปุ่ม "Statement" บน toolbar (เลือกบัญชี+งวดให้ตรง) แล้วระบบจะจับยอด withdrawal กับ STM ให้อัตโนมัติ</div>`:''}
     ${(chanChips||acctChips)?`<div style="display:flex;flex-wrap:wrap;gap:14px;margin-bottom:10px">${chanChips}${acctChips}</div>`:''}
     <div style="display:flex;gap:8px;margin:0 0 12px;flex-wrap:wrap;align-items:center">
       <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;cursor:pointer">
@@ -12109,6 +12148,10 @@ function bmpInjectCSS(){
   .bmp-cards{display:flex;flex-direction:column;gap:10px}
   .bmp-card{background:#fff;border:1px solid var(--line,#e2e8f0);border-left:4px solid #16a34a;border-radius:12px;overflow:hidden;box-shadow:0 1px 2px rgba(15,23,42,.04)}
   .bmp-card.sel{box-shadow:0 0 0 2px var(--brand,#0d9488);border-left-color:var(--brand,#0d9488)}
+  .bmp-stm{font-size:10.5px;font-weight:700;padding:3px 9px;border-radius:999px;letter-spacing:.2px}
+  .bmp-stm.ok{background:#dcfce7;color:#166534}
+  .bmp-stm.bad{background:#fee2e2;color:#991b1b}
+  .bmp-stm.none{background:#f1f5f9;color:#94a3b8}
   .bmp-card.warn{border-left-color:#dc2626;background:#fffbfb}
   .bmp-head{padding:12px 14px;cursor:pointer;transition:.1s}
   .bmp-head:hover{background:#f8fafc}

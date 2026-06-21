@@ -10255,14 +10255,16 @@ async function brecLoadMatches(co, acctIds, from, to){
   if(error) throw error;
   return data || [];
 }
-/* คืน id ของบัญชีทั้งหมดที่ "เลข normalize เดียวกัน" กับ acctId ที่เลือก
-   (กันบัญชีแตกหลาย record — statement กับ marketplace ลงคนละ id) */
-function brecSiblingAccountIds(d, acctId){
+/* คืน id ของบัญชีทั้งหมด (รวมที่ลบไปแล้ว) ที่ "เลข normalize เดียวกัน"
+   กับ acctId ที่เลือก — กัน bank rows กำพร้าใต้ account ที่ถูกลบ */
+async function brecSiblingAccountIds(d, co, acctId){
   const sel = d.accounts.find(a=>a.id===acctId);
   if(!sel) return [acctId];
   const norm = String(sel.account_no||"").replace(/\D/g,"");
   const code = String(sel.bank_code||"").toUpperCase();
-  const ids = d.accounts.filter(a =>
+  // ดึงทุกบัญชีของ company รวมที่ soft-delete
+  const { data:all } = await sb.from("bank_accounts").select("id,account_no,bank_code").eq("company_id", co);
+  const ids = (all||[]).filter(a =>
     String(a.bank_code||"").toUpperCase()===code &&
     String(a.account_no||"").replace(/\D/g,"")===norm
   ).map(a=>a.id);
@@ -10290,7 +10292,7 @@ async function brecLoad(){
     if(!d.accountId && d.accounts.length) d.accountId = d.accounts[0].id;
     if(d.accountId){
       const { from, to } = brecComputePeriod(d);
-      const ids = brecSiblingAccountIds(d, d.accountId);  // รวมบัญชีเลขเดียวกันที่แตก record
+      const ids = await brecSiblingAccountIds(d, co, d.accountId);  // รวมบัญชีเลขเดียวกันที่แตก record (รวมที่ลบแล้ว)
       const [rows, matches] = await Promise.all([
         brecLoadRows(co, ids, from, to),
         brecLoadMatches(co, ids, from, to)

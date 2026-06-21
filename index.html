@@ -971,8 +971,20 @@ function armapGet(){
   }
   return state.armap[state.company];
 }
-/* ตั้งเลข RE เริ่มต้น (ผู้ใช้กรอก เช่น "2606000001") — ระบบ +1 ทุกแถวตอนสร้าง */
-function armapSetReSeed(v){ armapGet().reSeed = String(v||"").trim(); renderTool(); }
+/* ตั้งเลข RE เริ่มต้น (ผู้ใช้กรอก เช่น "2606000001") — ระบบ +1 ทุกแถวตอนสร้าง
+   ★ restore focus + caret หลัง re-render กัน input หลุด focus ทุก keystroke */
+function armapSetReSeed(v){
+  armapGet().reSeed = String(v||"").trim();
+  const inp = document.getElementById("armapReSeedInput");
+  const caret = inp ? inp.selectionStart : null;
+  renderTool();
+  requestAnimationFrame(()=>{
+    const n = document.getElementById("armapReSeedInput");
+    if(!n) return;
+    n.focus();
+    if(caret!=null){ try{ n.setSelectionRange(caret, caret); }catch(e){} }
+  });
+}
 /* รัน RE จากเลขเริ่ม + offset i — รักษาความยาว/zero-pad ตามเลขเริ่ม */
 function armapRunRE(seed, i){
   if(!seed) return "";
@@ -1518,7 +1530,7 @@ function armapResultHTML(R, tab){
       </div>
       ${tab==='a' ? `<div style="display:flex;gap:10px;align-items:center;margin:10px 0;padding:10px 12px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;flex-wrap:wrap">
         <span style="font-size:13px;font-weight:600;color:#1e40af">🔢 เลขที่เอกสาร RE เริ่มต้น:</span>
-        <input type="text" placeholder="เช่น 2606000001" value="${esc(armapGet().reSeed||'')}" oninput="armapSetReSeed(this.value)" style="font-family:monospace;font-size:13px;padding:5px 10px;border:1px solid #bfdbfe;border-radius:6px;width:180px">
+        <input id="armapReSeedInput" type="text" placeholder="เช่น 2606000001" value="${esc(armapGet().reSeed||'')}" oninput="armapSetReSeed(this.value)" style="font-family:monospace;font-size:13px;padding:5px 10px;border:1px solid #bfdbfe;border-radius:6px;width:180px">
         <span style="font-size:12px;color:#64748b">ระบบจะรันต่อ +1 ทุกแถว · เว้นว่าง = ไม่ใส่เลข</span>
       </div>` : ""}
       ${tab==='a' ? bucketAHTML(R.A) : tab==='b' ? bucketBHTML(R.B) : bucketCHTML(R.C)}

@@ -10847,6 +10847,14 @@ function bmpRouting(shopName){
 function bmpDecodeCp874(buf){
   return new TextDecoder("windows-874").decode(buf);
 }
+/* auto-detect CSV type by content — กัน user วางไฟล์ผิด slot */
+function bmpDetectCsvType(text){
+  const head = String(text||"").slice(0, 4000);
+  if(/รายงานเช็ครับ|วันที่นำฝาก[\s\S]{0,200}เลขที่เช็ค[\s\S]{0,200}ใบนำฝาก/.test(head)) return "cheque";
+  if(/รายงานการรับชำระหนี้|เลขที่ใบเสร็จ[\s\S]{0,200}ยอดตามใบกำกับ/.test(head)) return "receipt";
+  if(/วิเคราะห์ยอดขาย|แยกตามเขตการขาย/.test(head)) return "sales";
+  return "unknown";
+}
 function bmpParseCsvText(text){
   // simple CSV parser supporting quoted fields with "" escape + NBSP normalization
   text = text.replace(/ /g," "); // NBSP → space
@@ -11388,26 +11396,39 @@ async function bmpRunUpload(){
       g.txns.sort((a,b)=> a.datetime.localeCompare(b.datetime));
     }
 
-    // ----- merge Sales Report (723-5) CSVs — bridge Shopee Order ↔ IV -----
+    // ----- รวม CSV ทั้งหมด (sales+receipt+cheque) แล้ว auto-route ตาม content -----
+    // ไม่สนใจว่า user วางในช่องไหน — detect จาก header ของไฟล์
+    const allCsvFiles = [...f.sales, ...f.receipt, ...f.cheque];
+    const csvByType = { receipt:[], cheque:[], sales:[], unknown:[] };
+    for(const cf of allCsvFiles){
+      const text = bmpDecodeCp874(await cf.arrayBuffer());
+      const t = bmpDetectCsvType(text);
+      csvByType[t].push({ file: cf, text });
+    }
+    if(csvByType.unknown.length){
+      const names = csvByType.unknown.map(x=>x.file.name).join(", ");
+      throw new Error(`ไฟล์ CSV ไม่รู้จัก: ${names} — ต้องเป็น รับชำระ / เช็ครับ / รายงานขาย 723-5`);
+    }
+    if(!csvByType.cheque.length) throw new Error('ขาดไฟล์ "รายงานเช็ครับ เรียงตามวันที่นำฝาก"');
+    if(!csvByType.receipt.length) throw new Error('ขาดไฟล์ "รายงานการรับชำระหนี้"');
+    if(!csvByType.sales.length) throw new Error('ขาดไฟล์ "รายงานขาย 723-5"');
+
+    // ----- parse sales -----
     let mergedIvs = [];
-    for(const sf of f.sales){
-      const text = bmpDecodeCp874(await sf.arrayBuffer());
-      const sd = bmpParseSalesReport(text);
+    for(const item of csvByType.sales){
+      const sd = bmpParseSalesReport(item.text);
       mergedIvs = mergedIvs.concat(sd.ivs);
     }
-    // dedupe by doc_no
     const ivSeen = new Set();
     mergedIvs = mergedIvs.filter(iv => { if(ivSeen.has(iv.doc_no)) return false; ivSeen.add(iv.doc_no); return true; });
     const salesData = { ivs: mergedIvs };
 
-    // ----- merge AR receipt CSVs (ใช้ร่วมกันทุก shop ของบริษัท) -----
+    // ----- parse receipt -----
     let mergedCheques = [];
-    for(const rf of f.receipt){
-      const text = bmpDecodeCp874(await rf.arrayBuffer());
-      const rd = bmpParseArReceipt(text);
+    for(const item of csvByType.receipt){
+      const rd = bmpParseArReceipt(item.text);
       mergedCheques = mergedCheques.concat(rd.cheques);
     }
-    // dedupe by cheque_no — keep first
     const arSeen = new Set();
     mergedCheques = mergedCheques.filter(c => {
       if(!c.cheque_no || arSeen.has(c.cheque_no)) return arSeen.has(c.cheque_no) ? false : (arSeen.add(c.cheque_no), true);
@@ -11415,11 +11436,10 @@ async function bmpRunUpload(){
     });
     const arData = { cheques: mergedCheques };
 
-    // ----- merge cheque report CSVs -----
+    // ----- parse cheque report -----
     let mergedDeposits = [];
-    for(const cf of f.cheque){
-      const text = bmpDecodeCp874(await cf.arrayBuffer());
-      const cd = bmpParseChequeReport(text);
+    for(const item of csvByType.cheque){
+      const cd = bmpParseChequeReport(item.text);
       mergedDeposits = mergedDeposits.concat(cd.deposits);
     }
     const chSeen = new Set();

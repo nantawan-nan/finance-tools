@@ -11444,9 +11444,20 @@ async function bmpRunUpload(){
     }
 
     // shared seqByDay สำหรับ gen BQ — กันชน BQ ข้าม shop ใน company เดียวกัน
+    // รวม seq จาก 2 แหล่ง: เช็ครับ CSV + brec_mp_withdrawals ในของเรา (กัน re-upload สร้าง BQ ซ้ำ)
     const sharedSeq = new Map();
     for(const dep of (chqData.deposits||[])){
       const m = String(dep.bq||"").match(/^(\d{6})(\d{1,4})$/);
+      if(m){
+        const day = m[1], seq = parseInt(m[2],10);
+        if(!sharedSeq.has(day) || sharedSeq.get(day) < seq) sharedSeq.set(day, seq);
+      }
+    }
+    // ดึง BQ ของเรา (ที่ gen ไปแล้ว) — กัน collision เวลา re-upload ก่อน user คีย์เข้า Express
+    const { data:ourWds } = await sb.from("brec_mp_withdrawals")
+      .select("bq_number").eq("company_id", co).is("deleted_at", null);
+    for(const w of (ourWds||[])){
+      const m = String(w.bq_number||"").match(/^(\d{6})(\d{1,4})$/);
       if(m){
         const day = m[1], seq = parseInt(m[2],10);
         if(!sharedSeq.has(day) || sharedSeq.get(day) < seq) sharedSeq.set(day, seq);
@@ -11572,6 +11583,20 @@ async function bmpDeleteWithdrawal(id){
   await sb.from("brec_mp_withdrawals").update({ deleted_at: ts }).eq("id", id);
   await sb.from("brec_mp_orders").update({ deleted_at: ts }).eq("withdrawal_id", id);
   await bmpLoadFromDb(); renderToolBankRec();
+}
+
+/* ------- DELETE all MP data in period (soft) — สำหรับ clean slate ------- */
+async function bmpPurgePeriod(){
+  const d = brecGet();
+  const wds = d.mp.withdrawals || [];
+  if(!wds.length){ alert("ไม่มี Marketplace data ในงวดนี้"); return; }
+  if(!confirm(`ลบ Marketplace data ทั้งหมดในงวด — ${wds.length} withdrawal · ${(d.mp.orders||[]).length} order\n\nลบไม่สามารถยกเลิกได้ (soft delete) — ใช่ไหม?`)) return;
+  const ts = new Date().toISOString();
+  const wdIds = wds.map(w=>w.id);
+  await sb.from("brec_mp_orders").update({ deleted_at: ts }).in("withdrawal_id", wdIds);
+  await sb.from("brec_mp_withdrawals").update({ deleted_at: ts }).in("id", wdIds);
+  await bmpLoadFromDb(); renderToolBankRec();
+  alert(`ลบสำเร็จ ${wds.length} withdrawal`);
 }
 
 /* ------- EXPAND / COLLAPSE card ------- */
@@ -11760,9 +11785,11 @@ function bmpRenderTab(d){
       <div class="bmp-sc ${totalMismatch?'warn':'ok'}"><div class="l">${totalMismatch?'⚠️ ออเดอร์ไม่ตรง':'✓ ผ่านการตรวจ'}</div><div class="v">${totalMismatch||"0"}</div></div>
       <div class="bmp-sc"><div class="l">พร้อม export</div><div class="v">${exportable}/${wds.length}</div></div>
     </div>
-    <div style="display:flex;gap:8px;margin:0 0 12px">
+    <div style="display:flex;gap:8px;margin:0 0 12px;flex-wrap:wrap">
       <button class="brec-btn primary" onclick="bmpExportCsv()"><i data-lucide="download"></i> ⬇ Export CSV (ข้ามที่ไม่ตรง)</button>
       <button class="brec-btn" onclick="bmpExportMismatchXlsx()" ${totalMismatch?'':'disabled'}><i data-lucide="file-warning"></i> ⬇ รายงานไม่ตรง (Excel)</button>
+      <div style="flex:1"></div>
+      <button class="brec-btn warn" onclick="bmpPurgePeriod()"><i data-lucide="trash-2"></i> ลบทั้งหมดในงวด</button>
     </div>
     <div class="bmp-cards">${cards}</div>
   `;

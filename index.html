@@ -11884,7 +11884,9 @@ function bmpExportCsv(){
   let no = 0;
   for(const wd of exportWds){
     const allOrds = ordersByWd.get(wd.id)||[];
-    const list = allOrds.filter(o=>o.txn_type==="order");
+    // เรียงเลขที่เช็คน้อย→มาก ในแต่ละวันที่เงินเข้า
+    const list = allOrds.filter(o=>o.txn_type==="order")
+      .slice().sort((a,b)=> String(a.cheque_no||"").localeCompare(String(b.cheque_no||""), undefined, {numeric:true}));
     // skip ทั้ง withdrawal ถ้ายังมี mismatch ที่ไม่ได้ติ๊ก "แก้แล้ว" (กันคีย์ผิด)
     if(bmpEffMismatch(allOrds) > 0) continue;
     const dt = bmpFmtThaiShort(wd.withdraw_date);
@@ -11997,7 +11999,8 @@ function bmpRenderTab(d){
 
   const cards = filtered.map(wd => {
     const ords = ordersByWd.get(wd.id) || [];
-    const orderRows = ords.filter(o => o.txn_type === "order");
+    const orderRows = ords.filter(o => o.txn_type === "order")
+      .slice().sort((a,b)=> String(a.cheque_no||"").localeCompare(String(b.cheque_no||""), undefined, {numeric:true}));
     const adjRows = ords.filter(o => o.txn_type === "adjustment");
     const isExpanded = d.mp.expanded.has(wd.id);
     const effMis = bmpEffMismatch(ords);

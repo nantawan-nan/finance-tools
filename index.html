@@ -3298,47 +3298,230 @@ function exkExport(){
 /* ============================================================
    HOME — หน้าหลักของบริษัท (Hub)
    ============================================================ */
+/* ---------- HOME state (dashboard ภาพรวม) ---------- */
+state.home = state.home || { tasksOpen:true, taskFilter:"all", progressOpen:false };
+function homeToggleTasks(){ state.home.tasksOpen = !state.home.tasksOpen; renderToolHome(); }
+function homeSetTaskFilter(f){ state.home.taskFilter = f; renderToolHome(); }
+function homeToggleProgress(){ state.home.progressOpen = !state.home.progressOpen; renderToolHome(); }
+function homeInjectCSS(){
+  if(document.getElementById("home-dash-css")) return;
+  const s = document.createElement("style"); s.id = "home-dash-css";
+  s.textContent = `
+  .hd{--ink:#1F2A44;--ink2:#5B6B86;--ink3:#9AA8BF;--line:#E6EDF4;font-family:"IBM Plex Sans Thai","IBM Plex Sans",system-ui,sans-serif;color:var(--ink)}
+  .hd .tnum{font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1}
+  @keyframes hdUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+  .hd-kpi{background:#fff;border:1px solid var(--line);border-radius:18px;padding:18px;box-shadow:0 6px 18px rgba(31,42,68,.05);display:flex;flex-direction:column;animation:hdUp .5s both;transition:.18s}
+  .hd-kpi.click{cursor:pointer}
+  .hd-kpi.click:hover{box-shadow:0 12px 26px rgba(14,154,136,.16);transform:translateY(-3px)}
+  .hd-card{background:#fff;border:1px solid var(--line);border-radius:20px;padding:22px 24px;box-shadow:0 6px 18px rgba(31,42,68,.05)}
+  .hd-link{font-size:12.5px;font-weight:600;color:var(--brand-dark);display:flex;align-items:center;gap:5px;cursor:pointer;transition:gap .15s}
+  .hd-link:hover{gap:9px}
+  .hd-task{display:flex;align-items:center;gap:14px;padding:14px 16px;border:1px solid #ECF1F6;border-radius:14px;cursor:pointer;transition:.15s}
+  .hd-task:hover{border-color:#CFE0EC;background:#FAFCFE}
+  .hd-mod{background:#fff;border:1px solid var(--line);border-radius:16px;padding:16px 17px;box-shadow:0 4px 12px rgba(31,42,68,.04);cursor:pointer;transition:.16s;position:relative}
+  .hd-mod:hover{border-color:var(--brand);box-shadow:0 10px 22px rgba(14,154,136,.12);transform:translateY(-2px)}
+  .hd-chip{font-size:13px;font-weight:600;padding:8px 14px;border-radius:9px;cursor:pointer;display:flex;align-items:center;gap:7px;border:1px solid var(--line);background:#fff;color:var(--ink2)}
+  .hd-chip.on{background:var(--brand);color:#fff;border-color:var(--brand)}
+  .hd-btn{border:none;border-radius:11px;padding:11px 18px;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;display:flex;align-items:center;gap:7px}
+  @media(max-width:1100px){.hd-kpis{grid-template-columns:repeat(2,1fr)!important}.hd-2col{grid-template-columns:1fr!important}.hd-mods{grid-template-columns:repeat(2,1fr)!important}}
+  `;
+  document.head.appendChild(s);
+}
+
 function renderToolHome(){
+  homeInjectCSS();
   const co = COMPANIES.find(c=>c.id===state.company);
-  const groups = {};
-  const stageOrder = [];
-  TOOLS.forEach(t => {
-    if(t.id==="home") return;
-    if(t.adminOnly && AUTH.role!=="admin") return;
-    if(!groups[t.stage]){ groups[t.stage] = []; stageOrder.push(t.stage); }
-    groups[t.stage].push(t);
-  });
   const userName = (AUTH.user && AUTH.user.user_metadata && AUTH.user.user_metadata.display_name)
     || (AUTH.email ? AUTH.email.split("@")[0] : "ทีมการเงิน");
+  const today = new Date();
+  const thMonth = today.toLocaleDateString("th-TH",{month:"long"});
+  const thYear = today.getFullYear()+543 > 2500 ? today.getFullYear() : today.getFullYear();
+  const dateLabel = today.toLocaleDateString("th-TH",{day:"numeric",month:"short",year:"numeric"});
+  const fmt = (n)=> Number(n||0).toLocaleString("th-TH");
+
+  // ── ตัวอย่างข้อมูล (จะ wire ของจริงทีหลัง) ──
+  const tasks = [
+    { title:"คีย์ IV BigSeller รอบบ่าย (Shopee + TikTok)", due:"วันนี้ 16:00", dueColor:"#E23D4B", owner:"นันทวรรณ", oi:"น", pri:"เร่งด่วน", priColor:"#E23D4B", priBg:"#FDECEE", cat:"urgent", tool:"bigseller" },
+    { title:"ตรวจรายการ Bank Reconciliation ที่ไม่ตรง 36 รายการ", due:"วันนี้", dueColor:"#E23D4B", owner:"นันทวรรณ", oi:"น", pri:"เร่งด่วน", priColor:"#E23D4B", priBg:"#FDECEE", cat:"urgent", tool:"bankrec" },
+    { title:"ติดตามรับชำระเงิน (RE) ค้าง 24 รายการ", due:"พรุ่งนี้", dueColor:"#E08C16", owner:"ทีม AR", oi:"A", pri:"ใกล้ครบกำหนด", priColor:"#C77E14", priBg:"#FBEFD7", cat:"due", tool:"ar" },
+    { title:"จ่ายเจ้าหนี้ใกล้ครบกำหนด 8 ราย", due:"23 มิ.ย.", dueColor:"#E08C16", owner:"ทีม AP", oi:"P", pri:"ใกล้ครบกำหนด", priColor:"#C77E14", priBg:"#FBEFD7", cat:"due", tool:"ap_outstanding" },
+    { title:"ตรวจสอบ Settlement Shopee/TikTok ประจำสัปดาห์", due:"25 มิ.ย.", dueColor:"#9AA8BF", owner:"นันทวรรณ", oi:"น", pri:"รอตรวจสอบ", priColor:"#5468FF", priBg:"#EEF0FF", cat:"review", tool:"settle" },
+  ];
+  const taskCounts = { urgent: tasks.filter(t=>t.cat==="urgent").length, due: tasks.filter(t=>t.cat==="due").length, review: tasks.filter(t=>t.cat==="review").length };
+  const tf = state.home.taskFilter;
+  const visTasks = tf==="all" ? tasks : tasks.filter(t=>t.cat===tf);
+  const progress = [
+    { name:"คีย์ IV (ทุกช่องทาง)", status:"กำลังทำ", pct:86, color:"#0E9A88", bg:"#E6F7F1", date:"18 มิ.ย.", owner:"นันทวรรณ" },
+    { name:"รับชำระเงิน RE", status:"กำลังทำ", pct:78, color:"#E08C16", bg:"#FBEFD7", date:"17 มิ.ย.", owner:"ทีม AR" },
+    { name:"Bank Reconciliation", status:"เกือบเสร็จ", pct:97, color:"#0E9A88", bg:"#E6F7F1", date:"21 มิ.ย.", owner:"นันทวรรณ" },
+    { name:"กระทบยอดถอน Marketplace", status:"กำลังทำ", pct:64, color:"#5468FF", bg:"#EEF0FF", date:"21 มิ.ย.", owner:"นันทวรรณ" },
+    { name:"ปิดงบเจ้าหนี้ AP", status:"รอเริ่ม", pct:30, color:"#E23D4B", bg:"#FDECEE", date:"15 มิ.ย.", owner:"ทีม AP" },
+  ];
+  const activity = [
+    { who:"นันทวรรณ", text:"อัปโหลด Statement SCB เดือนมิถุนายน", time:"5 นาทีที่แล้ว", initial:"น", bg:"#E6F7F1", color:"#0E9A88" },
+    { who:"นันทวรรณ", text:"กระทบยอด Marketplace Shopee 7 รายการ", time:"32 นาทีที่แล้ว", initial:"น", bg:"#E6F7F1", color:"#0E9A88" },
+    { who:"ทีม AR", text:"บันทึกรับชำระเงิน RE 12 รายการ", time:"1 ชั่วโมงที่แล้ว", initial:"A", bg:"#FBEFD7", color:"#C77E14" },
+    { who:"ระบบ", text:"สำรองฐานข้อมูลอัตโนมัติสำเร็จ", time:"วันนี้ 02:00", initial:"S", bg:"#EEF0FF", color:"#5468FF" },
+  ];
+  // โมดูลที่ใช้บ่อย — จาก TOOLS จริง (live, ไม่ใช่ admin-only)
+  const quickMods = TOOLS.filter(t=> t.id!=="home" && t.status==="live" && !(t.adminOnly && AUTH.role!=="admin")).slice(0,8);
+
+  const kpiCard = (opts) => `
+    <div class="hd-kpi ${opts.tool?'click':''}" ${opts.tool?`onclick="setTool('${opts.tool}')"`:''} style="${opts.dark?'color:#fff;background:linear-gradient(140deg,var(--brand) 0%,var(--brand-dark) 100%);box-shadow:0 10px 24px rgba(13,150,132,.3);border:none':''};${opts.delay?`animation-delay:${opts.delay}`:''}">
+      <div style="display:flex;align-items:center;justify-content:space-between">
+        <div style="width:38px;height:38px;border-radius:11px;background:${opts.dark?'rgba(255,255,255,.2)':opts.iconBg};display:flex;align-items:center;justify-content:center;color:${opts.dark?'#fff':opts.iconColor}"><i data-lucide="${opts.icon}" style="width:20px;height:20px"></i></div>
+        <span style="font-size:12px;font-weight:700;color:${opts.dark?'#fff':opts.tagColor};background:${opts.dark?'rgba(255,255,255,.22)':opts.tagBg};padding:4px 10px;border-radius:999px">${opts.tag}</span>
+      </div>
+      <div style="font-size:13.5px;color:${opts.dark?'rgba(255,255,255,.85)':'var(--ink2)'};margin-top:13px">${opts.label}</div>
+      <div class="tnum" style="font-size:27px;font-weight:700;margin-top:2px;letter-spacing:-.5px">${opts.value}</div>
+      <div style="font-size:12.5px;color:${opts.dark?'rgba(255,255,255,.7)':'var(--ink3)'};margin-top:1px">${opts.sub}</div>
+      ${opts.bar!=null?`<div style="margin-top:11px;height:7px;background:#EEF2F7;border-radius:5px;overflow:hidden"><div style="width:${opts.bar}%;height:100%;background:${opts.barColor};border-radius:5px"></div></div>`:''}
+      ${opts.link?`<div class="hd-link" style="margin-top:13px;color:${opts.linkColor||'var(--brand-dark)'}" onclick="event.stopPropagation();setTool('${opts.tool}')">${opts.link} <span>→</span></div>`:''}
+      ${opts.spark?`<svg viewBox="0 0 200 44" style="width:100%;height:34px;margin-top:11px" preserveAspectRatio="none"><defs><linearGradient id="hdspk" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="rgba(255,255,255,.45)"/><stop offset="1" stop-color="rgba(255,255,255,0)"/></linearGradient></defs><path d="M0,34 L0,30 C18,32 28,22 44,26 C62,30 70,14 90,20 C110,26 120,10 140,16 C160,22 172,8 200,6 L200,34 Z" fill="url(#hdspk)"/><path d="M0,30 C18,32 28,22 44,26 C62,30 70,14 90,20 C110,26 120,10 140,16 C160,22 172,8 200,6" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round"/></svg>`:''}
+    </div>`;
 
   document.getElementById("main").innerHTML = `
-    <div class="page-head">
-      <h1>สวัสดี, ${esc(userName)} <i data-lucide="hand-heart" style="width:24px;height:24px;color:var(--brand);vertical-align:-4px"></i></h1>
-      <div class="sub">เลือกเครื่องมือเพื่อเริ่มทำรายงาน · ${esc(co.name)}</div>
+  <div class="hd">
+    <!-- PAGE HEADER -->
+    <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:20px;flex-wrap:wrap">
+      <div>
+        <div style="display:flex;align-items:center;gap:11px">
+          <h1 style="margin:0;font-size:27px;font-weight:700;letter-spacing:-.5px">ภาพรวมการทำงานเดือน${thMonth} ${thYear}</h1>
+          <span style="background:var(--brand-soft);color:var(--brand-dark);font-size:12.5px;font-weight:600;padding:4px 12px;border-radius:999px;border:1px solid var(--brand-soft);white-space:nowrap">${esc(co.name)}</span>
+        </div>
+        <div style="margin-top:6px;font-size:15px;color:var(--ink2)">สวัสดี ${esc(userName)} · ติดตามสถานะงานสำคัญและรายการที่ต้องดำเนินการ · ข้อมูล ณ ${dateLabel}</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px">
+        <button class="hd-btn" style="background:#fff;color:var(--ink2);border:1px solid #DCE7F3" onclick="setTool('execdash')"><i data-lucide="download" style="width:16px;height:16px"></i> ดูรายงานทั้งหมด</button>
+        <button class="hd-btn" style="background:var(--brand);color:#fff;box-shadow:0 6px 14px rgba(14,154,136,.28)" onclick="renderToolHome()"><i data-lucide="refresh-cw" style="width:16px;height:16px"></i> อัปเดตข้อมูล</button>
+      </div>
     </div>
 
-    ${stageOrder.map(stage => `
-      <div style="margin-bottom:18px">
-        <div class="stage-label" style="cursor:default;padding:0 4px 10px">${esc(stage)}</div>
-        <div class="toolgrid">
-          ${groups[stage].map(t => {
-            const ic = t.icon ? `<i data-lucide="${t.icon}"></i>` : (t.ic || "");
-            const soon = t.status==="soon"
-              ? `<span style="position:absolute;top:12px;right:12px;font-size:9px;background:var(--warn-soft);color:var(--warn-ink);padding:2px 7px;border-radius:999px;font-weight:700;letter-spacing:.2px">เร็วๆนี้</span>`
-              : "";
-            return `<button class="toolcard" onclick="setTool('${t.id}')">
-              ${soon}
-              <span class="tc-ic">${ic}</span>
-              <div class="tc-body">
-                <div class="tc-t">${esc(t.name)}</div>
-                <div class="tc-d">${esc(t.desc||"")}</div>
+    <!-- KPI CARDS -->
+    <div class="hd-kpis" style="display:grid;grid-template-columns:repeat(5,1fr);gap:16px;margin-top:22px">
+      ${kpiCard({ icon:"file-text", iconBg:"var(--brand-soft)", iconColor:"var(--brand-dark)", tag:"ตามแผน", tagColor:"var(--brand-dark)", tagBg:"#E6F7F1", label:"การคีย์ IV", value:`86<span style="font-size:16px;color:var(--ink3)">%</span>`, sub:"คีย์ถึง 18 มิ.ย. · 18/21 วันทำการ", bar:86, barColor:"linear-gradient(90deg,var(--brand),var(--brand-dark))", link:"ไปที่ BigSeller → IV", tool:"bigseller" })}
+      ${kpiCard({ icon:"hand-coins", iconBg:"#FBF1DC", iconColor:"#C77E14", tag:"ต้องติดตาม", tagColor:"#C77E14", tagBg:"#FBEFD7", label:"การรับชำระเงิน (RE)", value:`24<span style="font-size:15px;color:var(--ink3);font-weight:500"> รายการค้าง</span>`, sub:"บันทึกถึง 17 มิ.ย. · ความคืบหน้า 78%", bar:78, barColor:"linear-gradient(90deg,#F0A02E,#E08C16)", link:"ดูรายการค้าง", linkColor:"#C77E14", tool:"ar", delay:".06s" })}
+      ${kpiCard({ icon:"git-compare-arrows", iconBg:"#FBF1DC", iconColor:"#C77E14", tag:"ค้าง 36", tagColor:"#C77E14", tagBg:"#FBEFD7", label:"Bank Reconciliation", value:`1,248<span style="font-size:16px;color:var(--ink3)">/1,284</span>`, sub:`ตรงกันแล้ว 97% · <span style="color:#E23D4B;font-weight:600">ไม่ตรง 36</span>`, bar:97, barColor:"linear-gradient(90deg,var(--brand),var(--brand-dark))", link:"ตรวจรายการไม่ตรง", linkColor:"#C77E14", tool:"bankrec", delay:".12s" })}
+      ${kpiCard({ icon:"file-warning", iconBg:"#FDECEE", iconColor:"#E23D4B", tag:"เร่งด่วน", tagColor:"#E23D4B", tagBg:"#FDECEE", label:"AP Outstanding", value:`฿1,250,000`, sub:`ค้างชำระ 42 รายการ · <span style="color:#E23D4B;font-weight:600">ใกล้ครบ 8</span>`, bar:54, barColor:"linear-gradient(90deg,#F36C79,#E23D4B)", link:"ตรวจสอบเจ้าหนี้", linkColor:"#E23D4B", tool:"ap_outstanding", delay:".18s" })}
+      ${kpiCard({ dark:true, icon:"wallet", tag:"▲ +12%", label:"ยอดเงินในบัญชี ณ วันนี้ (รวม)", value:"฿2,845,000", sub:"เทียบต้นเดือน +305,000", spark:true, tool:"bank_balance", delay:".24s" })}
+    </div>
+
+    <!-- TASKS + PROGRESS -->
+    <div class="hd-2col" style="display:grid;grid-template-columns:1.42fr 1fr;gap:18px;margin-top:18px;align-items:flex-start">
+      <div class="hd-card">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
+          <div>
+            <div style="font-size:18px;font-weight:700">งานที่ต้องดำเนินการวันนี้</div>
+            <div style="font-size:13.5px;color:var(--ink3);margin-top:2px">${dateLabel} · ทั้งหมด ${tasks.length} รายการ</div>
+          </div>
+          <div style="display:flex;align-items:center;gap:7px;font-size:13px;color:var(--brand-dark);font-weight:600;background:#E6F7F1;padding:7px 13px;border-radius:9px;cursor:pointer" onclick="homeToggleTasks()">
+            <span>${state.home.tasksOpen?'ซ่อน':'แสดง'}</span><i data-lucide="chevron-${state.home.tasksOpen?'up':'down'}" style="width:16px;height:16px"></i>
+          </div>
+        </div>
+        ${state.home.tasksOpen ? `
+        <div style="display:flex;gap:9px;margin-top:16px;flex-wrap:wrap">
+          <div class="hd-chip ${tf==='all'?'on':''}" onclick="homeSetTaskFilter('all')">ทั้งหมด</div>
+          <div class="hd-chip ${tf==='urgent'?'on':''}" onclick="homeSetTaskFilter('urgent')"><span style="width:7px;height:7px;border-radius:50%;background:#E23D4B"></span>เร่งด่วน ${taskCounts.urgent}</div>
+          <div class="hd-chip ${tf==='due'?'on':''}" onclick="homeSetTaskFilter('due')"><span style="width:7px;height:7px;border-radius:50%;background:#E08C16"></span>ใกล้ครบกำหนด ${taskCounts.due}</div>
+          <div class="hd-chip ${tf==='review'?'on':''}" onclick="homeSetTaskFilter('review')"><span style="width:7px;height:7px;border-radius:50%;background:#5468FF"></span>รอตรวจสอบ ${taskCounts.review}</div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:10px;margin-top:16px">
+          ${visTasks.map(t=>`<div class="hd-task" onclick="setTool('${t.tool}')">
+            <span style="width:4px;align-self:stretch;border-radius:3px;background:${t.priColor};flex:none"></span>
+            <div style="flex:1;min-width:0">
+              <div style="font-size:15px;font-weight:500">${esc(t.title)}</div>
+              <div style="display:flex;align-items:center;gap:14px;margin-top:6px;font-size:12.5px;color:var(--ink3)">
+                <span style="display:inline-flex;align-items:center;gap:5px;color:${t.dueColor};font-weight:500"><i data-lucide="clock" style="width:13px;height:13px"></i>${t.due}</span>
+                <span style="display:inline-flex;align-items:center;gap:6px"><span style="width:18px;height:18px;border-radius:50%;background:#E6F7F1;color:var(--brand-dark);font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center">${t.oi}</span>${esc(t.owner)}</span>
               </div>
-            </button>`;
-          }).join("")}
+            </div>
+            <span style="font-size:12px;font-weight:600;color:${t.priColor};background:${t.priBg};padding:4px 11px;border-radius:999px;white-space:nowrap;flex:none">${t.pri}</span>
+            <i data-lucide="chevron-right" style="width:18px;height:18px;color:#C3CEDC;flex:none"></i>
+          </div>`).join("") || `<div style="padding:24px;text-align:center;color:var(--ink3)">ไม่มีงานในหมวดนี้</div>`}
+        </div>` : ''}
+      </div>
+
+      <div class="hd-card">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;cursor:pointer" onclick="homeToggleProgress()">
+          <div>
+            <div style="font-size:18px;font-weight:700">Progress งานประจำเดือน</div>
+            <div style="font-size:13.5px;color:var(--ink3);margin-top:2px">${thMonth} ${thYear}</div>
+          </div>
+          <div style="display:flex;align-items:center;gap:7px;font-size:13px;color:var(--brand-dark);font-weight:600;background:#E6F7F1;padding:7px 13px;border-radius:9px;flex:none">
+            <span>${state.home.progressOpen?'ซ่อน':'แสดง'}</span><i data-lucide="chevron-${state.home.progressOpen?'up':'down'}" style="width:16px;height:16px"></i>
+          </div>
+        </div>
+        ${state.home.progressOpen ? `<div style="display:flex;flex-direction:column;gap:16px;margin-top:18px">
+          ${progress.map(p=>`<div>
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+              <div style="display:flex;align-items:center;gap:9px;min-width:0"><span style="width:9px;height:9px;border-radius:50%;background:${p.color};flex:none"></span><span style="font-size:14.5px;font-weight:500">${esc(p.name)}</span></div>
+              <span style="font-size:12px;font-weight:600;color:${p.color};background:${p.bg};padding:3px 10px;border-radius:999px;white-space:nowrap">${p.status}</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;margin-top:8px">
+              <div style="flex:1;height:7px;background:#EEF2F7;border-radius:5px;overflow:hidden"><div style="width:${p.pct}%;height:100%;background:${p.color};border-radius:5px"></div></div>
+              <span class="tnum" style="font-size:12.5px;font-weight:600;color:var(--ink2);width:34px;text-align:right">${p.pct}%</span>
+            </div>
+            <div style="margin-top:6px;font-size:12px;color:var(--ink3)">ล่าสุด ${p.date} · ${esc(p.owner)}</div>
+          </div>`).join("")}
+        </div>` : `<div style="margin-top:14px;font-size:13px;color:var(--ink3)">กดเพื่อดูความคืบหน้าแต่ละงาน (${progress.length} งาน)</div>`}
+      </div>
+    </div>
+
+    <!-- CASH FLOW -->
+    <div class="hd-2col" style="display:grid;grid-template-columns:1.42fr 1fr;gap:18px;margin-top:18px">
+      <div class="hd-card">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px">
+          <div><div style="font-size:18px;font-weight:700">ภาพรวมเงินสดและกระแสเงินสด</div><div style="font-size:13.5px;color:var(--ink3);margin-top:2px">ยอดเงินคงเหลือรายวัน · ${thMonth} ${thYear}</div></div>
+        </div>
+        <svg viewBox="0 0 740 270" style="width:100%;height:auto;margin-top:14px" class="tnum">
+          <defs><linearGradient id="hdbal" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="rgba(18,181,160,.28)"/><stop offset="1" stop-color="rgba(18,181,160,0)"/></linearGradient></defs>
+          <g stroke="#EEF2F7" stroke-width="1"><line x1="60" y1="30" x2="725" y2="30"/><line x1="60" y1="90" x2="725" y2="90"/><line x1="60" y1="150" x2="725" y2="150"/><line x1="60" y1="210" x2="725" y2="210"/></g>
+          <g fill="#9AA8BF" font-size="12" text-anchor="end"><text x="50" y="34">3.0M</text><text x="50" y="94">2.6M</text><text x="50" y="154">2.2M</text><text x="50" y="214">1.8M</text></g>
+          <path d="M70,150 C110,158 130,120 170,128 C210,136 230,96 270,104 C310,112 330,150 370,140 C410,130 430,86 470,96 C510,106 530,70 570,78 C610,86 630,52 670,58 L710,46 L710,210 L70,210 Z" fill="url(#hdbal)"/>
+          <path d="M70,150 C110,158 130,120 170,128 C210,136 230,96 270,104 C310,112 330,150 370,140 C410,130 430,86 470,96 C510,106 530,70 570,78 C610,86 630,52 670,58 L710,46" fill="none" stroke="var(--brand-dark)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+          <g fill="#7A8AA3" font-size="12" text-anchor="middle"><text x="70" y="234">1</text><text x="230" y="234">6</text><text x="390" y="234">11</text><text x="550" y="234">16</text><text x="710" y="234">21 มิ.ย.</text></g>
+        </svg>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:14px">
+        <div class="hd-card" style="flex:1;display:flex;align-items:center;gap:15px;padding:18px 20px">
+          <div style="width:46px;height:46px;border-radius:13px;background:#E6F7F1;display:flex;align-items:center;justify-content:center;flex:none"><i data-lucide="arrow-up" style="color:var(--brand-dark)"></i></div>
+          <div><div style="font-size:13.5px;color:var(--ink2)">เงินเข้าเดือนนี้</div><div class="tnum" style="font-size:23px;font-weight:700;color:var(--brand-dark);margin-top:1px">฿4,120,000</div></div>
+        </div>
+        <div class="hd-card" style="flex:1;display:flex;align-items:center;gap:15px;padding:18px 20px">
+          <div style="width:46px;height:46px;border-radius:13px;background:#FDECEE;display:flex;align-items:center;justify-content:center;flex:none"><i data-lucide="arrow-down" style="color:#E23D4B"></i></div>
+          <div><div style="font-size:13.5px;color:var(--ink2)">เงินออกเดือนนี้</div><div class="tnum" style="font-size:23px;font-weight:700;color:#E23D4B;margin-top:1px">฿3,815,000</div></div>
+        </div>
+        <div style="flex:1;border-radius:18px;padding:18px 20px;display:flex;align-items:center;gap:15px;background:linear-gradient(135deg,#5468FF,#3A45C9);box-shadow:0 8px 20px rgba(58,69,201,.28)">
+          <div style="width:46px;height:46px;border-radius:13px;background:rgba(255,255,255,.2);display:flex;align-items:center;justify-content:center;flex:none"><i data-lucide="bar-chart-3" style="color:#fff"></i></div>
+          <div><div style="font-size:13.5px;color:rgba(255,255,255,.82)">คาดการณ์คงเหลือสิ้นเดือน</div><div class="tnum" style="font-size:23px;font-weight:700;color:#fff;margin-top:1px">฿3,150,000</div></div>
         </div>
       </div>
-    `).join("")}
-  `;
+    </div>
+
+    <!-- QUICK ACCESS -->
+    <div style="margin-top:26px;display:flex;align-items:center;justify-content:space-between">
+      <div style="font-size:18px;font-weight:700">โมดูลที่ใช้บ่อย</div>
+    </div>
+    <div class="hd-mods" style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-top:14px">
+      ${quickMods.map(m=>`<div class="hd-mod" onclick="setTool('${m.id}')">
+        <div style="display:flex;align-items:center;gap:13px">
+          <div style="width:42px;height:42px;border-radius:12px;background:var(--brand-soft);display:flex;align-items:center;justify-content:center;flex:none;color:var(--brand-dark)"><i data-lucide="${m.icon||'square'}" style="width:21px;height:21px"></i></div>
+          <div style="min-width:0;flex:1"><div style="font-size:14.5px;font-weight:600">${esc(m.name)}</div><div style="font-size:12px;color:var(--ink3);margin-top:1px">${esc(m.desc||'')}</div></div>
+        </div>
+      </div>`).join("")}
+    </div>
+
+    <!-- ACTIVITY -->
+    <div class="hd-card" style="margin-top:26px">
+      <div style="display:flex;align-items:center;justify-content:space-between"><div style="font-size:18px;font-weight:700">Activity ล่าสุด</div></div>
+      <div style="margin-top:16px">
+        ${activity.map(a=>`<div style="display:flex;align-items:flex-start;gap:14px;padding:12px 0;border-bottom:1px solid #F1F5F9">
+          <div style="width:34px;height:34px;border-radius:50%;background:${a.bg};color:${a.color};font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center;flex:none">${a.initial}</div>
+          <div style="flex:1;min-width:0"><div style="font-size:14.5px"><strong style="font-weight:600">${esc(a.who)}</strong> ${esc(a.text)}</div><div style="font-size:12.5px;color:var(--ink3);margin-top:2px">${a.time}</div></div>
+        </div>`).join("")}
+      </div>
+    </div>
+  </div>`;
   if(window.lucide && window.lucide.createIcons){ try{ window.lucide.createIcons(); }catch(e){} }
 }
 

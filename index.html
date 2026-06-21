@@ -10210,7 +10210,20 @@ async function brecEnsureAccount(co, bankCode, accountNo){
     account_no: norm, nickname: `${bankCode} ${norm}`,
     is_active: true
   }).select("id").single();
-  if(error) throw error;
+  if(error){
+    // ★ fallback: ถ้าชน unique (เลขมีอยู่แล้วแต่ raw account_no ต่างจาก norm) → ดึงตัวเดิมมา + กู้คืน
+    if(String(error.message||error.code||"").match(/duplicate|unique|23505/i)){
+      const { data:all2 } = await sb.from("bank_accounts").select("id,account_no,bank_code,deleted_at").eq("company_id", co);
+      for(const a of (all2||[])){
+        if(String(a.bank_code||"").toUpperCase() === bankCode.toUpperCase()
+           && String(a.account_no||"").replace(/\D/g,"") === norm){
+          if(a.deleted_at) await sb.from("bank_accounts").update({ deleted_at:null, deleted_by:null, is_active:true }).eq("id", a.id);
+          return a.id;
+        }
+      }
+    }
+    throw error;
+  }
   return ins.id;
 }
 async function brecLoadRows(co, acctId, from, to){

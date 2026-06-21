@@ -11024,55 +11024,57 @@ function bmpParseArReceipt(text){
    ============================================================ */
 function bmpParseSalesReport(text){
   const rows = bmpParseCsvText(text);
-  const ivs = []; // [{doc_no, doc_date, total, ref_order_id, customer, channel}]
+  const ivs = [];
   let curCustomer = null, curChannel = null;
-  // IV pattern: "  IV2606000111 01/06/69    0   30.00   0.00  486.00  0.00  486.00  01/06/69  N  260601UR5GWNR3\""
-  // หรือ SR (sales return) — เริ่มด้วย SR
-  // หรือ ขึ้นต้นด้วย * (IV ที่ออกแล้ว void/cancel — ข้าม)
-  const ivRe = /^\*?\s*(IV|SR|CN)(\d{10})\s+(\d{2}\/\d{2}\/\d{2})\s+\d+\s+([\d,.\-]+)\s+([\d,.\-]+)\s+([\d,.\-]+)\s+([\d,.\-]+)\s+([\d,.\-]+)\s+(\d{2}\/\d{2}\/\d{2})\s+\S*\s+(.*?)\"/;
-  // customer header pattern: "  ลูกค้าทั่วไป-Shopee Betra /SHOPEE BE" or "  ลูกค้าทั่วไป-Shopee Qi Care /SHOPEE QI"
   const custRe = /^\s*(ลูกค้า.+?)\s*\/(.+?)$/;
-  // sum-row prefix to ignore: "รวม"
+  // Token-based parser — รองรับแถวที่ ส่วนลด/มัดจำ/มูลค่า/VAT ว่างบ้าง
+  // โครงสร้าง: doc_no, doc_date, V_flag, [discount?], [deposit?], [goods?], [vat?], total, due_date, status, ref"
+  // ใช้ scan ย้อนกลับหา due_date pattern + ดึง total = numeric ตัวสุดท้ายก่อน due_date
+  function parseIvRow(line){
+    const trimmed = line.trim();
+    const voided = /^\*/.test(trimmed);
+    const t = trimmed.replace(/^\*\s*/, "").split(/\s+/);
+    if(t.length < 6) return null;
+    if(!/^(?:IV|SR|CN)\d{10}$/.test(t[0])) return null;
+    if(!/^\d{2}\/\d{2}\/\d{2}$/.test(t[1])) return null;
+    const last = t.length - 1;
+    const ref = String(t[last]||"").replace(/"$/,"").trim();
+    if(!ref) return null;
+    let dueIdx = -1;
+    for(let i=last-1; i>=2; i--){
+      if(/^\d{2}\/\d{2}\/\d{2}$/.test(t[i])){ dueIdx = i; break; }
+    }
+    if(dueIdx < 0) return null;
+    let total = 0;
+    for(let i=dueIdx-1; i>=2; i--){
+      const v = String(t[i]||"").replace(/,/g,"");
+      if(/^-?\d+\.?\d*$/.test(v)){ total = Number(v); break; }
+    }
+    return {
+      doc_type: t[0].slice(0,2),
+      doc_no: t[0],
+      doc_date_be: t[1],
+      doc_date: bmpThaiDate(t[1]),
+      total,
+      due_date: bmpThaiDate(t[dueIdx]),
+      ref_order_id: ref,
+      voided
+    };
+  }
   for(const row of rows){
     if(!row || !row.length) continue;
     const line = row[0] || ""; if(!line) continue;
     const trimmed = line.trim();
-    // skip dividers/header/blank
     if(!trimmed || /^-+$/.test(trimmed)) continue;
-    // sum row
     if(/^รวม/.test(trimmed)) continue;
-    // customer header
     const cm = trimmed.match(custRe);
-    if(cm && !ivRe.test(trimmed)){
+    if(cm && !/^\*?\s*(IV|SR|CN)\d{10}/.test(trimmed)){
       curCustomer = cm[1].replace(/\s+/g," ").trim();
       curChannel = cm[2].replace(/\s+/g," ").trim();
       continue;
     }
-    // IV row
-    const m = trimmed.match(ivRe);
-    if(m){
-      const docPrefix = m[1], docNum = m[2];
-      const docNo = docPrefix + docNum;
-      const isStartedAsterisk = line.trim().startsWith("*");
-      const ref = String(m[10]||"").trim().replace(/[\s ]+/g," ").split(/\s/)[0];
-      const total = Number(String(m[8]).replace(/,/g,""))||0;
-      ivs.push({
-        doc_type: docPrefix,                // IV / SR / CN
-        doc_no: docNo,
-        doc_date_be: m[3],                  // dd/mm/yy(BE)
-        doc_date: bmpThaiDate(m[3]),        // ISO
-        discount: Number(String(m[4]).replace(/,/g,""))||0,
-        deposit:  Number(String(m[5]).replace(/,/g,""))||0,
-        goods:    Number(String(m[6]).replace(/,/g,""))||0,
-        vat:      Number(String(m[7]).replace(/,/g,""))||0,
-        total:    total,                    // ยอดรวมทั้งสิ้น (ที่ user เรียก "ยอดตามใบกำกับ")
-        due_date: bmpThaiDate(m[9]),
-        ref_order_id: ref || null,
-        customer: curCustomer,
-        channel: curChannel,
-        voided: isStartedAsterisk
-      });
-    }
+    const iv = parseIvRow(line);
+    if(iv){ iv.customer = curCustomer; iv.channel = curChannel; ivs.push(iv); }
   }
   return { ivs };
 }

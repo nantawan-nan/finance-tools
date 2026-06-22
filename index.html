@@ -10679,15 +10679,16 @@ async function brecEnsureAccount(co, bankCode, accountNo){
   // ★ ดึง "ทุก" บัญชี รวมที่ soft-delete แล้ว (unique constraint ไม่สนใจ deleted_at)
   const { data } = await sb.from("bank_accounts").select("id,account_no,bank_code,deleted_at")
     .eq("company_id", co);
-  for(const a of (data||[])){
-    if(String(a.bank_code||"").toUpperCase() === bankCode.toUpperCase()
-       && String(a.account_no||"").replace(/\D/g,"") === norm){
-      // ถ้าเคยถูกลบ → กู้คืน (un-delete) แทนการ insert ซ้ำ
-      if(a.deleted_at){
-        await sb.from("bank_accounts").update({ deleted_at:null, deleted_by:null, is_active:true }).eq("id", a.id);
-      }
-      return a.id;
-    }
+  const matches = (data||[]).filter(a =>
+    String(a.bank_code||"").toUpperCase() === bankCode.toUpperCase()
+    && String(a.account_no||"").replace(/\D/g,"") === norm);
+  // ★ เลือกบัญชีที่ยัง active ก่อนเสมอ (กันปลุกบัญชีที่รวม/ลบไปแล้วกลับมาเป็นซ้ำ)
+  const active = matches.find(a => !a.deleted_at);
+  if(active) return active.id;
+  if(matches.length){
+    const a = matches[0];   // ไม่มี active → กู้คืนตัวที่ลบไว้
+    await sb.from("bank_accounts").update({ deleted_at:null, deleted_by:null, is_active:true }).eq("id", a.id);
+    return a.id;
   }
   // create ใหม่จริง ๆ
   const { data:ins, error } = await sb.from("bank_accounts").insert({
@@ -10948,6 +10949,58 @@ async function brecDedupExisting(){
     alert("ล้างแถวซ้ำล้มเหลว: "+(e.message||e));
     d.busy=false; brecRefresh();
   }
+}
+
+/* รวมบัญชีซ้ำ (เลขเดียวกัน ต่างแค่รูปแบบขีด) → ย้ายรายการ/ยอด/การจับคู่ไปบัญชีหลัก แล้วซ่อนตัวซ้ำ */
+function brecPickCanonical(g){
+  // เก็บตัวที่ account_no มีขีด (อ่านง่าย) ก่อน ถ้าไม่มีก็เก็บตัวเก่าสุด
+  const dashed = g.find(a => /-/.test(String(a.account_no||"")));
+  if(dashed) return dashed;
+  return g.slice().sort((a,b)=>String(a.created_at||"").localeCompare(String(b.created_at||"")))[0];
+}
+async function brecMergeDupAccounts(){
+  if(!brecCanWrite()){ alert("ไม่มีสิทธิ์"); return; }
+  const d = brecGet();
+  const co = d.companyId || await fopCompanyId();
+  if(!co){ alert("หา company_id ไม่เจอ"); return; }
+  const { data:accts, error } = await sb.from("bank_accounts")
+    .select("id,bank_code,account_no,created_at").eq("company_id",co).is("deleted_at",null);
+  if(error){ alert("โหลดบัญชีไม่สำเร็จ: "+(error.message||error)); return; }
+  const norm = s => String(s||"").replace(/\D/g,"");
+  const groups = {};
+  (accts||[]).forEach(a => { const k = String(a.bank_code||"").toUpperCase()+"|"+norm(a.account_no); (groups[k]=groups[k]||[]).push(a); });
+  const dupGroups = Object.values(groups).filter(g => g.length>1);
+  if(!dupGroups.length){ alert("ไม่พบบัญชีซ้ำ ✓"); return; }
+  const summary = dupGroups.map(g => {
+    const keep = brecPickCanonical(g);
+    const drop = g.filter(a=>a.id!==keep.id).map(a=>a.account_no);
+    return `• ${cffBankName(keep.bank_code)} ${keep.account_no}\n   เก็บ: ${keep.account_no} · รวม: ${drop.join(", ")}`;
+  }).join("\n");
+  if(!confirm("พบบัญชีซ้ำ — รวมเป็นบัญชีเดียว?\n\n"+summary+"\n\nย้ายรายการ/ยอด/การจับคู่ไปบัญชีหลัก แล้วซ่อนบัญชีซ้ำ")) return;
+  d.busy=true; brecRefresh();
+  try{
+    let merged=0;
+    const ts = new Date().toISOString();
+    for(const g of dupGroups){
+      const keep = brecPickCanonical(g);
+      for(const a of g){
+        if(a.id===keep.id) continue;
+        // ย้าย child rows ทุกตารางไปบัญชีหลัก (best effort — บางตารางอาจไม่มี/ชน constraint ก็ข้าม)
+        for(const tbl of ["brec_imports","brec_express_rows","brec_bank_rows","brec_matches","bank_balances","brec_mp_imports","brec_mp_withdrawals"]){
+          await sb.from(tbl).update({ bank_account_id: keep.id }).eq("bank_account_id", a.id);
+        }
+        await sb.from("bank_accounts").update({ deleted_at: ts }).eq("id", a.id);
+        merged++;
+      }
+    }
+    if(d.accountId && !(accts||[]).some(a=>a.id===d.accountId && !dupGroups.flat().some(x=>x.id===a.id))){
+      // ถ้าบัญชีที่เลือกอยู่ถูกรวม → สลับไปบัญชีหลักของกลุ่มแรก
+      const firstKeep = brecPickCanonical(dupGroups[0]);
+      if(dupGroups.flat().some(x=>x.id===d.accountId)) d.accountId = firstKeep.id;
+    }
+    await brecLoad(); brecRefresh();
+    alert(`รวมบัญชีซ้ำแล้ว ✓ (รวม ${merged} บัญชีซ้ำ)\n\nถ้ายังเห็นแถวซ้ำหลังรวม กดปุ่ม "ล้างแถวซ้ำ" อีกครั้ง`);
+  }catch(e){ alert("รวมไม่สำเร็จ: "+(e.message||e)); d.busy=false; brecRefresh(); }
 }
 
 /* ---------- ACTIONS ---------- */
@@ -11459,6 +11512,7 @@ async function renderToolBankRec(){
         <button class="brec-btn primary" onclick="brecRunAutoMatch()" ${brecCanWrite()&&!noAcct?'':'disabled'}><i data-lucide="zap"></i> จับคู่อัตโนมัติ</button>
         <button class="brec-btn" onclick="brecExportXlsx()" ${noAcct?'disabled':''}><i data-lucide="download"></i> Export</button>
         <button class="brec-btn" onclick="brecDedupExisting()" ${brecCanWrite()&&!noAcct?'':'disabled'} title="ลบแถวซ้ำที่เกิดจากอัป STM/Express หลายครั้ง — เก็บแถวที่จับคู่ไว้เสมอ"><i data-lucide="copy-minus"></i> ล้างแถวซ้ำ</button>
+        <button class="brec-btn" onclick="brecMergeDupAccounts()" ${brecCanWrite()?'':'disabled'} title="รวมบัญชีที่ซ้ำกัน (เลขเดียวกัน ต่างแค่รูปแบบ) ให้เหลือบัญชีเดียว"><i data-lucide="git-merge"></i> รวมบัญชีซ้ำ</button>
         <button class="brec-btn" onclick="bmpOpenUpload()" ${brecCanWrite()?'':'disabled'} style="background:#fef3c7;border-color:#fde68a;color:#92400e"><i data-lucide="shopping-bag"></i> Marketplace (3 ไฟล์)</button>
       </div>
 

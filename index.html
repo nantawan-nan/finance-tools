@@ -11928,10 +11928,14 @@ async function ordIngestChannelOrders(co, parsed, srcLabel){
     if(!ex) inserts.push(rec);
     else updates.push({ id: ex.id, status:o.status, sale_status_raw:o.sale_status_raw, is_returned:o.is_returned, returned_qty:o.returned_qty, order_total:o.order_total });
   }
-  const CH=400;
-  for(let i=0;i<inserts.length;i+=CH){ const {error}=await sb.from("orders").insert(inserts.slice(i,i+CH)); if(error){console.warn("ord ins",error);break;} }
+  const CH=400; let insErr=null, savedN=0;
+  for(let i=0;i<inserts.length;i+=CH){
+    const {error}=await sb.from("orders").insert(inserts.slice(i,i+CH));
+    if(error){ console.warn("ord ins",error); insErr=error; break; }
+    savedN += inserts.slice(i,i+CH).length;
+  }
   for(const u of updates){ await sb.from("orders").update({ status:u.status, sale_status_raw:u.sale_status_raw, is_returned:u.is_returned, returned_qty:u.returned_qty }).eq("id", u.id); }
-  return { added: inserts.length, updated: updates.length, total: orders.length };
+  return { added: savedN, updated: updates.length, total: orders.length, error: insErr };
 }
 
 /* 723-5: "จับ IV ใส่ออเดอร์" — match by order_id (ref) → tag iv_no/iv_date/ยอด
@@ -12031,7 +12035,7 @@ async function ordUploadFiles(){
   if(!files||!files.length) return;
   const d = ordGet(); d.busy=true; renderToolOrders();
   try{
-    let totAdd=0, totUpd=0, perCh={};
+    let totAdd=0, totUpd=0, perCh={}, firstErr=null;
     for(const file of files){
       let rows;
       if(/\.csv$/i.test(file.name)){
@@ -12046,9 +12050,14 @@ async function ordUploadFiles(){
       const r = await ordIngestChannelOrders(co, parsed, file.name);
       totAdd+=r.added; totUpd+=r.updated;
       perCh[parsed.channel]=(perCh[parsed.channel]||0)+r.total;
+      if(r.error){ firstErr = firstErr || r.error; }
     }
     await ordLoad();
-    alert(`อัปสำเร็จ\nบันทึกใหม่ ${totAdd} · อัปเดต ${totUpd} ออเดอร์\n\nต่อช่องทาง: ${Object.entries(perCh).map(([k,v])=>k+"="+v).join(" · ")}`);
+    if(firstErr){
+      alert("⚠️ บันทึกไม่สำเร็จ — DB error:\n\n"+(firstErr.message||firstErr.details||firstErr.hint||JSON.stringify(firstErr))+"\n\n(code: "+(firstErr.code||"-")+")");
+    } else {
+      alert(`อัปสำเร็จ\nบันทึกใหม่ ${totAdd} · อัปเดต ${totUpd} ออเดอร์\n\nต่อช่องทาง: ${Object.entries(perCh).map(([k,v])=>k+"="+v).join(" · ")}`);
+    }
   }catch(e){ alert("อัปไม่สำเร็จ: "+(e.message||e)); }
   d.busy=false; renderToolOrders();
 }

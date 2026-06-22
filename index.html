@@ -584,6 +584,12 @@ const APP_CONFIG = {
   //   fullName:"บริษัท ... จำกัด", logo:"logos/benya-icon.png", gradient:["#0d9488","#2dd4bf"] }],
 };
 function appToolEnabled(id){ return !APP_CONFIG.enabledTools || APP_CONFIG.enabledTools.includes(id); }
+/* optIn tool = โชว์เฉพาะตอนถูกใส่ใน enabledTools เท่านั้น (ของเดิม enabledTools=null จะไม่เห็น) */
+function appToolVisible(t){
+  if(!appToolEnabled(t.id)) return false;
+  if(t.optIn && !(APP_CONFIG.enabledTools && APP_CONFIG.enabledTools.includes(t.id))) return false;
+  return true;
+}
 
 const COMPANIES = APP_CONFIG.companies || [
   { id:"mbark", name:"M Bark",  short:"MM", brand:"Mommam",
@@ -643,6 +649,10 @@ const TOOLS = [
     multiInput:true, status:"live" },
 
   // ───── 3. ลูกหนี้ ─────
+  { id:"loans", stage:"สินเชื่อ", ic:"₿", icon:"hand-coins",
+    name:"ลูกหนี้คงค้าง", desc:"พอร์ตสินเชื่อ + Aging",
+    long:"สรุปลูกหนี้เงินกู้คงค้าง · เงินต้น/ดอกเบี้ย · รายลูกหนี้ · aging ตามปี — อัปรายงานลูกหนี้คงค้างแบบละเอียด",
+    multiInput:true, status:"live", optIn:true },
   { id:"ar", stage:"ลูกหนี้ (AR)", ic:"◷", icon:"wallet",
     name:"AR Outstanding", desc:"ลูกหนี้คงค้าง + Aging",
     long:"ลูกหนี้คงค้าง · AR จริง vs AR บัญชี · Aging 0-30 / 31-60 / 61-90 / >90 · บันทึกรับเงิน",
@@ -773,7 +783,7 @@ function renderSidebar(){
   const present = AUTH.isPresent();
   const stages = {}, stageOrder = [];
   TOOLS.forEach(t => {
-    if(!appToolEnabled(t.id)) return;                      // clone: โชว์เฉพาะโมดูลที่เปิดใน APP_CONFIG
+    if(!appToolVisible(t)) return;                         // clone whitelist + optIn tools
     if(present && !PRESENT_TOOLS.includes(t.id)) return;   // โหมดพรีเซนต์ → เห็นแค่แท็บที่กำหนด
     if(!present && t.adminOnly && AUTH.role!=="admin") return;
     if(!stages[t.stage]){ stages[t.stage] = []; stageOrder.push(t.stage); }
@@ -847,6 +857,7 @@ function renderTool(){
     if (t.id==="ap_outstanding") return renderToolApOutstanding();
     if (t.id==="recurring")      return renderToolRecurring();
     if (t.id==="cashflow")       return renderToolCashflowForecast();
+    if (t.id==="loans")          return renderToolLoans();
     if (t.id==="bankrec")        return renderToolBankRec();
     if (t.id==="orders")         return renderToolOrders();
     if (t.id==="ar")       return renderToolAr();
@@ -3440,7 +3451,7 @@ function renderToolHome(){
     { who:"ระบบ", text:"สำรองฐานข้อมูลอัตโนมัติสำเร็จ", time:"วันนี้ 02:00", initial:"S", bg:"#EEF0FF", color:"#5468FF" },
   ];
   // โมดูลที่ใช้บ่อย — จาก TOOLS จริง (live, ไม่ใช่ admin-only)
-  const quickMods = TOOLS.filter(t=> t.id!=="home" && t.status==="live" && appToolEnabled(t.id) && !(t.adminOnly && AUTH.role!=="admin")).slice(0,8);
+  const quickMods = TOOLS.filter(t=> t.id!=="home" && t.status==="live" && appToolVisible(t) && !(t.adminOnly && AUTH.role!=="admin")).slice(0,8);
 
   const kpiCard = (opts) => `
     <div class="hd-kpi ${opts.tool?'click':''}" ${opts.tool?`onclick="setTool('${opts.tool}')"`:''} style="${opts.dark?'color:#fff;background:linear-gradient(140deg,var(--brand) 0%,var(--brand-dark) 100%);box-shadow:0 10px 24px rgba(13,150,132,.3);border:none':''};${opts.delay?`animation-delay:${opts.delay}`:''}">
@@ -9516,6 +9527,122 @@ function cffItemCmp(a,b){
   const d = (a.original_due||"").localeCompare(b.original_due||"");
   if(d) return d;
   return (a.detail||"").localeCompare(b.detail||"", "th");
+}
+
+/* ============================================================
+   LOANS — ลูกหนี้คงค้าง / พอร์ตสินเชื่อ (บริษัทปล่อยกู้)
+   parser รายงาน "ลูกหนี้คงค้างแบบละเอียด" · group ตามลูกหนี้ · LV=เงินต้น IV=ดอกเบี้ย
+   ============================================================ */
+function loanGet(){ if(!state.loan) state.loan={}; const co=state.company; if(!state.loan[co]) state.loan[co]={data:null, expanded:new Set()}; if(!state.loan[co].expanded) state.loan[co].expanded=new Set(); return state.loan[co]; }
+function loanCacheKey(){ return "ft-loan-"+state.company; }
+function loanSaveCache(d){ try{ localStorage.setItem(loanCacheKey(), JSON.stringify(d)); }catch(e){} }
+function loanLoadCache(){ try{ const s=localStorage.getItem(loanCacheKey()); return s?JSON.parse(s):null; }catch(e){ return null; } }
+function loanFmt(n){ return Math.abs(Number(n||0)).toLocaleString("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function loanParse(book){
+  const out = { company:"", asOf:"", borrowers:[] };
+  const codeRe = /^[A-Z]\d/;
+  for(const name of book.names){
+    const rows = book.sheets[name]||[];
+    let cur=null;
+    for(let r=0;r<rows.length;r++){
+      const row=rows[r]||[];
+      const c1=String(row[0]||"").replace(/ /g," ").trim();
+      if(!out.company && c1.startsWith("บริษัท")) out.company = c1.split(/\s{2,}/)[0].trim();
+      if(!out.asOf){ const m=c1.match(/ณ\s*วันที่\s*(\d{1,2}\s*[ก-๙.]+\s*\d{4})/); if(m) out.asOf=m[1].replace(/\s+/g," ").trim(); }
+      const code=String(row[3]||"").trim(), bname=String(row[2]||"").replace(/ /g," ").trim();
+      if(codeRe.test(code) && bname){ cur={code, name:bname, lines:[], bill:0, paid:0, out:0, principal:0, interest:0}; out.borrowers.push(cur); continue; }
+      if(!cur) continue;
+      const dt=row[4]; if(!(dt instanceof Date)) continue;
+      const doc=String(row[6]||"").trim();
+      const bill=Number(row[8])||0, paid=Number(row[9])||0, o=Number(row[10])||0;
+      const type = doc.startsWith("LV")?"principal":(doc.startsWith("IV")?"interest":"other");
+      cur.lines.push({ date:loanDateStr(dt), doc, bill, paid, out:o, type });
+      cur.bill+=bill; cur.paid+=paid; cur.out+=o;
+      if(type==="principal") cur.principal+=o; else if(type==="interest") cur.interest+=o;
+    }
+  }
+  out.borrowers = out.borrowers.filter(b=>b.lines.length);
+  return out;
+}
+function loanDateStr(d){ const p=n=>String(n).padStart(2,"0"); return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}`; }
+async function loanUpload(){
+  const file = await new Promise(res=>{ const i=document.createElement("input"); i.type="file"; i.accept=".xlsx,.xls"; i.onchange=()=>res(i.files[0]); i.click(); });
+  if(!file) return;
+  try{
+    const buf=await file.arrayBuffer();
+    const wb=XLSX.read(new Uint8Array(buf), {type:"array", cellDates:true});
+    const book={ names:wb.SheetNames, sheets:{} };
+    wb.SheetNames.forEach(n=> book.sheets[n]=XLSX.utils.sheet_to_json(wb.Sheets[n],{header:1,defval:"",blankrows:false}));
+    const data=loanParse(book);
+    if(!data.borrowers.length){ alert("ไม่พบข้อมูลลูกหนี้ในไฟล์ — ตรวจรูปแบบรายงาน"); return; }
+    data.uploadedAt=new Date().toISOString(); data.fileName=file.name;
+    const d=loanGet(); d.data=data; loanSaveCache(data); renderToolLoans();
+  }catch(e){ alert("อ่านไฟล์ไม่สำเร็จ: "+(e.message||e)); }
+}
+function loanToggle(code){ const d=loanGet(); if(d.expanded.has(code)) d.expanded.delete(code); else d.expanded.add(code); renderToolLoans(); }
+function renderToolLoans(){
+  const t=TOOLS.find(x=>x.id==="loans"); const co=COMPANIES.find(c=>c.id===state.company); const main=document.getElementById("main");
+  const d=loanGet(); if(!d.data) d.data=loanLoadCache(); const data=d.data;
+  if(!data){
+    main.innerHTML=`<div class="page-head"><h1>${esc(t.name)} <span class="badge">${esc(co.name)}</span></h1><div class="sub">${esc(t.long||"")} · <span style="color:var(--ink-3)">หน่วย: บาท</span></div></div>
+      <div class="card" style="text-align:center;padding:48px 20px">
+        <div style="font-size:42px;margin-bottom:6px">🏦</div>
+        <div style="font-size:15px;font-weight:700;color:var(--ink);margin-bottom:4px">ยังไม่มีข้อมูลลูกหนี้</div>
+        <div style="color:var(--ink-3);font-size:13px;margin-bottom:16px">อัปไฟล์ "รายงานลูกหนี้คงค้างแบบละเอียด" (.xlsx) เพื่อดูสรุปพอร์ตสินเชื่อ</div>
+        <button class="btn" onclick="loanUpload()"><i data-lucide="upload"></i> อัปไฟล์ลูกหนี้คงค้าง</button>
+      </div>`;
+    if(window.lucide) try{lucide.createIcons();}catch(e){} return;
+  }
+  const B=[...data.borrowers].sort((a,b)=>b.out-a.out);
+  const totOut=B.reduce((s,b)=>s+b.out,0), totBill=B.reduce((s,b)=>s+b.bill,0), totPaid=B.reduce((s,b)=>s+b.paid,0);
+  const totPrin=B.reduce((s,b)=>s+b.principal,0), totInt=B.reduce((s,b)=>s+b.interest,0);
+  // aging ตามปี (พ.ศ.) ของวันที่บิล ที่ยังคงค้าง
+  const ageY={}; B.forEach(b=>b.lines.forEach(l=>{ if(l.out>0.005){ const y=l.date.slice(0,4); ageY[y]=(ageY[y]||0)+l.out; } }));
+  const ageKeys=Object.keys(ageY).sort();
+  const kpi=(ic,label,val,sub,clr)=>`<div class="kpi"><div class="kpi-ic"><i data-lucide="${ic}"></i></div><div class="kpi-l">${label}</div><div class="kpi-n" style="${clr?`color:${clr}`:''}">${val}</div><div class="kpi-d">${sub}</div></div>`;
+  main.innerHTML=`
+    <div class="page-head" style="display:flex;justify-content:space-between;align-items:flex-end;gap:14px;flex-wrap:wrap">
+      <div><h1>${esc(t.name)} <span class="badge">${esc(co.name)}</span></h1>
+        <div class="sub">พอร์ตสินเชื่อ · ${data.asOf?`ณ วันที่ ${esc(data.asOf)}`:''} · อัปเมื่อ ${new Date(data.uploadedAt).toLocaleString("th-TH",{dateStyle:"short",timeStyle:"short"})} · <span style="color:var(--ink-3)">หน่วย: บาท</span></div>
+      </div>
+      <button class="btn" onclick="loanUpload()"><i data-lucide="upload"></i> อัปไฟล์ใหม่</button>
+    </div>
+    <div class="kpigrid">
+      ${kpi("hand-coins","ลูกหนี้คงค้างรวม",loanFmt(totOut),`${B.length} ราย`,"var(--brand-dark)")}
+      ${kpi("landmark","เงินต้นคงค้าง",loanFmt(totPrin),"LV",null)}
+      ${kpi("percent","ดอกเบี้ยคงค้าง",loanFmt(totInt),"IV",null)}
+      ${kpi("receipt","ยอดในบิลรวม",loanFmt(totBill),"ตั้งหนี้สะสม",null)}
+      ${kpi("check-circle","เก็บแล้ว",loanFmt(totPaid),"ชำระสะสม","var(--in-ink)")}
+    </div>
+    ${ageKeys.length?`<div class="card"><h3><i data-lucide="calendar-clock"></i>คงค้างตามปีของบิล (พ.ศ.)</h3>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:8px">
+        ${ageKeys.map(y=>{ const pct=totOut?Math.round(ageY[y]/totOut*100):0; return `<div style="flex:1;min-width:150px;background:rgba(var(--brand-rgb),.06);border-radius:12px;padding:13px 16px">
+          <div style="font-size:12.5px;color:var(--ink-2)">ปี ${esc(y)}</div>
+          <div class="tnum" style="font-size:19px;font-weight:800;color:var(--ink)">${loanFmt(ageY[y])}</div>
+          <div style="font-size:11.5px;color:var(--ink-3)">${pct}% ของคงค้าง</div></div>`; }).join("")}
+      </div></div>`:''}
+    <div class="card">
+      <h3><i data-lucide="users"></i>ลูกหนี้รายราย (${B.length} ราย · เรียงตามคงค้าง)</h3>
+      <div class="table-wrap" style="margin-top:6px"><table>
+        <thead><tr><th>รหัส / ชื่อ</th><th class="num">รายการ</th><th class="num">ยอดในบิล</th><th class="num">จ่ายแล้ว</th><th class="num">เงินต้นค้าง</th><th class="num">ดอกค้าง</th><th class="num">คงค้างรวม</th></tr></thead>
+        <tbody>
+          ${B.map(b=>{ const open=d.expanded.has(b.code); return `
+            <tr style="cursor:pointer;background:${open?'rgba(var(--brand-rgb),.05)':''}" onclick="loanToggle(${JSON.stringify(b.code).replace(/"/g,'&quot;')})">
+              <td><span style="display:inline-flex;align-items:center;gap:7px"><i data-lucide="chevron-${open?'down':'right'}" style="width:14px;height:14px;color:var(--brand)"></i><b>${esc(b.code)}</b> <span style="color:var(--ink-2)">${esc(b.name)}</span></span></td>
+              <td class="num">${b.lines.length}</td>
+              <td class="num">${loanFmt(b.bill)}</td>
+              <td class="num" style="color:${b.paid>0?'var(--in-ink)':'var(--ink-3)'}">${b.paid>0?loanFmt(b.paid):'–'}</td>
+              <td class="num">${b.principal>0?loanFmt(b.principal):'–'}</td>
+              <td class="num">${b.interest>0?loanFmt(b.interest):'–'}</td>
+              <td class="num" style="font-weight:800;color:var(--brand-dark)">${loanFmt(b.out)}</td>
+            </tr>
+            ${open?b.lines.map(l=>`<tr style="background:#fafbfc;font-size:12px"><td style="padding-left:30px;color:var(--ink-2)">${esc(l.date)} · <span class="mono">${esc(l.doc)}</span> ${l.type==="principal"?'<span style="color:var(--brand);font-size:10.5px">เงินต้น</span>':l.type==="interest"?'<span style="color:var(--ink-3);font-size:10.5px">ดอกเบี้ย</span>':''}</td><td></td><td class="num">${loanFmt(l.bill)}</td><td class="num">${l.paid>0?loanFmt(l.paid):'–'}</td><td colspan="2"></td><td class="num">${loanFmt(l.out)}</td></tr>`).join(""):''}`;
+          }).join("")}
+          <tr class="tot-row"><td>รวมทั้งสิ้น</td><td class="num">${B.reduce((s,b)=>s+b.lines.length,0)}</td><td class="num">${loanFmt(totBill)}</td><td class="num">${loanFmt(totPaid)}</td><td class="num">${loanFmt(totPrin)}</td><td class="num">${loanFmt(totInt)}</td><td class="num" style="font-weight:800">${loanFmt(totOut)}</td></tr>
+        </tbody>
+      </table></div>
+    </div>`;
+  if(window.lucide) try{lucide.createIcons();}catch(e){}
 }
 
 /* router: staff (daily LINE) หรือ executive (30d) */

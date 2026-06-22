@@ -10351,6 +10351,15 @@ function brecParseStatement(workbook){
    Strict same-date rule — วันต่าง = ไม่ match
    Tier 1: ref ตรง + วันตรง + ยอดตรง → confidence="exact"
    Tier 2: วันตรง + ยอดตรง (ไม่มี ref check) → confidence="suggested" */
+/* ลายเซ็นแถว — กันแถวซ้ำตอน re-upload งวดที่ทับกัน (เก็บแค่แถวใหม่จริง) */
+function brecRowSig(r, source){
+  const n = v => (Number(v)||0).toFixed(2);
+  const bal = (r.balance==null || r.balance==="") ? "" : n(r.balance);
+  const base = `${r.txn_date||""}|${n(r.withdrawal)}|${n(r.deposit)}|${bal}`;
+  return source === "express"
+    ? base + "|" + String(r.doc_no||"").trim()
+    : base + "|" + String(r.cheque_no||"").trim() + "|" + String(r.ref_note||"").trim();
+}
 function brecAutoMatch(exRows, bkRows, existing){
   const used = new Set();
   for(const m of existing||[]){
@@ -10554,49 +10563,51 @@ async function brecUpload(kind){
     if(!parsed.accountNo) throw new Error("ไม่พบเลขบัญชีในไฟล์ — ตรวจสอบรูปแบบไฟล์");
     const acctId = await brecEnsureAccount(co, parsed.bankCode, parsed.accountNo);
     if(!acctId) throw new Error("สร้าง bank account ไม่สำเร็จ");
-    // Preview confirm
+    // ★ Dedup ระดับแถว — อัป STM/Express ซ้ำงวดที่ทับกันได้ ระบบเก็บแค่ "แถวใหม่"
+    //   → match/กระทบยอดที่ทำไว้ก่อนหน้ายังอยู่ครบ ไม่ต้องจับคู่ใหม่
+    const rowTable = parsed.source === "express" ? "brec_express_rows" : "brec_bank_rows";
+    const sigCols = parsed.source === "express"
+      ? "txn_date,withdrawal,deposit,balance,doc_no"
+      : "txn_date,withdrawal,deposit,balance,cheque_no,ref_note";
+    const { data:existRows } = await sb.from(rowTable).select(sigCols)
+      .eq("bank_account_id", acctId).is("deleted_at", null).limit(100000);
+    const existSig = new Set((existRows||[]).map(r => brecRowSig(r, parsed.source)));
+    const newRows = parsed.rows.filter(r => !existSig.has(brecRowSig(r, parsed.source)));
+    const dupCount = parsed.rows.length - newRows.length;
+
+    if(newRows.length === 0){
+      alert(`ทุกแถว (${parsed.rows.length}) มีอยู่ในระบบแล้ว — ไม่มีรายการใหม่\n\nการจับคู่/กระทบยอดที่ทำไว้ก่อนหน้ายังอยู่ครบ ✓`);
+      d.busy=false; brecRefresh(); return;
+    }
+
+    // Preview confirm — บอกชัดว่ามีใหม่กี่แถว ข้ามซ้ำกี่แถว
     const ok = confirm(
-      `พบ ${parsed.rows.length} รายการ\n`+
       `บัญชี: ${parsed.bankCode} ${parsed.accountNo}\n`+
-      `งวด: ${parsed.periodFrom} → ${parsed.periodTo}\n\nนำเข้าใช่ไหม?`
+      `งวด: ${parsed.periodFrom} → ${parsed.periodTo}\n\n`+
+      `พบในไฟล์ ${parsed.rows.length} รายการ\n`+
+      `• ใหม่ (จะนำเข้า): ${newRows.length}\n`+
+      `• ซ้ำของเดิม (ข้าม): ${dupCount}\n\n`+
+      `นำเข้าเฉพาะรายการใหม่ใช่ไหม? — รายการ/การจับคู่เดิมไม่ถูกแตะ`
     );
     if(!ok){ d.busy=false; brecRefresh(); return; }
 
-    // file hash (filename + size + content prefix) → กันซ้ำ
-    const hash = brecHash(file.name + "|" + file.size + "|" + parsed.rows.length + "|" + parsed.periodFrom + "|" + parsed.periodTo);
-
-    // check existing
-    const { data:dup } = await sb.from("brec_imports").select("id,filename,created_at")
-      .eq("company_id", co).eq("source", parsed.source).eq("file_hash", hash)
-      .is("deleted_at", null);
-    if(dup && dup.length){
-      const cont = confirm(`ไฟล์นี้เคยอัปโหลดแล้ว (${dup[0].filename} · ${new Date(dup[0].created_at).toLocaleString("th-TH")})\n\nดำเนินการต่อจะ "แทนที่ของเดิม" — ใช่ไหม?`);
-      if(!cont){ d.busy=false; brecRefresh(); return; }
-      // ★ แทนที่: soft-delete import เก่า + rows เก่า (กันชน unique hash + กันข้อมูลซ้ำ)
-      const ts = new Date().toISOString();
-      const oldIds = dup.map(x=>x.id);
-      const oldTable = parsed.source === "express" ? "brec_express_rows" : "brec_bank_rows";
-      await sb.from(oldTable).update({ deleted_at: ts }).in("import_id", oldIds);
-      await sb.from("brec_imports").update({ deleted_at: ts }).in("id", oldIds);
-    }
-
-    // INSERT import + rows
+    // import record — hash ใส่ timestamp ให้ unique เสมอ (dedup ทำที่ระดับแถวแล้ว)
+    const hash = brecHash(file.name + "|" + file.size + "|" + parsed.rows.length + "|" + parsed.periodFrom + "|" + parsed.periodTo + "|" + Date.now());
     const { data:imp, error:ie } = await sb.from("brec_imports").insert({
       company_id: co, bank_account_id: acctId, source: parsed.source,
       filename: file.name, file_hash: hash,
       period_from: parsed.periodFrom, period_to: parsed.periodTo,
-      row_count: parsed.rows.length, status:"imported"
+      row_count: newRows.length, status:"imported"
     }).select("id").single();
     if(ie) throw ie;
     const importId = imp.id;
-    const table = parsed.source === "express" ? "brec_express_rows" : "brec_bank_rows";
-    // chunk insert
+    // chunk insert เฉพาะแถวใหม่
     const CHUNK = 500;
-    for(let i=0;i<parsed.rows.length;i+=CHUNK){
-      const slice = parsed.rows.slice(i,i+CHUNK).map(r => ({
+    for(let i=0;i<newRows.length;i+=CHUNK){
+      const slice = newRows.slice(i,i+CHUNK).map(r => ({
         company_id: co, bank_account_id: acctId, import_id: importId, ...r
       }));
-      const { error:re } = await sb.from(table).insert(slice);
+      const { error:re } = await sb.from(rowTable).insert(slice);
       if(re) throw re;
     }
     d.accountId = acctId;
@@ -10615,7 +10626,7 @@ async function brecUpload(kind){
       }
     }
     brecRefresh();
-    alert(`นำเข้าสำเร็จ ${parsed.rows.length} รายการ${matchedMsg}`);
+    alert(`นำเข้ารายการใหม่ ${newRows.length} รายการ${dupCount?` (ข้ามซ้ำ ${dupCount})`:''}${matchedMsg}`);
   } catch(e){
     alert("Upload ล้มเหลว: "+(e.message||e));
     d.busy=false; brecRefresh();
@@ -10995,7 +11006,7 @@ async function renderToolBankRec(){
     else {
       body = `<div class="brec-table">
         <div class="brec-row head">
-          <div class="ck"><input type="checkbox" onchange="brecSelectAll('ex', ${JSON.stringify(buckets.pending.map(p=>p.m.id))})"></div>
+          <div class="ck"><input type="checkbox" onchange="brecSelectAll('ex', [${buckets.pending.map(p=>`'${p.m.id}'`).join(',')}])"></div>
           <div>Express (สมุดธนาคารภายใน)</div><div></div><div>Bank Statement</div><div>ความมั่นใจ</div><div>การจัดการ</div>
         </div>
         ${buckets.pending.map(p => {
@@ -12533,9 +12544,10 @@ function bmpToggleSelectWd(id){
   if(d.mp.selected.has(id)) d.mp.selected.delete(id); else d.mp.selected.add(id);
   renderToolBankRec();
 }
-function bmpSelectAllWd(ids){
+function bmpSelectAllWd(){
   const d = brecGet();
-  const all = ids.every(i=>d.mp.selected.has(i));
+  const ids = bmpFilteredWds(d).map(w=>w.id);
+  const all = ids.length>0 && ids.every(i=>d.mp.selected.has(i));
   if(all) ids.forEach(i=>d.mp.selected.delete(i)); else ids.forEach(i=>d.mp.selected.add(i));
   renderToolBankRec();
 }
@@ -12874,7 +12886,7 @@ function bmpRenderTab(d){
     ${(chanChips||acctChips)?`<div style="display:flex;flex-wrap:wrap;gap:14px;margin-bottom:10px">${chanChips}${acctChips}</div>`:''}
     <div style="display:flex;gap:8px;margin:0 0 12px;flex-wrap:wrap;align-items:center">
       <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;cursor:pointer">
-        <input type="checkbox" ${allSelected?'checked':''} onclick="bmpSelectAllWd(${JSON.stringify(filteredIds)})" style="width:15px;height:15px;accent-color:var(--brand)"> เลือกทั้งหมด
+        <input type="checkbox" ${allSelected?'checked':''} onclick="bmpSelectAllWd()" style="width:15px;height:15px;accent-color:var(--brand)"> เลือกทั้งหมด
       </label>
       <span style="font-size:12.5px;color:var(--ink-2,#475569)">เลือก ${selCount}/${filtered.length}</span>
       <div style="flex:1"></div>

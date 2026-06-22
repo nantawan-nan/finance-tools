@@ -4747,14 +4747,14 @@ function edActivityLabel(k){
 function edIsTransfer(t){
   const cat  = String((t && t.category) || "").trim();
   const note = String((t && t.note)     || "").trim().toLowerCase();
-  if(/โอนระหว่างบัญชี/.test(cat))   return true;
+  if(/โอน.{0,8}ระหว่างบัญชี/.test(cat))   return true;
   if(/^(เงิน)?โอนระหว่าง/.test(cat))  return true;
   if(/^เงินโอนภายใน/.test(cat))       return true;
   if(/^เงินโอน$/.test(cat))            return true;
   if(/^transfer$/i.test(cat))          return true;
   if(/inter[\s-]?account/.test(cat.toLowerCase())) return true;
   // note hint: บางบริษัทไม่ตั้ง category — เช็คจาก note
-  if(/โอนระหว่างบัญชี/.test(note)) return true;
+  if(/โอน.{0,8}ระหว่างบัญชี/.test(note)) return true;
   return false;
 }
 /* helper: ดึง txs ตาม scope (month + optional exclude transfers) */
@@ -7771,6 +7771,18 @@ async function apoSetPlannedDate(id, val){
     if(row) row.planned_payment_date = val || null;
   }catch(e){ alert("ตั้งวันชำระไม่สำเร็จ: " + fopErr(e)); state.apo[state.company] = null; renderToolApOutstanding(); }
 }
+/* set บัญชีที่จะตัดจ่าย inline */
+async function apoSetPayAccount(id, val){
+  try{
+    const { error } = await sb.from("ap_invoices")
+      .update({ pay_from_account_id: val || null, updated_by: AUTH.user?AUTH.user.id:null })
+      .eq("id", id);
+    if(error) throw error;
+    const d = apoGet();
+    const row = (d.invoices||[]).find(r => r.id === id);
+    if(row) row.pay_from_account_id = val || null;
+  }catch(e){ alert("ตั้งบัญชีตัดจ่ายไม่สำเร็จ: " + fopErr(e)); state.apo[state.company] = null; renderToolApOutstanding(); }
+}
 /* edit internal note modal */
 function apoOpenNote(id){
   const d = apoGet();
@@ -7829,18 +7841,49 @@ async function apoSoftDelete(id, label){
     renderToolApOutstanding();
   }catch(e){ alert("ลบไม่สำเร็จ: " + fopErr(e)); }
 }
+/* ── บัญชีตัดจ่าย (ใช้ร่วม AP + ค่าใช้จ่ายประจำ) ──────────────── */
+/* label สั้น ๆ ของบัญชี: [ชื่อเล่น ·] ธนาคาร เลขบัญชี */
+function fopAccLabel(a){
+  if(!a) return "—";
+  const name = cffBankName(a.bank_code);
+  const no = String(a.account_no||"").trim();
+  return (a.nickname ? a.nickname + " · " : "") + name + " " + no;
+}
+/* default = บัญชีที่เลขลงท้าย 4889 (digits-only) ไม่งั้นใช้บัญชีแรก */
+function fopDefaultAccId(accounts){
+  if(!accounts || !accounts.length) return null;
+  const m = accounts.find(a => String(a.account_no||"").replace(/\D/g,"").endsWith("4889"));
+  return (m || accounts[0]).id;
+}
+/* <option> list ของบัญชีทั้งหมด — selectedId ตรงไหน selected ตรงนั้น */
+function fopAccOptions(accounts, selectedId){
+  return (accounts||[]).map(a =>
+    `<option value="${a.id}" ${String(selectedId)===String(a.id)?'selected':''}>${esc(fopAccLabel(a))}</option>`
+  ).join("");
+}
+/* โหลดบัญชีของบริษัทปัจจุบัน (cache ใน window) */
+async function fopLoadAccounts(cid){
+  const { data } = await sb.from("bank_accounts")
+    .select("id,bank_code,account_no,nickname,display_order")
+    .eq("company_id", cid).is("deleted_at", null)
+    .order("display_order").order("bank_code");
+  return data || [];
+}
+
 async function apoLoad(){
   const d = apoGet();
   const cid = await fopCompanyId();
   if(!cid) return;
   d.companyId = cid;
-  const [invRes, venRes] = await Promise.all([
+  const [invRes, venRes, accts] = await Promise.all([
     sb.from("ap_invoices").select("*,vendors(name)").eq("company_id", cid).is("deleted_at", null)
       .neq("status","void").order("due_date").limit(500),
-    sb.from("vendors").select("id,name,external_code").eq("company_id", cid).is("deleted_at", null).order("name")
+    sb.from("vendors").select("id,name,external_code").eq("company_id", cid).is("deleted_at", null).order("name"),
+    fopLoadAccounts(cid)
   ]);
   d.invoices = invRes.data || [];
   d.vendors  = venRes.data || [];
+  d.accounts = accts;
 }
 
 /* enrich row with display fields */
@@ -7995,6 +8038,9 @@ function apoColFilter(colKey, distinctValues, counts, fmt){
 function apoBuildTable(inv, enriched, canWrite, today){
   const d = apoGet();
   const s = d.sort;
+  const accounts = d.accounts || [];
+  const defAcc = fopDefaultAccId(accounts);
+  const accById = {}; accounts.forEach(a => accById[a.id] = a);
   const sortArrow = (k) => s.key === k ? (s.desc ? " ↓" : " ↑") : "";
 
   // distinct + counts per filterable column
@@ -8051,6 +8097,7 @@ function apoBuildTable(inv, enriched, canWrite, today){
         ${th("invoice_date", "วันที่บิล", { filter: apoColFilter("invoice_date", dInvDate.values, dInvDate.counts, fmtDate) })}
         ${th("due_date", "ครบกำหนด", { filter: apoColFilter("due_date", dDueDate.values, dDueDate.counts, fmtDate) })}
         ${th("planned_payment_date", "วันชำระเงิน", { filter: apoColFilter("planned_payment_date", dPlanned.values, dPlanned.counts, fmtDate) })}
+        ${th("pay_from", "ตัดจากบัญชี", { sortable: false })}
         ${th("amount_total", "รวม", { align: "right" })}
         ${th("amount_outstanding", "คงค้าง", { align: "right" })}
         ${th("age_bucket", "อายุหนี้", { filter: apoColFilter("age_bucket", dAge.values, dAge.counts) })}
@@ -8071,6 +8118,15 @@ function apoBuildTable(inv, enriched, canWrite, today){
         <td style="font-size:12px">${fopDate(r.invoice_date)}</td>
         <td>${canWrite ? `<input type="date" value="${esc(r.due_date||'')}" onchange="apoSetDueDate('${r.id}', this.value)" style="font-size:11.5px;padding:3px 6px;border:1px solid var(--line);border-radius:6px;background:#fff;color:var(--ink);font-family:inherit;width:130px">` : `<span style="font-size:12px">${fopDate(r.due_date)}</span>`}</td>
         <td>${canWrite ? `<input type="date" value="${esc(r.planned_payment_date||'')}" onchange="apoSetPlannedDate('${r.id}', this.value)" style="font-size:11.5px;padding:3px 6px;border:1px solid ${r.planned_payment_date?'var(--in)':'var(--line)'};border-radius:6px;background:${r.planned_payment_date?'var(--in-soft)':'#fff'};color:var(--ink);font-family:inherit;width:130px">` : (r.planned_payment_date ? fopDate(r.planned_payment_date) : '<span style="color:var(--ink-3)">—</span>')}</td>
+        <td>${(() => {
+          if(!accounts.length) return '<span style="color:var(--ink-3);font-size:11px">— ยังไม่มีบัญชี —</span>';
+          const sel = r.pay_from_account_id || defAcc;
+          const isDefault = !r.pay_from_account_id;
+          if(!canWrite){ const a = accById[sel]; return `<span style="font-size:11.5px;color:var(--ink-2)">${esc(fopAccLabel(a))}${isDefault?' <span style="color:var(--ink-3);font-size:10px">(ค่าเริ่มต้น)</span>':''}</span>`; }
+          return `<select onchange="apoSetPayAccount('${r.id}', this.value)" title="${isDefault?'ค่าเริ่มต้น — ยังไม่ได้เลือกเอง':''}" style="font-size:11px;padding:3px 6px;border:1px solid ${isDefault?'var(--line)':'var(--in)'};border-radius:6px;background:${isDefault?'#fff':'var(--in-soft)'};color:var(--ink);font-family:inherit;min-width:150px">
+            ${fopAccOptions(accounts, sel)}
+          </select>`;
+        })()}</td>
         <td style="text-align:right">${fopFmt(r.amount_total)}</td>
         <td style="text-align:right;font-weight:700;color:var(--out-ink)">${fopFmt(r.amount_outstanding)}</td>
         <td style="font-size:11.5px;font-weight:600;color:${apoAgeColor(r.age_bucket)};white-space:nowrap">${esc(r.age_bucket)}</td>
@@ -8615,6 +8671,8 @@ function apoOpenEdit(id){
   const STAT = [['open','เปิด'],['partial','จ่ายบางส่วน'],['paid','จ่ายแล้ว'],['void','ยกเลิก'],['disputed','โต้แย้ง']];
   const cats = (typeof APO_CATEGORIES!=="undefined" && APO_CATEGORIES.length) ? APO_CATEGORIES : [r.category].filter(Boolean);
   const catInList = !r.category || cats.includes(r.category);
+  const accounts = apoGet().accounts || [];
+  const defAcc = fopDefaultAccId(accounts);
   const m = document.createElement("div");
   m.id = "fopModal";
   m.style.cssText = "position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:1000;display:flex;align-items:flex-start;justify-content:center;padding:20px;overflow:auto";
@@ -8641,6 +8699,12 @@ function apoOpenEdit(id){
           <label><div style="font-size:12px;font-weight:700;color:var(--ink-2);margin-bottom:4px">ประเภท</div><select id="apoECat" class="input" style="width:100%"><option value="">— ไม่ระบุ —</option>${cats.map(c=>`<option value="${esc(c)}" ${r.category===c?'selected':''}>${esc(c)}</option>`).join("")}${catInList?'':`<option value="${esc(r.category)}" selected>${esc(r.category)}</option>`}</select></label>
           <label><div style="font-size:12px;font-weight:700;color:var(--ink-2);margin-bottom:4px">หมายเหตุเพิ่ม</div><input id="apoENote" class="input" style="width:100%" value="${esc(r.internal_note||'')}"></label>
         </div>
+        <label><div style="font-size:12px;font-weight:700;color:var(--ink-2);margin-bottom:4px">ตัดจากบัญชี</div>
+          <select id="apoEAcct" class="input" style="width:100%">
+            <option value="">— ใช้ค่าเริ่มต้น (บัญชีลงท้าย 4889) —</option>
+            ${fopAccOptions(accounts, r.pay_from_account_id || "")}
+          </select>
+        </label>
         <div id="apoEErr" style="color:var(--out-ink);font-size:12px;display:none"></div>
       </div>
       <div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end">
@@ -8673,6 +8737,7 @@ async function apoSaveEdit(id){
       category: g("apoECat").value || null,
       remark: g("apoERemark").value.trim() || null,
       internal_note: g("apoENote").value.trim() || null,
+      pay_from_account_id: g("apoEAcct").value || null,
       updated_by: AUTH.user ? AUTH.user.id : null
     }).eq("id", id);
     if(error) throw error;
@@ -8749,16 +8814,18 @@ async function recLoad(){
   if(!cid) return;
   d.companyId = cid;
   const horizon = new Date(Date.now()+90*86400000).toISOString().slice(0,10);
-  const [recRes, occRes] = await Promise.all([
+  const [recRes, occRes, accts] = await Promise.all([
     sb.from("recurring_expenses").select("*").eq("company_id", cid).is("deleted_at", null).order("category").order("name"),
     sb.from("recurring_occurrences").select("*,recurring_expenses(name,category)")
       .eq("company_id", cid).is("deleted_at", null)
       .gte("due_date", new Date(Date.now()-30*86400000).toISOString().slice(0,10))
       .lte("due_date", horizon)
-      .order("due_date")
+      .order("due_date"),
+    fopLoadAccounts(cid)
   ]);
   d.list = recRes.data || [];
   d.occ  = occRes.data || [];
+  d.accounts = accts;
 }
 
 async function renderToolRecurring(){
@@ -8807,12 +8874,18 @@ async function renderToolRecurring(){
       ${list.length===0 ? `<div class="empty">ยังไม่มีรายการ — กด '+ เพิ่มรายการ'</div>` : `
       <div class="table-wrap">
         <table>
-          <thead><tr><th>ชื่อ</th><th>หมวด</th><th>ความถี่</th><th>วันจ่าย</th><th style="text-align:right">ยอด</th><th>เริ่ม</th><th>สิ้นสุด</th><th>สถานะ</th>${canWrite?'<th style="text-align:right">จัดการ</th>':''}</tr></thead>
+          <thead><tr><th>ชื่อ</th><th>หมวด</th><th>ความถี่</th><th>วันจ่าย</th><th>ตัดจากบัญชี</th><th style="text-align:right">ยอด</th><th>เริ่ม</th><th>สิ้นสุด</th><th>สถานะ</th>${canWrite?'<th style="text-align:right">จัดการ</th>':''}</tr></thead>
           <tbody>${list.map(r=>`<tr style="${r.is_active?'':'opacity:.55'}">
             <td><div style="display:flex;align-items:center;gap:9px">${recRowIconHtml(r.name, r.category)}<b style="font-size:13px">${esc(r.name)}</b></div></td>
             <td style="font-size:12px;color:var(--ink-2)">${esc(r.category)}</td>
             <td><span class="matchchip">${r.frequency}</span></td>
             <td>${r.day_of_month === -1 ? "สิ้นเดือน" : (r.day_of_month || "—")}</td>
+            <td style="font-size:11.5px;color:var(--ink-2)">${(() => {
+              const acc = (d.accounts||[]).find(a => a.id === r.bank_account_id);
+              if(acc) return esc(fopAccLabel(acc));
+              const def = (d.accounts||[]).find(a => a.id === fopDefaultAccId(d.accounts));
+              return def ? `${esc(fopAccLabel(def))} <span style="color:var(--ink-3);font-size:10px">(ค่าเริ่มต้น)</span>` : '<span style="color:var(--ink-3)">—</span>';
+            })()}</td>
             <td style="text-align:right;font-weight:700">${fopFmt(r.expected_amount)}</td>
             <td style="font-size:12px">${fopDate(r.start_date)}</td>
             <td style="font-size:12px">${r.end_date ? fopDate(r.end_date) : "ต่อเนื่อง"}</td>
@@ -8863,6 +8936,8 @@ function recOpenForm(existing){
   const today = new Date().toISOString().slice(0,10);
   const v = existing || { name:"", category:"payroll", expected_amount:"", frequency:"monthly",
                           day_of_month:1, start_date: today, end_date:"", remark:"" };
+  const accounts = recGet().accounts || [];
+  const selAcct = (existing && existing.bank_account_id) || fopDefaultAccId(accounts) || "";
   const m = document.createElement("div");
   m.id = "fopModal";
   m.style.cssText = "position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:1000;display:flex;align-items:center;justify-content:center;padding:20px";
@@ -8892,6 +8967,12 @@ function recOpenForm(existing){
           <label><div style="font-size:12px;font-weight:700;color:var(--ink-2);margin-bottom:4px">เริ่ม *</div><input id="recStart" type="date" class="input" style="width:100%" value="${v.start_date||today}"></label>
           <label><div style="font-size:12px;font-weight:700;color:var(--ink-2);margin-bottom:4px">สิ้นสุด (ไม่ใส่=ต่อเนื่อง)</div><input id="recEnd" type="date" class="input" style="width:100%" value="${v.end_date||""}"></label>
         </div>
+        <label><div style="font-size:12px;font-weight:700;color:var(--ink-2);margin-bottom:4px">ตัดจากบัญชี ${accounts.length?'':'<span style="color:var(--ink-3);font-weight:500">(ยังไม่มีบัญชี — เพิ่มที่หน้ายอดเงินธนาคาร)</span>'}</div>
+          <select id="recAcct" class="input" style="width:100%" ${accounts.length?'':'disabled'}>
+            <option value="">— ไม่ระบุ —</option>
+            ${fopAccOptions(accounts, selAcct)}
+          </select>
+        </label>
         <label><div style="font-size:12px;font-weight:700;color:var(--ink-2);margin-bottom:4px">หมายเหตุ</div><input id="recRemark" class="input" style="width:100%" value="${esc(v.remark||"")}"></label>
         <div id="recErr" style="color:var(--out-ink);font-size:12px;display:none"></div>
       </div>
@@ -8921,6 +9002,7 @@ async function recSave(id){
       day_of_month: parseInt(document.getElementById("recDay").value, 10),
       start_date: start,
       end_date: document.getElementById("recEnd").value || null,
+      bank_account_id: document.getElementById("recAcct").value || null,
       remark: document.getElementById("recRemark").value.trim() || null
     };
     let error;
@@ -9292,14 +9374,14 @@ async function cffLoad(){
 
   const [balRes, apRes, recRes, recExpRes, recSkipRes] = await Promise.all([
     sb.rpc("fn_balance_as_of", { p_company: cid, p_as_of: todayISO }),
-    sb.from("ap_invoices").select("id,vendor_name_raw,vendors(name),invoice_no,due_date,planned_payment_date,internal_note,amount_outstanding,amount_total,amount_paid,status,category,remark")
+    sb.from("ap_invoices").select("id,vendor_name_raw,vendors(name),invoice_no,due_date,planned_payment_date,internal_note,amount_outstanding,amount_total,amount_paid,status,category,remark,pay_from_account_id")
       .eq("company_id", cid).is("deleted_at", null)
       .neq("status","paid").neq("status","void"),
-    sb.from("recurring_occurrences").select("id,recurring_id,due_date,expected_amount,status,recurring_expenses(name,category)")
+    sb.from("recurring_occurrences").select("id,recurring_id,due_date,expected_amount,status,recurring_expenses(name,category,bank_account_id)")
       .eq("company_id", cid).is("deleted_at", null)
       .eq("status","forecast")
       .gte("due_date", startISO).lte("due_date", endISO),
-    sb.from("recurring_expenses").select("id,name,category,expected_amount,frequency,day_of_month,is_active")
+    sb.from("recurring_expenses").select("id,name,category,expected_amount,frequency,day_of_month,is_active,bank_account_id")
       .eq("company_id", cid).is("deleted_at", null).eq("is_active", true),
     // งวดค่าใช้จ่ายประจำที่ จนท. กด "ลบ" ออกจากประมาณการ (status=skipped) → ใช้ซ่อน + คืนค่า
     sb.from("recurring_occurrences").select("id,recurring_id,due_date,expected_amount,recurring_expenses(name,category)")
@@ -9466,7 +9548,8 @@ function cffStaffPayments(dt, d){
       vendor: (ap.vendors&&ap.vendors.name) || ap.vendor_name_raw || "—",
       detail: ap.invoice_no, due_date: ap.planned_payment_date, original_due: ap.due_date,
       amount: Number(ap.amount_outstanding||0),
-      remark: ap.remark || "", internalNote: ap.internal_note || ""
+      remark: ap.remark || "", internalNote: ap.internal_note || "",
+      payAccountId: ap.pay_from_account_id || null
     });
   }
   // 2) ค่าใช้จ่ายประจำ → ผูกตามวันจ่าย (day_of_month) ของแต่ละเดือนในช่วง
@@ -9493,7 +9576,8 @@ function cffStaffPayments(dt, d){
       detail:"", due_date: r.due_date, original_due: r.due_date,
       amount: Number(r.expected_amount||0), remark:"",
       internalNote: cffRecurCat(r.recurring_expenses&&r.recurring_expenses.category),  // หมวดย่อยไปอยู่คำอธิบาย
-      recurringId: r.recurring_id
+      recurringId: r.recurring_id,
+      payAccountId: (r.recurring_expenses&&r.recurring_expenses.bank_account_id) || null
     });
   }
   // 2b) คำนวณจาก recurring_expenses (รายเดือน + day_of_month) ที่ยังไม่ materialise
@@ -9511,11 +9595,33 @@ function cffStaffPayments(dt, d){
         vendor: r.name, detail:"", due_date: k, original_due: k,
         amount: Number(r.expected_amount||0), remark:"",
         internalNote: cffRecurCat(r.category),  // หมวดย่อยไปอยู่คำอธิบาย
-        recurringId: r.id
+        recurringId: r.id,
+        payAccountId: r.bank_account_id || null
       });
     }
   }
   return payments;
+}
+/* บัญชี default ของหน้านี้ = เลขลงท้าย 4889 (digits-only) ไม่งั้นบัญชีแรก — รับ balances จาก fn_balance_as_of */
+function cffBankDefaultId(balances){
+  if(!balances || !balances.length) return null;
+  const m = balances.find(b => String(b.account_no||"").replace(/\D/g,"").endsWith("4889"));
+  return (m || balances[0]).bank_account_id;
+}
+/* กระจายค่าใช้จ่ายไปตามบัญชีที่ผูกไว้ (payAccountId) — ไม่ผูก/บัญชีไม่มียอด → ไปบัญชี default */
+function cffBankDistribute(filtered, balances){
+  const ids = new Set((balances||[]).map(b => b.bank_account_id));
+  const defId = cffBankDefaultId(balances);
+  const due = {};   // bankId → total
+  const cat = {};   // bankId → { catName → total }
+  for(const p of (filtered||[])){
+    let bid = p.payAccountId;
+    if(!bid || !ids.has(bid)) bid = defId;
+    if(!bid) continue;
+    due[bid] = (due[bid]||0) + p.amount;
+    (cat[bid] || (cat[bid] = {}))[p.category] = (cat[bid][p.category]||0) + p.amount;
+  }
+  return { due, cat, defId };
 }
 /* ลบรายการค่าใช้จ่ายประจำออกจากประมาณการ (เฉพาะวันนั้น) → upsert occurrence = skipped */
 async function cffSkipRecurring(recurringId, dueDate, amount){
@@ -9732,15 +9838,10 @@ async function renderToolCashflowStaff(){
       due: 0
     };
   }
-  // ถ้ามี > 1 บัญชี ให้ "บัญชีหลัก" = บัญชีที่ amount มากสุด (สมมุติ — UI ให้แก้เองได้ทีหลัง)
+  // ★ กระจายค่าใช้จ่ายไปตามบัญชีที่ผูกไว้ (pay_from_account_id / recurring.bank_account_id) — ไม่ผูก → บัญชี default (เลขลงท้าย 4889)
   const sortedBanks = Object.values(bankMap).sort((a,b)=> b.amount - a.amount);
-  if(sortedBanks.length){
-    // assign payments ทั้งหมดไปบัญชีหลัก (ที่ 2 ในรายการ = main operating)
-    const mainBank = sortedBanks[1] || sortedBanks[0];
-    for(const b of Object.values(bankMap)){
-      if(b.account_no === mainBank.account_no) b.due = totalDue;
-    }
-  }
+  const { due: bankDue } = cffBankDistribute(filtered, dt.balances);
+  for(const id in bankMap) bankMap[id].due = bankDue[id] || 0;
   const negCount = Object.values(bankMap).filter(b => (b.avail - b.due) < 0).length;
   const negBanks = Object.values(bankMap).filter(b => (b.avail - b.due) < 0).map(b => `${b.bank_code} ${b.account_no}`).join(", ");
 
@@ -10310,9 +10411,8 @@ function cffOpenSnapshotStaff(){
   for(const c of Object.values(byCat)) c.items.sort(cffItemCmp);  // ★ ผู้ขายเดียวกันอยู่ติดกัน
   const cats = Object.entries(byCat).sort((a,b) => b[1].total - a[1].total);
 
-  // bank breakdown (attribute payments to largest bank)
-  const sortedBanks = dt.balances.slice().sort((a,b) => Number(b.amount||0) - Number(a.amount||0));
-  const mainBankId = sortedBanks.length > 1 ? sortedBanks[1].bank_account_id : (sortedBanks[0] && sortedBanks[0].bank_account_id);
+  // ★ bank breakdown — กระจายตามบัญชีที่ผูกไว้ (pay_from_account_id / recurring.bank_account_id) · ไม่ผูก → default 4889
+  const { due: bankDue, cat: bankCat } = cffBankDistribute(filtered, dt.balances);
   const todayStr = new Date().toLocaleDateString("th-TH",{day:"2-digit",month:"long",year:"numeric"});
 
   const m = document.createElement("div");
@@ -10362,18 +10462,18 @@ function cffOpenSnapshotStaff(){
               </tr>
               <tr style="background:rgba(245,158,11,.10)">
                 <td style="padding:8px 12px;font-weight:700">ค่าใช้จ่ายถึงกำหนดชำระ</td>
-                ${dt.balances.map(b => `<td style="padding:8px 12px;text-align:right">${b.bank_account_id===mainBankId&&totalDue>0?totalDue.toLocaleString("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2}):'-'}</td>`).join("")}
+                ${dt.balances.map(b => { const v = bankDue[b.bank_account_id]||0; return `<td style="padding:8px 12px;text-align:right">${v>0?v.toLocaleString("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2}):'-'}</td>`; }).join("")}
                 <td style="padding:8px 12px;text-align:right;font-weight:800;background:rgba(var(--brand-rgb),.08)">${totalDue.toLocaleString("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
               </tr>
               ${cats.map(([cat,info]) => `<tr>
                 <td style="padding:7px 12px 7px 24px;color:var(--ink-2);font-size:12.5px">${esc(cat)}</td>
-                ${dt.balances.map(b => `<td style="padding:7px 12px;text-align:right;color:var(--ink-2);font-size:12.5px">${b.bank_account_id===mainBankId?info.total.toLocaleString("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2}):'-'}</td>`).join("")}
+                ${dt.balances.map(b => { const v = (bankCat[b.bank_account_id]||{})[cat]||0; return `<td style="padding:7px 12px;text-align:right;color:var(--ink-2);font-size:12.5px">${v>0?v.toLocaleString("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2}):'-'}</td>`; }).join("")}
                 <td style="padding:7px 12px;text-align:right;color:var(--out-ink);font-weight:700">${info.total.toLocaleString("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
               </tr>`).join("")}
               <tr style="background:rgba(var(--brand-rgb),.10);border-top:2px solid var(--brand)">
                 <td style="padding:10px 12px;font-weight:800;color:var(--brand-dark)">เงินคงเหลือสุทธิ</td>
                 ${dt.balances.map(b => {
-                  const v = (Number(b.amount||0)-Number(b.hold||0)) - (b.bank_account_id===mainBankId?totalDue:0);
+                  const v = (Number(b.amount||0)-Number(b.hold||0)) - (bankDue[b.bank_account_id]||0);
                   return `<td style="padding:10px 12px;text-align:right;font-weight:800;color:${v<0?'var(--out-ink)':'var(--brand-dark)'}">${v<0?'('+Math.abs(v).toLocaleString("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2})+')':v.toLocaleString("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2})}</td>`;
                 }).join("")}
                 <td style="padding:10px 12px;text-align:right;font-weight:800;color:${netCash<0?'var(--out-ink)':'var(--brand-dark)'};background:rgba(var(--brand-rgb),.15)">${netCash<0?'('+Math.abs(netCash).toLocaleString("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2})+')':netCash.toLocaleString("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2})}</td>

@@ -177,6 +177,10 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-06-22 — AP: ยกเลิกการจ่าย / ตั้งเป็น "ยังไม่จ่าย" (แก้คงค้างติดลบ)
+- **ปัญหา:** กดปุ่ม "จ่าย" พลาด → insert `ap_payments` · `amount_outstanding` เป็น GENERATED (`amount_total − amount_paid`) → ถ้าจ่ายเกิน/บิลถูกแก้ยอดทีหลัง คงค้างติดลบ · แก้ status ในโมดอลแก้ไขเฉย ๆ ไม่ช่วย (ไม่แตะ `amount_paid`)
+- **แก้:** โมดอลปุ่ม "จ่าย" (`apoOpenPay`) เปลี่ยนเป็น "การจ่าย / ประวัติ" — โหลด `ap_payments` ของบิล (`apoRenderPayHist`) แสดงรายการจ่าย + ปุ่ม **ยกเลิก** ต่อรายการ (`apoReversePayment`) + ปุ่ม **↩ ตั้งเป็นยังไม่จ่าย** (`apoUnpayAll`, soft-delete ทุก payment) · ฟอร์มบันทึกจ่ายย้ายไป `<details>` · ยกเลิก = soft-delete `ap_payments` → trigger `fn_ap_recompute` (AFTER UPDATE) คำนวณ `amount_paid`+`status` ใหม่ → คงค้างถูกต้อง · `apoAfterPayChange` reload ตาราง + เปิดโมดอลใหม่ด้วยยอดล่าสุด · default จำนวนจ่าย = `max(0, outstanding)` (กันค่าติดลบ)
+
 ### 2026-06-22 — บัญชีตัดจ่าย (pay-from account) ใน AP Outstanding + ค่าใช้จ่ายประจำ
 - **ช่อง "ตัดจากบัญชี" (dropdown)** ให้ จนท. เลือกว่าเงินจะตัดออกจากบัญชีไหน — **default = บัญชีเลขลงท้าย `4889`** (Benya SCB 136-2-684889; MBark ไม่มี → fallback บัญชีแรก)
   - **Schema** `supabase/ap-pay-account.sql` (idempotent): `ap_invoices.pay_from_account_id` (ใหม่) + `recurring_expenses.bank_account_id` (`ADD COLUMN IF NOT EXISTS` — base schema มีแล้ว กัน clone เก่า) + `NOTIFY pgrst`. **หมายเหตุ:** `ap_invoices.pay_from_account_id` = บัญชีที่ "ตั้งใจจะตัดจ่าย" ต่างจาก `ap_payments.bank_account_id` (บัญชีจ่ายจริง)

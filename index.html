@@ -8752,27 +8752,100 @@ async function apoSaveEdit(id){
 
 function apoOpenPay(invId, outstanding){
   const today = new Date().toISOString().slice(0,10);
+  const r = (apoGet().invoices||[]).find(x => String(x.id)===String(invId)) || {};
+  const total = Number(r.amount_total||0);
+  const out = Number(outstanding||0);
+  const defAmt = Math.max(0, out);
   const m = document.createElement("div");
   m.id = "fopModal";
-  m.style.cssText = "position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:1000;display:flex;align-items:center;justify-content:center;padding:20px";
+  m.style.cssText = "position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:1000;display:flex;align-items:flex-start;justify-content:center;padding:20px;overflow:auto";
   m.innerHTML = `
-    <div style="background:#fff;border-radius:14px;padding:24px;max-width:420px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.3)">
-      <h3 style="margin:0 0 14px;font-size:16px;font-weight:800">💵 บันทึกการจ่าย</h3>
-      <div style="color:var(--ink-3);font-size:12.5px;margin-bottom:14px">คงค้าง <b style="color:var(--out-ink)">${fopFmt(outstanding)}</b></div>
-      <div style="display:grid;gap:10px">
-        <label><div style="font-size:12px;font-weight:700;color:var(--ink-2);margin-bottom:4px">วันที่จ่าย *</div><input id="payDate" type="date" class="input" style="width:100%" value="${today}"></label>
-        <label><div style="font-size:12px;font-weight:700;color:var(--ink-2);margin-bottom:4px">จำนวน *</div><input id="payAmt" type="number" step="0.01" min="0" class="input" style="width:100%" value="${outstanding.toFixed(2)}"></label>
-        <label><div style="font-size:12px;font-weight:700;color:var(--ink-2);margin-bottom:4px">เลข PV / อ้างอิง</div><input id="payPv" class="input" style="width:100%"></label>
-        <label><div style="font-size:12px;font-weight:700;color:var(--ink-2);margin-bottom:4px">วิธี</div><select id="payMethod" class="input" style="width:100%"><option value="transfer">โอน</option><option value="cheque">เช็ค</option><option value="cash">เงินสด</option></select></label>
-        <div id="payErr" style="color:var(--out-ink);font-size:12px;display:none"></div>
-      </div>
+    <div style="background:#fff;border-radius:14px;padding:24px;max-width:440px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.3);margin:auto">
+      <h3 style="margin:0 0 4px;font-size:16px;font-weight:800">💵 การจ่าย / ประวัติ</h3>
+      <div style="color:var(--ink-3);font-size:12px;margin-bottom:12px">${r.invoice_no?`<code style="font-size:11px">${esc(r.invoice_no)}</code> · `:''}ยอดรวม ${fopFmt(total)} · คงค้าง <b style="color:${out<0?'var(--out-ink)':'var(--ink-2)'}">${fopFmt(out)}</b></div>
+      ${out<0 ? `<div style="background:var(--out-soft,#fdecf1);border:1px solid var(--out);color:var(--out-ink);padding:9px 12px;border-radius:8px;font-size:12px;margin-bottom:12px">⚠ ยอดคงค้างติดลบ — บันทึกจ่ายเกินยอดบิล กด <b>ยกเลิก</b> รายการจ่ายด้านล่าง หรือ <b>↩ ตั้งเป็นยังไม่จ่าย</b> เพื่อแก้</div>` : ''}
+
+      <div id="apoPayHist" style="margin-bottom:14px;font-size:12px;color:var(--ink-3)">กำลังโหลดประวัติการจ่าย...</div>
+
+      <details>
+        <summary style="cursor:pointer;font-size:12.5px;font-weight:700;color:var(--brand-dark,var(--ink-2));margin-bottom:8px">+ บันทึกการจ่ายเพิ่ม</summary>
+        <div style="display:grid;gap:10px;margin-top:8px">
+          <label><div style="font-size:12px;font-weight:700;color:var(--ink-2);margin-bottom:4px">วันที่จ่าย *</div><input id="payDate" type="date" class="input" style="width:100%" value="${today}"></label>
+          <label><div style="font-size:12px;font-weight:700;color:var(--ink-2);margin-bottom:4px">จำนวน *</div><input id="payAmt" type="number" step="0.01" min="0" class="input" style="width:100%" value="${defAmt.toFixed(2)}"></label>
+          <label><div style="font-size:12px;font-weight:700;color:var(--ink-2);margin-bottom:4px">เลข PV / อ้างอิง</div><input id="payPv" class="input" style="width:100%"></label>
+          <label><div style="font-size:12px;font-weight:700;color:var(--ink-2);margin-bottom:4px">วิธี</div><select id="payMethod" class="input" style="width:100%"><option value="transfer">โอน</option><option value="cheque">เช็ค</option><option value="cash">เงินสด</option></select></label>
+          <div id="payErr" style="color:var(--out-ink);font-size:12px;display:none"></div>
+          <button id="payBtn" class="btn btn sm" onclick="apoSavePayment('${invId}')">บันทึกการจ่าย</button>
+        </div>
+      </details>
+
       <div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end">
-        <button onclick="document.getElementById('fopModal').remove()" class="btn ghost btn sm">ยกเลิก</button>
-        <button id="payBtn" class="btn" onclick="apoSavePayment('${invId}')">บันทึก</button>
+        <button onclick="document.getElementById('fopModal').remove()" class="btn ghost btn sm">ปิด</button>
       </div>
     </div>`;
   document.body.appendChild(m);
   m.onclick = e=>{ if(e.target===m) m.remove(); };
+  apoRenderPayHist(invId);
+}
+/* โหลด + แสดงประวัติการจ่ายของบิล + ปุ่มยกเลิก/ตั้งเป็นยังไม่จ่าย */
+async function apoRenderPayHist(invId){
+  const box = document.getElementById("apoPayHist");
+  if(!box) return;
+  const { data, error } = await sb.from("ap_payments")
+    .select("id,paid_date,amount,method,pv_no").eq("ap_invoice_id", invId)
+    .is("deleted_at", null).order("paid_date");
+  if(!document.getElementById("apoPayHist")) return;   // modal อาจถูกปิดไปแล้ว
+  if(error){ box.innerHTML = `<div style="color:var(--out-ink);font-size:12px">โหลดประวัติไม่สำเร็จ: ${esc(fopErr(error))}</div>`; return; }
+  const pays = data || [];
+  const methodLbl = mm => ({transfer:'โอน',cheque:'เช็ค',cash:'เงินสด'})[mm] || mm || '';
+  if(!pays.length){ box.innerHTML = `<div style="font-size:12px;color:var(--ink-3);padding:4px 0">— ยังไม่มีรายการจ่าย —</div>`; return; }
+  const totalPaid = pays.reduce((s,p)=>s+Number(p.amount||0),0);
+  box.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin:0 0 6px">
+      <div style="font-size:12px;font-weight:700;color:var(--ink-2)">ประวัติการจ่าย (${pays.length})</div>
+      <button class="btn ghost btn sm" style="color:var(--out-ink);border-color:var(--out)" onclick="apoUnpayAll('${invId}')" title="ยกเลิกการจ่ายทั้งหมด">↩ ตั้งเป็นยังไม่จ่าย</button>
+    </div>
+    <div style="border:1px solid var(--line);border-radius:8px;overflow:hidden">
+      ${pays.map(p=>`<div style="display:flex;align-items:center;gap:8px;padding:7px 10px;border-bottom:1px solid var(--line)">
+        <div style="flex:1">
+          <div style="font-weight:700;color:var(--ink)">${fopFmt(p.amount)} <span style="color:var(--ink-3);font-weight:400;font-size:11px">· ${esc(methodLbl(p.method))}</span></div>
+          <div style="font-size:11px;color:var(--ink-3)">${fopDate(p.paid_date)}${p.pv_no?` · ${esc(p.pv_no)}`:''}</div>
+        </div>
+        <button class="btn ghost btn sm" style="color:var(--out-ink);border-color:var(--out)" onclick="apoReversePayment('${p.id}','${invId}')" title="ยกเลิกการจ่ายนี้">ยกเลิก</button>
+      </div>`).join("")}
+      <div style="display:flex;justify-content:space-between;padding:7px 10px;background:var(--bg);font-weight:700;font-size:12px"><span>รวมจ่ายแล้ว</span><span>${fopFmt(totalPaid)}</span></div>
+    </div>`;
+}
+/* หลังเปลี่ยนแปลงการจ่าย — reload ตาราง + เปิด modal ใหม่ด้วยยอดล่าสุด */
+async function apoAfterPayChange(invId){
+  state.apo[state.company] = null;
+  await renderToolApOutstanding();
+  const old = document.getElementById("fopModal");
+  if(old) old.remove();
+  const r = (apoGet().invoices||[]).find(x => String(x.id)===String(invId));
+  if(r) apoOpenPay(invId, Number(r.amount_outstanding||0));
+}
+/* ยกเลิกการจ่าย 1 รายการ (soft delete → trigger fn_ap_recompute คำนวณ amount_paid/status ใหม่) */
+async function apoReversePayment(payId, invId){
+  if(!confirm("ยกเลิกการจ่ายรายการนี้?\nยอดคงค้าง + สถานะจะถูกคำนวณใหม่อัตโนมัติ")) return;
+  try{
+    const { error } = await sb.from("ap_payments")
+      .update({ deleted_at: new Date().toISOString(), deleted_by: AUTH.user?AUTH.user.id:null })
+      .eq("id", payId);
+    if(error) throw error;
+    await apoAfterPayChange(invId);
+  }catch(e){ alert("ยกเลิกไม่สำเร็จ: " + fopErr(e)); }
+}
+/* ตั้งบิลเป็น "ยังไม่จ่าย" — ยกเลิกการจ่ายทั้งหมด → คงค้างกลับเป็นยอดเต็ม */
+async function apoUnpayAll(invId){
+  if(!confirm("ตั้งบิลนี้เป็น 'ยังไม่จ่าย'?\nยกเลิกการจ่ายทั้งหมด — ยอดคงค้างกลับเป็นยอดเต็ม (audit log เก็บไว้)")) return;
+  try{
+    const { error } = await sb.from("ap_payments")
+      .update({ deleted_at: new Date().toISOString(), deleted_by: AUTH.user?AUTH.user.id:null })
+      .eq("ap_invoice_id", invId).is("deleted_at", null);
+    if(error) throw error;
+    await apoAfterPayChange(invId);
+  }catch(e){ alert("ไม่สำเร็จ: " + fopErr(e)); }
 }
 async function apoSavePayment(invId){
   const err = document.getElementById("payErr");
@@ -8791,11 +8864,9 @@ async function apoSavePayment(invId){
       created_by: AUTH.user ? AUTH.user.id : null
     });
     if(error) throw error;
-    document.getElementById("fopModal").remove();
-    state.apo[state.company] = null;
-    renderToolApOutstanding();
+    await apoAfterPayChange(invId);
   }catch(e){
-    btn.disabled=false; btn.textContent="บันทึก";
+    btn.disabled=false; btn.textContent="บันทึกการจ่าย";
     err.textContent=fopErr(e); err.style.display="";
   }
 }
@@ -9712,68 +9783,225 @@ async function loanUpload(){
   }catch(e){ alert("อ่านไฟล์ไม่สำเร็จ: "+(e.message||e)); }
 }
 function loanToggle(code){ const d=loanGet(); if(d.expanded.has(code)) d.expanded.delete(code); else d.expanded.add(code); renderToolLoans(); }
+function loanInjectCSS(){
+  if(document.getElementById("loan-css")) return;
+  const s=document.createElement("style"); s.id="loan-css";
+  s.textContent=`
+  .ln-wrap{display:flex;flex-direction:column;gap:18px}
+  .ln-kgrid{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:13px}
+  @media(max-width:1280px){.ln-kgrid{grid-template-columns:repeat(3,1fr)}}
+  @media(max-width:680px){.ln-kgrid{grid-template-columns:repeat(2,1fr)}}
+  .ln-card{background:#fff;border:1px solid #e6efee;border-radius:16px;padding:16px 16px 14px;box-shadow:0 1px 2px rgba(20,52,74,.04);display:flex;flex-direction:column;gap:8px;transition:.14s}
+  .ln-card.red{border-color:#f1d9d3}
+  .ln-card.dark{background:linear-gradient(150deg,#11324a,#16455f);border:none;color:#fff;box-shadow:0 14px 30px -16px rgba(17,50,74,.6)}
+  .ln-ic{width:33px;height:33px;border-radius:10px;display:flex;align-items:center;justify-content:center}
+  .ln-kl{font-size:11px;color:#93a7b3}
+  .ln-card.dark .ln-kl{color:#a8c0cb}
+  .ln-kv{font-size:21px;font-weight:700;letter-spacing:-.5px;color:#11324a}
+  .ln-card.dark .ln-kv{color:#fff}
+  .ln-panel{background:#fff;border:1px solid #e6efee;border-radius:16px;padding:18px 20px;box-shadow:0 1px 2px rgba(20,52,74,.04)}
+  .ln-h3{font-size:15px;font-weight:700;color:#11324a}
+  .ln-sub{font-size:12px;color:#93a7b3;margin-top:2px}
+  .ln-row2{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr);gap:16px}
+  @media(max-width:980px){.ln-row2{grid-template-columns:1fr}}
+  .ln-row2b{display:grid;grid-template-columns:minmax(0,2.6fr) minmax(0,1fr);gap:16px;align-items:start}
+  @media(max-width:980px){.ln-row2b{grid-template-columns:1fr}}
+  .ln-tbl{width:100%;border-collapse:collapse;font-size:12.5px}
+  .ln-tbl thead tr{background:#f6faf9;color:#718898;font-size:11px}
+  .ln-tbl th{padding:10px 13px;font-weight:600;text-align:right}
+  .ln-tbl th:first-child{text-align:left}
+  .ln-tbl td{padding:11px 13px;text-align:right;border-top:1px solid #eef2f1}
+  .ln-tbl td:first-child{text-align:left}
+  .ln-tbl tbody tr.brow:hover{background:#f9fcfb;cursor:pointer}
+  .ln-pill{display:inline-block;padding:3px 9px;border-radius:7px;font-size:11px;font-weight:600}
+  .ln-bar{flex:1;height:22px;background:#f0f4f3;border-radius:6px;overflow:hidden;display:flex}
+  `;
+  document.head.appendChild(s);
+}
+const LOAN_THMON={"ม.ค.":1,"ก.พ.":2,"มี.ค.":3,"เม.ย.":4,"พ.ค.":5,"มิ.ย.":6,"ก.ค.":7,"ส.ค.":8,"ก.ย.":9,"ต.ค.":10,"พ.ย.":11,"ธ.ค.":12};
+const LOAN_MONAB=["","ม.ค.","ก.พ.","มี.ค.","เม.ย.","พ.ค.","มิ.ย.","ก.ค.","ส.ค.","ก.ย.","ต.ค.","พ.ย.","ธ.ค."];
+function loanAsOfISO(txt){ if(!txt) return null; const m=String(txt).match(/(\d{1,2})\s*([ก-๙.]+)\s*(\d{4})/); if(!m) return null; const mo=LOAN_THMON[m[2].trim()]||0; if(!mo) return null; const p=n=>String(n).padStart(2,"0"); return `${m[3]}-${p(mo)}-${p(m[1])}`; }
+function loanAgeDays(aISO, bISO){ const pa=aISO.split("-").map(Number), pb=bISO.split("-").map(Number); const A=new Date(pa[0],pa[1]-1,pa[2]), Bd=new Date(pb[0],pb[1]-1,pb[2]); return Math.round((A-Bd)/86400000); }
+function loanMonLabel(ym){ const [y,m]=ym.split("-"); return LOAN_MONAB[Number(m)]+y.slice(2); }
+function loanFmtM(n){ return (Math.abs(Number(n||0))/1e6).toLocaleString("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2}); }
+
 function renderToolLoans(){
+  loanInjectCSS();
   const t=TOOLS.find(x=>x.id==="loans"); const co=COMPANIES.find(c=>c.id===state.company); const main=document.getElementById("main");
   const d=loanGet(); if(!d.data) d.data=loanLoadCache(); const data=d.data;
   if(!data){
-    main.innerHTML=`<div class="page-head"><h1>${esc(t.name)} <span class="badge">${esc(co.name)}</span></h1><div class="sub">${esc(t.long||"")} · <span style="color:var(--ink-3)">หน่วย: บาท</span></div></div>
+    main.innerHTML=`<div class="page-head"><h1>${esc(t.name)} <span class="badge">${esc(co.name)}</span></h1><div class="sub">${esc(t.long||"")}</div></div>
       <div class="card" style="text-align:center;padding:48px 20px">
         <div style="font-size:42px;margin-bottom:6px">🏦</div>
-        <div style="font-size:15px;font-weight:700;color:var(--ink);margin-bottom:4px">ยังไม่มีข้อมูลลูกหนี้</div>
-        <div style="color:var(--ink-3);font-size:13px;margin-bottom:16px">อัปไฟล์ "รายงานลูกหนี้คงค้างแบบละเอียด" (.xlsx) เพื่อดูสรุปพอร์ตสินเชื่อ</div>
+        <div style="font-size:15px;font-weight:700;color:#11324a;margin-bottom:4px">ยังไม่มีข้อมูลลูกหนี้</div>
+        <div style="color:#93a7b3;font-size:13px;margin-bottom:16px">อัปไฟล์ "รายงานลูกหนี้คงค้างแบบละเอียด" (.xlsx)</div>
         <button class="btn" onclick="loanUpload()"><i data-lucide="upload"></i> อัปไฟล์ลูกหนี้คงค้าง</button>
       </div>`;
     if(window.lucide) try{lucide.createIcons();}catch(e){} return;
   }
-  const B=[...data.borrowers].sort((a,b)=>b.out-a.out);
-  const totOut=B.reduce((s,b)=>s+b.out,0), totBill=B.reduce((s,b)=>s+b.bill,0), totPaid=B.reduce((s,b)=>s+b.paid,0);
-  const totPrin=B.reduce((s,b)=>s+b.principal,0), totInt=B.reduce((s,b)=>s+b.interest,0);
-  // aging ตามปี (พ.ศ.) ของวันที่บิล ที่ยังคงค้าง
-  const ageY={}; B.forEach(b=>b.lines.forEach(l=>{ if(l.out>0.005){ const y=l.date.slice(0,4); ageY[y]=(ageY[y]||0)+l.out; } }));
-  const ageKeys=Object.keys(ageY).sort();
-  const kpi=(ic,label,val,sub,clr)=>`<div class="kpi"><div class="kpi-ic"><i data-lucide="${ic}"></i></div><div class="kpi-l">${label}</div><div class="kpi-n" style="${clr?`color:${clr}`:''}">${val}</div><div class="kpi-d">${sub}</div></div>`;
+  const asOfISO=loanAsOfISO(data.asOf);
+  const B=data.borrowers.map(b=>{
+    let oldest=null; b.lines.forEach(l=>{ if(l.out>0.005 && (!oldest||l.date<oldest)) oldest=l.date; });
+    const ageDays=(oldest&&asOfISO)?loanAgeDays(oldest,asOfISO):0;
+    const status = b.out<=0.005?"ชำระครบ" : ageDays>90?"ค้างเกิน 90 วัน" : ageDays>30?"ค้างชำระ" : "ปกติ";
+    return Object.assign({}, b, {oldest, ageDays, status});
+  }).sort((a,b)=>b.out-a.out);
+  const totOut=B.reduce((s,b)=>s+b.out,0), totPrin=B.reduce((s,b)=>s+b.principal,0), totInt=B.reduce((s,b)=>s+b.interest,0);
+  const totPaid=B.reduce((s,b)=>s+b.paid,0), totBill=B.reduce((s,b)=>s+b.bill,0);
+  const pPct=totOut?Math.round(totPrin/totOut*100):0, iPct=totOut?(100-pPct):0;
+  const BK=[{k:"1-30 วัน",lo:1,hi:30},{k:"31-60 วัน",lo:31,hi:60},{k:"61-90 วัน",lo:61,hi:90},{k:"91-180 วัน",lo:91,hi:180},{k:"เกิน 180 วัน",lo:181,hi:1e12}];
+  BK.forEach(x=>{x.p=0;x.i=0;x.set=new Set();});
+  B.forEach(b=>b.lines.forEach(l=>{ if(l.out>0.005 && asOfISO){ const a=loanAgeDays(l.date,asOfISO); const bk=BK.find(x=>a>=x.lo&&a<=x.hi); if(bk){ if(l.type==="interest")bk.i+=l.out; else bk.p+=l.out; bk.set.add(b.code);} } }));
+  const overdue90=BK.filter(x=>x.lo>=91).reduce((s,x)=>s+x.p+x.i,0);
+  const overdue90N=B.filter(b=>b.ageDays>90&&b.out>0.005).length;
+  const mm={};
+  B.forEach(b=>b.lines.forEach(l=>{ const ym=l.date.slice(0,7); if(!mm[ym])mm[ym]={billP:0,billI:0,paidP:0,paidI:0}; const x=mm[ym]; if(l.type==="interest"){x.billI+=l.bill;x.paidI+=l.paid;}else{x.billP+=l.bill;x.paidP+=l.paid;} }));
+  const months=Object.keys(mm).sort().slice(-9);
+  const maxBar=Math.max(1,...months.map(m=>Math.max(mm[m].billP+mm[m].billI, mm[m].paidP+mm[m].paidI)));
+  const f=loanFmt, fM=loanFmtM;
+  const kic=(bg,col,svg)=>`<span class="ln-ic" style="background:${bg};color:${col}">${svg}</span>`;
+  const top3=B.slice(0,3); const top3Pct=totOut?Math.round(top3.reduce((s,b)=>s+b.out,0)/totOut*100):0;
+  const intPct=totOut?(totInt/totOut*100).toFixed(1):0;
+  const ov90Pct=totOut?Math.round(overdue90/totOut*100):0;
+
   main.innerHTML=`
-    <div class="page-head" style="display:flex;justify-content:space-between;align-items:flex-end;gap:14px;flex-wrap:wrap">
-      <div><h1>${esc(t.name)} <span class="badge">${esc(co.name)}</span></h1>
-        <div class="sub">พอร์ตสินเชื่อ · ${data.asOf?`ณ วันที่ ${esc(data.asOf)}`:''} · อัปเมื่อ ${new Date(data.uploadedAt).toLocaleString("th-TH",{dateStyle:"short",timeStyle:"short"})} · <span style="color:var(--ink-3)">หน่วย: บาท</span></div>
+  <div class="ln-wrap">
+    <div style="display:flex;align-items:flex-end;gap:14px;flex-wrap:wrap">
+      <div style="flex:1;min-width:240px">
+        <div style="display:flex;align-items:center;gap:10px">
+          <div style="width:5px;height:28px;border-radius:3px;background:linear-gradient(180deg,#16b3a3,#0f8a7e)"></div>
+          <h1 style="font-size:23px;font-weight:700;color:#11324a;letter-spacing:-.2px">Dashboard ลูกหนี้คงค้าง</h1>
+          <span style="border:1px solid #cfe6e1;color:#0f8a7e;font-size:11px;font-weight:700;padding:3px 8px;border-radius:6px">พอร์ตสินเชื่อ</span>
+        </div>
+        <div style="margin-top:6px;margin-left:15px;font-size:12.5px;color:#718898">${data.asOf?`ณ วันที่ ${esc(data.asOf)} · `:''}อัปเดต ${new Date(data.uploadedAt).toLocaleString("th-TH",{dateStyle:"short",timeStyle:"short"})} · หน่วย: บาท</div>
       </div>
       <button class="btn" onclick="loanUpload()"><i data-lucide="upload"></i> อัปไฟล์ใหม่</button>
     </div>
-    <div class="kpigrid">
-      ${kpi("hand-coins","ลูกหนี้คงค้างรวม",loanFmt(totOut),`${B.length} ราย`,"var(--brand-dark)")}
-      ${kpi("landmark","เงินต้นคงค้าง",loanFmt(totPrin),"LV",null)}
-      ${kpi("percent","ดอกเบี้ยคงค้าง",loanFmt(totInt),"IV",null)}
-      ${kpi("receipt","ยอดในบิลรวม",loanFmt(totBill),"ตั้งหนี้สะสม",null)}
-      ${kpi("check-circle","เก็บแล้ว",loanFmt(totPaid),"ชำระสะสม","var(--in-ink)")}
+
+    <div class="ln-kgrid">
+      <div class="ln-card dark">
+        <div style="display:flex;align-items:center;justify-content:space-between">${kic("rgba(127,230,216,.18)","#7fe6d8",'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>')}<span class="ln-kl">ลูกหนี้คงค้างรวม</span></div>
+        <div class="ln-kv num">฿${f(totOut)}</div>
+        <div class="ln-kl">${B.length} ราย · ${B.reduce((s,b)=>s+b.lines.length,0)} งวด</div>
+      </div>
+      <div class="ln-card">
+        <div style="display:flex;align-items:center;justify-content:space-between">${kic("#e9f5f2","#0f8a7e",'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21h18M5 21V9l7-5 7 5v12M9 21v-6h6v6"/></svg>')}<span class="ln-kl">เงินต้นคงค้าง · Principal</span></div>
+        <div class="ln-kv num">฿${f(totPrin)}</div><div class="ln-kl">${pPct}% ของพอร์ต</div>
+      </div>
+      <div class="ln-card">
+        <div style="display:flex;align-items:center;justify-content:space-between">${kic("#fbf2dc","#b9821a",'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="5" x2="5" y2="19"/><circle cx="6.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="17.5" r="2.5"/></svg>')}<span class="ln-kl">ดอกเบี้ยคงค้าง · Interest</span></div>
+        <div class="ln-kv num">฿${f(totInt)}</div><div class="ln-kl">${iPct}% ของพอร์ต</div>
+      </div>
+      <div class="ln-card">
+        <div style="display:flex;align-items:center;justify-content:space-between">${kic("#e7f4ec","#2e9e6b",'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6L9 17l-5-5"/></svg>')}<span class="ln-kl">รับชำระสะสม</span></div>
+        <div class="ln-kv num">฿${f(totPaid)}</div><div class="ln-kl">จากบิลรวม ฿${fM(totBill)} ลบ.</div>
+      </div>
+      <div class="ln-card">
+        <div style="display:flex;align-items:center;justify-content:space-between">${kic("#e9f5f2","#0f8a7e",'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>')}<span class="ln-kl">จำนวนลูกหนี้</span></div>
+        <div class="ln-kv num">${B.length}</div><div class="ln-kl">รายที่มียอดค้าง</div>
+      </div>
+      <div class="ln-card red">
+        <div style="display:flex;align-items:center;justify-content:space-between">${kic("#f8e7e2","#b23b2e",'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>')}<span class="ln-kl" style="color:#b23b2e;font-weight:600">ค้างเกิน 90 วัน</span></div>
+        <div class="ln-kv num" style="color:#b23b2e">฿${f(overdue90)}</div><div class="ln-kl" style="color:#b23b2e">${overdue90N} ราย · ${ov90Pct}% ของพอร์ต</div>
+      </div>
     </div>
-    ${ageKeys.length?`<div class="card"><h3><i data-lucide="calendar-clock"></i>คงค้างตามปีของบิล (พ.ศ.)</h3>
-      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:8px">
-        ${ageKeys.map(y=>{ const pct=totOut?Math.round(ageY[y]/totOut*100):0; return `<div style="flex:1;min-width:150px;background:rgba(var(--brand-rgb),.06);border-radius:12px;padding:13px 16px">
-          <div style="font-size:12.5px;color:var(--ink-2)">ปี ${esc(y)}</div>
-          <div class="tnum" style="font-size:19px;font-weight:800;color:var(--ink)">${loanFmt(ageY[y])}</div>
-          <div style="font-size:11.5px;color:var(--ink-3)">${pct}% ของคงค้าง</div></div>`; }).join("")}
-      </div></div>`:''}
-    <div class="card">
-      <h3><i data-lucide="users"></i>ลูกหนี้รายราย (${B.length} ราย · เรียงตามคงค้าง)</h3>
-      <div class="table-wrap" style="margin-top:6px"><table>
-        <thead><tr><th>รหัส / ชื่อ</th><th class="num">รายการ</th><th class="num">ยอดในบิล</th><th class="num">จ่ายแล้ว</th><th class="num">เงินต้นค้าง</th><th class="num">ดอกค้าง</th><th class="num">คงค้างรวม</th></tr></thead>
-        <tbody>
-          ${B.map(b=>{ const open=d.expanded.has(b.code); return `
-            <tr style="cursor:pointer;background:${open?'rgba(var(--brand-rgb),.05)':''}" onclick="loanToggle(${JSON.stringify(b.code).replace(/"/g,'&quot;')})">
-              <td><span style="display:inline-flex;align-items:center;gap:7px"><i data-lucide="chevron-${open?'down':'right'}" style="width:14px;height:14px;color:var(--brand)"></i><b>${esc(b.code)}</b> <span style="color:var(--ink-2)">${esc(b.name)}</span></span></td>
-              <td class="num">${b.lines.length}</td>
-              <td class="num">${loanFmt(b.bill)}</td>
-              <td class="num" style="color:${b.paid>0?'var(--in-ink)':'var(--ink-3)'}">${b.paid>0?loanFmt(b.paid):'–'}</td>
-              <td class="num">${b.principal>0?loanFmt(b.principal):'–'}</td>
-              <td class="num">${b.interest>0?loanFmt(b.interest):'–'}</td>
-              <td class="num" style="font-weight:800;color:var(--brand-dark)">${loanFmt(b.out)}</td>
+
+    <div class="ln-row2">
+      <div class="ln-panel">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between">
+          <div><div class="ln-h3">ยอดเรียกเก็บ vs ยอดรับชำระ (ตามงวดบิล)</div><div class="ln-sub">รายเดือน · แยกเงินต้น / ดอกเบี้ย</div></div>
+          <div style="display:flex;gap:12px;font-size:11px;color:#718898;flex-wrap:wrap;justify-content:flex-end">
+            <span style="display:flex;align-items:center;gap:5px"><span style="width:10px;height:10px;border-radius:3px;background:#9fd6cf"></span>เก็บ-ต้น</span>
+            <span style="display:flex;align-items:center;gap:5px"><span style="width:10px;height:10px;border-radius:3px;background:#f2dca6"></span>เก็บ-ดบ.</span>
+            <span style="display:flex;align-items:center;gap:5px"><span style="width:10px;height:10px;border-radius:3px;background:#0f8a7e"></span>รับ-ต้น</span>
+            <span style="display:flex;align-items:center;gap:5px"><span style="width:10px;height:10px;border-radius:3px;background:#e0a83e"></span>รับ-ดบ.</span>
+          </div>
+        </div>
+        <div style="display:flex;align-items:flex-end;gap:12px;height:210px;padding-top:16px">
+          ${months.map(m=>{ const x=mm[m]; const h=v=>(v/maxBar*100); return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:7px;height:100%;justify-content:flex-end" title="${loanMonLabel(m)} · เรียกเก็บ ฿${f(x.billP+x.billI)} · รับ ฿${f(x.paidP+x.paidI)}">
+            <div style="display:flex;gap:4px;align-items:flex-end;width:100%;justify-content:center;height:100%">
+              <div style="width:22px;display:flex;flex-direction:column;justify-content:flex-end;height:100%"><div style="background:#f2dca6;border-radius:4px 4px 0 0;height:${h(x.billI)}%"></div><div style="background:#9fd6cf;height:${h(x.billP)}%"></div></div>
+              <div style="width:22px;display:flex;flex-direction:column;justify-content:flex-end;height:100%"><div style="background:#e0a83e;border-radius:4px 4px 0 0;height:${h(x.paidI)}%"></div><div style="background:#0f8a7e;height:${h(x.paidP)}%"></div></div>
+            </div>
+            <span style="font-size:10.5px;color:#93a7b3">${loanMonLabel(m)}</span>
+          </div>`; }).join("")}
+        </div>
+      </div>
+      <div class="ln-panel" style="display:flex;flex-direction:column">
+        <div class="ln-h3">สัดส่วนลูกหนี้คงค้าง</div><div class="ln-sub">เงินต้น vs ดอกเบี้ย</div>
+        <div style="display:flex;align-items:center;justify-content:center;margin:14px 0">
+          <div style="position:relative;width:160px;height:160px;border-radius:50%;background:conic-gradient(#0f8a7e 0% ${pPct}%, #e0a83e ${pPct}% 100%)">
+            <div style="position:absolute;inset:24px;border-radius:50%;background:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;box-shadow:inset 0 1px 4px rgba(20,52,74,.06)">
+              <span style="font-size:11px;color:#93a7b3">ยอดรวม</span><span class="num" style="font-size:15px;font-weight:700;color:#11324a">฿${fM(totOut)}M</span></div>
+          </div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:9px">
+          <div style="display:flex;align-items:center;gap:9px;padding:8px 11px;border-radius:9px;background:#f4faf8"><span style="width:11px;height:11px;border-radius:3px;background:#0f8a7e"></span><span style="font-size:12.5px;color:#14344a;flex:1">เงินต้นคงค้าง</span><span class="num" style="font-size:12.5px;font-weight:700;color:#0f8a7e">${pPct}%</span><span class="num" style="font-size:12px;color:#718898;width:100px;text-align:right">฿${f(totPrin)}</span></div>
+          <div style="display:flex;align-items:center;gap:9px;padding:8px 11px;border-radius:9px;background:#fdf9ee"><span style="width:11px;height:11px;border-radius:3px;background:#e0a83e"></span><span style="font-size:12.5px;color:#14344a;flex:1">ดอกเบี้ยคงค้าง</span><span class="num" style="font-size:12.5px;font-weight:700;color:#b9821a">${iPct}%</span><span class="num" style="font-size:12px;color:#718898;width:100px;text-align:right">฿${f(totInt)}</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="ln-panel">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between">
+        <div><div class="ln-h3">วิเคราะห์อายุลูกหนี้ · Aging</div><div class="ln-sub">ตามอายุบิลที่ยังค้าง (ประมาณการ)</div></div>
+        <div style="display:flex;gap:12px;font-size:11px;color:#718898"><span style="display:flex;align-items:center;gap:5px"><span style="width:10px;height:10px;border-radius:3px;background:#0f8a7e"></span>เงินต้น</span><span style="display:flex;align-items:center;gap:5px"><span style="width:10px;height:10px;border-radius:3px;background:#e0a83e"></span>ดอกเบี้ย</span></div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:13px;margin-top:16px">
+        ${BK.map(x=>{ const tot=x.p+x.i; const pct=totOut?Math.round(tot/totOut*100):0; const barW=totOut?(tot/totOut*100):0; const pSeg=tot?(x.p/tot*100):0; const hot=x.lo>=91; return `<div>
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+            <span style="font-size:12.5px;font-weight:600;color:${hot?'#b23b2e':'#14344a'};display:flex;align-items:center;gap:6px">${hot?'<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#b23b2e" stroke-width="2.4"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg>':''}${x.k}</span>
+            <span class="num" style="font-size:11px;color:#93a7b3">${x.set.size} ราย · ${pct}%</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:10px">
+            <div class="ln-bar"><div style="width:${barW}%;height:100%;display:flex;border-radius:6px;overflow:hidden"><div style="width:${pSeg}%;background:#0f8a7e"></div><div style="flex:1;background:#e0a83e"></div></div></div>
+            <span class="num" style="font-size:12px;font-weight:700;color:#11324a;width:120px;text-align:right">฿${f(tot)}</span>
+          </div></div>`; }).join("")}
+      </div>
+    </div>
+
+    <div class="ln-row2b">
+      <div class="ln-panel" style="padding:0;overflow:hidden">
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px 10px">
+          <div style="display:flex;align-items:center;gap:9px"><div class="ln-h3">ลูกหนี้รายราย</div><span style="font-size:11px;color:#b23b2e;background:#f8e7e2;padding:3px 9px;border-radius:6px;font-weight:600">เรียงตามความเสี่ยง</span></div>
+          <span class="num" style="font-size:12px;color:#93a7b3">${B.length} ราย</span>
+        </div>
+        <div style="overflow-x:auto"><table class="ln-tbl" style="min-width:760px"><thead><tr>
+          <th>รหัส / ชื่อลูกหนี้</th><th>ค้าง(วัน)</th><th>เงินต้น</th><th>ดอกเบี้ย</th><th>ยอดค้างรวม</th><th>สถานะ</th></tr></thead><tbody>
+          ${B.map(b=>{ const open=d.expanded.has(b.code); const st=b.status; const stC = st==="ค้างเกิน 90 วัน"?["#f8e7e2","#b23b2e"]:st==="ค้างชำระ"?["#fbf2dc","#b9821a"]:st==="ชำระครบ"?["#e7f4ec","#2e9e6b"]:["#eef6f4","#0f8a7e"]; const dC=b.ageDays>90?["#f8e7e2","#b23b2e"]:b.ageDays>30?["#fbf2dc","#b9821a"]:["#eef6f4","#0f8a7e"]; return `
+            <tr class="brow" onclick="loanToggle(${JSON.stringify(b.code).replace(/"/g,'&quot;')})">
+              <td><span style="display:inline-flex;align-items:center;gap:7px"><i data-lucide="chevron-${open?'down':'right'}" style="width:14px;height:14px;color:#0f8a7e"></i><span><b style="color:#0f8a7e">${esc(b.code)}</b> <span style="color:#14344a">${esc(b.name)}</span><br><span style="font-size:10.5px;color:#93a7b3">${b.lines.length} งวด</span></span></span></td>
+              <td><span class="ln-pill" style="background:${dC[0]};color:${dC[1]}">${b.ageDays>0?b.ageDays+" วัน":"–"}</span></td>
+              <td class="num" style="font-weight:600;color:#0f8a7e">฿${f(b.principal)}</td>
+              <td class="num" style="font-weight:600;color:#b9821a">฿${f(b.interest)}</td>
+              <td class="num" style="font-weight:700;color:#11324a">฿${f(b.out)}</td>
+              <td><span class="ln-pill" style="background:${stC[0]};color:${stC[1]}">${st}</span></td>
             </tr>
-            ${open?b.lines.map(l=>`<tr style="background:#fafbfc;font-size:12px"><td style="padding-left:30px;color:var(--ink-2)">${esc(l.date)} · <span class="mono">${esc(l.doc)}</span> ${l.type==="principal"?'<span style="color:var(--brand);font-size:10.5px">เงินต้น</span>':l.type==="interest"?'<span style="color:var(--ink-3);font-size:10.5px">ดอกเบี้ย</span>':''}</td><td></td><td class="num">${loanFmt(l.bill)}</td><td class="num">${l.paid>0?loanFmt(l.paid):'–'}</td><td colspan="2"></td><td class="num">${loanFmt(l.out)}</td></tr>`).join(""):''}`;
+            ${open?b.lines.map(l=>`<tr style="background:#fafbfc;font-size:11.5px"><td style="padding-left:28px;color:#5b7384">${esc(l.date)} · <span class="mono">${esc(l.doc)}</span> ${l.type==="principal"?'<span style="color:#0f8a7e;font-size:10px">เงินต้น</span>':l.type==="interest"?'<span style="color:#b9821a;font-size:10px">ดอกเบี้ย</span>':''}</td><td></td><td colspan="2" class="num" style="color:#93a7b3">บิล ฿${f(l.bill)}${l.paid>0?` · จ่าย ฿${f(l.paid)}`:''}</td><td class="num">฿${f(l.out)}</td><td></td></tr>`).join(""):''}`;
           }).join("")}
-          <tr class="tot-row"><td>รวมทั้งสิ้น</td><td class="num">${B.reduce((s,b)=>s+b.lines.length,0)}</td><td class="num">${loanFmt(totBill)}</td><td class="num">${loanFmt(totPaid)}</td><td class="num">${loanFmt(totPrin)}</td><td class="num">${loanFmt(totInt)}</td><td class="num" style="font-weight:800">${loanFmt(totOut)}</td></tr>
-        </tbody>
-      </table></div>
-    </div>`;
+          <tr style="background:#f6faf9;font-weight:700"><td>รวมทั้งสิ้น</td><td></td><td class="num">฿${f(totPrin)}</td><td class="num">฿${f(totInt)}</td><td class="num">฿${f(totOut)}</td><td></td></tr>
+        </tbody></table></div>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:14px">
+        <div style="background:linear-gradient(155deg,#11324a,#15425c);border-radius:16px;padding:18px 20px;color:#fff;box-shadow:0 16px 36px -20px rgba(17,50,74,.6)">
+          <div style="display:flex;align-items:center;gap:9px;margin-bottom:14px"><span class="ln-ic" style="background:rgba(127,230,216,.18);color:#7fe6d8"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18h6M10 22h4M12 2a7 7 0 0 0-4 12.7c.6.5 1 1.3 1 2.1V18h6v-1.2c0-.8.4-1.6 1-2.1A7 7 0 0 0 12 2z"/></svg></span><div class="ln-h3" style="color:#fff">Insight</div></div>
+          <div style="display:flex;flex-direction:column;gap:12px">
+            <div style="display:flex;gap:10px;align-items:flex-start"><span style="width:6px;height:6px;border-radius:50%;background:#f0a99c;margin-top:6px;flex:none"></span><p style="font-size:12.5px;line-height:1.55;color:#dce7eb"><b style="color:#ffd9c2">ค้างเกิน 90 วัน ${ov90Pct}%</b> ของพอร์ต (฿${fM(overdue90)} ลบ.) — ควรเร่งติดตาม</p></div>
+            <div style="display:flex;gap:10px;align-items:flex-start"><span style="width:6px;height:6px;border-radius:50%;background:#7fe6d8;margin-top:6px;flex:none"></span><p style="font-size:12.5px;line-height:1.55;color:#dce7eb">ดอกเบี้ยค้างรับ ฿${fM(totInt)} ลบ. คิดเป็น <b style="color:#fff">${intPct}%</b> ของยอดรวม</p></div>
+            <div style="display:flex;gap:10px;align-items:flex-start"><span style="width:6px;height:6px;border-radius:50%;background:#7fe6d8;margin-top:6px;flex:none"></span><p style="font-size:12.5px;line-height:1.55;color:#dce7eb">ลูกหนี้ 3 รายแรก (${top3.map(b=>esc(b.code)).join(", ")}) คิดเป็น <b style="color:#fff">${top3Pct}%</b> ของยอดคงค้าง — กระจุกตัวสูง</p></div>
+            <div style="display:flex;gap:10px;align-items:flex-start"><span style="width:6px;height:6px;border-radius:50%;background:#7fe6d8;margin-top:6px;flex:none"></span><p style="font-size:12.5px;line-height:1.55;color:#dce7eb">รับชำระสะสม ฿${fM(totPaid)} ลบ. จากยอดตั้งหนี้ ฿${fM(totBill)} ลบ.</p></div>
+          </div>
+        </div>
+        <div class="ln-panel">
+          <div style="font-size:12px;color:#93a7b3;margin-bottom:4px">สัดส่วนเก็บได้ (สะสม)</div>
+          <div class="num" style="font-size:24px;font-weight:700;color:#0f8a7e">${totBill?Math.round(totPaid/totBill*100):0}%</div>
+          <div style="height:8px;background:#f0f4f3;border-radius:5px;margin-top:8px;overflow:hidden"><div style="width:${totBill?Math.min(100,totPaid/totBill*100):0}%;height:100%;background:linear-gradient(90deg,#16b3a3,#0f8a7e);border-radius:5px"></div></div>
+          <div class="num" style="font-size:11px;color:#93a7b3;margin-top:7px">฿${f(totPaid)} จากบิลรวม ฿${f(totBill)}</div>
+        </div>
+      </div>
+    </div>
+  </div>`;
   if(window.lucide) try{lucide.createIcons();}catch(e){}
 }
 

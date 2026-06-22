@@ -566,7 +566,28 @@ function updateCrumb(){
   el.innerHTML = `<span class="co">${esc(co.name)}</span> <span class="sep">/</span> <span style="color:var(--ink-3);font-size:12.5px">${esc(t.stage||"")}</span> <span class="sep">/</span> <span class="pg">${esc(t.name)}</span>`;
 }
 
-const COMPANIES = [
+/* =====================================================================
+   APP_CONFIG — ปรับตอนก๊อปเว็บไปใช้กิจการใหม่ (clone)
+   ★ ของเดิม: ปล่อย enabledTools=null + companies=null → ทำงานเหมือนเดิมทุกอย่าง
+   ★ clone:  (1) เปลี่ยน SUPABASE_URL / SUPABASE_ANON ด้านบนให้ชี้ Supabase ใหม่
+             (2) ตั้ง enabledTools = รายการ id โมดูลที่จะโชว์
+             (3) ตั้ง companies = บริษัทของกิจการใหม่ (ใช้ id "benya"/"mbark" เพื่อได้ธีมสีเดิม)
+   ===================================================================== */
+const APP_CONFIG = {
+  // null = โชว์ทุกโมดูล (ของเดิม) · หรือ array = โชว์เฉพาะ id เหล่านี้
+  enabledTools: null,
+  // ↳ ตัวอย่าง clone กระแสเงินสด:
+  // enabledTools: ["home","execdash","cashflow","bank_balance","ap_outstanding","recurring","users"],
+
+  // null = ใช้ 2 บริษัทเดิม · หรือ array = บริษัทของกิจการใหม่ (กี่บริษัทก็ได้)
+  companies: null,
+  // ↳ ตัวอย่าง บ.เล็ก (ใช้ id "benya" เพื่อได้ธีม teal):
+  // companies: [{ id:"benya", name:"บ.เล็ก", short:"S", brand:"บ.เล็ก",
+  //   fullName:"บริษัท ... จำกัด", logo:"logos/benya-icon.png", gradient:["#0d9488","#2dd4bf"] }],
+};
+function appToolEnabled(id){ return !APP_CONFIG.enabledTools || APP_CONFIG.enabledTools.includes(id); }
+
+const COMPANIES = APP_CONFIG.companies || [
   { id:"mbark", name:"M Bark",  short:"MM", brand:"Mommam",
     fullName:"บริษัท เอ็ม บาร์ค จำกัด · M Bark Co., Ltd.",
     logo:"logos/mbark-icon.png",
@@ -754,6 +775,7 @@ function renderSidebar(){
   const present = AUTH.isPresent();
   const stages = {}, stageOrder = [];
   TOOLS.forEach(t => {
+    if(!appToolEnabled(t.id)) return;                      // clone: โชว์เฉพาะโมดูลที่เปิดใน APP_CONFIG
     if(present && !PRESENT_TOOLS.includes(t.id)) return;   // โหมดพรีเซนต์ → เห็นแค่แท็บที่กำหนด
     if(!present && t.adminOnly && AUTH.role!=="admin") return;
     if(!stages[t.stage]){ stages[t.stage] = []; stageOrder.push(t.stage); }
@@ -817,6 +839,7 @@ function setTool(id){
 /* ---------- render: tool page ---------- */
 function renderTool(){
   if(AUTH.isPresent() && !PRESENT_TOOLS.includes(state.tool)) state.tool = "execdash";  // โหมดพรีเซนต์ล็อกเฉพาะแท็บที่กำหนด
+  if(!appToolEnabled(state.tool)) state.tool = appToolEnabled("home") ? "home" : (APP_CONFIG.enabledTools[0] || "home");  // clone: ถ้า tool ถูกปิด → ไปหน้าแรกที่เปิด
   const t = TOOLS.find(x=>x.id===state.tool);
   updateCrumb();
   if (t.multiInput) {
@@ -3419,7 +3442,7 @@ function renderToolHome(){
     { who:"ระบบ", text:"สำรองฐานข้อมูลอัตโนมัติสำเร็จ", time:"วันนี้ 02:00", initial:"S", bg:"#EEF0FF", color:"#5468FF" },
   ];
   // โมดูลที่ใช้บ่อย — จาก TOOLS จริง (live, ไม่ใช่ admin-only)
-  const quickMods = TOOLS.filter(t=> t.id!=="home" && t.status==="live" && !(t.adminOnly && AUTH.role!=="admin")).slice(0,8);
+  const quickMods = TOOLS.filter(t=> t.id!=="home" && t.status==="live" && appToolEnabled(t.id) && !(t.adminOnly && AUTH.role!=="admin")).slice(0,8);
 
   const kpiCard = (opts) => `
     <div class="hd-kpi ${opts.tool?'click':''}" ${opts.tool?`onclick="setTool('${opts.tool}')"`:''} style="${opts.dark?'color:#fff;background:linear-gradient(140deg,var(--brand) 0%,var(--brand-dark) 100%);box-shadow:0 10px 24px rgba(13,150,132,.3);border:none':''};${opts.delay?`animation-delay:${opts.delay}`:''}">

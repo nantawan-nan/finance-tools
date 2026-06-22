@@ -10373,9 +10373,11 @@ function brecExtractAccountNo(s){
   return m[1].replace(/\D/g,"");
 }
 function brecExtractBankCode(s){
-  // "S/A #BBL 865..." → "BBL"
-  const m = String(s||"").match(/#?\s*(BBL|SCB|KBANK|KTB|BAY|TMB|TTB|GSB|UOB|CIMB)\b/i);
-  return m ? m[1].toUpperCase() : null;
+  // "S/A #BBL 865..." → "BBL" · "SBC#136..." → "SCB" (variant สะกด)
+  const m = String(s||"").match(/#?\s*(BBL|SCB|SBC|KBANK|KTB|BAY|TMB|TTB|GSB|UOB|CIMB)\b/i);
+  if(!m) return null;
+  const code = m[1].toUpperCase();
+  return code === "SBC" ? "SCB" : code;
 }
 
 /* ---------- PARSERS ---------- */
@@ -10400,18 +10402,23 @@ function brecParseExpressXml(xmlText){
     return cells;
   }
 
-  // header info — look in first ~10 rows for S/A #... + period
-  let acctText = "", periodFrom = null, periodTo = null;
-  for(let i=0;i<Math.min(rows.length,10);i++){
+  // header info — หาเลขบัญชี + งวด ใน ~12 แถวแรก (รองรับหลาย format)
+  //   "S/A #SCB 136-..." · "เงินฝาก...SBC#136-270928-1" · label "สมุดบัญชีเลขที่" + เลขล้วน
+  let acctText = "", periodFrom = null, periodTo = null, acctDigits = "";
+  for(let i=0;i<Math.min(rows.length,12);i++){
     const cs = getCells(rows[i]);
-    for(const k in cs){
-      const v = String(cs[k].v||"");
-      if(/S\/A\s*#/.test(v)) acctText = v;
-      if(cs[k].t === "DateTime" && !periodFrom) periodFrom = cs[k].v.slice(0,10);
+    const vals = Object.values(cs).map(c => String(c.v||""));
+    const joined = vals.join(" ");
+    if(!acctText && (/S\/A\s*#/.test(joined) || /(SBC|SCB|BBL|KBANK|KTB|BAY|TMB|TTB|GSB|UOB|CIMB)\s*#/i.test(joined) || /เงินฝาก/.test(joined)))
+      acctText = joined;
+    // label "สมุดบัญชีเลขที่/เลขที่บัญชี" → เลขล้วน 9-15 หลักในแถวนั้น = เลขบัญชี
+    if(!acctDigits && /สมุดบัญชีเลขที่|เลขที่บัญชี/.test(joined)){
+      for(const v of vals){ const dd = v.replace(/\D/g,""); if(dd.length>=9 && dd.length<=15){ acctDigits = dd; break; } }
     }
+    for(const k in cs){ if(cs[k].t === "DateTime" && !periodFrom) periodFrom = cs[k].v.slice(0,10); }
   }
-  const accountNo = brecExtractAccountNo(acctText);
-  const bankCode = brecExtractBankCode(acctText);
+  const accountNo = brecExtractAccountNo(acctText) || acctDigits || null;
+  const bankCode = brecExtractBankCode(acctText) || (/SBC|เงินฝาก/.test(acctText) ? "SCB" : null);
 
   // find header row (วันที่/MNE/เลขที่)
   const COL = {};

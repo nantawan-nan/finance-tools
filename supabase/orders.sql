@@ -63,15 +63,7 @@ ALTER TABLE orders ADD COLUMN IF NOT EXISTS order_ingested_at timestamptz;
 ALTER TABLE orders ALTER COLUMN iv_no DROP NOT NULL;
 
 -- ลบ index/constraint unique เก่าจาก phase-a ที่อาจค้าง (กันชนกับข้อมูลซ้ำ)
-DROP INDEX IF EXISTS uq_orders_company_iv;
-DROP INDEX IF EXISTS uq_orders_company_orderid;
 
-CREATE INDEX IF NOT EXISTS idx_orders_company_orderid
-  ON orders (company_id, order_id) WHERE deleted_at IS NULL AND order_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_orders_company_iv
-  ON orders (company_id, iv_no) WHERE deleted_at IS NULL AND iv_no IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_orders_company_channel
-  ON orders (company_id, channel_group, order_date) WHERE deleted_at IS NULL;
 
 CREATE TABLE IF NOT EXISTS order_events (
   id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),

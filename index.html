@@ -7432,21 +7432,12 @@ async function bbImportExcel(file){
     if(!confirm(`พบ ${accountCols.length} บัญชี · ${balances.length} แถวยอด:\n\n${summary}\n\nนำเข้า?`)) return;
 
     const cid = await fopCompanyId();
-    // 1) upsert bank_accounts
-    const acctRows = accountCols.map(a => ({
-      company_id: cid, bank_code: a.bank_code, account_no: a.account_no,
-      nickname: null, account_type: "savings", is_active: true,
-      created_by: AUTH.user ? AUTH.user.id : null
-    }));
-    const { data: insertedAccts, error: aErr } = await sb.from("bank_accounts")
-      .upsert(acctRows, { onConflict: "company_id,bank_code,account_no" })
-      .select("id, bank_code, account_no");
-    if(aErr){ alert("สร้างบัญชีไม่สำเร็จ: " + fopErr(aErr)); return; }
-
-    // map account → id
+    // 1) resolve bank_accounts ผ่าน brecEnsureAccount (match ด้วยเลข normalize → ใช้บัญชีเดิม ไม่สร้างซ้ำ)
     const acctIdMap = {};
-    for(const r of insertedAccts){
-      acctIdMap[r.bank_code + "·" + r.account_no] = r.id;
+    for(const a of accountCols){
+      const id = await brecEnsureAccount(cid, a.bank_code, a.account_no);
+      if(!id){ alert("สร้างบัญชีไม่สำเร็จ: " + a.bank_code + " " + a.account_no); return; }
+      acctIdMap[a.bank_code + "·" + a.account_no] = id;
     }
 
     // 2) insert balances (skip if duplicate date+account+amount)
@@ -7466,7 +7457,7 @@ async function bbImportExcel(file){
     const { error: bErr } = await sb.from("bank_balances").insert(balRows);
     if(bErr){ alert("บันทึก balances ไม่สำเร็จ: " + fopErr(bErr)); return; }
 
-    alert(`สำเร็จ — ${insertedAccts.length} บัญชี + ${balRows.length} รายการยอด`);
+    alert(`สำเร็จ — ${accountCols.length} บัญชี + ${balRows.length} รายการยอด`);
     state.bb[state.company] = null;
     renderToolBankBalance();
   }catch(e){ alert("Import error: " + fopErr(e)); }

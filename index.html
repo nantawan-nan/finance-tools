@@ -9065,6 +9065,8 @@ function cffSetStaffDay(dd){ const d=cffGet(); d.staffMode='day'; d.staffDate=dd
 function cffSetStaffAll(){ const d=cffGet(); d.staffMode='all'; d.staffDate=''; d.staffFrom=''; d.staffTo=''; renderToolCashflowForecast(); }
 function cffSetStaffRange(from, to){ const d=cffGet(); d.staffMode='range'; d.staffFrom=from||''; d.staffTo=to||''; renderToolCashflowForecast(); }
 function cffToggleCat(name){ const d=cffGet(); if(!d.catOpen) d.catOpen={}; d.catOpen[name] = d.catOpen[name]===false ? true : false; renderToolCashflowForecast(); }
+function cffToggleBankTl(){ const d=cffGet(); d.bankTlOpen = d.bankTlOpen===false ? true : false; renderToolCashflowForecast(); }
+function cffToggleRound(k){ const d=cffGet(); if(!d.roundOpen) d.roundOpen={}; d.roundOpen[k]=!d.roundOpen[k]; renderToolCashflowForecast(); }
 function cffInjectStaffCSS(){
   if(document.getElementById("cffx-styles")) return;
   const s = document.createElement("style"); s.id = "cffx-styles";
@@ -9530,6 +9532,19 @@ async function renderToolCashflowStaff(){
   Object.entries(byDay).forEach(([k,v]) => { if(v > heavyAmt){ heavyAmt = v; heavyDate = k; } });
   const netStatusLabel = netCash >= 0 ? "เพียงพอจ่ายได้ครบทุกรอบ" : "เงินไม่เพียงพอ ต้องเตรียมเพิ่ม";
 
+  // ★ รอบการจ่าย — group ตามวันครบกำหนด, ยอดคงเหลือยกไปวิ่งจากเงินต้นงวด
+  const roundGroups = {};
+  filtered.forEach(p => { (roundGroups[p.due_date] = roundGroups[p.due_date] || []).push(p); });
+  let runBal = openingCash;
+  const rounds = Object.keys(roundGroups).sort().map(k => {
+    const items = roundGroups[k].slice().sort(cffItemCmp);
+    const paid = items.reduce((s,x) => s + x.amount, 0);
+    runBal -= paid;
+    return { date:k, paid, balance:runBal, items, count:items.length, dm:dueMeta(k), heavy:(k===heavyDate) };
+  });
+  const headB = sortedBanks[1] || sortedBanks[0] || null;   // บัญชีดำเนินงานหลัก (สำหรับหัวการ์ด)
+  const tlOpen = d.bankTlOpen !== false;                    // timeline เปิดเป็นค่าเริ่มต้น
+
   const periodLabel = d.staffMode === "day" ? fmtDate(d.staffDate)
                     : d.staffMode === "range" ? `${d.staffFrom?fmtDate(d.staffFrom):'?'} → ${d.staffTo?fmtDate(d.staffTo):'?'}`
                     : (upcomingDates[0] ? `ทั้งหมด · ${fmtDate(upcomingDates[0])}–${fmtDate(upcomingDates[upcomingDates.length-1])}` : 'ทั้งหมด');
@@ -9627,26 +9642,69 @@ async function renderToolCashflowStaff(){
       </div>
     </div>
 
-    <!-- Bank cards with real logos -->
+    <!-- Bank status + payment rounds timeline (redesigned) -->
     <div class="card">
       <h3><i data-lucide="landmark"></i>สถานะแต่ละธนาคาร</h3>
-      <div class="bankgrid">
+      ${Object.values(bankMap).length > 1 ? `<div class="bankgrid" style="margin-bottom:14px">
         ${Object.values(bankMap).map(b => {
-          const net = b.avail - b.due;
-          const isNeg = net < 0;
-          const logoUrl = cffBankLogo(b.bank_code);
+          const net = b.avail - b.due; const isNeg = net < 0; const logoUrl = cffBankLogo(b.bank_code);
           return `<div class="bankcard ${isNeg?'neg':''}">
-            <div class="bk-top">
-              <span class="bk-logo">${logoUrl ? `<img src="${logoUrl}" alt="${esc(b.bank_code)}" onerror="this.outerHTML='<span class=\\'bk-fb\\'>${esc(b.bank_code)}</span>'">` : `<span class="bk-fb">${esc(b.bank_code)}</span>`}</span>
-              <div><div class="bk-name">${esc(cffBankName(b.bank_code))}</div><div class="bk-acc">${esc(b.account_no)}</div></div>
-            </div>
+            <div class="bk-top"><span class="bk-logo">${logoUrl ? `<img src="${logoUrl}" alt="${esc(b.bank_code)}" onerror="this.outerHTML='<span class=\\'bk-fb\\'>${esc(b.bank_code)}</span>'">` : `<span class="bk-fb">${esc(b.bank_code)}</span>`}</span>
+              <div><div class="bk-name">${esc(cffBankName(b.bank_code))}</div><div class="bk-acc">${esc(b.account_no)}</div></div></div>
             <div class="bk-net">${fmtParen(net)}</div>
-            <div class="bk-rows">
-              <div class="r"><span>คงเหลือใช้ได้</span><b>${b.avail.toLocaleString("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2})}</b></div>
-              <div class="r"><span>ถึงกำหนดชำระ</span><b class="${b.due>0?'neg':'muted'}">${b.due>0?b.due.toLocaleString("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2}):'–'}</b></div>
-            </div>
+            <div class="bk-rows"><div class="r"><span>คงเหลือใช้ได้</span><b>${b.avail.toLocaleString("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2})}</b></div>
+              <div class="r"><span>ถึงกำหนดชำระ</span><b class="${b.due>0?'neg':'muted'}">${b.due>0?b.due.toLocaleString("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2}):'–'}</b></div></div>
           </div>`;
         }).join("")}
+      </div>` : ''}
+
+      <div style="border:1px solid var(--glass-border);border-radius:16px;padding:18px 20px;background:rgba(255,255,255,.4)">
+        <!-- header -->
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:18px;flex-wrap:wrap">
+          <div style="display:flex;align-items:center;gap:12px">
+            <span style="width:40px;height:40px;border-radius:11px;background:linear-gradient(135deg,var(--brand),var(--brand-dark));display:flex;align-items:center;justify-content:center;flex:none"><i data-lucide="landmark" style="color:#fff;width:21px;height:21px"></i></span>
+            <div>
+              <div style="font-size:15.5px;font-weight:700;color:var(--ink)">${headB ? esc(cffBankName(headB.bank_code)) : 'รวมทุกบัญชี'}</div>
+              <div class="tnum" style="font-size:12.5px;color:var(--ink-3)">${headB ? esc(headB.account_no) : (dt.balances.length + ' บัญชี')}</div>
+            </div>
+          </div>
+          <div style="text-align:right">
+            <div style="font-size:12.5px;color:var(--ink-3)">ประมาณการเงินคงเหลือ (หลังจ่ายครบ)</div>
+            <div class="tnum" style="font-size:27px;font-weight:800;color:${netCash<0?'#DC2626':'var(--brand)'};letter-spacing:-.6px;line-height:1.15">${fmtParen(netCash)}</div>
+          </div>
+        </div>
+        <!-- mini stats -->
+        <div style="display:flex;gap:10px;margin-top:14px;flex-wrap:wrap">
+          <div style="flex:1;min-width:130px;background:rgba(var(--brand-rgb),.05);border-radius:11px;padding:11px 14px"><div style="font-size:12.5px;color:var(--ink-2)">คงเหลือใช้ได้วันนี้</div><div class="tnum" style="font-size:17px;font-weight:700;color:var(--ink);margin-top:2px">${fmt(openingCash)}</div></div>
+          <div style="flex:1;min-width:130px;background:rgba(225,138,170,.12);border-radius:11px;padding:11px 14px"><div style="font-size:12.5px;color:#B23A66">ต้องจ่ายถึงกำหนด</div><div class="tnum" style="font-size:17px;font-weight:700;color:#D14B7C;margin-top:2px">${fmt(totalDue)}</div></div>
+          <div style="flex:1;min-width:130px;background:rgba(var(--brand-rgb),.05);border-radius:11px;padding:11px 14px"><div style="font-size:12.5px;color:var(--ink-2)">จำนวนรอบจ่าย</div><div class="tnum" style="font-size:17px;font-weight:700;color:var(--ink);margin-top:2px">${rounds.length} รอบ</div></div>
+        </div>
+        ${rounds.length ? `
+        <!-- toggle -->
+        <div onclick="cffToggleBankTl()" style="margin-top:14px;display:flex;align-items:center;justify-content:space-between;cursor:pointer;border-top:1px solid var(--glass-border);padding-top:14px">
+          <div style="display:flex;align-items:center;gap:9px;font-size:14.5px;font-weight:700;color:var(--ink)"><i data-lucide="waves" style="width:18px;height:18px;color:var(--brand)"></i>ไทม์ไลน์รอบการจ่าย</div>
+          <div style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--brand);background:rgba(var(--brand-rgb),.1);padding:6px 12px;border-radius:9px"><span>${tlOpen?'ซ่อนรายละเอียด':'ดูรายละเอียด'}</span><i data-lucide="chevron-down" style="width:15px;height:15px;transition:transform .2s;transform:rotate(${tlOpen?0:-90}deg)"></i></div>
+        </div>
+        ${tlOpen ? `<div style="margin-top:12px;display:flex;flex-direction:column;gap:9px">
+          ${rounds.map(rd => { const ro=(d.roundOpen||{})[rd.date]; const today=rd.date===todayISO; return `
+          <div style="border:1px solid ${today?'var(--brand)':'var(--glass-border)'};border-radius:13px;background:${today?'rgba(var(--brand-rgb),.06)':'rgba(255,255,255,.5)'};overflow:hidden">
+            <div onclick="cffToggleRound('${rd.date}')" style="display:grid;grid-template-columns:auto 1fr auto 28px;gap:14px;align-items:center;padding:12px 15px;cursor:pointer">
+              <div style="min-width:84px">
+                <div style="font-size:15px;font-weight:700;color:var(--ink)">${esc(fmtDate(rd.date))}</div>
+                <span style="display:inline-flex;align-items:center;gap:5px;background:${rd.dm.bg};color:${rd.dm.color};font-size:11.5px;font-weight:600;padding:2px 8px;border-radius:7px;margin-top:4px"><span style="width:5px;height:5px;border-radius:50%;background:${rd.dm.color}"></span>${rd.dm.label}</span>
+              </div>
+              <div>
+                <div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap"><span style="font-size:13px;color:var(--ink-3)">${rd.count} รายการในรอบนี้</span>${rd.heavy?`<span style="font-size:11px;font-weight:700;color:#B45309;background:#FEF0DC;padding:1px 8px;border-radius:999px;white-space:nowrap">● รอบหนักสุด</span>`:''}</div>
+                <div class="tnum" style="font-size:15px;font-weight:600;color:#D14B7C;margin-top:2px">− ${fmt(rd.paid)}</div>
+              </div>
+              <div style="text-align:right"><div style="font-size:12px;color:var(--ink-3)">คงเหลือยกไป</div><div class="tnum" style="font-size:18px;font-weight:700;color:${rd.balance<0?'#DC2626':'var(--ink)'};margin-top:1px;letter-spacing:-.3px">${fmtParen(rd.balance)}</div></div>
+              <div style="display:flex;justify-content:center"><i data-lucide="chevron-down" style="width:16px;height:16px;color:var(--ink-3);transition:transform .2s;transform:rotate(${ro?0:-90}deg)"></i></div>
+            </div>
+            ${ro ? `<div style="padding:2px 15px 13px"><div style="border-top:1px dashed var(--glass-border);padding-top:10px;display:flex;flex-direction:column;gap:8px">${rd.items.map(li => `<div style="display:flex;align-items:center;justify-content:space-between;gap:12px"><div style="min-width:0"><span style="font-size:13.5px;font-weight:600;color:var(--ink)">${esc(li.vendor)}</span>${li.detail?`<span style="font-size:12.5px;color:var(--ink-3)"> · ${esc(li.detail)}</span>`:''}</div><span class="tnum" style="font-size:14px;font-weight:600;color:var(--ink-2);white-space:nowrap">− ${fmt(li.amount)}</span></div>`).join("")}</div></div>` : ''}
+          </div>`; }).join("")}
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:3px;padding:14px 16px;border-radius:13px;background:linear-gradient(135deg,var(--brand),var(--brand-dark));box-shadow:var(--lift)"><span style="font-size:14.5px;font-weight:700;color:#fff">เงินคงเหลือสุทธิ หลังจ่ายครบทุกรอบ</span><span class="tnum" style="font-size:21px;font-weight:800;color:#fff;letter-spacing:-.4px">${fmtParen(netCash)}</span></div>
+        </div>` : ''}
+        ` : ''}
       </div>
     </div>
 

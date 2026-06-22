@@ -9064,6 +9064,36 @@ function cffSetView(v){ cffGet().viewMode = v; renderToolCashflowForecast(); }
 function cffSetStaffDay(dd){ const d=cffGet(); d.staffMode='day'; d.staffDate=dd; renderToolCashflowForecast(); }
 function cffSetStaffAll(){ const d=cffGet(); d.staffMode='all'; d.staffDate=''; d.staffFrom=''; d.staffTo=''; renderToolCashflowForecast(); }
 function cffSetStaffRange(from, to){ const d=cffGet(); d.staffMode='range'; d.staffFrom=from||''; d.staffTo=to||''; renderToolCashflowForecast(); }
+function cffToggleCat(name){ const d=cffGet(); if(!d.catOpen) d.catOpen={}; d.catOpen[name] = d.catOpen[name]===false ? true : false; renderToolCashflowForecast(); }
+function cffInjectStaffCSS(){
+  if(document.getElementById("cffx-styles")) return;
+  const s = document.createElement("style"); s.id = "cffx-styles";
+  s.textContent = `
+  .tnum{font-variant-numeric:tabular-nums}
+  .cffx-hi{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+  .cffx-hicard{position:relative;border-radius:16px;padding:16px 18px;background:linear-gradient(135deg,var(--hcbg),rgba(255,255,255,.6));border:1px solid var(--hcbd);overflow:hidden;box-shadow:0 8px 20px rgba(30,44,90,.05)}
+  .cffx-hicard::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--hc)}
+  .cffx-hitop{display:flex;align-items:center;justify-content:space-between}
+  .cffx-hiic{width:34px;height:34px;border-radius:10px;display:flex;align-items:center;justify-content:center}
+  .cffx-hibadge{font-size:11px;font-weight:700;padding:3px 10px;border-radius:999px;white-space:nowrap}
+  .cffx-hil{font-size:13px;color:var(--ink-2);margin-top:12px}
+  .cffx-hiv{font-size:24px;font-weight:800;letter-spacing:-.5px;margin-top:2px}
+  .cffx-his{font-size:11.5px;color:var(--ink-3);margin-top:3px}
+  .cffx-colhd{display:grid;grid-template-columns:1fr 116px 150px 38px;gap:10px;align-items:center;padding:0 12px 9px;margin-top:8px;border-bottom:1.5px solid var(--glass-border)}
+  .cffx-colhd>div{font-size:12px;font-weight:700;color:var(--ink-3);letter-spacing:.3px}
+  .cffx-chead{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;border-radius:13px;padding:12px 15px;margin-top:12px;cursor:pointer;background:rgba(var(--brand-rgb),.05);border:1px solid var(--glass-border);transition:.12s}
+  .cffx-chead:hover{background:rgba(var(--brand-rgb),.09)}
+  .cffx-irow{display:grid;grid-template-columns:1fr 116px 150px 38px;gap:10px;align-items:center;padding:10px 12px;border-radius:11px;transition:background .12s}
+  .cffx-irow:hover{background:rgba(var(--brand-rgb),.05)}
+  .cffx-irow:hover .cffx-trash{opacity:1}
+  .cffx-pill{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:600;padding:5px 11px;border-radius:8px;white-space:nowrap}
+  .cffx-trash{width:30px;height:30px;border-radius:8px;border:1px solid var(--glass-border);background:rgba(255,255,255,.6);display:flex;align-items:center;justify-content:center;cursor:pointer;opacity:.3;transition:all .14s}
+  .cffx-trash:hover{background:#FEE2E2;border-color:#FCA5A5}
+  .cffx-grand{display:grid;grid-template-columns:1fr auto 150px 38px;gap:10px;align-items:center;margin-top:16px;padding:15px 16px;border-radius:14px;background:linear-gradient(135deg,var(--brand),var(--brand-dark));box-shadow:var(--lift)}
+  @media(max-width:760px){.cffx-hi{grid-template-columns:1fr}}
+  `;
+  document.head.appendChild(s);
+}
 /* bank logo: ใช้ไฟล์ local ใน logos bank/ ก่อน → fallback Clearbit → fallback bank code text */
 function cffBankLogo(bankCode){
   const code = String(bankCode||"").toUpperCase();
@@ -9399,6 +9429,7 @@ async function renderToolCashflowStaff(){
   const co = COMPANIES.find(c=>c.id===state.company);
   const main = document.getElementById("main");
   const d = cffGet();
+  cffInjectStaffCSS();
 
   main.innerHTML = `
     <div class="page-head"><h1>${esc(t.name)} <span class="badge">${esc(co.name)}</span></h1><div class="sub">กำลังโหลด...</div></div>
@@ -9469,6 +9500,36 @@ async function renderToolCashflowStaff(){
   const fmt = (n) => Math.abs(Number(n||0)).toLocaleString("th-TH", { minimumFractionDigits:2, maximumFractionDigits:2 });
   const fmtParen = (n) => Number(n||0) < 0 ? "(" + fmt(n) + ")" : fmt(n);
 
+  // ★ pill สีตามวันครบกำหนด (เทียบวันนี้): เลยกำหนด=แดง · ใกล้กำหนด(≤3วัน)/วันนี้=อำพัน · ตามกำหนด=เทา
+  const dueMeta = (iso) => {
+    if(!iso) return { color:"#64748B", bg:"#F1F5F9", label:"ตามกำหนด" };
+    if(iso < todayISO)  return { color:"#DC2626", bg:"#FEE2E2", label:"เลยกำหนด" };
+    if(iso === todayISO) return { color:"#D97706", bg:"#FEF3C7", label:"รอบวันนี้" };
+    const dd = Math.round((new Date(iso) - new Date(todayISO))/86400000);
+    if(dd <= 3) return { color:"#D97706", bg:"#FEF3C7", label:"ใกล้กำหนด" };
+    return { color:"#64748B", bg:"#F1F5F9", label:"ตามกำหนด" };
+  };
+  // ไอคอน Lucide ต่อหมวด
+  const catIcon = (name) => {
+    const n = name || "";
+    if(/ประจำ/.test(n)) return "repeat";
+    if(/การค้า|จัดซื้อ|เจ้าหนี้/.test(n)) return "truck";
+    if(/ดำเนินงาน|operating/i.test(n)) return "briefcase";
+    if(/เงินเดือน|payroll|พนักงาน/.test(n)) return "users";
+    if(/ภาษี|สรรพากร/.test(n)) return "receipt";
+    if(/กู้|สินเชื่อ|ดอกเบี้ย/.test(n)) return "landmark";
+    return "folder";
+  };
+
+  // ★ ไฮไลต์: เลยกำหนด · รอบจ่ายหนักสุด · สภาพคล่องสุทธิ
+  const overdueItems = filtered.filter(p => p.original_due && p.original_due < todayISO);
+  const overdueTotal = overdueItems.reduce((s,p) => s + p.amount, 0);
+  const byDay = {};
+  filtered.forEach(p => { byDay[p.due_date] = (byDay[p.due_date]||0) + p.amount; });
+  let heavyDate = "", heavyAmt = -1;
+  Object.entries(byDay).forEach(([k,v]) => { if(v > heavyAmt){ heavyAmt = v; heavyDate = k; } });
+  const netStatusLabel = netCash >= 0 ? "เพียงพอจ่ายได้ครบทุกรอบ" : "เงินไม่เพียงพอ ต้องเตรียมเพิ่ม";
+
   const periodLabel = d.staffMode === "day" ? fmtDate(d.staffDate)
                     : d.staffMode === "range" ? `${d.staffFrom?fmtDate(d.staffFrom):'?'} → ${d.staffTo?fmtDate(d.staffTo):'?'}`
                     : (upcomingDates[0] ? `ทั้งหมด · ${fmtDate(upcomingDates[0])}–${fmtDate(upcomingDates[upcomingDates.length-1])}` : 'ทั้งหมด');
@@ -9516,6 +9577,41 @@ async function renderToolCashflowStaff(){
       <div class="kpi ${negCount>0?'warn':'in'}"><div class="kpi-ic"><i data-lucide="${negCount>0?'alert-triangle':'check-circle'}"></i></div><div class="kpi-l">บัญชีติดลบ</div><div class="kpi-n">${negCount}</div><div class="kpi-d">${esc(negBanks||"ไม่มี")}</div></div>
     </div>
 
+    <!-- Key Highlights -->
+    <div style="display:flex;align-items:center;gap:9px;margin:20px 0 11px">
+      <i data-lucide="sparkles" style="width:18px;height:18px;color:var(--brand)"></i>
+      <span style="font-size:14px;font-weight:800;color:var(--ink)">ไฮไลต์สำคัญ</span>
+    </div>
+    <div class="cffx-hi">
+      <div class="cffx-hicard" style="--hc:#DC2626;--hcbg:#FEF2F4;--hcbd:#F6CBD6">
+        <div class="cffx-hitop">
+          <span class="cffx-hiic" style="background:#FEE2E2"><i data-lucide="alert-triangle" style="width:18px;height:18px;color:#DC2626"></i></span>
+          <span class="cffx-hibadge" style="background:#FEE2E2;color:#DC2626">${overdueItems.length} รายการ</span>
+        </div>
+        <div class="cffx-hil">ต้องจ่ายที่เลยกำหนดแล้ว</div>
+        <div class="cffx-hiv tnum" style="color:#DC2626">${fmt(overdueTotal)}</div>
+        <div class="cffx-his">ควรเคลียร์ก่อนเป็นอันดับแรก</div>
+      </div>
+      <div class="cffx-hicard" style="--hc:#B45309;--hcbg:#FFF8EC;--hcbd:#F4DEB4">
+        <div class="cffx-hitop">
+          <span class="cffx-hiic" style="background:#FEF0DC"><i data-lucide="bar-chart-3" style="width:18px;height:18px;color:#B45309"></i></span>
+          <span class="cffx-hibadge" style="background:#FEF0DC;color:#B45309">${heavyDate?esc(fmtDate(heavyDate)):'–'}</span>
+        </div>
+        <div class="cffx-hil">รอบจ่ายหนักสุด</div>
+        <div class="cffx-hiv tnum" style="color:#B45309">${heavyAmt>=0?fmt(heavyAmt):'0.00'}</div>
+        <div class="cffx-his">เตรียมสภาพคล่องให้พร้อมรอบนี้</div>
+      </div>
+      <div class="cffx-hicard" style="--hc:var(--brand);--hcbg:rgba(var(--brand-rgb),.07);--hcbd:rgba(var(--brand-rgb),.25)">
+        <div class="cffx-hitop">
+          <span class="cffx-hiic" style="background:rgba(var(--brand-rgb),.12)"><i data-lucide="shield-check" style="width:18px;height:18px;color:var(--brand)"></i></span>
+          <span class="cffx-hibadge" style="background:rgba(var(--brand-rgb),.12);color:var(--brand)">หลังจ่ายครบ</span>
+        </div>
+        <div class="cffx-hil">สภาพคล่องคงเหลือสุทธิ</div>
+        <div class="cffx-hiv tnum" style="color:${netCash<0?'#DC2626':'var(--brand)'}">${fmtParen(netCash)}</div>
+        <div class="cffx-his">${esc(netStatusLabel)}</div>
+      </div>
+    </div>
+
     <!-- Cash Bridge -->
     <div class="card">
       <h3><i data-lucide="git-fork"></i>Cash Bridge</h3>
@@ -9554,30 +9650,63 @@ async function renderToolCashflowStaff(){
       </div>
     </div>
 
-    <!-- Pivot: ค่าใช้จ่ายถึงกำหนดชำระ แยกตามหมวด -->
+    <!-- ⭐ ค่าใช้จ่ายถึงกำหนดชำระ แยกตามหมวด (ออกแบบใหม่) -->
     <div class="card">
-      <h3><i data-lucide="list-tree"></i>ค่าใช้จ่ายถึงกำหนดชำระ</h3>
-      <div class="note">แยกตามหมวด · ${esc(periodLabel)}</div>
+      <div style="display:flex;align-items:flex-end;justify-content:space-between;flex-wrap:wrap;gap:12px">
+        <div>
+          <h3 style="margin-bottom:2px"><i data-lucide="list-tree"></i>ค่าใช้จ่ายถึงกำหนดชำระ</h3>
+          <div class="note" style="margin-top:0">แยกตามหมวด · ${esc(periodLabel)}</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:14px">
+          <span style="display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--ink-3)"><span style="width:8px;height:8px;border-radius:50%;background:#DC2626"></span>เลยกำหนด</span>
+          <span style="display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--ink-3)"><span style="width:8px;height:8px;border-radius:50%;background:#D97706"></span>ใกล้กำหนด</span>
+          <span style="display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--ink-3)"><span style="width:8px;height:8px;border-radius:50%;background:#64748B"></span>ตามกำหนด</span>
+        </div>
+      </div>
       ${cats.length === 0 ? `<div class="empty">ไม่มีรายการ</div>` : `
-      <div class="table-wrap" style="margin-top:4px">
-        <table>
-          <thead><tr><th>หมวด / รายการ</th><th>ครบกำหนด</th><th class="num">จำนวน (บาท)</th></tr></thead>
-          <tbody>
-            ${cats.map(([cat, info]) => `
-              <tr class="cat-row"><td>${esc(cat)}</td><td></td><td class="num">${info.total.toLocaleString("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2})}</td></tr>
-              ${info.items.map(p => {
-                // ★ คำอธิบายเต็ม = remark + internal_note (เหมือนหน้า AP)
-                const fullDesc = [p.remark, p.internalNote].filter(Boolean).join(" · ");
-                // ★ ค่าใช้จ่ายประจำ (ประมาณการเอง) → กดลบออกจากประมาณการได้
-                const delBtn = (canWrite && p.type==="recurring" && p.recurringId)
-                  ? `<button title="ลบออกจากประมาณการ (เฉพาะวันนี้)" onclick="cffSkipRecurring('${p.recurringId}','${p.due_date}',${p.amount})" style="margin-left:8px;border:none;background:transparent;color:var(--out-ink);cursor:pointer;font-size:12px;font-weight:800;padding:0 5px;border-radius:5px;line-height:1">✕</button>`
-                  : '';
-                return `<tr class="sub-row"><td>${esc(p.vendor)}${p.detail?` / ${esc(p.detail)}`:''}${fullDesc?` — ${esc(fullDesc)}`:''}${delBtn}</td><td>${esc(fmtDate(p.original_due))}</td><td class="num">${p.amount.toLocaleString("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2})}</td></tr>`;
-              }).join("")}
-            `).join("")}
-            <tr class="tot-row"><td>รวมทั้งสิ้น</td><td></td><td class="num">${totalDue.toLocaleString("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2})}</td></tr>
-          </tbody>
-        </table>
+      <div class="cffx-colhd">
+        <div>หมวด / รายการ</div><div>ครบกำหนด</div><div style="text-align:right">จำนวน (บาท)</div><div></div>
+      </div>
+      ${cats.map(([cat, info]) => {
+        const open = (d.catOpen||{})[cat] !== false;
+        return `
+        <div class="cffx-chead" onclick="cffToggleCat(${JSON.stringify(cat).replace(/"/g,'&quot;')})">
+          <div style="display:flex;align-items:center;gap:11px;min-width:0">
+            <i data-lucide="chevron-down" style="width:17px;height:17px;color:var(--brand);transition:transform .2s;transform:rotate(${open?0:-90}deg)"></i>
+            <span style="width:31px;height:31px;border-radius:9px;background:rgba(var(--brand-rgb),.1);display:inline-flex;align-items:center;justify-content:center;color:var(--brand);flex:none"><i data-lucide="${catIcon(cat)}" style="width:17px;height:17px"></i></span>
+            <span style="font-size:15px;font-weight:700;color:var(--ink)">${esc(cat)}</span>
+            <span style="font-size:11.5px;font-weight:600;color:var(--brand);background:rgba(var(--brand-rgb),.1);padding:2px 9px;border-radius:999px;white-space:nowrap">${info.items.length} รายการ</span>
+          </div>
+          <div style="text-align:right">
+            <div style="font-size:11px;color:var(--ink-3);line-height:1">ยอดรวมหมวด</div>
+            <div class="tnum" style="font-size:18px;font-weight:800;color:var(--ink);letter-spacing:-.3px">${fmt(info.total)}</div>
+          </div>
+        </div>
+        ${open ? `<div style="margin-top:4px">${info.items.map((p,i) => {
+          const fullDesc = [p.detail, p.remark, p.internalNote].filter(Boolean).join(" · ");
+          const dm = dueMeta(p.original_due);
+          const canDel = canWrite && p.type==="recurring" && p.recurringId;
+          return `<div class="cffx-irow" style="background:${i%2?'rgba(99,120,160,.035)':'transparent'}">
+            <div style="min-width:0">
+              <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;row-gap:3px">
+                <span style="font-size:14.5px;font-weight:600;color:var(--ink);line-height:1.3">${esc(p.vendor)}</span>
+                ${p.type==="recurring" ? `<span style="font-size:10.5px;font-weight:600;color:var(--brand);background:rgba(var(--brand-rgb),.1);padding:1px 8px;border-radius:999px;white-space:nowrap">ประจำ</span>` : ''}
+              </div>
+              ${fullDesc ? `<div style="font-size:12.5px;color:var(--ink-3);line-height:1.4;margin-top:2px">${esc(fullDesc)}</div>` : ''}
+            </div>
+            <div><span class="cffx-pill" style="background:${dm.bg};color:${dm.color}"><span style="width:6px;height:6px;border-radius:50%;background:${dm.color}"></span>${esc(fmtDate(p.original_due))}</span></div>
+            <div class="tnum" style="font-size:16.5px;font-weight:700;color:var(--ink);text-align:right;letter-spacing:-.3px">${fmt(p.amount)}</div>
+            <div style="display:flex;justify-content:center">
+              ${canDel ? `<div class="cffx-trash" title="ลบออกจากประมาณการ (เฉพาะวันนี้)" onclick="event.stopPropagation();cffSkipRecurring('${p.recurringId}','${p.due_date}',${p.amount})"><i data-lucide="trash-2" style="width:15px;height:15px;color:#94A0B4"></i></div>` : ''}
+            </div>
+          </div>`;
+        }).join("")}</div>` : ''}`;
+      }).join("")}
+      <div class="cffx-grand">
+        <span style="font-size:16px;font-weight:700;color:#fff">รวมทั้งสิ้น</span>
+        <span style="font-size:13px;color:rgba(255,255,255,.78);white-space:nowrap">${filtered.length} รายการ</span>
+        <span class="tnum" style="font-size:22px;font-weight:800;color:#fff;text-align:right;letter-spacing:-.4px">${fmt(totalDue)}</span>
+        <span></span>
       </div>`}
       ${(canWrite && dt.recSkips && dt.recSkips.length) ? `
       <div style="margin-top:12px;padding:10px 12px;background:var(--bg);border-radius:8px;font-size:11.5px">

@@ -3988,8 +3988,8 @@ async function renderToolUsers(){
   const co = COMPANIES.find(c=>c.id===state.company);
   const main = document.getElementById("main");
 
-  // gate: admin only (ยกเว้นโหมดพรีเซนต์ — เปิดให้ดูหน้านี้หน้าเดียว)
-  if(AUTH.role !== "admin" && !AUTH.isPresent()){
+  // gate: admin only (จัดการผู้ใช้ — present ห้ามเข้า)
+  if(AUTH.role !== "admin"){
     main.innerHTML = `
       <div class="page-head"><h1>${t.name}</h1></div>
       <div class="card" style="text-align:center;padding:48px 20px">
@@ -5002,7 +5002,7 @@ function renderToolExecDash(){
   // sync จาก Supabase ใน background (ถ้ามีของใหม่จะ re-render เอง)
   edSyncFromCloud();
 
-  if(AUTH.role !== "admin"){
+  if(AUTH.role !== "admin" && !AUTH.isPresent()){   // present เห็น Exec Cash Flow ได้
     main.innerHTML = `
       <div class="page-head"><h1>${t.name}</h1></div>
       <div class="card" style="text-align:center;padding:48px 20px">

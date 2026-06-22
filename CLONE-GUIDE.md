@@ -76,6 +76,14 @@ const APP_CONFIG = {
 
 **สำหรับ "คุมค่าใช้จ่ายบ้าน"** ก็ตั้งเหมือนกัน เปลี่ยนแค่ `name:"บ้านนาย"` (id ใช้ "mbark" จะได้สีกันสับสนกับ บ.เล็ก)
 
+### 3.3 ⚠️ สำคัญ — แก้ project ref ใน workflow migration
+`.github/workflows/migrate.yml` มีบรรทัด **hardcode project ref ของเว็บเดิม** — ถ้าไม่แก้ migration จะวิ่งไป **DB เดิม**!
+```yaml
+SUPA_PROJECT_REF: qbsuynmsjieqglxzbqpw   # ← เปลี่ยนเป็น project ref ของ Supabase ใหม่
+```
+project ref = ส่วนหน้าของ URL (เช่น `https://abcd1234.supabase.co` → ref = `abcd1234`)
+> `backup.yml` ไม่ต้องแก้ (ใช้ secret `SUPABASE_DB_URL` อยู่แล้ว)
+
 ---
 
 ## ขั้น 4 — Secrets + push (migration สร้างตารางเอง)

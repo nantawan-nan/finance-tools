@@ -10633,6 +10633,68 @@ async function brecUpload(kind){
   }
 }
 
+/* ล้างแถวซ้ำที่เกิดจากอัป STM/Express หลายครั้ง (ก่อนมี dedup ระดับแถว)
+   — เก็บไว้ 1 แถวต่อลายเซ็น · ถ้าแถวไหนถูกจับคู่ไว้แล้วจะเก็บอันนั้นไว้เสมอ (ไม่ทำให้ match พัง) */
+async function brecDedupExisting(){
+  if(!brecCanWrite()){ alert("ไม่มีสิทธิ์"); return; }
+  const d = brecGet();
+  const co = d.companyId || await fopCompanyId();
+  if(!co){ alert("หา company_id ไม่เจอ"); return; }
+  if(!d.accountId){ alert("เลือกบัญชีก่อน"); return; }
+  if(!confirm("ล้างแถวซ้ำของบัญชีนี้?\n\nเก็บไว้ 1 แถวต่อรายการ — แถวที่จับคู่/กระทบยอดไว้แล้วจะถูกเก็บไว้เสมอ")) return;
+  d.busy = true; brecRefresh();
+  try{
+    const ids = await brecSiblingAccountIds(d, co, d.accountId);
+    // โหลดทุกแถว (ไม่กรองงวด) + matches เพื่อรู้ว่าแถวไหนถูกจับคู่
+    const [exRes, bkRes, mRes] = await Promise.all([
+      sb.from("brec_express_rows").select("id,txn_date,withdrawal,deposit,balance,doc_no,raw_row,created_at").eq("company_id",co).in("bank_account_id",ids).is("deleted_at",null).limit(100000),
+      sb.from("brec_bank_rows").select("id,txn_date,withdrawal,deposit,balance,cheque_no,ref_note,raw_row,created_at").eq("company_id",co).in("bank_account_id",ids).is("deleted_at",null).limit(100000),
+      sb.from("brec_matches").select("express_row_id,bank_row_id").eq("company_id",co).in("bank_account_id",ids).is("deleted_at",null).limit(100000)
+    ]);
+    if(exRes.error) throw exRes.error;
+    if(bkRes.error) throw bkRes.error;
+    const matched = new Set();
+    (mRes.data||[]).forEach(m=>{ if(m.express_row_id) matched.add("e:"+m.express_row_id); if(m.bank_row_id) matched.add("b:"+m.bank_row_id); });
+
+    // หา id แถวที่ต้องลบ (เก็บแถว matched ไว้ก่อน, ที่เหลือเก็บอันแรกตาม raw_row/created_at)
+    function findDupes(rows, source, mkey){
+      const groups = new Map();
+      for(const r of rows){
+        const sig = brecRowSig(r, source);
+        if(!groups.has(sig)) groups.set(sig, []);
+        groups.get(sig).push(r);
+      }
+      const toDelete = [];
+      for(const g of groups.values()){
+        if(g.length < 2) continue;
+        const isM = r => matched.has(mkey+":"+r.id);
+        const hasMatched = g.some(isM);
+        // ลบเฉพาะแถวที่ "ไม่ถูกจับคู่" — ถ้ามีแถว matched อยู่ ลบ unmatched ทั้งหมด
+        // ถ้าไม่มี matched เลย เก็บอันแรก (เรียงตาม raw_row→created_at) ลบที่เหลือ
+        const unmatched = g.filter(r=>!isM(r)).sort((a,b)=>(a.raw_row??1e9)-(b.raw_row??1e9) || String(a.created_at).localeCompare(String(b.created_at)));
+        const start = hasMatched ? 0 : 1; // ไม่มี matched → เก็บอันแรกไว้
+        for(let i=start;i<unmatched.length;i++) toDelete.push(unmatched[i].id);
+      }
+      return toDelete;
+    }
+    const exDel = findDupes(exRes.data||[], "express", "e");
+    const bkDel = findDupes(bkRes.data||[], "bank", "b");
+    if(!exDel.length && !bkDel.length){
+      alert("ไม่พบแถวซ้ำ ✓");
+      d.busy=false; brecRefresh(); return;
+    }
+    const ts = new Date().toISOString();
+    const CH = 200;
+    for(let i=0;i<exDel.length;i+=CH){ const {error}=await sb.from("brec_express_rows").update({deleted_at:ts}).in("id",exDel.slice(i,i+CH)); if(error) throw error; }
+    for(let i=0;i<bkDel.length;i+=CH){ const {error}=await sb.from("brec_bank_rows").update({deleted_at:ts}).in("id",bkDel.slice(i,i+CH)); if(error) throw error; }
+    await brecLoad(); brecRefresh();
+    alert(`ล้างแถวซ้ำแล้ว ✓\n• Express: ${exDel.length} แถว\n• Bank: ${bkDel.length} แถว\n\nแถวที่จับคู่ไว้ยังอยู่ครบ`);
+  }catch(e){
+    alert("ล้างแถวซ้ำล้มเหลว: "+(e.message||e));
+    d.busy=false; brecRefresh();
+  }
+}
+
 /* ---------- ACTIONS ---------- */
 async function brecRunAutoMatch(){
   if(!brecCanWrite()){ alert("ไม่มีสิทธิ์"); return; }
@@ -11141,6 +11203,7 @@ async function renderToolBankRec(){
         <button class="brec-btn" onclick="brecUpload('stmt')" ${brecCanWrite()?'':'disabled'}><i data-lucide="upload"></i> Statement</button>
         <button class="brec-btn primary" onclick="brecRunAutoMatch()" ${brecCanWrite()&&!noAcct?'':'disabled'}><i data-lucide="zap"></i> จับคู่อัตโนมัติ</button>
         <button class="brec-btn" onclick="brecExportXlsx()" ${noAcct?'disabled':''}><i data-lucide="download"></i> Export</button>
+        <button class="brec-btn" onclick="brecDedupExisting()" ${brecCanWrite()&&!noAcct?'':'disabled'} title="ลบแถวซ้ำที่เกิดจากอัป STM/Express หลายครั้ง — เก็บแถวที่จับคู่ไว้เสมอ"><i data-lucide="copy-minus"></i> ล้างแถวซ้ำ</button>
         <button class="brec-btn" onclick="bmpOpenUpload()" ${brecCanWrite()?'':'disabled'} style="background:#fef3c7;border-color:#fde68a;color:#92400e"><i data-lucide="shopping-bag"></i> Marketplace (3 ไฟล์)</button>
       </div>
 

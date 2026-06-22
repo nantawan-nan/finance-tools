@@ -50,6 +50,19 @@ CREATE TABLE IF NOT EXISTS orders (
   deleted_by      uuid,
   version         int NOT NULL DEFAULT 1
 );
+-- ★ ALTER ครบทุก column — กันกรณีตารางถูกสร้างด้วยเวอร์ชัน minimal ก่อนหน้า
+--   (CREATE TABLE IF NOT EXISTS ข้ามถ้าตารางมีอยู่แล้ว → ต้อง ADD COLUMN ตามทีหลัง)
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS order_id text;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS iv_no text;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS channel text;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS channel_group text;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS customer text;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'active';
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS order_date date;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS iv_date date;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS sale_amount numeric(18,2);
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS sale_keyed_at timestamptz;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS sale_src text;
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS products text;
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS order_total numeric(18,2);
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS shipping_fee numeric(18,2);
@@ -60,6 +73,19 @@ ALTER TABLE orders ADD COLUMN IF NOT EXISTS is_returned boolean NOT NULL DEFAULT
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS sale_status_raw text;
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS order_src text;
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS order_ingested_at timestamptz;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS ar_outstanding numeric(18,2);
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS ar_uploaded_at timestamptz;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS re_no text;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS cheque_no text;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS receipt_gross numeric(18,2);
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS receipt_net numeric(18,2);
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS receipt_fee numeric(18,2);
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS received_at timestamptz;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS bq_no text;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS deposit_date date;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS bank_in_date date;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS bank_amount numeric(18,2);
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS bank_matched boolean NOT NULL DEFAULT false;
 ALTER TABLE orders ALTER COLUMN iv_no DROP NOT NULL;
 
 CREATE TABLE IF NOT EXISTS order_events (

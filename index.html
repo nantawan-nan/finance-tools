@@ -9338,6 +9338,8 @@ function cffStaffPayments(dt, d){
   let winEnd = new Date(today.getFullYear(), today.getMonth()+2, 0); // สิ้นเดือนถัดไป
   if(d && d.staffTo){ const st = new Date(d.staffTo); if(st > winEnd) winEnd = st; }
   const winStartISO = cffISO(winStart), winEndISO = cffISO(winEnd);
+  // ★ recurring (ประมาณการ) เริ่มนับจาก "วันนี้" — งวดประจำที่ผ่านไปแล้วในเดือนนี้ถือว่าจ่ายแล้ว ไม่เอามาคิด
+  const recFromISO = dt.todayISO > winStartISO ? dt.todayISO : winStartISO;
   // dedupe กับงวดที่ materialise แล้ว (recurring_occurrences) กันนับซ้ำ
   const occKeys = new Set((dt.recOccs||[]).map(r => `${r.due_date}|${(r.recurring_expenses&&r.recurring_expenses.name)||""}`));
   // ★ งวดที่ จนท. กด "ลบ" (skipped) → ซ่อนออกจากประมาณการ (key = recurring_id|due_date)
@@ -9345,7 +9347,7 @@ function cffStaffPayments(dt, d){
   // 2a) งวดที่ materialise แล้ว และอยู่ในช่วง
   for(const r of (dt.recOccs||[])){
     if(Number(r.expected_amount||0) <= 0) continue;
-    if(r.due_date < winStartISO || r.due_date > winEndISO) continue;
+    if(r.due_date < recFromISO || r.due_date > winEndISO) continue;
     if(skipSet.has(`${r.recurring_id}|${r.due_date}`)) continue;
     payments.push({
       type:"recurring", category: "ค่าใช้จ่ายประจำ",   // ★ รวมทุก recurring ไว้กลุ่มเดียว
@@ -9363,7 +9365,7 @@ function cffStaffPayments(dt, d){
       const lastDay = new Date(m.getFullYear(), m.getMonth()+1, 0).getDate();
       const dom = r.day_of_month === -1 ? lastDay : Math.min(r.day_of_month, lastDay);
       const k = cffISO(new Date(m.getFullYear(), m.getMonth(), dom));
-      if(k < winStartISO || k > winEndISO) continue;
+      if(k < recFromISO || k > winEndISO) continue;
       if(occKeys.has(`${k}|${r.name}`)) continue;  // ซ้ำกับงวดจริง
       if(skipSet.has(`${r.id}|${k}`)) continue;     // ★ ถูกกดลบไว้
       payments.push({

@@ -405,10 +405,23 @@ const AUTH = {
     if(action==="upload_withdrawal") return this.role==="finance";
     return true; // view dashboard
   },
-  isReadOnly(){ return !this.role || this.role==="viewer"; }
+  isReadOnly(){ return !this.role || this.role==="viewer"; },
+  // โหมดพรีเซนต์: เห็นแค่หน้า Executive Cash Flow (ผูกกับบัญชี present)
+  isPresent(){ return (this.email||"").toLowerCase() === PRESENT_EMAIL; }
 };
 
+/* ---------- โหมดพรีเซนต์ (รหัสพิเศษ) ----------
+   nisa พิมพ์อีเมลตัวเอง + present2026 → ระบบสลับเข้าบัญชี present อัตโนมัติ
+   บัญชี present เห็นแค่หน้า Executive Cash Flow (read-only) — ไม่ขึ้นแท็บอื่น */
+const PRESENT_EMAIL       = "present@benyamedical.com";   // บัญชีจริงใน Supabase (read-only, role executive)
+const PRESENT_ALIAS_EMAIL = "nisa.y@benyamedical.com";    // อีเมลที่ nisa พิมพ์
+const PRESENT_PW          = "present2026";                // รหัสพิเศษ = รหัสบัญชี present
+
 async function authSignIn(email, password){
+  // ★ รหัสพิเศษ present2026 + อีเมล nisa → เข้าบัญชี present (เห็นแค่ Exec Cash Flow)
+  if((email||"").toLowerCase()===PRESENT_ALIAS_EMAIL && password===PRESENT_PW){
+    email = PRESENT_EMAIL; password = PRESENT_PW;
+  }
   const { data, error } = await sb.auth.signInWithPassword({ email, password });
   if(error) throw error;
   await AUTH.refresh();
@@ -499,6 +512,7 @@ async function renderApp(){
     await authSignOut();
     return;
   }
+  if(AUTH.isPresent()) state.tool = "execdash";   // โหมดพรีเซนต์ → เปิดที่ Exec Cash Flow เสมอ
   buildShell();
   applyCompanyTheme(state.company);
   renderSidebar();
@@ -736,9 +750,11 @@ function renderSidebar(){
   }
 
   // group tools by stage (เรียงตามลำดับใน TOOLS)
+  const present = AUTH.isPresent();
   const stages = {}, stageOrder = [];
   TOOLS.forEach(t => {
-    if(t.adminOnly && AUTH.role!=="admin") return;
+    if(present && t.id!=="execdash") return;            // โหมดพรีเซนต์ → เห็นแค่ Exec Cash Flow
+    if(!present && t.adminOnly && AUTH.role!=="admin") return;
     if(!stages[t.stage]){ stages[t.stage] = []; stageOrder.push(t.stage); }
     stages[t.stage].push(t);
   });
@@ -799,6 +815,7 @@ function setTool(id){
 
 /* ---------- render: tool page ---------- */
 function renderTool(){
+  if(AUTH.isPresent() && state.tool!=="execdash") state.tool = "execdash";  // โหมดพรีเซนต์ล็อกที่หน้าเดียว
   const t = TOOLS.find(x=>x.id===state.tool);
   updateCrumb();
   if (t.multiInput) {
@@ -3970,8 +3987,8 @@ async function renderToolUsers(){
   const co = COMPANIES.find(c=>c.id===state.company);
   const main = document.getElementById("main");
 
-  // gate: admin only
-  if(AUTH.role !== "admin"){
+  // gate: admin only (ยกเว้นโหมดพรีเซนต์ — เปิดให้ดูหน้านี้หน้าเดียว)
+  if(AUTH.role !== "admin" && !AUTH.isPresent()){
     main.innerHTML = `
       <div class="page-head"><h1>${t.name}</h1></div>
       <div class="card" style="text-align:center;padding:48px 20px">
@@ -4926,6 +4943,51 @@ function edMakeChart(id, cfg){
   if(!el || !window.Chart) return;
   _edCharts[id] = new Chart(el.getContext("2d"), cfg);
 }
+/* plugin: ตัวเลขสั้นบนหัวแท่ง (เช่น +272K) — ใช้กับชาร์จ bar ไม่ stacked */
+const edBarLabelPlugin = {
+  id:"edBarLabel",
+  afterDatasetsDraw(chart){
+    const ctx = chart.ctx;
+    ctx.save();
+    ctx.font = "600 10px 'IBM Plex Sans Thai','IBM Plex Sans',sans-serif";
+    ctx.textAlign = "center";
+    chart.data.datasets.forEach((ds, di) => {
+      const meta = chart.getDatasetMeta(di);
+      if(meta.hidden) return;
+      const isNet = /สุทธิ/.test(ds.label||"");
+      meta.data.forEach((bar, i) => {
+        const v = Number(ds.data[i]) || 0;
+        if(!v) return;
+        const txt = (isNet && v>0 ? "+" : "") + edFmtCompact(v);
+        ctx.fillStyle = (typeof ds.backgroundColor==="string" ? ds.backgroundColor : "#475569");
+        ctx.fillText(txt, bar.x, v>=0 ? bar.y-4 : bar.y+12);
+      });
+    });
+    ctx.restore();
+  }
+};
+/* plugin: % กลางชิ้นโดนัท */
+const edDonutPctPlugin = {
+  id:"edDonutPct",
+  afterDatasetsDraw(chart){
+    const ctx = chart.ctx;
+    const ds = chart.data.datasets[0]; if(!ds) return;
+    const meta = chart.getDatasetMeta(0);
+    const total = ds.data.reduce((s,v)=>s+(Number(v)||0),0);
+    if(!total) return;
+    ctx.save();
+    ctx.font = "700 12px 'IBM Plex Sans','IBM Plex Sans Thai',sans-serif";
+    ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    meta.data.forEach((arc, i) => {
+      const pct = (Number(ds.data[i])||0)/total*100;
+      if(pct < 5) return;                 // ชิ้นเล็กเกินไม่โชว์ กันรก
+      const pos = arc.tooltipPosition();
+      ctx.fillStyle = "#fff";
+      ctx.fillText(pct.toFixed(0)+"%", pos.x, pos.y);
+    });
+    ctx.restore();
+  }
+};
 
 /* ---------- Main render ---------- */
 function renderToolExecDash(){
@@ -5871,10 +5933,11 @@ function edRenderSummary(){
     data:{ labels:months, datasets:[
       { label:"เงินรับ",   data:inData,  backgroundColor:ED_COLORS.in,  borderRadius:6, order:2 },
       { label:"เงินจ่าย",  data:outData, backgroundColor:ED_COLORS.out, borderRadius:6, order:2 },
-      { label:"สุทธิ", type:"bar", data:netData, backgroundColor:ED_COLORS.brand, borderRadius:6, order:2 }
+      { label:"สุทธิ", type:"bar", data:netData, backgroundColor:"#8B5CF6", borderRadius:6, order:2 }
     ]},
     options:{
       responsive:true, maintainAspectRatio:false,
+      layout:{ padding:{ top:18 } },   // เผื่อที่ป้ายตัวเลขบนหัวแท่ง
       plugins:{ legend:{ position:"bottom" }, tooltip:{ callbacks:{ label:c=>c.dataset.label+": "+edFmt(c.parsed.y) } }, title:{ display:false } },
       scales:{ y:{ ticks:{ callback:v=>edFmtCompact(v) } } },
       onClick: (e, els) => {
@@ -5883,7 +5946,8 @@ function edRenderSummary(){
           edSetMonth(months[i]); edSetTab("explorer");
         }
       }
-    }
+    },
+    plugins:[edBarLabelPlugin]
   });
   edMakeChart("edChartIO", {
     type:"doughnut",
@@ -6209,7 +6273,7 @@ function edRenderActivity(){
   const months = data.months.map(m=>m.key);
   // per month per activity (net)
   // สีพาสเทลตามธีมบริษัท — โทนเดียวกับ Summary (เข้า=in, ออก=out, accent ที่ 3=ส้มพาสเทล)
-  const actCol = { financing:ED_COLORS.in, operating:ED_COLORS.out, investing:"#F2A968" };
+  const actCol = { financing:ED_COLORS.in, operating:ED_COLORS.out, investing:"#8B5CF6" };
   const series = ["fin","op","inv"].map((k)=>{
     const lbls = { op:"ดำเนินงาน", inv:"ลงทุน", fin:"จัดหาเงิน" };
     return {
@@ -6352,7 +6416,8 @@ function edRenderCategory(){
           tooltip:{ callbacks:{ label:c=>{ const pct=T.total?(c.parsed/T.total*100).toFixed(1):0; return " "+c.label+": "+edFmt(c.parsed)+" ("+pct+"%)"; } } }
         },
         onClick:(e,els)=>{ if(els&&els.length){ const k=T.keys[els[0].index]; if(k) edDrillCat(k, dir); } }
-      }
+      },
+      plugins:[edDonutPctPlugin]
     });
   };
   mkPie("edPieIn", inT, inPalette, "in");

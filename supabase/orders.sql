@@ -1,11 +1,12 @@
 -- ================================================================
--- ORDER LEDGER — ทะเบียนคำสั่งซื้อกลาง (consolidated, bulletproof)
+-- ORDER LEDGER — ทะเบียนคำสั่งซื้อกลาง (order_ledger)
+-- ⚠️ ใช้ชื่อ order_ledger (ไม่ใช่ orders) — ตาราง orders เป็นของ Sales Dashboard/BigSeller เดิม (คนละ schema) ห้ามชน
 -- 1 order = 1 row ต่อบริษัท (company_id + order_id) · iv_no เติมทีหลัง
 -- ทุก statement หลัง CREATE TABLE ห่อ EXECUTE+EXCEPTION → ไฟล์ไม่ fail ทั้งก้อน
--- RLS: ปิดไว้ก่อน (เปิดด้วย GRANT) — แอป query กรอง company_id เองอยู่แล้ว
+-- RLS: ปิดไว้ (เปิดด้วย GRANT) — แอป query กรอง company_id เองอยู่แล้ว
 -- Idempotent
 -- ================================================================
-CREATE TABLE IF NOT EXISTS orders (
+CREATE TABLE IF NOT EXISTS order_ledger (
   id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   company_id      uuid NOT NULL,
   order_id        text,
@@ -50,43 +51,42 @@ CREATE TABLE IF NOT EXISTS orders (
   deleted_by      uuid,
   version         int NOT NULL DEFAULT 1
 );
--- ★ ALTER ครบทุก column — กันกรณีตารางถูกสร้างด้วยเวอร์ชัน minimal ก่อนหน้า
---   (CREATE TABLE IF NOT EXISTS ข้ามถ้าตารางมีอยู่แล้ว → ต้อง ADD COLUMN ตามทีหลัง)
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS order_id text;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS iv_no text;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS channel text;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS channel_group text;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS customer text;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'active';
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS order_date date;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS iv_date date;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS sale_amount numeric(18,2);
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS sale_keyed_at timestamptz;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS sale_src text;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS products text;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS order_total numeric(18,2);
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS shipping_fee numeric(18,2);
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS seller_discount numeric(18,2);
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS item_count int;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS returned_qty int;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS is_returned boolean NOT NULL DEFAULT false;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS sale_status_raw text;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS order_src text;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS order_ingested_at timestamptz;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS ar_outstanding numeric(18,2);
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS ar_uploaded_at timestamptz;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS re_no text;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS cheque_no text;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS receipt_gross numeric(18,2);
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS receipt_net numeric(18,2);
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS receipt_fee numeric(18,2);
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS received_at timestamptz;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS bq_no text;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS deposit_date date;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS bank_in_date date;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS bank_amount numeric(18,2);
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS bank_matched boolean NOT NULL DEFAULT false;
-ALTER TABLE orders ALTER COLUMN iv_no DROP NOT NULL;
+-- ★ ALTER ครบทุก column — กันกรณีตารางถูกสร้างด้วยเวอร์ชันก่อนหน้าที่ column ไม่ครบ
+ALTER TABLE order_ledger ADD COLUMN IF NOT EXISTS order_id text;
+ALTER TABLE order_ledger ADD COLUMN IF NOT EXISTS iv_no text;
+ALTER TABLE order_ledger ADD COLUMN IF NOT EXISTS channel text;
+ALTER TABLE order_ledger ADD COLUMN IF NOT EXISTS channel_group text;
+ALTER TABLE order_ledger ADD COLUMN IF NOT EXISTS customer text;
+ALTER TABLE order_ledger ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'active';
+ALTER TABLE order_ledger ADD COLUMN IF NOT EXISTS order_date date;
+ALTER TABLE order_ledger ADD COLUMN IF NOT EXISTS iv_date date;
+ALTER TABLE order_ledger ADD COLUMN IF NOT EXISTS sale_amount numeric(18,2);
+ALTER TABLE order_ledger ADD COLUMN IF NOT EXISTS sale_keyed_at timestamptz;
+ALTER TABLE order_ledger ADD COLUMN IF NOT EXISTS sale_src text;
+ALTER TABLE order_ledger ADD COLUMN IF NOT EXISTS products text;
+ALTER TABLE order_ledger ADD COLUMN IF NOT EXISTS order_total numeric(18,2);
+ALTER TABLE order_ledger ADD COLUMN IF NOT EXISTS shipping_fee numeric(18,2);
+ALTER TABLE order_ledger ADD COLUMN IF NOT EXISTS seller_discount numeric(18,2);
+ALTER TABLE order_ledger ADD COLUMN IF NOT EXISTS item_count int;
+ALTER TABLE order_ledger ADD COLUMN IF NOT EXISTS returned_qty int;
+ALTER TABLE order_ledger ADD COLUMN IF NOT EXISTS is_returned boolean NOT NULL DEFAULT false;
+ALTER TABLE order_ledger ADD COLUMN IF NOT EXISTS sale_status_raw text;
+ALTER TABLE order_ledger ADD COLUMN IF NOT EXISTS order_src text;
+ALTER TABLE order_ledger ADD COLUMN IF NOT EXISTS order_ingested_at timestamptz;
+ALTER TABLE order_ledger ADD COLUMN IF NOT EXISTS ar_outstanding numeric(18,2);
+ALTER TABLE order_ledger ADD COLUMN IF NOT EXISTS ar_uploaded_at timestamptz;
+ALTER TABLE order_ledger ADD COLUMN IF NOT EXISTS re_no text;
+ALTER TABLE order_ledger ADD COLUMN IF NOT EXISTS cheque_no text;
+ALTER TABLE order_ledger ADD COLUMN IF NOT EXISTS receipt_gross numeric(18,2);
+ALTER TABLE order_ledger ADD COLUMN IF NOT EXISTS receipt_net numeric(18,2);
+ALTER TABLE order_ledger ADD COLUMN IF NOT EXISTS receipt_fee numeric(18,2);
+ALTER TABLE order_ledger ADD COLUMN IF NOT EXISTS received_at timestamptz;
+ALTER TABLE order_ledger ADD COLUMN IF NOT EXISTS bq_no text;
+ALTER TABLE order_ledger ADD COLUMN IF NOT EXISTS deposit_date date;
+ALTER TABLE order_ledger ADD COLUMN IF NOT EXISTS bank_in_date date;
+ALTER TABLE order_ledger ADD COLUMN IF NOT EXISTS bank_amount numeric(18,2);
+ALTER TABLE order_ledger ADD COLUMN IF NOT EXISTS bank_matched boolean NOT NULL DEFAULT false;
+ALTER TABLE order_ledger ALTER COLUMN iv_no DROP NOT NULL;
 
 CREATE TABLE IF NOT EXISTS order_events (
   id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -104,26 +104,24 @@ CREATE TABLE IF NOT EXISTS order_events (
 -- ทุก statement เสี่ยงห่อ EXECUTE+EXCEPTION (valid plpgsql) → กัน fail ทั้งไฟล์
 DO $$
 BEGIN
-  BEGIN EXECUTE 'GRANT ALL ON orders TO authenticated'; EXCEPTION WHEN OTHERS THEN NULL; END;
-  BEGIN EXECUTE 'GRANT ALL ON orders TO service_role'; EXCEPTION WHEN OTHERS THEN NULL; END;
-  BEGIN EXECUTE 'GRANT ALL ON orders TO supabase_auth_admin'; EXCEPTION WHEN OTHERS THEN NULL; END;
+  BEGIN EXECUTE 'GRANT ALL ON order_ledger TO authenticated'; EXCEPTION WHEN OTHERS THEN NULL; END;
+  BEGIN EXECUTE 'GRANT ALL ON order_ledger TO service_role'; EXCEPTION WHEN OTHERS THEN NULL; END;
+  BEGIN EXECUTE 'GRANT ALL ON order_ledger TO supabase_auth_admin'; EXCEPTION WHEN OTHERS THEN NULL; END;
   BEGIN EXECUTE 'GRANT ALL ON order_events TO authenticated'; EXCEPTION WHEN OTHERS THEN NULL; END;
   BEGIN EXECUTE 'GRANT ALL ON order_events TO service_role'; EXCEPTION WHEN OTHERS THEN NULL; END;
   BEGIN EXECUTE 'GRANT ALL ON order_events TO supabase_auth_admin'; EXCEPTION WHEN OTHERS THEN NULL; END;
   -- ปิด RLS เพื่อให้แอปใช้ได้แน่นอน (กันกรณี prior run เปิด RLS ไว้แต่ไม่มี policy)
-  BEGIN EXECUTE 'ALTER TABLE orders DISABLE ROW LEVEL SECURITY'; EXCEPTION WHEN OTHERS THEN NULL; END;
+  BEGIN EXECUTE 'ALTER TABLE order_ledger DISABLE ROW LEVEL SECURITY'; EXCEPTION WHEN OTHERS THEN NULL; END;
   BEGIN EXECUTE 'ALTER TABLE order_events DISABLE ROW LEVEL SECURITY'; EXCEPTION WHEN OTHERS THEN NULL; END;
   -- indexes (non-unique กันชนข้อมูลซ้ำ)
-  BEGIN EXECUTE 'DROP INDEX IF EXISTS uq_orders_company_orderid'; EXCEPTION WHEN OTHERS THEN NULL; END;
-  BEGIN EXECUTE 'DROP INDEX IF EXISTS uq_orders_company_iv'; EXCEPTION WHEN OTHERS THEN NULL; END;
-  BEGIN EXECUTE 'CREATE INDEX IF NOT EXISTS idx_orders_company_orderid ON orders (company_id, order_id) WHERE deleted_at IS NULL AND order_id IS NOT NULL'; EXCEPTION WHEN OTHERS THEN NULL; END;
-  BEGIN EXECUTE 'CREATE INDEX IF NOT EXISTS idx_orders_company_iv ON orders (company_id, iv_no) WHERE deleted_at IS NULL AND iv_no IS NOT NULL'; EXCEPTION WHEN OTHERS THEN NULL; END;
-  BEGIN EXECUTE 'CREATE INDEX IF NOT EXISTS idx_orders_company_channel ON orders (company_id, channel_group, order_date) WHERE deleted_at IS NULL'; EXCEPTION WHEN OTHERS THEN NULL; END;
+  BEGIN EXECUTE 'CREATE INDEX IF NOT EXISTS idx_order_ledger_company_orderid ON order_ledger (company_id, order_id) WHERE deleted_at IS NULL AND order_id IS NOT NULL'; EXCEPTION WHEN OTHERS THEN NULL; END;
+  BEGIN EXECUTE 'CREATE INDEX IF NOT EXISTS idx_order_ledger_company_iv ON order_ledger (company_id, iv_no) WHERE deleted_at IS NULL AND iv_no IS NOT NULL'; EXCEPTION WHEN OTHERS THEN NULL; END;
+  BEGIN EXECUTE 'CREATE INDEX IF NOT EXISTS idx_order_ledger_company_channel ON order_ledger (company_id, channel_group, order_date) WHERE deleted_at IS NULL'; EXCEPTION WHEN OTHERS THEN NULL; END;
   BEGIN EXECUTE 'CREATE INDEX IF NOT EXISTS idx_order_events_order ON order_events (order_uid, created_at)'; EXCEPTION WHEN OTHERS THEN NULL; END;
   -- updated_at trigger
   BEGIN
-    EXECUTE 'DROP TRIGGER IF EXISTS trg_orders_updated_at ON orders';
-    EXECUTE 'CREATE TRIGGER trg_orders_updated_at BEFORE UPDATE ON orders FOR EACH ROW EXECUTE FUNCTION fn_set_updated_at()';
+    EXECUTE 'DROP TRIGGER IF EXISTS trg_order_ledger_updated_at ON order_ledger';
+    EXECUTE 'CREATE TRIGGER trg_order_ledger_updated_at BEFORE UPDATE ON order_ledger FOR EACH ROW EXECUTE FUNCTION fn_set_updated_at()';
   EXCEPTION WHEN OTHERS THEN NULL; END;
 END $$;
 

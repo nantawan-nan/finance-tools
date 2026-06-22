@@ -3338,7 +3338,7 @@ async function homeLoadStats(){
     const co = await fopCompanyId(); if(!co) return;
     const todayISO = new Date().toISOString().slice(0,10);
     const [ordRes, apRes, balRes] = await Promise.all([
-      sb.from("orders").select("iv_no,re_no,status,order_total,bank_in_date,order_date").eq("company_id",co).is("deleted_at",null).limit(20000),
+      sb.from("order_ledger").select("iv_no,re_no,status,order_total,bank_in_date,order_date").eq("company_id",co).is("deleted_at",null).limit(20000),
       sb.from("ap_invoices").select("amount_outstanding").eq("company_id",co).is("deleted_at",null),
       sb.rpc("fn_balance_as_of",{ p_company:co, p_as_of: todayISO })
     ]);
@@ -11908,7 +11908,7 @@ function ordParseSalesFile(rows){
 async function ordIngestChannelOrders(co, parsed, srcLabel){
   const orders = parsed.orders || [];
   if(!orders.length) return { added:0, updated:0, total:0 };
-  const { data:existing } = await sb.from("orders").select("id,order_id,status,iv_no")
+  const { data:existing } = await sb.from("order_ledger").select("id,order_id,status,iv_no")
     .eq("company_id", co).is("deleted_at", null);
   const byOid = new Map((existing||[]).filter(o=>o.order_id).map(o=>[o.order_id, o]));
   const inserts = [], updates = [];
@@ -11930,11 +11930,11 @@ async function ordIngestChannelOrders(co, parsed, srcLabel){
   }
   const CH=400; let insErr=null, savedN=0;
   for(let i=0;i<inserts.length;i+=CH){
-    const {error}=await sb.from("orders").insert(inserts.slice(i,i+CH));
+    const {error}=await sb.from("order_ledger").insert(inserts.slice(i,i+CH));
     if(error){ console.warn("ord ins",error); insErr=error; break; }
     savedN += inserts.slice(i,i+CH).length;
   }
-  for(const u of updates){ await sb.from("orders").update({ status:u.status, sale_status_raw:u.sale_status_raw, is_returned:u.is_returned, returned_qty:u.returned_qty }).eq("id", u.id); }
+  for(const u of updates){ await sb.from("order_ledger").update({ status:u.status, sale_status_raw:u.sale_status_raw, is_returned:u.is_returned, returned_qty:u.returned_qty }).eq("id", u.id); }
   return { added: savedN, updated: updates.length, total: orders.length, error: insErr };
 }
 
@@ -11944,7 +11944,7 @@ async function ordIngestChannelOrders(co, parsed, srcLabel){
 async function ordIngestFromSales(co, salesData, srcLabel){
   const ivs = (salesData?.ivs || []).filter(iv => iv.doc_type === "IV" && iv.doc_no && iv.ref_order_id);
   if(!ivs.length) return { tagged:0, created:0, total:0 };
-  const { data:existing } = await sb.from("orders").select("id,order_id,iv_no,status")
+  const { data:existing } = await sb.from("order_ledger").select("id,order_id,iv_no,status")
     .eq("company_id", co).is("deleted_at", null);
   const byOid = new Map((existing||[]).filter(o=>o.order_id).map(o=>[o.order_id, o]));
   const ivTaken = new Set((existing||[]).filter(o=>o.iv_no).map(o=>o.iv_no));
@@ -11973,8 +11973,8 @@ async function ordIngestFromSales(co, salesData, srcLabel){
     }
   }
   const CH=400;
-  for(let i=0;i<inserts.length;i+=CH){ const {error}=await sb.from("orders").insert(inserts.slice(i,i+CH)); if(error){console.warn("ord ins",error);break;} }
-  for(const u of ivUpd){ await sb.from("orders").update({ iv_no:u.iv_no, iv_date:u.iv_date, sale_amount:u.sale_amount, status:u.status, sale_keyed_at:u.sale_keyed_at, sale_src:u.sale_src }).eq("id", u.id); }
+  for(let i=0;i<inserts.length;i+=CH){ const {error}=await sb.from("order_ledger").insert(inserts.slice(i,i+CH)); if(error){console.warn("ord ins",error);break;} }
+  for(const u of ivUpd){ await sb.from("order_ledger").update({ iv_no:u.iv_no, iv_date:u.iv_date, sale_amount:u.sale_amount, status:u.status, sale_keyed_at:u.sale_keyed_at, sale_src:u.sale_src }).eq("id", u.id); }
   return { tagged: ivUpd.length, created: inserts.length, total: ivs.length };
 }
 
@@ -11982,14 +11982,14 @@ async function ordIngestFromSales(co, salesData, srcLabel){
 async function ordTagReceipts(co, arData){
   const m = arData && arData.ivToCheque;
   if(!m || !m.size) return 0;
-  const { data:orders } = await sb.from("orders").select("id,iv_no,re_no")
+  const { data:orders } = await sb.from("order_ledger").select("id,iv_no,re_no")
     .eq("company_id", co).is("deleted_at", null).not("iv_no","is",null);
   let n=0; const now=new Date().toISOString();
   for(const o of (orders||[])){
     const chq = m.get(o.iv_no);
     if(chq && (!o.re_no || o.re_no!==chq.receipt_no)){
       const fee = (Number(o.sale_amount)||0) ? +(Number(o.sale_amount) - Number(chq.amount)).toFixed(2) : null;
-      await sb.from("orders").update({ re_no:chq.receipt_no, cheque_no:chq.cheque_no,
+      await sb.from("order_ledger").update({ re_no:chq.receipt_no, cheque_no:chq.cheque_no,
         receipt_net:Number(chq.amount)||0, receipt_gross:Number(o.sale_amount)||null,
         receipt_fee:fee, received_at:now }).eq("id", o.id);
       n++;
@@ -12004,13 +12004,13 @@ async function ordTagBankFromWithdrawals(co, withdrawals){
     for(const o of (wd.orders||[])){ if(o.order_id) byOid.set(o.order_id, { bq:wd.bq_number, date:wd.withdraw_date, bankAcct:wd.bank_account_no }); }
   }
   if(!byOid.size) return 0;
-  const { data:orders } = await sb.from("orders").select("id,order_id,bq_no")
+  const { data:orders } = await sb.from("order_ledger").select("id,order_id,bq_no")
     .eq("company_id", co).is("deleted_at", null).not("order_id","is",null);
   let n=0;
   for(const o of (orders||[])){
     const info = byOid.get(o.order_id);
     if(info && !o.bq_no){
-      await sb.from("orders").update({ bq_no:info.bq, deposit_date:info.date,
+      await sb.from("order_ledger").update({ bq_no:info.bq, deposit_date:info.date,
         bank_in_date:info.date, bank_matched:true }).eq("id", o.id);
       n++;
     }
@@ -12063,7 +12063,7 @@ async function ordUploadFiles(){
 }
 async function ordLoad(){
   const d = ordGet(); const co = await fopCompanyId(); if(!co) return;
-  const { data } = await sb.from("orders").select("*").eq("company_id", co).is("deleted_at", null)
+  const { data } = await sb.from("order_ledger").select("*").eq("company_id", co).is("deleted_at", null)
     .order("order_date",{ascending:false}).order("order_id",{ascending:true}).limit(5000);
   d.rows = data||[]; d.loaded=true;
 }

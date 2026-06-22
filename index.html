@@ -4729,7 +4729,96 @@ function edTxsInScope(data, monthFilter, excludeTransfers){
 }
 
 /* ---------- Parser ---------- */
+/* ตรวจฟอร์แมต BHG (แผ่นเดียวทั้งปี "YYYY" · header มี เงินรับ/เงินจ่าย · กิจกรรม col A) */
+function edIsBHGFormat(book){
+  return book.names.some(n=>{
+    if(!/^\d{4}$/.test(n)) return false;
+    const rows = book.sheets[n]||[];
+    return rows.slice(0,14).some(r => {
+      const cells=(r||[]).map(c=>String(c||""));
+      return cells.some(c=>c.includes("เงินรับ")) && cells.some(c=>c.includes("เงินจ่าย"));
+    });
+  });
+}
+/* parser ฟอร์แมต BHG → คืน structure เดียวกับ edParse
+   layout: A=กิจกรรม B=วันที่ C=เลขเอกสาร D=คู่ค้า E=รายละเอียด F=เงินรับ G=เงินจ่าย H=คงเหลือ I=หมวด
+   · บัญชีขึ้นต้นแถว "SCB 437-1-758754" · "ยอดยกมา" (col E) → opening (col H) · ทั้งปีแผ่นเดียว group เป็นเดือน */
+function edParseBHG(book){
+  const result = { company:"", months:[], transactions:[], errors:[], accounts:{} };
+  const bankRe = /^(SCB|BBL|KBANK|KTB|BAY|TTB|TMB|GSB|UOB|CIMB|KKP)\s+([\d\-\/]+)/i;
+  const monthMap = {};
+  const getMonth = (key) => {
+    if(!monthMap[key]){ const [y,m]=key.split(".").map(Number); monthMap[key]={ key, year:y, month:m, accounts:[] }; result.months.push(monthMap[key]); }
+    return monthMap[key];
+  };
+  for(const name of book.names){
+    if(!/^\d{4}$/.test(name)) continue;
+    const rows = book.sheets[name] || [];
+    if(!rows.length) continue;
+    if(!result.company){
+      for(let r=0;r<Math.min(4,rows.length);r++) for(const v of (rows[r]||[])){ const s=String(v||"").trim(); if(s.startsWith("บริษัท")){ result.company=s; break; } }
+    }
+    // 1) เก็บ block ต่อบัญชี
+    const blocks = []; let cur = null;
+    for(let r=0;r<rows.length;r++){
+      const row = rows[r] || [];
+      const a = String(row[0]||"").trim();
+      const mB = a.match(bankRe);
+      if(mB){
+        const bank = mB[1].toUpperCase(), no = mB[2].trim(), normNo = no.replace(/[\s\-\/]/g,"");
+        cur = { bank, no, nick:no, accountKey: bank+"·"+normNo, opening:0, byMonth:{} };
+        blocks.push(cur); continue;
+      }
+      if(!cur) continue;
+      const descCell = String(row[4]||"").trim();
+      if(descCell.includes("ยกมา")){ cur.opening = Number(row[7])||0; continue; }
+      const d = row[1];
+      if(!(d instanceof Date)) continue;
+      const inc = Number(row[5])||0, out = Number(row[6])||0;
+      if(inc===0 && out===0) continue;
+      const bal = (row[7]==null||row[7]==="") ? null : Number(row[7]);
+      const dateISO = d.toISOString().slice(0,10);
+      const mkey = dateISO.slice(0,7).replace("-",".");
+      const party = String(row[3]||"").trim();
+      const tx = {
+        date:d, dateISO, mne:"", ref:String(row[2]||"").trim(),
+        out, in:inc, balance:bal, status:"",
+        note:(party?party+" — ":"")+descCell,
+        category:String(row[8]||"").trim() || "ไม่ระบุหมวด",
+        activity:a||"ไม่ระบุ", activityKey:edActivityKey(a),
+        bank:cur.bank, accountNo:cur.no, accountNick:cur.nick, accountKey:cur.accountKey, month:mkey
+      };
+      result.transactions.push(tx);
+      if(!cur.byMonth[mkey]) cur.byMonth[mkey] = { in:0, out:0, last:null, items:[] };
+      const mm = cur.byMonth[mkey]; mm.in+=inc; mm.out+=out; mm.items.push(tx); if(bal!=null) mm.last=bal;
+    }
+    // 2) แต่ละบัญชี → กระจายเข้าเดือน (opening วิ่งต่อจากเดือนก่อน)
+    for(const b of blocks){
+      let running = b.opening;
+      const accSum = result.accounts[b.accountKey] = result.accounts[b.accountKey] || { bank:b.bank, no:b.no, nick:b.nick, months:{}, totalIn:0, totalOut:0, firstOpen:b.opening, lastClose:null };
+      for(const mkey of Object.keys(b.byMonth).sort()){
+        const mm = b.byMonth[mkey];
+        const opening = running;
+        const computed = opening + mm.in - mm.out;
+        const closing = (mm.last!=null) ? mm.last : computed;
+        running = closing;
+        const ok = Math.abs(computed - closing) < 0.02;
+        getMonth(mkey).accounts.push({
+          header:{bank:b.bank, no:b.no, nick:b.nick}, accountKey:b.accountKey,
+          opening, closing, computed, totalIn:mm.in, totalOut:mm.out, items:mm.items, ok, diff:computed-closing
+        });
+        accSum.months[mkey] = { opening, closing, in:mm.in, out:mm.out, ok };
+        accSum.totalIn += mm.in; accSum.totalOut += mm.out; accSum.lastClose = closing;
+        if(!ok) result.errors.push({ month:mkey, account:b.accountKey, bank:b.bank, no:b.no, opening, in:mm.in, out:mm.out, expected:computed, got:closing, diff:computed-closing });
+      }
+    }
+  }
+  result.months.sort((a,b)=> a.key < b.key ? -1 : 1);
+  result.transactions.sort((a,b)=> a.date - b.date);
+  return result;
+}
 function edParse(book){
+  if(edIsBHGFormat(book)) return edParseBHG(book);   // ★ ฟอร์แมต BHG (แผ่นเดียวทั้งปี)
   // book = { sheets:{name:rows[][]}, names }
   const result = {
     company:"",

@@ -586,6 +586,10 @@ const APP_CONFIG = {
   // ขนาดโลโก้ (px) — null = ใช้ค่าเดิม (login 90 · sidebar 46)
   loginLogoH: null,
   sbLogoH: null,
+
+  // ธีมสี — null = ใช้สีตามบริษัท (teal/navy) · หรือ object override ทั้งแอป
+  // { brand, brandDark, brandSoft, brandRgb, in, inSoft, inInk, out, outSoft, outInk }
+  theme: null,
 };
 function appToolEnabled(id){ return !APP_CONFIG.enabledTools || APP_CONFIG.enabledTools.includes(id); }
 /* optIn tool = โชว์เฉพาะตอนถูกใส่ใน enabledTools เท่านั้น (ของเดิม enabledTools=null จะไม่เห็น) */
@@ -608,6 +612,12 @@ const COMPANIES = APP_CONFIG.companies || [
 
 function applyCompanyTheme(id){
   document.body.setAttribute("data-co", id);
+  // clone theme override — set CSS vars บน body (ทับทั้ง :root + [data-co]) · null = คืนค่าเดิม
+  const th = APP_CONFIG.theme, b = document.body.style;
+  const set=(k,v)=>{ if(th&&v) b.setProperty(k,v); else b.removeProperty(k); };
+  set("--brand", th&&th.brand); set("--brand-dark", th&&th.brandDark); set("--brand-soft", th&&th.brandSoft); set("--brand-rgb", th&&th.brandRgb);
+  set("--in", th&&th.in); set("--in-soft", th&&th.inSoft); set("--in-ink", th&&th.inInk);
+  set("--out", th&&th.out); set("--out-soft", th&&th.outSoft); set("--out-ink", th&&th.outInk);
 }
 
 /* sheetHints:
@@ -4636,6 +4646,18 @@ const ED_COLORS = {
 /* ปรับสี ED ตามบริษัท — เรียกก่อน render ทุกครั้ง */
 function edApplyTheme(){
   const co = state.company;
+  if(APP_CONFIG.theme){
+    const t = APP_CONFIG.theme;
+    ED_COLORS.in   = t.edIn  || t.in  || "#4F93DE";
+    ED_COLORS.out  = t.edOut || t.out || "#E6B84D";
+    ED_COLORS.brand= t.brand || "#2F6FCB";
+    ED_COLORS.brand2 = t.brandSoft || "#AFC8EE";
+    ED_COLORS.bg   = "#eef4fb";
+    ED_COLORS.op   = ED_COLORS.in;
+    ED_COLORS.inv  = t.edInv || "#8B5CF6";   // สีที่ 3 (ม่วง) กันซ้ำ in/out
+    ED_COLORS.fin  = ED_COLORS.out;
+    return;
+  }
   if(co === "mbark"){
     // MBark — พาสเทลฟ้า/ส้ม (นุ่มลงแต่ยังสดใส — กราฟไม่แสบตา)
     ED_COLORS.in     = "#6E9BE8";   // ฟ้าพาสเทล — รับ

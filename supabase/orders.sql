@@ -100,3 +100,6 @@ BEGIN
     EXECUTE 'CREATE TRIGGER trg_orders_updated_at BEFORE UPDATE ON orders FOR EACH ROW EXECUTE FUNCTION fn_set_updated_at()';
   EXCEPTION WHEN OTHERS THEN NULL; END;
 END $$;
+
+-- ★ บังคับ PostgREST reload schema cache (กัน 400 "column not in schema cache" หลัง DDL)
+NOTIFY pgrst, 'reload schema';

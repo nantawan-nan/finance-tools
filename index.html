@@ -416,6 +416,7 @@ const AUTH = {
 const PRESENT_EMAIL       = "present@benyamedical.com";   // บัญชีจริงใน Supabase (read-only, role executive)
 const PRESENT_ALIAS_EMAIL = "nisa.y@benyamedical.com";    // อีเมลที่ nisa พิมพ์
 const PRESENT_PW          = "present2026";                // รหัสพิเศษ = รหัสบัญชี present
+const PRESENT_TOOLS       = ["execdash","cashflow"];      // แท็บที่โหมดพรีเซนต์เห็นได้ (Exec Cash Flow + Cash Flow Forecast)
 
 async function authSignIn(email, password){
   // ★ รหัสพิเศษ present2026 + อีเมล nisa → เข้าบัญชี present (เห็นแค่ Exec Cash Flow)
@@ -753,7 +754,7 @@ function renderSidebar(){
   const present = AUTH.isPresent();
   const stages = {}, stageOrder = [];
   TOOLS.forEach(t => {
-    if(present && t.id!=="execdash") return;            // โหมดพรีเซนต์ → เห็นแค่ Exec Cash Flow
+    if(present && !PRESENT_TOOLS.includes(t.id)) return;   // โหมดพรีเซนต์ → เห็นแค่แท็บที่กำหนด
     if(!present && t.adminOnly && AUTH.role!=="admin") return;
     if(!stages[t.stage]){ stages[t.stage] = []; stageOrder.push(t.stage); }
     stages[t.stage].push(t);
@@ -815,7 +816,7 @@ function setTool(id){
 
 /* ---------- render: tool page ---------- */
 function renderTool(){
-  if(AUTH.isPresent() && state.tool!=="execdash") state.tool = "execdash";  // โหมดพรีเซนต์ล็อกที่หน้าเดียว
+  if(AUTH.isPresent() && !PRESENT_TOOLS.includes(state.tool)) state.tool = "execdash";  // โหมดพรีเซนต์ล็อกเฉพาะแท็บที่กำหนด
   const t = TOOLS.find(x=>x.id===state.tool);
   updateCrumb();
   if (t.multiInput) {

@@ -444,7 +444,7 @@ function renderLogin(msg){
         <div style="background:#fff;border-radius:24px;box-shadow:0 24px 70px rgba(15,23,42,.10),0 2px 8px rgba(15,23,42,.04);padding:44px 40px">
           <!-- โลโก้บริษัท (ดึงจาก COMPANIES — clone อัตโนมัติ) -->
           <div style="display:flex;align-items:center;justify-content:center;gap:36px;margin-bottom:18px">
-            ${COMPANIES.map((c,i)=>`${i>0?'<div style="width:1px;height:80px;background:linear-gradient(180deg,transparent,#cbd5e1 30%,#cbd5e1 70%,transparent)"></div>':''}<img src="${esc(c.logo||'')}" alt="${esc(c.name)}" style="height:90px;width:auto;object-fit:contain" onerror="this.style.display='none'">`).join("")}
+            ${COMPANIES.map((c,i)=>`${i>0?`<div style="width:1px;height:${(APP_CONFIG.loginLogoH||90)-10}px;background:linear-gradient(180deg,transparent,#cbd5e1 30%,#cbd5e1 70%,transparent)"></div>`:''}<img src="${esc(c.logo||'')}" alt="${esc(c.name)}" style="height:${APP_CONFIG.loginLogoH||90}px;width:auto;object-fit:contain" onerror="this.style.display='none'">`).join("")}
           </div>
           <div style="text-align:center;color:#64748b;font-size:15px;font-weight:500;margin-bottom:36px;letter-spacing:.3px">Financial Console</div>
 
@@ -582,6 +582,10 @@ const APP_CONFIG = {
   // ↳ ตัวอย่าง บ.เล็ก (ใช้ id "benya" เพื่อได้ธีม teal):
   // companies: [{ id:"benya", name:"บ.เล็ก", short:"S", brand:"บ.เล็ก",
   //   fullName:"บริษัท ... จำกัด", logo:"logos/benya-icon.png", gradient:["#0d9488","#2dd4bf"] }],
+
+  // ขนาดโลโก้ (px) — null = ใช้ค่าเดิม (login 90 · sidebar 46)
+  loginLogoH: null,
+  sbLogoH: null,
 };
 function appToolEnabled(id){ return !APP_CONFIG.enabledTools || APP_CONFIG.enabledTools.includes(id); }
 /* optIn tool = โชว์เฉพาะตอนถูกใส่ใน enabledTools เท่านั้น (ของเดิม enabledTools=null จะไม่เห็น) */
@@ -817,7 +821,7 @@ function renderSidebar(){
 
   sb.innerHTML = `
     <div class="sb-brand">
-      <img class="sb-logo-img" src="${esc(co.logo||'')}" alt="${esc(co.name)}" onerror="this.style.display='none'">
+      <img class="sb-logo-img" src="${esc(co.logo||'')}" alt="${esc(co.name)}" ${APP_CONFIG.sbLogoH?`style="height:${APP_CONFIG.sbLogoH}px;max-width:200px"`:''} onerror="this.style.display='none'">
       <div class="sb-tagline">Financial Console</div>
     </div>
     <div class="company-switch" id="companySwitch"></div>

@@ -9649,9 +9649,37 @@ function cffGet(){
   return state.cff[state.company];
 }
 function cffSetView(v){ cffGet().viewMode = v; renderToolCashflowForecast(); }
-function cffSetStaffDay(dd){ const d=cffGet(); d.staffMode='day'; d.staffDate=dd; renderToolCashflowForecast(); }
-function cffSetStaffAll(){ const d=cffGet(); d.staffMode='all'; d.staffDate=''; d.staffFrom=''; d.staffTo=''; renderToolCashflowForecast(); }
-function cffSetStaffRange(from, to){ const d=cffGet(); d.staffMode='range'; d.staffFrom=from||''; d.staffTo=to||''; renderToolCashflowForecast(); }
+function cffSetStaffDay(dd){ const d=cffGet(); d.staffMode='day'; d.staffDate=dd; d.staffQuick=''; renderToolCashflowForecast(); }
+function cffSetStaffAll(){ const d=cffGet(); d.staffMode='all'; d.staffDate=''; d.staffFrom=''; d.staffTo=''; d.staffQuick=''; renderToolCashflowForecast(); }
+function cffSetStaffRange(from, to){ const d=cffGet(); d.staffMode='range'; d.staffFrom=from||''; d.staffTo=to||''; d.staffQuick=''; renderToolCashflowForecast(); }
+/* ชิปด่วน: สัปดาห์นี้ / สัปดาห์หน้า / วันนี้ถึงสิ้นเดือน — คำนวณวันแบบ local (กัน TZ เพี้ยน) */
+function cffSetStaffQuick(kind){
+  const d=cffGet(); const dt=d.data; if(!dt) return;
+  const todayISO = dt.todayISO || cffISO(new Date());
+  const [Y,M,D] = todayISO.split("-").map(Number);
+  const today = new Date(Y, M-1, D);
+  const iso = (x)=> `${x.getFullYear()}-${String(x.getMonth()+1).padStart(2,"0")}-${String(x.getDate()).padStart(2,"0")}`;
+  let from, to;
+  if(kind==="thisWeek" || kind==="nextWeek"){
+    const dow = (today.getDay()+6)%7;            // จันทร์=0 .. อาทิตย์=6
+    const mon = new Date(today); mon.setDate(today.getDate()-dow + (kind==="nextWeek"?7:0));
+    const sun = new Date(mon);   sun.setDate(mon.getDate()+6);
+    from=iso(mon); to=iso(sun);
+  } else if(kind==="toMonthEnd"){
+    from=todayISO; to=iso(new Date(Y, M, 0));    // วันสุดท้ายของเดือนนี้
+  } else return;
+  d.staffMode='range'; d.staffFrom=from; d.staffTo=to; d.staffQuick=kind;
+  renderToolCashflowForecast();
+}
+/* ย่อ/ขยายทุกประเภทค่าใช้จ่ายในรายงาน (toggle รวม) */
+function cffStaffCatToggleAll(){
+  const d=cffGet(); const dt=d.data; if(!dt) return;
+  const R=cffStaffComputeReport(d, dt);
+  if(!d.catOpen) d.catOpen={};
+  const anyOpen = R.cats.some(([c]) => d.catOpen[c] !== false);
+  R.cats.forEach(([c]) => { d.catOpen[c] = anyOpen ? false : true; });   // มีเปิดอยู่ → ย่อหมด, ไม่งั้น → ขยายหมด
+  renderToolCashflowForecast();
+}
 function cffToggleCat(name){ const d=cffGet(); if(!d.catOpen) d.catOpen={}; d.catOpen[name] = d.catOpen[name]===false ? true : false; renderToolCashflowForecast(); }
 function cffToggleBankTl(){ const d=cffGet(); d.bankTlOpen = d.bankTlOpen===false ? true : false; renderToolCashflowForecast(); }
 function cffToggleRound(k){ const d=cffGet(); if(!d.roundOpen) d.roundOpen={}; d.roundOpen[k]=!d.roundOpen[k]; renderToolCashflowForecast(); }
@@ -10344,8 +10372,14 @@ function cffStaffComputeReport(d, dt){
   return { payments, filtered, totalDue, openingCash, netCash, cats, bankDue, bankCat, periodLabel };
 }
 
-/* ★ HTML รายงานสะอาด (เลย์เอาต์เดียวกับ snapshot ที่ส่งให้ LINE) — ใช้ทั้งบนจอ + export */
-function cffStaffReportInner(co, dt, R){
+/* ★ HTML รายงานสะอาด (เลย์เอาต์เดียวกับ snapshot ที่ส่งให้ LINE) — ใช้ทั้งบนจอ + export
+   opts.interactive=true (หน้าจอ): กลุ่มค่าใช้จ่ายย่อ/ขยายได้ · false (export LINE): กางครบเสมอ */
+function cffStaffReportInner(co, dt, R, opts){
+  opts = opts || {};
+  const interactive = !!opts.interactive;
+  const catOpen = opts.catOpen || {};
+  const isOpen = (cat) => !interactive ? true : (catOpen[cat] !== false);   // default = ขยาย
+  const anyOpen = cats => cats.some(([c]) => catOpen[c] !== false);
   const { cats, bankDue, bankCat, openingCash, totalDue, netCash, periodLabel } = R;
   const todayStr = new Date().toLocaleDateString("th-TH",{day:"2-digit",month:"long",year:"numeric"});
   const fmtDate = (iso) => iso ? new Date(iso).toLocaleDateString("th-TH",{day:"2-digit",month:"short"}) : "";
@@ -10407,7 +10441,10 @@ function cffStaffReportInner(co, dt, R){
       <!-- detail pivot per cat → item -->
       ${cats.length > 0 ? `
       <div style="margin-top:18px">
-        <div style="font-size:13px;font-weight:700;color:var(--brand-dark);margin-bottom:8px;display:flex;align-items:center;gap:6px">รายละเอียดประเภทรายจ่าย</div>
+        <div style="margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
+          <div style="font-size:13px;font-weight:700;color:var(--brand-dark);display:flex;align-items:center;gap:6px">รายละเอียดประเภทรายจ่าย</div>
+          ${interactive ? `<button onclick="cffStaffCatToggleAll()" style="border:1px solid var(--glass-border);background:rgba(var(--brand-rgb),.06);color:var(--brand-dark);font-size:11.5px;font-weight:600;padding:4px 11px;border-radius:8px;cursor:pointer;font-family:inherit;display:inline-flex;align-items:center;gap:5px">${anyOpen(cats)?'◤ ย่อทั้งหมด':'◢ ขยายทั้งหมด'}</button>` : ''}
+        </div>
         <table style="width:100%;border-collapse:collapse;font-size:11.5px">
           <thead><tr style="background:#f8fafc">
             <th style="text-align:left;padding:7px 10px;border-bottom:1px solid #cbd5e1;color:#475569">ชื่อเจ้าหนี้ / คำอธิบายรายการ</th>
@@ -10415,14 +10452,16 @@ function cffStaffReportInner(co, dt, R){
             <th style="text-align:right;padding:7px 10px;border-bottom:1px solid #cbd5e1;color:#475569">จำนวน (บาท)</th>
           </tr></thead>
           <tbody>
-            ${cats.map(([cat,info]) => `
-              <tr style="background:rgba(var(--brand-rgb),.06)"><td style="padding:6px 10px;font-weight:700;color:var(--brand-dark)" colspan="2">${esc(cat)}</td><td style="padding:6px 10px;text-align:right;font-weight:700;color:var(--out-ink)">${nf(info.total)}</td></tr>
-              ${info.items.map(p => {
+            ${cats.map(([cat,info]) => {
+              const open = isOpen(cat);
+              const head = `<tr style="background:rgba(var(--brand-rgb),.06)${interactive?';cursor:pointer':''}" ${interactive?`onclick="cffToggleCat(${JSON.stringify(cat).replace(/"/g,'&quot;')})"`:''}><td style="padding:6px 10px;font-weight:700;color:var(--brand-dark)" colspan="2">${interactive?`<span style="display:inline-block;width:14px;color:var(--brand);font-size:10px">${open?'▾':'▸'}</span>`:''}${esc(cat)} <span style="font-weight:500;color:var(--ink-3);font-size:10.5px">(${info.items.length})</span></td><td style="padding:6px 10px;text-align:right;font-weight:700;color:var(--out-ink)">${nf(info.total)}</td></tr>`;
+              const items = open ? info.items.map(p => {
                 const fullDesc = [p.remark, p.internalNote].filter(Boolean).join(" · ");
                 const line2 = (p.detail || "") + (fullDesc ? " — " + fullDesc : "");
                 return `<tr><td style="padding:5px 10px 5px 22px;color:#475569"><div style="font-weight:600;color:#334155">${esc(p.vendor)}</div>${line2?`<div style="font-size:10.5px;color:#64748b;margin-top:1px;line-height:1.4">${esc(line2)}</div>`:''}</td><td style="padding:5px 10px;color:#475569;font-size:11px;white-space:nowrap">${esc(fmtDate(p.original_due))}</td><td style="padding:5px 10px;text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap">${nf(p.amount)}</td></tr>`;
-              }).join("")}
-            `).join("")}
+              }).join("") : "";
+              return head + items;
+            }).join("")}
             <tr style="border-top:2px solid var(--brand)"><td style="padding:8px 10px;font-weight:800" colspan="2">รวมทั้งสิ้น</td><td style="padding:8px 10px;text-align:right;font-weight:800;color:var(--out-ink)">${nf(totalDue)}</td></tr>
           </tbody>
         </table>
@@ -10577,6 +10616,11 @@ async function renderToolCashflowStaff(){
         <span style="font-size:12px;font-weight:700;color:var(--ink-2);display:inline-flex;align-items:center;gap:6px"><i data-lucide="calendar-clock" style="width:15px;height:15px;color:var(--brand)"></i>วันชำระเงิน</span>
         <div class="cf-chips">
           <button class="${d.staffMode==='all'?'active':''}" onclick="cffSetStaffAll()">ทั้งหมด</button>
+          <button class="${(d.staffMode==='range'&&d.staffQuick==='thisWeek')?'active':''}" onclick="cffSetStaffQuick('thisWeek')">สัปดาห์นี้</button>
+          <button class="${(d.staffMode==='range'&&d.staffQuick==='nextWeek')?'active':''}" onclick="cffSetStaffQuick('nextWeek')">สัปดาห์หน้า</button>
+          <button class="${(d.staffMode==='range'&&d.staffQuick==='toMonthEnd')?'active':''}" onclick="cffSetStaffQuick('toMonthEnd')">ถึงสิ้นเดือน</button>
+        </div>
+        <div class="cf-chips">
           ${upcomingDates.slice(0,8).map(dd => `<button class="${(d.staffMode==='day'&&d.staffDate===dd)?'active':''}" onclick="cffSetStaffDay('${dd}')">${esc(fmtDate(dd))}</button>`).join("")}
         </div>
         <div style="display:flex;align-items:center;gap:6px;margin-left:auto;padding-left:12px;border-left:1px solid var(--glass-border)">
@@ -10719,7 +10763,7 @@ async function renderToolCashflowStaff(){
 
     <!-- ★ รายงานสะอาด (เลย์เอาต์เดียวกับ snapshot) -->
     <div id="cffStaffReportSheet" style="background:#fff;border-radius:14px;box-shadow:0 6px 28px rgba(15,23,42,.08);border:1px solid var(--glass-border);overflow:hidden;max-width:1040px;margin:4px auto 0;font-family:'IBM Plex Sans Thai','IBM Plex Sans',sans-serif;color:#0f172a">
-      ${cffStaffReportInner(co, dt, { cats, bankDue, bankCat, openingCash, totalDue, netCash, periodLabel: reportPeriodLabel })}
+      ${cffStaffReportInner(co, dt, { cats, bankDue, bankCat, openingCash, totalDue, netCash, periodLabel: reportPeriodLabel }, { interactive:true, catOpen:d.catOpen||{} })}
     </div>
 
     ${(canWrite && dt.recSkips && dt.recSkips.length) ? `

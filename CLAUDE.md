@@ -183,6 +183,9 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 - **หน้าจอ default = รายงานสะอาด** ใน `<div id="cffStaffReportSheet">` (กว้างสุด 1040px กึ่งกลาง) · ของวิเคราะห์เดิม (KPI 5 ใบ · ไฮไลต์สำคัญ · Cash Bridge · ไทม์ไลน์รอบจ่าย) **ห่อด้วย `${detailOpen ? ... : ''}` ซ่อนเป็นค่าเริ่มต้น** — ปุ่ม "รายละเอียดเพิ่มเติม" บนหัว (`cffToggleStaffDetail`, state `d.staffDetailOpen`)
 - **เอาตารางหมวดแบบ accordion เดิมทิ้งทั้งก้อน** (ที่มีปุ่มถังขยะ skip รายวัน) — เจ้าของสั่งเอาออกให้เหมือน snapshot เป๊ะ · ปุ่ม Snapshot ย้ายขึ้นหัว · **แถบ "คืนค่า"** รายการ recurring ที่เคย skip ยังอยู่ (กันของค้างหาย) · `cffSkipRecurring` ยังมีอยู่แต่ไม่ถูกเรียกจากหน้านี้แล้ว
 - **gotcha:** on-screen ใช้ id `cffStaffReportSheet` (ไม่ใช่ `cffSnap`) — กันชนกับ modal export ที่ `cffExportSnap` หา `getElementById("cffSnap")` · report periodLabel ใช้ "ทั้งหมด" ล้วน (ไม่มีช่วงวันต่อท้าย) ให้ตรง snapshot
+- **(เพิ่มรอบเดียวกัน) ชิปด่วน + ย่อ/ขยายกลุ่มค่าใช้จ่าย:**
+  - **ชิปด่วนวันชำระเงิน** "สัปดาห์นี้ / สัปดาห์หน้า / ถึงสิ้นเดือน" → `cffSetStaffQuick(kind)` ตั้ง `staffMode='range'` + from/to (คำนวณ local date กัน TZ: สัปดาห์ = จันทร์–อาทิตย์ `(getDay()+6)%7`, ถึงสิ้นเดือน = `new Date(Y,M,0)`) + `d.staffQuick` ไว้ไฮไลต์ชิป · `cffSetStaffAll/Day/Range` เคลียร์ `staffQuick`
+  - **`cffStaffReportInner(co,dt,R,opts)`** เพิ่ม `opts.interactive` + `opts.catOpen` — หน้าจอส่ง `{interactive:true,catOpen:d.catOpen}` (กลุ่มค่าใช้จ่ายในตาราง "รายละเอียดประเภทรายจ่าย" คลิกหัวประเภทย่อ/ขยาย ▾/▸ ใช้ `cffToggleCat`/`d.catOpen` default ขยาย + ปุ่มรวม "ย่อ/ขยายทั้งหมด" `cffStaffCatToggleAll`) · **export ส่ง opts ว่าง → interactive=false กางครบเสมอ ไม่มีปุ่ม** (ภาพ LINE เห็นทุกบรรทัด)
 
 ### 2026-06-23 — Executive Dashboard: โหมดนำเสนอ (present mode) เต็มจอ + ไฮไลต์ตามเมาส์ + ฟีลกระจก iOS
 - **ปุ่ม "🖥️ นำเสนอ"** (สีส้ม) ในแถบเครื่องมือ `edRenderDashboard` → `edTogglePresent()`

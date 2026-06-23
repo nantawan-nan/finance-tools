@@ -177,6 +177,15 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-06-23 — Executive Dashboard: โหมดนำเสนอ (present mode) เต็มจอ + ไฮไลต์ตามเมาส์ + ฟีลกระจก iOS
+- **ปุ่ม "🖥️ นำเสนอ"** (สีส้ม) ในแถบเครื่องมือ `edRenderDashboard` → `edTogglePresent()`
+- **เต็มจอ:** `document.documentElement.requestFullscreen()` (ผูกทั้งหน้า → สลับแท็บ/เปลี่ยนเดือน re-render `#main` ไม่หลุด fullscreen) + เพิ่มคลาส `ed-present` + `sb-hidden` (ซ่อน sidebar, จำสถานะเดิมไว้คืนตอนออก) · helper: `edEnterPresent`/`edExitPresent`/`edOnFsChange`/`edPresentKey` + `edInjectPresentCSS()` (inject `<style id=edPresentCSS>` ครั้งเดียว)
+- **ไฮไลต์ตามเมาส์:** listener `mousemove` บน document → `e.target.closest("tr, .card, canvas, h1, h2, h3, button, select")` ได้บล็อกที่ชี้ → toggle คลาส `.ed-spot` (ชี้เซลล์ตาราง→ไฮไลต์ทั้งแถว `tr`) · สีตาม `var(--brand)`/`var(--brand-rgb)` ต่อบริษัท
+- **ซ่อนตอนนำเสนอ** (คลาส `.ed-hide-present` + CSS `body.ed-present .ed-hide-present{display:none}`): ปุ่ม พิมพ์ PDF/พิมพ์ทั้งรายงาน/+อัปไฟล์เพิ่ม/ล้าง&เริ่มใหม่ + dropdown แนวกระดาษ + แถบ "📅 ข้อมูลที่มี: ปี…" (ปุ่มลบปี) + mergeMsg · **เก็บไว้:** dropdown ช่วงเวลา (เลือกเดือน/ปี) + แท็บ + topbar/printHeader ซ่อนด้วย
+- **ฟีลกระจก iOS (glassmorphism):** พื้นหลังไล่เฉดสีแบรนด์ (radial+linear จาก `--page-1`/`--page-2`) · การ์ด/KPI/stat/bankcard/แท็บ → `rgba(255,255,255,.55)` + `backdrop-filter:blur(22px) saturate(180%)` + ขอบสว่าง + มน 20px · `.ed-spot` = กระจกยกตัว blur 26px + เรืองขอบ `--brand` + inset highlight · ปุ่มออก = pill กระจกฝ้า · **เอา `background-attachment:fixed` ออก** (กิน compositing/ทำ screenshot ค้าง)
+- **ออก:** ปุ่มลอย `#edPresentBar` มุมขวาบน หรือกด Esc (กด Esc ออก fullscreen เอง → `edOnFsChange` ออกโหมดให้ด้วย) · fullscreen/highlight ทั้งหมดเป็น progressive — ถ้า `requestFullscreen` ถูกปฏิเสธ โหมด (คลาส+ไฮไลต์+กระจก) ยังทำงาน
+- **ขอบเขต:** ของเพิ่มใหม่ล้วน ไม่แตะ logic/การแสดงผลเดิมของ Executive Dashboard
+
 ### 2026-06-23 — Executive Dashboard: แก้บัญชีซ้ำในกราฟ (normalize เลขบัญชีเป็นตัวเลขล้วน)
 - **ปัญหา:** อัปไฟล์รวมหลายปี (2568+2569) แล้ว Bank Accounts tab โชว์บัญชีเดียวกันซ้ำเป็น 2 แถว (โดนัท + bar เปรียบเทียบ รับ/จ่าย) เช่น `BBL 865-098040-5` vs `BBL 865-0-98040-5` — เพราะไฟล์คนละปีเขียนเลขบัญชีคนละฟอร์แมต/มีขีดแฝง (non-breaking hyphen U+2011, en-dash, NBSP) ที่ตัวรวมบัญชีเดิมตัดไม่ออก (`replace(/[\s\-\/]/g,"")` จับแค่ขีด ASCII)
 - **แก้:** `edNormAccNo` เปลี่ยนเป็น **เก็บเฉพาะตัวเลขล้วน** (`replace(/\D/g,"")`) + fallback แบบเดิมถ้าไม่มีตัวเลข · จุดสร้าง accountKey ทั้ง 3 ที่ (`edMigrateAccounts`, BHG parser `bankRe`, Benya/MBark parser) เรียก `edNormAccNo` ตัวเดียวกัน + ปัด `bank` เป็น `upper().trim()` ให้ตรงกัน → เลขบัญชีเดียวกันรวมเป็นบัญชีเดียวเสมอ ไม่ว่าขีดชนิดไหน

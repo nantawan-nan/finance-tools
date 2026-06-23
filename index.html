@@ -5403,6 +5403,138 @@ function edDeleteYear(y){
 function edSetTab(tab){ edState().tab = tab; edSave(); edRenderDashboard(); }
 function edSetMonth(m){ edState().monthFilter = m; edSave(); edRenderDashboard(); }
 
+/* ===== โหมดนำเสนอ (present mode) — เต็มจอ + ไฮไลต์ตามเมาส์ ===== */
+let _edPresentMove = null, _edPresentEl = null, _edPresentSbWasHidden = false;
+function edInjectPresentCSS(){
+  if(document.getElementById("edPresentCSS")) return;
+  const st = document.createElement("style");
+  st.id = "edPresentCSS";
+  st.textContent = `
+    html:fullscreen{ overflow:auto; background:var(--bg,#f6f8fb); }
+    html:-webkit-full-screen{ overflow:auto; background:var(--bg,#f6f8fb); }
+    /* พื้นหลังไล่เฉดสีแบรนด์นุ่ม ๆ — ให้กระจกฝ้ามีอะไรให้หักเหแบบ iOS */
+    body.ed-present{
+      background:
+        radial-gradient(1100px 760px at 10% -10%, rgba(var(--brand-rgb),.20), transparent 60%),
+        radial-gradient(1000px 720px at 105% 4%, rgba(var(--brand-rgb),.13), transparent 55%),
+        linear-gradient(160deg, var(--page-1,#eef2ff) 0%, var(--bg,#f4f6f9) 46%, var(--page-2,#e0e7ff) 100%) !important;
+      background-repeat: no-repeat !important;
+    }
+    body.ed-present .topbar{ display:none !important; }
+    body.ed-present #printHeader{ display:none !important; }
+    /* ซ่อนปุ่ม พิมพ์/อัปไฟล์/ล้าง + แถบปีตอนนำเสนอ (เก็บ dropdown ช่วงเวลา + แท็บไว้) */
+    body.ed-present .ed-hide-present{ display:none !important; }
+    /* การ์ด/KPI/แท็บ = กระจกฝ้า iOS (โปร่ง + เบลอ + saturate สูง + ขอบสว่าง + มน) */
+    body.ed-present .card,
+    body.ed-present .kpi,
+    body.ed-present .stat,
+    body.ed-present .bankcard,
+    body.ed-present .br-item,
+    body.ed-present .slot{
+      background: rgba(255,255,255,.55) !important;
+      -webkit-backdrop-filter: blur(22px) saturate(180%);
+      backdrop-filter: blur(22px) saturate(180%);
+      border: 1px solid rgba(255,255,255,.65) !important;
+      box-shadow: 0 8px 30px rgba(31,38,135,.12), inset 0 1px 0 rgba(255,255,255,.6) !important;
+      border-radius: 20px !important;
+    }
+    body.ed-present .ed-tabs{
+      background: rgba(255,255,255,.45) !important;
+      -webkit-backdrop-filter: blur(18px) saturate(170%);
+      backdrop-filter: blur(18px) saturate(170%);
+      border: 1px solid rgba(255,255,255,.6) !important;
+      border-radius: 16px !important;
+      box-shadow: 0 6px 22px rgba(31,38,135,.10) !important;
+      padding: 5px !important;
+    }
+    /* ไฮไลต์ตามเมาส์ — บล็อกกระจกยกตัว + เรืองสีแบรนด์ */
+    body.ed-present .ed-spot:not(tr){
+      background: rgba(255,255,255,.72) !important;
+      -webkit-backdrop-filter: blur(26px) saturate(200%);
+      backdrop-filter: blur(26px) saturate(200%);
+      border: 1px solid rgba(255,255,255,.95) !important;
+      box-shadow:
+        0 0 0 1.5px rgba(var(--brand-rgb),.45),
+        0 16px 44px rgba(var(--brand-rgb),.30),
+        0 4px 14px rgba(0,0,0,.08),
+        inset 0 1px 2px rgba(255,255,255,.85) !important;
+      border-radius: 20px !important;
+      transition: box-shadow .15s ease, background-color .15s ease, transform .15s ease;
+    }
+    /* ไฮไลต์แถวตาราง = แถบกระจกสีแบรนด์ */
+    body.ed-present tr.ed-spot{ outline: 1px solid rgba(var(--brand-rgb),.45) !important; }
+    body.ed-present tr.ed-spot > *{ background-color: rgba(var(--brand-rgb),.14) !important; }
+    /* ปุ่มลอย "ออก" = กระจกฝ้า iOS */
+    #edPresentBar{ position:fixed; top:16px; right:18px; z-index:99999; font-family:'IBM Plex Sans Thai',sans-serif; }
+    #edPresentBar button{
+      background: rgba(255,255,255,.55); color: var(--ink-1,#0f172a); font-weight:700;
+      border: 1px solid rgba(255,255,255,.75); border-radius:999px;
+      padding:9px 18px; font-size:13px; cursor:pointer;
+      -webkit-backdrop-filter: blur(20px) saturate(180%);
+      backdrop-filter: blur(20px) saturate(180%);
+      box-shadow: 0 8px 26px rgba(31,38,135,.18), inset 0 1px 0 rgba(255,255,255,.7);
+      transition:.15s;
+    }
+    #edPresentBar button:hover{ background: rgba(255,255,255,.78); transform: translateY(-1px); }
+  `;
+  document.head.appendChild(st);
+}
+function edTogglePresent(){
+  if(document.body.classList.contains("ed-present")) edExitPresent();
+  else edEnterPresent();
+}
+function edEnterPresent(){
+  edInjectPresentCSS();
+  _edPresentSbWasHidden = document.body.classList.contains("sb-hidden");
+  document.body.classList.add("ed-present", "sb-hidden");   // ซ่อน sidebar ให้ main เต็มจอ
+  const root = document.documentElement;
+  if(root.requestFullscreen) root.requestFullscreen().catch(()=>{});
+  else if(root.webkitRequestFullscreen) root.webkitRequestFullscreen();
+  _edPresentEl = null;
+  _edPresentMove = (e)=>{
+    const tgt = (e.target && e.target.closest)
+      ? e.target.closest("tr, .card, canvas, h1, h2, h3, button, select")
+      : null;
+    if(tgt === _edPresentEl) return;
+    if(_edPresentEl) _edPresentEl.classList.remove("ed-spot");
+    _edPresentEl = tgt;
+    if(tgt) tgt.classList.add("ed-spot");
+  };
+  document.addEventListener("mousemove", _edPresentMove, { passive:true });
+  document.addEventListener("fullscreenchange", edOnFsChange);
+  document.addEventListener("webkitfullscreenchange", edOnFsChange);
+  document.addEventListener("keydown", edPresentKey);
+  let bar = document.getElementById("edPresentBar");
+  if(!bar){
+    bar = document.createElement("div");
+    bar.id = "edPresentBar";
+    bar.innerHTML = `<button onclick="edExitPresent()">⤬ ออกจากโหมดนำเสนอ (Esc)</button>`;
+    document.body.appendChild(bar);
+  }
+  bar.style.display = "block";
+}
+function edExitPresent(){
+  document.body.classList.remove("ed-present");
+  if(!_edPresentSbWasHidden) document.body.classList.remove("sb-hidden");
+  if(_edPresentMove){ document.removeEventListener("mousemove", _edPresentMove); _edPresentMove = null; }
+  if(_edPresentEl){ _edPresentEl.classList.remove("ed-spot"); _edPresentEl = null; }
+  document.removeEventListener("fullscreenchange", edOnFsChange);
+  document.removeEventListener("webkitfullscreenchange", edOnFsChange);
+  document.removeEventListener("keydown", edPresentKey);
+  const bar = document.getElementById("edPresentBar"); if(bar) bar.style.display = "none";
+  const fs = document.fullscreenElement || document.webkitFullscreenElement;
+  if(fs){
+    if(document.exitFullscreen) document.exitFullscreen().catch(()=>{});
+    else if(document.webkitExitFullscreen) document.webkitExitFullscreen();
+  }
+}
+function edOnFsChange(){
+  // กด Esc ออกจาก fullscreen เอง → ออกโหมดนำเสนอให้ด้วย
+  const fs = document.fullscreenElement || document.webkitFullscreenElement;
+  if(!fs && document.body.classList.contains("ed-present")) edExitPresent();
+}
+function edPresentKey(e){ if(e.key === "Escape") edExitPresent(); }
+
 /* ---------- Print / PDF helpers ---------- */
 const TH_MONTHS = ["มกราคม","กุมภาพันธ์","มีนาคม","เมษายน","พฤษภาคม","มิถุนายน","กรกฎาคม","สิงหาคม","กันยายน","ตุลาคม","พฤศจิกายน","ธันวาคม"];
 function edThaiMonth(key){
@@ -6016,18 +6148,19 @@ function edRenderDashboard(){
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
           <label style="font-size:12px;color:var(--ink-3);font-weight:600">ช่วงเวลา</label>
           <select onchange="edSetMonth(this.value)" style="padding:7px 12px;border:1px solid #c3dafe;border-radius:8px;font-size:13px;background:#fff;font-family:inherit;color:#0f172a">${monthOptions}</select>
-          <select onchange="edState().pdfOrient=this.value" title="แนวกระดาษ PDF (งบกระแสเงินสด=แนวนอนเสมอ · ทรานแซกชัน=หลายหน้า)" style="padding:7px 10px;border:1px solid #c3dafe;border-radius:8px;font-size:13px;background:#fff;font-family:inherit;color:#0f172a">
+          <select class="ed-hide-present" onchange="edState().pdfOrient=this.value" title="แนวกระดาษ PDF (งบกระแสเงินสด=แนวนอนเสมอ · ทรานแซกชัน=หลายหน้า)" style="padding:7px 10px;border:1px solid #c3dafe;border-radius:8px;font-size:13px;background:#fff;font-family:inherit;color:#0f172a">
             <option value="landscape" ${d.pdfOrient!=='portrait'?'selected':''}>📄 แนวนอน (หลายหน้า)</option>
             <option value="portrait" ${d.pdfOrient==='portrait'?'selected':''}>📐 แนวตั้ง (ย่อ 1 หน้า)</option>
           </select>
-          <button class="btn" onclick="edPrint()" style="background:linear-gradient(135deg,#4F8AF7,#3b82f6);border:none" title="พิมพ์เฉพาะหัวข้อที่เปิดอยู่">พิมพ์ PDF</button>
-          <button class="btn" onclick="edExportFullPDF()" style="background:linear-gradient(135deg,#6366f1,#4f46e5);border:none" title="รวมทั้ง 6 หัวข้อเป็น PDF ไฟล์เดียว">พิมพ์ทั้งรายงาน</button>
-          <button class="btn" onclick="edAddFile()" style="background:linear-gradient(135deg,#10b981,#059669);border:none" title="อัปไฟล์ปีอื่นเพิ่ม — ปีที่มีอยู่ยังอยู่ครบ (เดือนซ้ำของใหม่ทับ)">+ อัปไฟล์เพิ่ม (รวมปี)</button>
-          <button class="btn ghost btn sm" onclick="edReset()" title="ล้างข้อมูลทั้งหมดแล้วเริ่มอัปใหม่">ล้าง &amp; เริ่มใหม่</button>
+          <button class="btn ed-hide-present" onclick="edTogglePresent()" style="background:linear-gradient(135deg,#f59e0b,#d97706);border:none" title="โหมดนำเสนอเต็มจอ + ไฮไลต์ตามเมาส์ (กด Esc เพื่อออก)">🖥️ นำเสนอ</button>
+          <button class="btn ed-hide-present" onclick="edPrint()" style="background:linear-gradient(135deg,#4F8AF7,#3b82f6);border:none" title="พิมพ์เฉพาะหัวข้อที่เปิดอยู่">พิมพ์ PDF</button>
+          <button class="btn ed-hide-present" onclick="edExportFullPDF()" style="background:linear-gradient(135deg,#6366f1,#4f46e5);border:none" title="รวมทั้ง 6 หัวข้อเป็น PDF ไฟล์เดียว">พิมพ์ทั้งรายงาน</button>
+          <button class="btn ed-hide-present" onclick="edAddFile()" style="background:linear-gradient(135deg,#10b981,#059669);border:none" title="อัปไฟล์ปีอื่นเพิ่ม — ปีที่มีอยู่ยังอยู่ครบ (เดือนซ้ำของใหม่ทับ)">+ อัปไฟล์เพิ่ม (รวมปี)</button>
+          <button class="btn ghost btn sm ed-hide-present" onclick="edReset()" title="ล้างข้อมูลทั้งหมดแล้วเริ่มอัปใหม่">ล้าง &amp; เริ่มใหม่</button>
         </div>
       </div>
-      ${d.mergeMsg ? `<div style="background:#ecfdf5;color:#065f46;border:1px solid #a7f3d0;padding:9px 14px;border-radius:9px;margin:0 0 12px;font-size:13px;display:flex;justify-content:space-between;align-items:center;gap:10px"><span>✅ ${esc(d.mergeMsg)}</span><button onclick="edState().mergeMsg=null;edRenderDashboard()" style="background:none;border:none;color:#065f46;cursor:pointer;font-size:16px;line-height:1">✕</button></div>` : ""}
-      ${edYears.length ? `<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 12px;font-size:12.5px;color:var(--ink-3)">
+      ${d.mergeMsg ? `<div class="ed-hide-present" style="background:#ecfdf5;color:#065f46;border:1px solid #a7f3d0;padding:9px 14px;border-radius:9px;margin:0 0 12px;font-size:13px;display:flex;justify-content:space-between;align-items:center;gap:10px"><span>✅ ${esc(d.mergeMsg)}</span><button onclick="edState().mergeMsg=null;edRenderDashboard()" style="background:none;border:none;color:#065f46;cursor:pointer;font-size:16px;line-height:1">✕</button></div>` : ""}
+      ${edYears.length ? `<div class="ed-hide-present" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 12px;font-size:12.5px;color:var(--ink-3)">
         <span style="font-weight:600">📅 ข้อมูลที่มี:</span>
         ${edYears.map(y => `<span style="display:inline-flex;align-items:center;gap:6px;background:#f1f5f9;border:1px solid #e2e8f0;border-radius:999px;padding:4px 6px 4px 12px"><b style="color:var(--ink-1)">ปี ${Number(y)+543}</b><span style="color:var(--ink-3)">(${data.months.filter(m=>m.key.slice(0,4)===y).length} ด.)</span><button onclick="edDeleteYear('${y}')" title="ลบข้อมูลปี ${Number(y)+543} (ปีอื่นยังอยู่)" style="background:#fee2e2;color:#b91c1c;border:none;border-radius:999px;width:20px;height:20px;cursor:pointer;font-size:13px;line-height:1;display:inline-flex;align-items:center;justify-content:center">✕</button></span>`).join("")}
       </div>` : ""}

@@ -9697,6 +9697,11 @@ function cffCleanDesc(s){
 }
 /* เลขที่เอกสารต่อรายการ: ใช้เลขบิล (detail) · ไม่มี/ประมาณการ recurring → "รอเอกสารตั้งหนี้" */
 function cffDocCode(p){ return (p && p.detail && String(p.detail).trim()) ? String(p.detail).trim() : "รอเอกสารตั้งหนี้"; }
+/* ชื่อผู้ขายสะอาด: ตัดรหัสท้าย " /B007.1" / " /ฒฒ0000017" ออก (บางรายมีบางรายไม่มี → ตัดให้หมด) */
+function cffCleanVendor(name){
+  const t = String(name||"").replace(/\s*\/\s*\S+\s*$/, "").trim();
+  return t || String(name||"").trim();
+}
 function cffToggleCat(name){ const d=cffGet(); if(!d.catOpen) d.catOpen={}; d.catOpen[name] = d.catOpen[name]===false ? true : false; d.staffGroupLevel = "custom"; cffRerender(); }
 function cffToggleBankTl(){ const d=cffGet(); d.bankTlOpen = d.bankTlOpen===false ? true : false; cffRerender(); }
 function cffToggleRound(k){ const d=cffGet(); if(!d.roundOpen) d.roundOpen={}; d.roundOpen[k]=!d.roundOpen[k]; cffRerender(); }
@@ -9963,7 +9968,7 @@ function cffStaffPayments(dt, d){
     if(!ap.planned_payment_date) continue;
     payments.push({
       type:"ap", category: ap.category || "เจ้าหนี้การค้า",
-      vendor: (ap.vendors&&ap.vendors.name) || ap.vendor_name_raw || "—",
+      vendor: cffCleanVendor((ap.vendors&&ap.vendors.name) || ap.vendor_name_raw || "—"),
       detail: ap.invoice_no, due_date: ap.planned_payment_date, original_due: ap.due_date,
       amount: Number(ap.amount_outstanding||0),
       remark: ap.remark || "", internalNote: ap.internal_note || "",
@@ -9990,7 +9995,7 @@ function cffStaffPayments(dt, d){
     if(skipSet.has(`${r.recurring_id}|${r.due_date}`)) continue;
     payments.push({
       type:"recurring", category: "ค่าใช้จ่ายประจำ",   // ★ รวมทุก recurring ไว้กลุ่มเดียว
-      vendor: (r.recurring_expenses&&r.recurring_expenses.name) || "ค่าใช้จ่ายประจำ",
+      vendor: cffCleanVendor((r.recurring_expenses&&r.recurring_expenses.name) || "ค่าใช้จ่ายประจำ"),
       detail:"", due_date: r.due_date, original_due: r.due_date,
       amount: Number(r.expected_amount||0), remark:"",
       internalNote: cffRecurCat(r.recurring_expenses&&r.recurring_expenses.category),  // หมวดย่อยไปอยู่คำอธิบาย
@@ -10010,7 +10015,7 @@ function cffStaffPayments(dt, d){
       if(skipSet.has(`${r.id}|${k}`)) continue;     // ★ ถูกกดลบไว้
       payments.push({
         type:"recurring", category: "ค่าใช้จ่ายประจำ",   // ★ รวมทุก recurring ไว้กลุ่มเดียว
-        vendor: r.name, detail:"", due_date: k, original_due: k,
+        vendor: cffCleanVendor(r.name), detail:"", due_date: k, original_due: k,
         amount: Number(r.expected_amount||0), remark:"",
         internalNote: cffRecurCat(r.category),  // หมวดย่อยไปอยู่คำอธิบาย
         recurringId: r.id,
@@ -10493,14 +10498,27 @@ function cffStaffReportInner(co, dt, R, opts){
               const venMap = {};
               for(const p of info.items){ const v=p.vendor||"—"; (venMap[v] = venMap[v] || {total:0, items:[]}); venMap[v].total += p.amount; venMap[v].items.push(p); }
               const vendors = Object.entries(venMap).sort((a,b)=> b[1].total - a[1].total);
+              // คำอธิบายย่อยต่อรายการ: "เลขเอกสาร — คำอธิบาย" (ตัดส่วนที่ซ้ำชื่อเวนเดอร์)
+              const subLine = (p, ven) => {
+                const doc = cffDocCode(p);
+                const desc = cffCleanDesc((p.remark && p.remark.trim()) ? p.remark : (p.internalNote||""));
+                const parts = [];
+                if(doc) parts.push(esc(doc));
+                if(desc && desc !== ven && ven.indexOf(desc) < 0) parts.push(esc(desc));
+                return parts.join(` <span style="color:#cbd5e1">—</span> `);
+              };
               const venRows = vendors.map(([ven,vinfo]) => {
+                // ★ เวนเดอร์รายการเดียว → ยุบเป็นบรรทัดเดียว (ชื่อเด่น + เอกสาร/คำอธิบายบรรทัดย่อย)
+                if(vinfo.items.length === 1){
+                  const p = vinfo.items[0]; const sub = subLine(p, ven);
+                  return `<tr style="border-top:1px solid #eef2f7"><td style="padding:7px 10px 7px 22px"><div style="font-weight:600;color:#334155">${esc(ven)}</div>${sub?`<div style="font-size:10.5px;color:#64748b;margin-top:1px;line-height:1.4">${sub}</div>`:''}</td><td style="padding:7px 10px;color:#475569;font-size:11px;white-space:nowrap">${esc(fmtDate(p.original_due))}</td><td style="padding:7px 10px;text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;font-weight:600;color:#334155">${nf(p.amount)}</td></tr>`;
+                }
+                // ★ เวนเดอร์หลายรายการ → หัวเวนเดอร์ (เด่น: พื้นอ่อน + ตัวหนา) + รายการย่อย
                 const vOpen = isVenOpen(cat, ven);
-                const venHead = `<tr style="${interactive?'cursor:pointer;':''}border-top:1px solid #f1f5f9" ${interactive?`onclick="cffToggleVendor(${JSON.stringify(cat).replace(/"/g,'&quot;')},${JSON.stringify(ven).replace(/"/g,'&quot;')})"`:''}><td style="padding:6px 10px 6px 22px;color:#334155" colspan="2">${interactive?`<span style="display:inline-block;width:13px;color:var(--brand);font-size:9px">${vOpen?'▾':'▸'}</span>`:''}<span style="font-weight:600">${esc(ven)}</span> <span style="font-weight:500;color:var(--ink-3);font-size:10px">(${vinfo.items.length})</span></td><td style="padding:6px 10px;text-align:right;font-weight:700;color:#334155">${nf(vinfo.total)}</td></tr>`;
+                const venHead = `<tr style="${interactive?'cursor:pointer;':''}background:rgba(var(--brand-rgb),.04);border-top:1px solid #e6ecf5" ${interactive?`onclick="cffToggleVendor(${JSON.stringify(cat).replace(/"/g,'&quot;')},${JSON.stringify(ven).replace(/"/g,'&quot;')})"`:''}><td style="padding:7px 10px 7px 18px;color:var(--brand-dark)" colspan="2">${interactive?`<span style="display:inline-block;width:13px;color:var(--brand);font-size:9px">${vOpen?'▾':'▸'}</span>`:''}<span style="font-weight:700">${esc(ven)}</span> <span style="font-weight:600;color:var(--brand);background:rgba(var(--brand-rgb),.12);border-radius:999px;padding:0 7px;font-size:10px;margin-left:4px">${vinfo.items.length}</span></td><td style="padding:7px 10px;text-align:right;font-weight:700;color:var(--brand-dark)">${nf(vinfo.total)}</td></tr>`;
                 const items = vOpen ? vinfo.items.map(p => {
-                  const doc = cffDocCode(p);
-                  const desc = cffCleanDesc((p.remark && p.remark.trim()) ? p.remark : (p.internalNote||""));
-                  const label = esc(doc) + (desc ? ` <span style="color:#64748b">— ${esc(desc)}</span>` : "");
-                  return `<tr><td style="padding:5px 10px 5px 38px;color:#475569;font-size:11px">${label}</td><td style="padding:5px 10px;color:#475569;font-size:11px;white-space:nowrap">${esc(fmtDate(p.original_due))}</td><td style="padding:5px 10px;text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap">${nf(p.amount)}</td></tr>`;
+                  const sub = subLine(p, ven) || esc(cffDocCode(p));
+                  return `<tr><td style="padding:5px 10px 5px 38px;color:#475569;font-size:11px">${sub}</td><td style="padding:5px 10px;color:#475569;font-size:11px;white-space:nowrap">${esc(fmtDate(p.original_due))}</td><td style="padding:5px 10px;text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap">${nf(p.amount)}</td></tr>`;
                 }).join("") : "";
                 return venHead + items;
               }).join("");

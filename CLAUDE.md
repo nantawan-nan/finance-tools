@@ -177,6 +177,13 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-06-23 — Cash Flow Forecast (Staff) = รายงานสะอาดเหมือน snapshot (default) + ซ่อนของวิเคราะห์
+- **เจ้าของสั่ง:** หน้า Cash Flow พนักงานบนจอ ให้หน้าตา**เหมือนสแนปชอต** (รายงาน "ประมาณการรายรับ-รายจ่าย" ที่ส่ง LINE) เลย์เอาต์เดียวกันเป๊ะ
+- **ดึง HTML รายงานเป็นฟังก์ชันใช้ร่วม** — `cffStaffReportInner(co, dt, R)` (หัวแบรนด์ gradient + ตาราง pivot ธนาคาร เงินคงเหลือใช้ได้/ถึงกำหนด/หมวด/สุทธิ + ตารางรายละเอียดรายจ่าย) + `cffStaffComputeReport(d, dt)` (คำนวณ filtered/cats/bankDue/bankCat/opening/totalDue/netCash/periodLabel) · **ทั้ง `renderToolCashflowStaff` (หน้าจอ) และ `cffOpenSnapshotStaff` (modal export) เรียกตัวเดียวกัน** → เหมือนกันตลอด แก้ทีเดียว
+- **หน้าจอ default = รายงานสะอาด** ใน `<div id="cffStaffReportSheet">` (กว้างสุด 1040px กึ่งกลาง) · ของวิเคราะห์เดิม (KPI 5 ใบ · ไฮไลต์สำคัญ · Cash Bridge · ไทม์ไลน์รอบจ่าย) **ห่อด้วย `${detailOpen ? ... : ''}` ซ่อนเป็นค่าเริ่มต้น** — ปุ่ม "รายละเอียดเพิ่มเติม" บนหัว (`cffToggleStaffDetail`, state `d.staffDetailOpen`)
+- **เอาตารางหมวดแบบ accordion เดิมทิ้งทั้งก้อน** (ที่มีปุ่มถังขยะ skip รายวัน) — เจ้าของสั่งเอาออกให้เหมือน snapshot เป๊ะ · ปุ่ม Snapshot ย้ายขึ้นหัว · **แถบ "คืนค่า"** รายการ recurring ที่เคย skip ยังอยู่ (กันของค้างหาย) · `cffSkipRecurring` ยังมีอยู่แต่ไม่ถูกเรียกจากหน้านี้แล้ว
+- **gotcha:** on-screen ใช้ id `cffStaffReportSheet` (ไม่ใช่ `cffSnap`) — กันชนกับ modal export ที่ `cffExportSnap` หา `getElementById("cffSnap")` · report periodLabel ใช้ "ทั้งหมด" ล้วน (ไม่มีช่วงวันต่อท้าย) ให้ตรง snapshot
+
 ### 2026-06-23 — Executive Dashboard: โหมดนำเสนอ (present mode) เต็มจอ + ไฮไลต์ตามเมาส์ + ฟีลกระจก iOS
 - **ปุ่ม "🖥️ นำเสนอ"** (สีส้ม) ในแถบเครื่องมือ `edRenderDashboard` → `edTogglePresent()`
 - **เต็มจอ:** `document.documentElement.requestFullscreen()` (ผูกทั้งหน้า → สลับแท็บ/เปลี่ยนเดือน re-render `#main` ไม่หลุด fullscreen) + เพิ่มคลาส `ed-present` + `sb-hidden` (ซ่อน sidebar, จำสถานะเดิมไว้คืนตอนออก) · helper: `edEnterPresent`/`edExitPresent`/`edOnFsChange`/`edPresentKey` + `edInjectPresentCSS()` (inject `<style id=edPresentCSS>` ครั้งเดียว)

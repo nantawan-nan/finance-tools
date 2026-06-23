@@ -9648,10 +9648,10 @@ function cffGet(){
   }
   return state.cff[state.company];
 }
-function cffSetView(v){ cffGet().viewMode = v; renderToolCashflowForecast(); }
-function cffSetStaffDay(dd){ const d=cffGet(); d.staffMode='day'; d.staffDate=dd; d.staffQuick=''; renderToolCashflowForecast(); }
-function cffSetStaffAll(){ const d=cffGet(); d.staffMode='all'; d.staffDate=''; d.staffFrom=''; d.staffTo=''; d.staffQuick=''; renderToolCashflowForecast(); }
-function cffSetStaffRange(from, to){ const d=cffGet(); d.staffMode='range'; d.staffFrom=from||''; d.staffTo=to||''; d.staffQuick=''; renderToolCashflowForecast(); }
+function cffSetView(v){ cffGet().viewMode = v; cffRerender(); }
+function cffSetStaffDay(dd){ const d=cffGet(); d.staffMode='day'; d.staffDate=dd; d.staffQuick=''; cffRerender(); }
+function cffSetStaffAll(){ const d=cffGet(); d.staffMode='all'; d.staffDate=''; d.staffFrom=''; d.staffTo=''; d.staffQuick=''; cffRerender(); }
+function cffSetStaffRange(from, to){ const d=cffGet(); d.staffMode='range'; d.staffFrom=from||''; d.staffTo=to||''; d.staffQuick=''; cffRerender(); }
 /* ชิปด่วน: สัปดาห์นี้ / สัปดาห์หน้า / วันนี้ถึงสิ้นเดือน — คำนวณวันแบบ local (กัน TZ เพี้ยน) */
 function cffSetStaffQuick(kind){
   const d=cffGet(); const dt=d.data; if(!dt) return;
@@ -9669,7 +9669,7 @@ function cffSetStaffQuick(kind){
     from=todayISO; to=iso(new Date(Y, M, 0));    // วันสุดท้ายของเดือนนี้
   } else return;
   d.staffMode='range'; d.staffFrom=from; d.staffTo=to; d.staffQuick=kind;
-  renderToolCashflowForecast();
+  cffRerender();
 }
 /* ย่อ/ขยายทุกประเภทค่าใช้จ่ายในรายงาน (toggle รวม) */
 function cffStaffCatToggleAll(){
@@ -9678,12 +9678,12 @@ function cffStaffCatToggleAll(){
   if(!d.catOpen) d.catOpen={};
   const anyOpen = R.cats.some(([c]) => d.catOpen[c] !== false);
   R.cats.forEach(([c]) => { d.catOpen[c] = anyOpen ? false : true; });   // มีเปิดอยู่ → ย่อหมด, ไม่งั้น → ขยายหมด
-  renderToolCashflowForecast();
+  cffRerender();
 }
-function cffToggleCat(name){ const d=cffGet(); if(!d.catOpen) d.catOpen={}; d.catOpen[name] = d.catOpen[name]===false ? true : false; renderToolCashflowForecast(); }
-function cffToggleBankTl(){ const d=cffGet(); d.bankTlOpen = d.bankTlOpen===false ? true : false; renderToolCashflowForecast(); }
-function cffToggleRound(k){ const d=cffGet(); if(!d.roundOpen) d.roundOpen={}; d.roundOpen[k]=!d.roundOpen[k]; renderToolCashflowForecast(); }
-function cffToggleStaffDetail(){ const d=cffGet(); d.staffDetailOpen = !d.staffDetailOpen; renderToolCashflowForecast(); }
+function cffToggleCat(name){ const d=cffGet(); if(!d.catOpen) d.catOpen={}; d.catOpen[name] = d.catOpen[name]===false ? true : false; cffRerender(); }
+function cffToggleBankTl(){ const d=cffGet(); d.bankTlOpen = d.bankTlOpen===false ? true : false; cffRerender(); }
+function cffToggleRound(k){ const d=cffGet(); if(!d.roundOpen) d.roundOpen={}; d.roundOpen[k]=!d.roundOpen[k]; cffRerender(); }
+function cffToggleStaffDetail(){ const d=cffGet(); d.staffDetailOpen = !d.staffDetailOpen; cffRerender(); }
 function cffInjectStaffCSS(){
   if(document.getElementById("cffx-styles")) return;
   const s = document.createElement("style"); s.id = "cffx-styles";
@@ -9740,8 +9740,11 @@ function cffSetHorizon(h){
   const d = cffGet();
   d.horizon = h;
   if(h !== "custom"){ d.customFrom = null; d.customTo = null; }
-  renderToolCashflowForecast();
+  renderToolCashflowForecast();   // เปลี่ยน horizon = ช่วงโหลดเปลี่ยน → reload จริง
 }
+/* re-render แบบ UI อย่างเดียว (ไม่โหลดใหม่จาก Supabase) — กันจอกระพริบตอน toggle/filter
+   ใช้ข้อมูล d.data ที่โหลดไว้แล้ว · ถ้ายังไม่มี data จะ fallback ไป load ตามปกติ */
+function cffRerender(){ const d=cffGet(); d._uiOnly = true; renderToolCashflowForecast(); }
 function cffEndDate(d){
   const today = new Date(); today.setHours(0,0,0,0);
   if(d.horizon === "custom" && d.customTo) return new Date(d.customTo);
@@ -10477,12 +10480,17 @@ async function renderToolCashflowStaff(){
   const d = cffGet();
   cffInjectStaffCSS();
 
-  main.innerHTML = `
-    <div class="page-head"><h1>${esc(t.name)} <span class="badge">${esc(co.name)}</span></h1><div class="sub">กำลังโหลด...</div></div>
-    <div class="card"><div class="empty">กำลังโหลด...</div></div>`;
-  try{ await cffLoad(); }catch(e){
-    main.innerHTML += `<div class="card"><div style="color:var(--out-ink)">โหลดไม่สำเร็จ: ${esc(fopErr(e))}</div></div>`;
-    return;
+  // ★ UI-only re-render (toggle/filter) → ใช้ data เดิม ไม่โชว์ skeleton + ไม่โหลดใหม่ (กันจอกระพริบ)
+  const uiOnly = d._uiOnly && d.data;
+  d._uiOnly = false;
+  if(!uiOnly){
+    main.innerHTML = `
+      <div class="page-head"><h1>${esc(t.name)} <span class="badge">${esc(co.name)}</span></h1><div class="sub">กำลังโหลด...</div></div>
+      <div class="card"><div class="empty">กำลังโหลด...</div></div>`;
+    try{ await cffLoad(); }catch(e){
+      main.innerHTML += `<div class="card"><div style="color:var(--out-ink)">โหลดไม่สำเร็จ: ${esc(fopErr(e))}</div></div>`;
+      return;
+    }
   }
   const dt = d.data;
   if(!dt){ return; }
@@ -10788,15 +10796,20 @@ async function renderToolCashflowExec(){
   const co = COMPANIES.find(c=>c.id===state.company);
   const main = document.getElementById("main");
   const d = cffGet();
-  main.innerHTML = `
-    <div class="page-head">
-      <h1>${esc(t.name)} <span class="badge">${esc(co.name)}</span></h1>
-      <div class="sub">${esc(t.long)}</div>
-    </div>
-    <div class="card"><div class="empty">กำลังโหลด...</div></div>`;
-  try{ await cffLoad(); }catch(e){
-    main.innerHTML += `<div class="card"><div style="color:var(--out-ink)">โหลดไม่สำเร็จ: ${esc(fopErr(e))}</div></div>`;
-    return;
+  // ★ UI-only re-render (สลับวิว) → ไม่โชว์ skeleton + ไม่โหลดใหม่ (กันจอกระพริบ)
+  const uiOnly = d._uiOnly && d.data;
+  d._uiOnly = false;
+  if(!uiOnly){
+    main.innerHTML = `
+      <div class="page-head">
+        <h1>${esc(t.name)} <span class="badge">${esc(co.name)}</span></h1>
+        <div class="sub">${esc(t.long)}</div>
+      </div>
+      <div class="card"><div class="empty">กำลังโหลด...</div></div>`;
+    try{ await cffLoad(); }catch(e){
+      main.innerHTML += `<div class="card"><div style="color:var(--out-ink)">โหลดไม่สำเร็จ: ${esc(fopErr(e))}</div></div>`;
+      return;
+    }
   }
 
   const R = cffCompute();

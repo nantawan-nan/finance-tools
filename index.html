@@ -4546,7 +4546,13 @@ async function edDeleteCloud(){
 }
 
 /* normalize bank account number: strip dash/space → กัน duplicate (865-0-98040-5 vs 865-098040-5) */
-function edNormAccNo(s){ return String(s||"").replace(/[\s\-\/]/g,""); }
+function edNormAccNo(s){
+  // เก็บเฉพาะตัวเลขล้วน — กัน duplicate จากขีด/ช่องว่างทุกชนิด
+  // (รวมขีด non-breaking hyphen U+2011, en-dash U+2013, NBSP ฯลฯ ที่ \- ปกติตัดไม่ออก)
+  const digits = String(s||"").replace(/\D/g,"");
+  // fallback: ถ้าไม่มีตัวเลขเลย (เลขบัญชีแปลก ๆ) ใช้แบบเดิม (ตัด ws/dash/slash แล้ว lower)
+  return digits || String(s||"").replace(/[\s\-\/]/g,"").toUpperCase();
+}
 
 /* migrate loaded data: merge accounts ที่มี bank+normalizedNo เหมือนกัน */
 function edMigrateAccounts(dataObj){
@@ -4555,7 +4561,7 @@ function edMigrateAccounts(dataObj){
   const keyMap = {};   // old key → new key (normalized)
   for(const oldKey in dataObj.accounts){
     const a = dataObj.accounts[oldKey];
-    const newKey = (a.bank || "") + "·" + edNormAccNo(a.no);
+    const newKey = String(a.bank || "").trim().toUpperCase() + "·" + edNormAccNo(a.no);
     keyMap[oldKey] = newKey;
     if(!newAccounts[newKey]){
       newAccounts[newKey] = { ...a, no: a.no, months:{}, totalIn:0, totalOut:0, firstOpen:null, lastClose:null };
@@ -4587,6 +4593,10 @@ function edMigrateAccounts(dataObj){
     for(const m of dataObj.months){
       for(const a of (m.accounts||[])){
         if(a.accountKey && keyMap[a.accountKey]) a.accountKey = keyMap[a.accountKey];
+        // remap tx ที่ฝังในเดือน (โหลดจาก cloud = คนละ object กับ transactions) — กัน filter เพี้ยนหลัง rebuild
+        for(const it of (a.items||[])){
+          if(it.accountKey && keyMap[it.accountKey]) it.accountKey = keyMap[it.accountKey];
+        }
       }
     }
   }
@@ -4836,7 +4846,7 @@ function edParseBHG(book){
       const a = String(row[0]||"").trim();
       const mB = a.match(bankRe);
       if(mB){
-        const bank = mB[1].toUpperCase(), no = mB[2].trim(), normNo = no.replace(/[\s\-\/]/g,"");
+        const bank = mB[1].toUpperCase(), no = mB[2].trim(), normNo = edNormAccNo(no);
         cur = { bank, no, nick:no, accountKey: bank+"·"+normNo, opening:0, byMonth:{} };
         blocks.push(cur); continue;
       }
@@ -4944,8 +4954,8 @@ function edParse(book){
         const info = edParseAcctHeader(cell3, accNoFromRow);
         // ★ normalize account_no: ตัด dash/space ออก เพื่อกัน duplicate
         // (เช่น "865-0-98040-5" vs "865-098040-5" = บัญชีเดียวกัน)
-        const normNo = String(info.no||"").replace(/[\s\-\/]/g,"");
-        const accountKey = info.bank + "·" + normNo;
+        const normNo = edNormAccNo(info.no);
+        const accountKey = String(info.bank||"").trim().toUpperCase() + "·" + normNo;
         curAcct = {
           header: info,
           accountKey,
@@ -9938,30 +9948,30 @@ function loanInjectCSS(){
   .ln-kgrid{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:13px}
   @media(max-width:1280px){.ln-kgrid{grid-template-columns:repeat(3,1fr)}}
   @media(max-width:680px){.ln-kgrid{grid-template-columns:repeat(2,1fr)}}
-  .ln-card{background:#fff;border:1px solid #e6efee;border-radius:16px;padding:16px 16px 14px;box-shadow:0 1px 2px rgba(20,52,74,.04);display:flex;flex-direction:column;gap:8px;transition:.14s}
+  .ln-card{background:#fff;border:1px solid #e6efee;border-radius:16px;padding:19px 19px 17px;box-shadow:0 1px 2px rgba(20,52,74,.04);display:flex;flex-direction:column;gap:8px;transition:.14s}
   .ln-card.red{border-color:#f1d9d3}
   .ln-card.dark{background:linear-gradient(150deg,#11324a,#16455f);border:none;color:#fff;box-shadow:0 14px 30px -16px rgba(17,50,74,.6)}
-  .ln-ic{width:33px;height:33px;border-radius:10px;display:flex;align-items:center;justify-content:center}
-  .ln-kl{font-size:11px;color:#93a7b3}
+  .ln-ic{width:40px;height:40px;border-radius:10px;display:flex;align-items:center;justify-content:center}
+  .ln-kl{font-size:12px;color:#93a7b3}
   .ln-card.dark .ln-kl{color:#a8c0cb}
-  .ln-kv{font-size:21px;font-weight:700;letter-spacing:-.5px;color:#11324a}
+  .ln-kv{font-size:27px;font-weight:700;letter-spacing:-.5px;color:#11324a}
   .ln-card.dark .ln-kv{color:#fff}
   .ln-panel{background:#fff;border:1px solid #e6efee;border-radius:16px;padding:18px 20px;box-shadow:0 1px 2px rgba(20,52,74,.04)}
-  .ln-h3{font-size:15px;font-weight:700;color:#11324a}
+  .ln-h3{font-size:17px;font-weight:700;color:#11324a}
   .ln-sub{font-size:12px;color:#93a7b3;margin-top:2px}
   .ln-row2{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr);gap:16px}
   @media(max-width:980px){.ln-row2{grid-template-columns:1fr}}
   .ln-row2b{display:grid;grid-template-columns:minmax(0,2.6fr) minmax(0,1fr);gap:16px;align-items:start}
   @media(max-width:980px){.ln-row2b{grid-template-columns:1fr}}
-  .ln-tbl{width:100%;border-collapse:collapse;font-size:12.5px}
+  .ln-tbl{width:100%;border-collapse:collapse;font-size:13.5px}
   .ln-tbl thead tr{background:#f6faf9;color:#718898;font-size:11px}
-  .ln-tbl th{padding:10px 13px;font-weight:600;text-align:right}
+  .ln-tbl th{padding:12px 15px;font-weight:600;text-align:right}
   .ln-tbl th:first-child{text-align:left}
-  .ln-tbl td{padding:11px 13px;text-align:right;border-top:1px solid #eef2f1}
+  .ln-tbl td{padding:13px 15px;text-align:right;border-top:1px solid #eef2f1}
   .ln-tbl td:first-child{text-align:left}
   .ln-tbl tbody tr.brow:hover{background:#f9fcfb;cursor:pointer}
   .ln-pill{display:inline-block;padding:3px 9px;border-radius:7px;font-size:11px;font-weight:600}
-  .ln-bar{flex:1;height:22px;background:#f0f4f3;border-radius:6px;overflow:hidden;display:flex}
+  .ln-bar{flex:1;height:30px;background:#f0f4f3;border-radius:6px;overflow:hidden;display:flex}
   `;
   document.head.appendChild(s);
 }
@@ -10064,21 +10074,21 @@ function renderToolLoans(){
             <span style="display:flex;align-items:center;gap:5px"><span style="width:10px;height:10px;border-radius:3px;background:#e0a83e"></span>รับ-ดบ.</span>
           </div>
         </div>
-        <div style="display:flex;align-items:flex-end;gap:12px;height:210px;padding-top:16px">
+        <div style="display:flex;align-items:flex-end;gap:18px;height:320px;padding-top:22px">
           ${months.map(m=>{ const x=mm[m]; const h=v=>(v/maxBar*100); return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:7px;height:100%;justify-content:flex-end" title="${loanMonLabel(m)} · เรียกเก็บ ฿${f(x.billP+x.billI)} · รับ ฿${f(x.paidP+x.paidI)}">
-            <div style="display:flex;gap:4px;align-items:flex-end;width:100%;justify-content:center;height:100%">
-              <div style="width:22px;display:flex;flex-direction:column;justify-content:flex-end;height:100%"><div style="background:#f2dca6;border-radius:4px 4px 0 0;height:${h(x.billI)}%"></div><div style="background:#9fd6cf;height:${h(x.billP)}%"></div></div>
-              <div style="width:22px;display:flex;flex-direction:column;justify-content:flex-end;height:100%"><div style="background:#e0a83e;border-radius:4px 4px 0 0;height:${h(x.paidI)}%"></div><div style="background:#0f8a7e;height:${h(x.paidP)}%"></div></div>
+            <div style="display:flex;gap:8px;align-items:flex-end;width:100%;justify-content:center;height:100%">
+              <div style="width:36px;display:flex;flex-direction:column;justify-content:flex-end;height:100%"><div style="background:#f2dca6;border-radius:4px 4px 0 0;height:${h(x.billI)}%"></div><div style="background:#9fd6cf;height:${h(x.billP)}%"></div></div>
+              <div style="width:36px;display:flex;flex-direction:column;justify-content:flex-end;height:100%"><div style="background:#e0a83e;border-radius:4px 4px 0 0;height:${h(x.paidI)}%"></div><div style="background:#0f8a7e;height:${h(x.paidP)}%"></div></div>
             </div>
-            <span style="font-size:10.5px;color:#93a7b3">${loanMonLabel(m)}</span>
+            <span style="font-size:12px;color:#93a7b3">${loanMonLabel(m)}</span>
           </div>`; }).join("")}
         </div>
       </div>
       <div class="ln-panel" style="display:flex;flex-direction:column">
         <div class="ln-h3">สัดส่วนลูกหนี้คงค้าง</div><div class="ln-sub">เงินต้น vs ดอกเบี้ย</div>
         <div style="display:flex;align-items:center;justify-content:center;margin:14px 0">
-          <div style="position:relative;width:160px;height:160px;border-radius:50%;background:conic-gradient(#0f8a7e 0% ${pPct}%, #e0a83e ${pPct}% 100%)">
-            <div style="position:absolute;inset:24px;border-radius:50%;background:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;box-shadow:inset 0 1px 4px rgba(20,52,74,.06)">
+          <div style="position:relative;width:210px;height:210px;border-radius:50%;background:conic-gradient(#0f8a7e 0% ${pPct}%, #e0a83e ${pPct}% 100%)">
+            <div style="position:absolute;inset:32px;border-radius:50%;background:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;box-shadow:inset 0 1px 4px rgba(20,52,74,.06)">
               <span style="font-size:11px;color:#93a7b3">ยอดรวม</span><span class="num" style="font-size:15px;font-weight:700;color:#11324a">฿${fM(totOut)}M</span></div>
           </div>
         </div>
@@ -10102,7 +10112,7 @@ function renderToolLoans(){
           </div>
           <div style="display:flex;align-items:center;gap:10px">
             <div class="ln-bar"><div style="width:${barW}%;height:100%;display:flex;border-radius:6px;overflow:hidden"><div style="width:${pSeg}%;background:#0f8a7e"></div><div style="flex:1;background:#e0a83e"></div></div></div>
-            <span class="num" style="font-size:12px;font-weight:700;color:#11324a;width:120px;text-align:right">฿${f(tot)}</span>
+            <span class="num" style="font-size:14px;font-weight:700;color:#11324a;width:135px;text-align:right">฿${f(tot)}</span>
           </div></div>`; }).join("")}
       </div>
     </div>

@@ -177,6 +177,12 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-06-23 — Executive Dashboard: แก้บัญชีซ้ำในกราฟ (normalize เลขบัญชีเป็นตัวเลขล้วน)
+- **ปัญหา:** อัปไฟล์รวมหลายปี (2568+2569) แล้ว Bank Accounts tab โชว์บัญชีเดียวกันซ้ำเป็น 2 แถว (โดนัท + bar เปรียบเทียบ รับ/จ่าย) เช่น `BBL 865-098040-5` vs `BBL 865-0-98040-5` — เพราะไฟล์คนละปีเขียนเลขบัญชีคนละฟอร์แมต/มีขีดแฝง (non-breaking hyphen U+2011, en-dash, NBSP) ที่ตัวรวมบัญชีเดิมตัดไม่ออก (`replace(/[\s\-\/]/g,"")` จับแค่ขีด ASCII)
+- **แก้:** `edNormAccNo` เปลี่ยนเป็น **เก็บเฉพาะตัวเลขล้วน** (`replace(/\D/g,"")`) + fallback แบบเดิมถ้าไม่มีตัวเลข · จุดสร้าง accountKey ทั้ง 3 ที่ (`edMigrateAccounts`, BHG parser `bankRe`, Benya/MBark parser) เรียก `edNormAccNo` ตัวเดียวกัน + ปัด `bank` เป็น `upper().trim()` ให้ตรงกัน → เลขบัญชีเดียวกันรวมเป็นบัญชีเดียวเสมอ ไม่ว่าขีดชนิดไหน
+- **ไม่ต้องอัปไฟล์ใหม่:** `edMigrateAccounts` รันทุกครั้งที่โหลดจาก cloud (`edSyncFromCloud`) → Hard refresh แล้วรวมให้อัตโนมัติ · บัญชีคู่ซ้ำมาจากคนละปี (คนละเดือน) → merge months เป็นการต่อเดือน ไม่บวกซ้ำ
+- **ขอบเขต:** แตะแค่ dedup helper — ไม่แตะ logic รวมเลข/แสดงผลของ Executive Dashboard (`renderToolExecDash`/`ed*` render)
+
 ### 2026-06-23 — Executive Dashboard รองรับหลายปี (multi-year merge + year filter)
 - **ปัญหาเดิม:** อัปไฟล์ใหม่ = `d.data = edParse(...)` **เขียนทับทั้งหมด** → อัป 2025 แล้ว 2026 หายเกลี้ยง
 - **แก้:** อัปไฟล์ตอนนี้ **merge** แทน replace — เดือน key ซ้ำ (เช่น `2026.03`) ของใหม่ทับ, เดือน/ปีใหม่เพิ่มเข้าไป

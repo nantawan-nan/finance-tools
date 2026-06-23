@@ -9698,6 +9698,7 @@ function cffToggleCat(name){ const d=cffGet(); if(!d.catOpen) d.catOpen={}; d.ca
 function cffToggleBankTl(){ const d=cffGet(); d.bankTlOpen = d.bankTlOpen===false ? true : false; cffRerender(); }
 function cffToggleRound(k){ const d=cffGet(); if(!d.roundOpen) d.roundOpen={}; d.roundOpen[k]=!d.roundOpen[k]; cffRerender(); }
 function cffToggleStaffDetail(){ const d=cffGet(); d.staffDetailOpen = !d.staffDetailOpen; cffRerender(); }
+function cffToggleStaffFilter(){ const d=cffGet(); d.staffFilterOpen = d.staffFilterOpen === false ? true : false; cffRerender(); }
 function cffInjectStaffCSS(){
   if(document.getElementById("cffx-styles")) return;
   const s = document.createElement("style"); s.id = "cffx-styles";
@@ -10627,6 +10628,7 @@ async function renderToolCashflowStaff(){
                     : d.staffMode === "range" ? `${d.staffFrom?fmtDate(d.staffFrom):'?'}–${d.staffTo?fmtDate(d.staffTo):'?'}`
                     : "ทั้งหมด";
   const detailOpen = d.staffDetailOpen === true;   // ★ ปกติซ่อนของวิเคราะห์ทั้งหมด — กดปุ่มถึงโชว์
+  const filterOpen = d.staffFilterOpen !== false;  // ★ แถบเลือกรอบจ่าย default = ขยาย
   const canWrite = fopCanWrite();
 
   main.innerHTML = `
@@ -10645,10 +10647,14 @@ async function renderToolCashflowStaff(){
       </div>
     </div>
 
-    <!-- filter: วันชำระเงิน (chips ราย day + range picker) -->
+    <!-- filter: วันชำระเงิน (ย่อ/ขยายได้ · ปุ่มอยู่ขวา · default ขยาย) -->
     <div class="card" style="padding:13px 16px;margin-bottom:16px">
-      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-        <span style="font-size:12px;font-weight:700;color:var(--ink-2);display:inline-flex;align-items:center;gap:6px"><i data-lucide="calendar-clock" style="width:15px;height:15px;color:var(--brand)"></i>วันชำระเงิน</span>
+      <div style="display:flex;align-items:center;gap:12px;justify-content:space-between">
+        <span style="font-size:12px;font-weight:700;color:var(--ink-2);display:inline-flex;align-items:center;gap:6px"><i data-lucide="calendar-clock" style="width:15px;height:15px;color:var(--brand)"></i>วันชำระเงิน${filterOpen?'':` · <span style="color:var(--brand);font-weight:600">${esc(reportPeriodLabel)}</span>`}</span>
+        <button class="btn ghost btn sm" onclick="cffToggleStaffFilter()" style="white-space:nowrap"><i data-lucide="${filterOpen?'chevron-up':'chevron-down'}"></i>${filterOpen?'ซ่อน':'เลือกรอบจ่าย'}</button>
+      </div>
+      ${filterOpen ? `
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:11px">
         <div class="cf-chips">
           <button class="${d.staffMode==='all'?'active':''}" onclick="cffSetStaffAll()">ทั้งหมด</button>
           <button class="${(d.staffMode==='range'&&d.staffQuick==='thisWeek')?'active':''}" onclick="cffSetStaffQuick('thisWeek')">สัปดาห์นี้</button>
@@ -10667,6 +10673,7 @@ async function renderToolCashflowStaff(){
         </div>
       </div>
       ${payments.length === 0 ? `<div style="margin-top:8px;font-size:11.5px;color:var(--warn-ink);background:var(--warn-soft);padding:8px 12px;border-radius:7px">⚠ ยังไม่มี AP ที่กรอก <b>วันชำระเงิน</b> — ไปกรอกที่หน้า AP Outstanding ก่อน (รายการที่ยังไม่กรอกจะไม่นับเข้าค่าใช้จ่ายถึงกำหนด)</div>` : ''}
+      ` : ''}
     </div>
 
     ${detailOpen ? `
@@ -10796,13 +10803,13 @@ async function renderToolCashflowStaff(){
     </div>
     ` : ''}
 
-    <!-- ★ รายงานสะอาด (เลย์เอาต์เดียวกับ snapshot) -->
-    <div id="cffStaffReportSheet" style="background:#fff;border-radius:14px;box-shadow:0 6px 28px rgba(15,23,42,.08);border:1px solid var(--glass-border);overflow:hidden;max-width:1040px;margin:4px auto 0;font-family:'IBM Plex Sans Thai','IBM Plex Sans',sans-serif;color:#0f172a">
+    <!-- ★ รายงานสะอาด (เลย์เอาต์เดียวกับ snapshot) — เต็มความกว้างหน้า -->
+    <div id="cffStaffReportSheet" style="background:#fff;border-radius:14px;box-shadow:0 6px 28px rgba(15,23,42,.08);border:1px solid var(--glass-border);overflow:hidden;margin:4px 0 0;font-family:'IBM Plex Sans Thai','IBM Plex Sans',sans-serif;color:#0f172a">
       ${cffStaffReportInner(co, dt, { cats, bankDue, bankCat, openingCash, totalDue, netCash, periodLabel: reportPeriodLabel }, { interactive:true, catOpen:d.catOpen||{}, venOpen:d.venOpen||{} })}
     </div>
 
     ${(canWrite && dt.recSkips && dt.recSkips.length) ? `
-    <div style="margin-top:12px;padding:10px 12px;background:var(--bg);border-radius:8px;font-size:11.5px;max-width:1040px;margin-left:auto;margin-right:auto">
+    <div style="margin-top:12px;padding:10px 12px;background:var(--bg);border-radius:8px;font-size:11.5px">
       <span style="font-weight:700;color:var(--ink-2)">🗑️ ค่าใช้จ่ายประจำที่ลบไว้ (${dt.recSkips.length}):</span>
       <span style="display:inline-flex;flex-wrap:wrap;gap:6px;margin-left:6px">
         ${dt.recSkips.map(s => `<span style="display:inline-flex;align-items:center;gap:4px;background:var(--glass);border:1px solid var(--glass-border);border-radius:6px;padding:3px 6px">

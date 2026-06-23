@@ -10493,7 +10493,7 @@ function cffStaffReportInner(co, dt, R, opts){
           <tbody>
             ${cats.map(([cat,info]) => {
               const open = isOpen(cat);
-              const catHead = `<tr style="background:rgba(var(--brand-rgb),.06)${interactive?';cursor:pointer':''}" ${interactive?`onclick="cffToggleCat(${JSON.stringify(cat).replace(/"/g,'&quot;')})"`:''}><td style="padding:6px 10px;font-weight:700;color:var(--brand-dark)" colspan="2">${interactive?`<span style="display:inline-block;width:14px;color:var(--brand);font-size:10px">${open?'▾':'▸'}</span>`:''}${esc(cat)} <span style="font-weight:500;color:var(--ink-3);font-size:10.5px">(${info.items.length})</span></td><td style="padding:6px 10px;text-align:right;font-weight:700;color:var(--out-ink)">${nf(info.total)}</td></tr>`;
+              const catHead = `<tr style="background:rgba(var(--brand-rgb),.14)${interactive?';cursor:pointer':''}" ${interactive?`onclick="cffToggleCat(${JSON.stringify(cat).replace(/"/g,'&quot;')})"`:''}><td style="padding:9px 10px;border-left:4px solid var(--brand);font-weight:800;color:var(--brand-dark);font-size:13px" colspan="2">${interactive?`<span style="display:inline-block;width:15px;color:var(--brand);font-size:11px">${open?'▾':'▸'}</span>`:''}${esc(cat)} <span style="font-weight:700;color:var(--brand);background:rgba(var(--brand-rgb),.16);border-radius:999px;padding:0 8px;font-size:10.5px;margin-left:5px">${info.items.length}</span></td><td style="padding:9px 10px;text-align:right;font-weight:800;color:var(--out-ink);font-size:13px">${nf(info.total)}</td></tr>`;
               if(!open) return catHead;
               // ★ ชั้นที่ 2: กลุ่มตามเวนเดอร์ (default ย่อ — เห็นแค่ชื่อ+ยอดรวม)
               const venMap = {};

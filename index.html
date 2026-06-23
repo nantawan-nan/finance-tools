@@ -9671,20 +9671,23 @@ function cffSetStaffQuick(kind){
   d.staffMode='range'; d.staffFrom=from; d.staffTo=to; d.staffQuick=kind;
   cffRerender();
 }
-/* ย่อ/ขยายทั้งหมด (ทั้งชั้นประเภท + ชั้นเวนเดอร์) */
-function cffStaffCatToggleAll(){
+/* ระดับการดูรายงาน: ตามประเภท (cat) / ตามผู้จำหน่าย (vendor) / ตามเอกสาร (doc)
+   - cat    → ย่อทุกประเภท (เห็นแค่ยอดรวมประเภท)
+   - vendor → กางประเภท · ย่อผู้จำหน่าย (เห็นยอดรวมต่อผู้จำหน่าย)
+   - doc    → กางทุกชั้น เห็นเอกสารทุกรายการ */
+function cffStaffSetGroupLevel(level){
   const d=cffGet(); const dt=d.data; if(!dt) return;
   const R=cffStaffComputeReport(d, dt);
   if(!d.catOpen) d.catOpen={}; if(!d.venOpen) d.venOpen={};
-  const anyOpen = R.cats.some(([c]) => d.catOpen[c] !== false);
   R.cats.forEach(([c,info]) => {
-    d.catOpen[c] = anyOpen ? false : true;                 // มีเปิดอยู่ → ย่อหมด, ไม่งั้น → ขยายหมด
-    new Set(info.items.map(p=>p.vendor)).forEach(v => { d.venOpen[c+"|"+v] = anyOpen ? false : true; });
+    d.catOpen[c] = (level !== "cat");                       // cat → ย่อประเภท, อื่น → กาง
+    new Set(info.items.map(p=>p.vendor)).forEach(v => { d.venOpen[c+"|"+v] = (level === "doc"); });
   });
+  d.staffGroupLevel = level;
   cffRerender();
 }
 /* ย่อ/ขยายเวนเดอร์รายตัว (ภายในประเภท) — key = "ประเภท|เวนเดอร์" · default = ย่อ */
-function cffToggleVendor(cat, ven){ const d=cffGet(); if(!d.venOpen) d.venOpen={}; const k=cat+"|"+ven; d.venOpen[k] = !d.venOpen[k]; cffRerender(); }
+function cffToggleVendor(cat, ven){ const d=cffGet(); if(!d.venOpen) d.venOpen={}; const k=cat+"|"+ven; d.venOpen[k] = !d.venOpen[k]; d.staffGroupLevel = "custom"; cffRerender(); }
 /* คำอธิบายสะอาด: ตัดวันที่ ISO นำหน้า + รหัสเอกสารภายใน (PO/WO/IV/RR/RW/AC/IS...) ที่นำหน้าออก */
 function cffCleanDesc(s){
   let t = String(s||"").trim();
@@ -9694,7 +9697,7 @@ function cffCleanDesc(s){
 }
 /* เลขที่เอกสารต่อรายการ: ใช้เลขบิล (detail) · ไม่มี/ประมาณการ recurring → "รอเอกสารตั้งหนี้" */
 function cffDocCode(p){ return (p && p.detail && String(p.detail).trim()) ? String(p.detail).trim() : "รอเอกสารตั้งหนี้"; }
-function cffToggleCat(name){ const d=cffGet(); if(!d.catOpen) d.catOpen={}; d.catOpen[name] = d.catOpen[name]===false ? true : false; cffRerender(); }
+function cffToggleCat(name){ const d=cffGet(); if(!d.catOpen) d.catOpen={}; d.catOpen[name] = d.catOpen[name]===false ? true : false; d.staffGroupLevel = "custom"; cffRerender(); }
 function cffToggleBankTl(){ const d=cffGet(); d.bankTlOpen = d.bankTlOpen===false ? true : false; cffRerender(); }
 function cffToggleRound(k){ const d=cffGet(); if(!d.roundOpen) d.roundOpen={}; d.roundOpen[k]=!d.roundOpen[k]; cffRerender(); }
 function cffToggleStaffDetail(){ const d=cffGet(); d.staffDetailOpen = !d.staffDetailOpen; cffRerender(); }
@@ -10397,9 +10400,9 @@ function cffStaffReportInner(co, dt, R, opts){
   const interactive = !!opts.interactive;
   const catOpen = opts.catOpen || {};
   const venOpen = opts.venOpen || {};
+  const groupLevel = opts.groupLevel || "vendor";   // cat | vendor | doc (สำหรับไฮไลต์ปุ่มระดับการดู)
   const isOpen = (cat) => !interactive ? true : (catOpen[cat] !== false);   // ประเภท default = ขยาย
   const isVenOpen = (cat,ven) => !interactive ? true : (venOpen[cat+"|"+ven] === true);  // เวนเดอร์ default = ย่อ
-  const anyOpen = cats => cats.some(([c]) => catOpen[c] !== false);
   const { cats, bankDue, bankCat, openingCash, totalDue, netCash, periodLabel } = R;
   const todayStr = new Date().toLocaleDateString("th-TH",{day:"2-digit",month:"long",year:"numeric"});
   const fmtDate = (iso) => iso ? new Date(iso).toLocaleDateString("th-TH",{day:"2-digit",month:"short"}) : "";
@@ -10463,7 +10466,11 @@ function cffStaffReportInner(co, dt, R, opts){
       <div style="margin-top:18px">
         <div style="margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
           <div style="font-size:13px;font-weight:700;color:var(--brand-dark);display:flex;align-items:center;gap:6px">รายละเอียดประเภทรายจ่าย</div>
-          ${interactive ? `<button onclick="cffStaffCatToggleAll()" style="border:1px solid var(--glass-border);background:rgba(var(--brand-rgb),.06);color:var(--brand-dark);font-size:11.5px;font-weight:600;padding:4px 11px;border-radius:8px;cursor:pointer;font-family:inherit;display:inline-flex;align-items:center;gap:5px">${anyOpen(cats)?'◤ ย่อทั้งหมด':'◢ ขยายทั้งหมด'}</button>` : ''}
+          ${interactive ? `<div style="display:inline-flex;align-items:center;gap:7px"><span style="font-size:11px;color:var(--ink-3);font-weight:600">ดูแบบ:</span><div class="cf-chips" style="font-size:11px">
+            <button class="${groupLevel==='cat'?'active':''}" onclick="cffStaffSetGroupLevel('cat')">ตามประเภท</button>
+            <button class="${groupLevel==='vendor'?'active':''}" onclick="cffStaffSetGroupLevel('vendor')">ตามผู้จำหน่าย</button>
+            <button class="${groupLevel==='doc'?'active':''}" onclick="cffStaffSetGroupLevel('doc')">ตามเอกสาร</button>
+          </div></div>` : ''}
         </div>
         <table style="width:100%;border-collapse:collapse;font-size:11.5px">
           <thead><tr style="background:#f8fafc">
@@ -10805,7 +10812,7 @@ async function renderToolCashflowStaff(){
 
     <!-- ★ รายงานสะอาด (เลย์เอาต์เดียวกับ snapshot) — เต็มความกว้างหน้า -->
     <div id="cffStaffReportSheet" style="background:#fff;border-radius:14px;box-shadow:0 6px 28px rgba(15,23,42,.08);border:1px solid var(--glass-border);overflow:hidden;margin:4px 0 0;font-family:'IBM Plex Sans Thai','IBM Plex Sans',sans-serif;color:#0f172a">
-      ${cffStaffReportInner(co, dt, { cats, bankDue, bankCat, openingCash, totalDue, netCash, periodLabel: reportPeriodLabel }, { interactive:true, catOpen:d.catOpen||{}, venOpen:d.venOpen||{} })}
+      ${cffStaffReportInner(co, dt, { cats, bankDue, bankCat, openingCash, totalDue, netCash, periodLabel: reportPeriodLabel }, { interactive:true, catOpen:d.catOpen||{}, venOpen:d.venOpen||{}, groupLevel:(d.staffGroupLevel||"vendor") })}
     </div>
 
     ${(canWrite && dt.recSkips && dt.recSkips.length) ? `

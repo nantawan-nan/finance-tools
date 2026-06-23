@@ -4757,11 +4757,45 @@ function edIsTransfer(t){
   if(/โอน.{0,8}ระหว่างบัญชี/.test(note)) return true;
   return false;
 }
-/* helper: ดึง txs ตาม scope (month + optional exclude transfers) */
+/* helper: รายการเดือน (key "YYYY.MM") ที่อยู่ใน scope ที่เลือก — เรียงจากน้อย→มาก
+   monthFilter: "all" (ทุกปี) | "year:2025" (ทั้งปี) | "2025.01" (เดือนเดียว) */
+function edScopeMonthKeys(data, monthFilter){
+  const keys = (data.months || []).map(m => m.key).sort();
+  if(!monthFilter || monthFilter === "all") return keys;
+  if(monthFilter.startsWith("year:")){
+    const y = monthFilter.slice(5);
+    return keys.filter(k => k.slice(0,4) === y);
+  }
+  return keys.filter(k => k === monthFilter);
+}
+/* helper: ป้ายชื่อ scope ที่อ่านง่าย (ใช้ใน drill/หัวข้อ) */
+function edScopeLabel(monthFilter){
+  if(!monthFilter || monthFilter === "all") return "รวมทุกเดือน";
+  if(monthFilter.startsWith("year:")) return "ปี " + (Number(monthFilter.slice(5)) + 543);
+  return edThaiMonth(monthFilter);
+}
+/* helper: ยอดเปิดต้น/ปิดปลายของ scope (รองรับ all/ปี/เดือน) — ต่อบัญชี: เปิด=เดือนแรกที่มีใน scope, ปิด=เดือนสุดท้าย */
+function edOpenClose(data, monthFilter){
+  const scope = edScopeMonthKeys(data, monthFilter);
+  let opening = 0, closing = 0;
+  if(!scope.length) return { opening, closing };
+  for(const k in data.accounts){
+    const acc = data.accounts[k];
+    for(const mk of scope){ if(acc.months[mk]){ opening += acc.months[mk].opening || 0; break; } }
+    for(let i = scope.length - 1; i >= 0; i--){ const mk = scope[i]; if(acc.months[mk]){ closing += acc.months[mk].closing || 0; break; } }
+  }
+  return { opening, closing };
+}
+/* helper: ดึง txs ตาม scope (month/year + optional exclude transfers) */
 function edTxsInScope(data, monthFilter, excludeTransfers){
   let txs = data.transactions;
-  if(monthFilter !== "all") txs = txs.filter(t => t.month === monthFilter);
-  if(excludeTransfers)      txs = txs.filter(t => !edIsTransfer(t));
+  if(monthFilter && monthFilter.startsWith("year:")){
+    const y = monthFilter.slice(5);
+    txs = txs.filter(t => String(t.month).slice(0,4) === y);
+  } else if(monthFilter !== "all"){
+    txs = txs.filter(t => t.month === monthFilter);
+  }
+  if(excludeTransfers) txs = txs.filter(t => !edIsTransfer(t));
   return txs;
 }
 
@@ -5020,20 +5054,9 @@ function edAgg(data, monthFilter, excludeTransfers){
   const totalOut = txs.reduce((s,t)=>s+t.out, 0);
   const net = totalIn - totalOut;
 
-  // opening/closing for the period
-  let opening = 0, closing = 0;
-  if(monthFilter==="all"){
-    // sum of firstOpen + sum of lastClose across all accounts
-    for(const k in data.accounts){
-      opening += data.accounts[k].firstOpen || 0;
-      closing += data.accounts[k].lastClose || 0;
-    }
-  } else {
-    const m = data.months.find(x=>x.key===monthFilter);
-    if(m) for(const a of m.accounts){
-      opening += a.opening; closing += (a.closing || a.computed);
-    }
-  }
+  // opening/closing for the period (รองรับ ทุกปี / ทั้งปี / เดือนเดียว)
+  const oc = edOpenClose(data, monthFilter);
+  let opening = oc.opening, closing = oc.closing;
 
   // by activity
   const byAct = { operating:{in:0,out:0}, investing:{in:0,out:0}, financing:{in:0,out:0}, other:{in:0,out:0} };
@@ -5170,7 +5193,7 @@ function renderToolExecDash(){
       </div>
       <div class="card">
         <h3>อัปโหลดไฟล์</h3>
-        <div class="note">ไฟล์ Excel "รายละเอียดเงินรับ-เงินจ่าย" หลายบัญชี/หลายเดือน · 1 ชีต = 1 เดือน · ชื่อชีตรูปแบบ YYYY.MM</div>
+        <div class="note">ไฟล์ Excel "รายละเอียดเงินรับ-เงินจ่าย" หลายบัญชี/หลายเดือน · 1 ชีต = 1 เดือน · ชื่อชีตรูปแบบ YYYY.MM · อัปได้หลายปี (อัปไฟล์แรกก่อน แล้วใช้ปุ่ม "+ อัปไฟล์เพิ่ม (รวมปี)" เพื่อเพิ่มปีอื่นโดยปีเดิมยังอยู่ครบ)</div>
         <div class="drop" id="edDrop">
           <div class="big">↑</div>
           <div>ลากไฟล์มาวางที่นี่ หรือ <b>คลิกเพื่อเลือกไฟล์</b></div>
@@ -5224,9 +5247,52 @@ function renderToolExecDash(){
   edRenderDashboard();
 }
 
+/* รวมข้อมูลเก่า + ใหม่ เข้าด้วยกัน — เดือนเดียวกัน (key ซ้ำ) = ของใหม่ทับ, เดือน/ปีใหม่ = เพิ่มเข้าไป
+   ใช้ตอนอัปไฟล์ปีอื่นเพิ่ม (เช่น มี 2026 อยู่แล้ว อัป 2025 เข้าไป โดย 2026 ยังอยู่ครบ) */
+function edMergeData(base, add){
+  if(!base || !base.months || !base.months.length) return add;
+  // index เดือนตาม key — ของใหม่ทับของเก่าถ้า key ตรงกัน
+  const monthMap = {};
+  for(const m of base.months) monthMap[m.key] = m;
+  for(const m of add.months)  monthMap[m.key] = m;
+  const months = Object.values(monthMap).sort((a,b)=> a.key < b.key ? -1 : 1);
+
+  // rebuild transactions จากเดือน (กัน tx ซ้ำเวลาเดือนถูกทับ)
+  const transactions = [];
+  for(const m of months) for(const a of m.accounts) for(const it of (a.items||[])) transactions.push(it);
+  transactions.sort((a,b)=> a.date - b.date);
+
+  // rebuild accounts summary จากเดือนที่เรียงแล้ว → firstOpen/lastClose ถูกต้องข้ามปี
+  const accounts = {};
+  for(const m of months){
+    for(const a of m.accounts){
+      if(!accounts[a.accountKey]){
+        accounts[a.accountKey] = { bank:a.header.bank, no:a.header.no, nick:a.header.nick, months:{}, totalIn:0, totalOut:0, firstOpen:null, lastClose:null };
+      }
+      const s = accounts[a.accountKey];
+      s.months[m.key] = { opening:a.opening, closing:(a.closing!=null?a.closing:a.computed), in:a.totalIn, out:a.totalOut, ok:a.ok };
+      s.totalIn  += a.totalIn  || 0;
+      s.totalOut += a.totalOut || 0;
+      if(s.firstOpen == null) s.firstOpen = a.opening;
+      s.lastClose = (a.closing!=null?a.closing:a.computed);
+    }
+  }
+
+  // rebuild errors จากเดือนที่กระทบยอดไม่ผ่าน
+  const errors = [];
+  for(const m of months) for(const a of m.accounts){
+    if(a.ok === false){
+      errors.push({ month:m.key, account:a.accountKey, bank:a.header.bank, no:a.header.no,
+        opening:a.opening, in:a.totalIn, out:a.totalOut,
+        expected:a.opening + a.totalIn - a.totalOut, got:a.closing, diff:a.diff });
+    }
+  }
+
+  return { company: base.company || add.company, months, transactions, accounts, errors };
+}
+
 function edHandleFile(file){
   const d = edState();
-  d.file = file.name;
   d.err = null;
   const reader = new FileReader();
   reader.onload = e => {
@@ -5234,14 +5300,28 @@ function edHandleFile(file){
       const wb = XLSX.read(e.target.result, { type:"array", cellDates:true });
       const sheets = {}, names = wb.SheetNames.slice();
       names.forEach(n => { sheets[n] = XLSX.utils.sheet_to_json(wb.Sheets[n], { header:1, defval:"", blankrows:false }); });
-      d.data = edParse({ sheets, names });
-      if(!d.data.months.length){
-        d.data = null;
+      const nd = edParse({ sheets, names });
+      if(!nd.months.length){
         d.err = "ไม่พบชีตในรูปแบบ YYYY.MM (เช่น 2026.01)";
-      } else {
-        edSave();         // เก็บลง localStorage
-        edSaveCloud();    // เก็บขึ้น Supabase (shared ทุกอุปกรณ์)
+        renderToolExecDash();
+        return;
       }
+      const hadData = d.data && d.data.months && d.data.months.length;
+      if(hadData){
+        // มีข้อมูลอยู่แล้ว → รวมเข้าด้วยกัน (เดือนซ้ำของใหม่ทับ, ปีใหม่เพิ่มเข้าไป)
+        const newYears = [...new Set(nd.months.map(m=>m.key.slice(0,4)))];
+        d.data = edMergeData(d.data, nd);
+        const allYears = [...new Set(d.data.months.map(m=>m.key.slice(0,4)))].sort();
+        d.file = file.name;
+        d.mergeMsg = "เพิ่มข้อมูลปี " + newYears.map(y=>Number(y)+543).join(", ")
+          + " แล้ว — ตอนนี้มีปี " + allYears.map(y=>Number(y)+543).join(", ") + " (รวม " + d.data.months.length + " เดือน)";
+      } else {
+        d.data = nd;
+        d.file = file.name;
+        d.mergeMsg = null;
+      }
+      edSave();         // เก็บลง localStorage
+      edSaveCloud();    // เก็บขึ้น Supabase (shared ทุกอุปกรณ์)
       renderToolExecDash();
     }catch(err){
       d.err = "อ่านไฟล์ไม่สำเร็จ: " + (err.message||err);
@@ -5249,6 +5329,14 @@ function edHandleFile(file){
     }
   };
   reader.readAsArrayBuffer(file);
+}
+/* เปิดตัวเลือกไฟล์เพื่ออัป "เพิ่ม" (รวมปี) จากในหน้า dashboard */
+function edAddFile(){
+  const inp = document.createElement("input");
+  inp.type = "file";
+  inp.accept = ".xlsx,.xls";
+  inp.onchange = e => { if(e.target.files[0]) edHandleFile(e.target.files[0]); };
+  inp.click();
 }
 function edReset(){
   const co = state.company;
@@ -5276,6 +5364,9 @@ function edThaiMonth(key){
 }
 function edPeriodLabel(data, monthFilter){
   if(!data || !data.months.length) return "—";
+  if(monthFilter && monthFilter.startsWith("year:")){
+    return "ข้อมูลปี " + (Number(monthFilter.slice(5)) + 543);
+  }
   if(monthFilter !== "all"){
     return "ข้อมูลของเดือน " + edThaiMonth(monthFilter);
   }
@@ -5811,11 +5902,30 @@ function edRenderDashboard(){
   const data = d.data;
   const main = document.getElementById("main");
 
+  // กัน scope ค้าง: ถ้าปี/เดือนที่เลือกไม่มีในข้อมูลแล้ว → กลับไป "ทุกปี"
+  if(d.monthFilter && d.monthFilter !== "all" && !edScopeMonthKeys(data, d.monthFilter).length){
+    d.monthFilter = "all";
+  }
+
   // ทำลาย charts เก่าก่อน re-render
   Object.keys(_edCharts).forEach(edDestroyChart);
 
-  const monthOptions = `<option value="all">รวมทั้งปี (${data.months.length} เดือน)</option>` +
-    data.months.map(m => `<option value="${m.key}" ${d.monthFilter===m.key?'selected':''}>${m.key}</option>`).join("");
+  const edYears = [...new Set(data.months.map(m => m.key.slice(0,4)))].sort();
+  let monthOptions;
+  if(edYears.length > 1){
+    // หลายปี → จัดกลุ่มตามปี + มีตัวเลือก "ทั้งปี" ต่อปี + "ทุกปี" รวมทั้งหมด
+    monthOptions = `<option value="all" ${d.monthFilter==='all'?'selected':''}>ทุกปี (รวม ${data.months.length} เดือน)</option>`;
+    for(const y of edYears){
+      const ym = data.months.filter(m => m.key.slice(0,4) === y);
+      monthOptions += `<optgroup label="ปี ${Number(y)+543} (${y})">`;
+      monthOptions += `<option value="year:${y}" ${d.monthFilter==='year:'+y?'selected':''}>▸ ทั้งปี ${Number(y)+543} (${ym.length} เดือน)</option>`;
+      monthOptions += ym.map(m => `<option value="${m.key}" ${d.monthFilter===m.key?'selected':''}>${m.key}</option>`).join("");
+      monthOptions += `</optgroup>`;
+    }
+  } else {
+    monthOptions = `<option value="all" ${d.monthFilter==='all'?'selected':''}>รวมทั้งปี (${data.months.length} เดือน)</option>` +
+      data.months.map(m => `<option value="${m.key}" ${d.monthFilter===m.key?'selected':''}>${m.key}</option>`).join("");
+  }
 
   const tabs = [
     { id:"summary",  l:"Executive Summary" },
@@ -5864,9 +5974,11 @@ function edRenderDashboard(){
           </select>
           <button class="btn" onclick="edPrint()" style="background:linear-gradient(135deg,#4F8AF7,#3b82f6);border:none" title="พิมพ์เฉพาะหัวข้อที่เปิดอยู่">พิมพ์ PDF</button>
           <button class="btn" onclick="edExportFullPDF()" style="background:linear-gradient(135deg,#6366f1,#4f46e5);border:none" title="รวมทั้ง 6 หัวข้อเป็น PDF ไฟล์เดียว">พิมพ์ทั้งรายงาน</button>
-          <button class="btn ghost btn sm" onclick="edReset()">อัปไฟล์ใหม่</button>
+          <button class="btn" onclick="edAddFile()" style="background:linear-gradient(135deg,#10b981,#059669);border:none" title="อัปไฟล์ปีอื่นเพิ่ม — ปีที่มีอยู่ยังอยู่ครบ (เดือนซ้ำของใหม่ทับ)">+ อัปไฟล์เพิ่ม (รวมปี)</button>
+          <button class="btn ghost btn sm" onclick="edReset()" title="ล้างข้อมูลทั้งหมดแล้วเริ่มอัปใหม่">ล้าง &amp; เริ่มใหม่</button>
         </div>
       </div>
+      ${d.mergeMsg ? `<div style="background:#ecfdf5;color:#065f46;border:1px solid #a7f3d0;padding:9px 14px;border-radius:9px;margin:0 0 12px;font-size:13px;display:flex;justify-content:space-between;align-items:center;gap:10px"><span>✅ ${esc(d.mergeMsg)}</span><button onclick="edState().mergeMsg=null;edRenderDashboard()" style="background:none;border:none;color:#065f46;cursor:pointer;font-size:16px;line-height:1">✕</button></div>` : ""}
 
       <div class="ed-tabs">
         ${tabs.map(tb => `<button class="${d.tab===tb.id?'active':''}" onclick="edSetTab('${tb.id}')">${tb.l}</button>`).join("")}
@@ -6070,8 +6182,10 @@ function edRenderSummary(){
 
   edAnimNums(document.getElementById("edContent"));   // ★ ตัวเลขวิ่ง count-up
 
-  // monthly line+bar — ★ ตัด transfers ออก
-  const months = edState().data.months.map(m=>m.key);
+  // monthly line+bar — ★ ตัด transfers ออก · ถ้าเลือกปี → โชว์เฉพาะเดือนของปีนั้น
+  let months = edState().data.months.map(m=>m.key);
+  const _mf = edState().monthFilter;
+  if(_mf && _mf.startsWith("year:")){ const _y=_mf.slice(5); months = months.filter(k=>k.slice(0,4)===_y); }
   const inData  = months.map(m => edTxsInScope(edState().data, m, true).reduce((s,t)=>s+t.in,0));
   const outData = months.map(m => edTxsInScope(edState().data, m, true).reduce((s,t)=>s+t.out,0));
   const netData = inData.map((v,i)=>v-outData[i]);
@@ -6126,7 +6240,7 @@ function edTopList(byCat, dir){
 /* ---------- KPI ทางการเงิน (Summary tab — ต่อจาก Top 5) ---------- */
 function edRenderFinKpis(A, data, monthFilter){
   const months = data.months || [];
-  const nMonths = Math.max(1, monthFilter === "all" ? months.length : 1);
+  const nMonths = Math.max(1, edScopeMonthKeys(data, monthFilter).length);
   const op = A.byAct.operating || { in:0, out:0 };
   const opNet = op.in - op.out;
 
@@ -6148,7 +6262,9 @@ function edRenderFinKpis(A, data, monthFilter){
 
   // period label — แบบในภาพ "ตลอดปี 2568"
   let periodLabel = "ตลอดทั้งช่วง";
-  if(monthFilter !== "all"){
+  if(monthFilter && monthFilter.startsWith("year:")){
+    periodLabel = "ตลอดปี " + (Number(monthFilter.slice(5)) + 543);
+  } else if(monthFilter !== "all"){
     periodLabel = "เดือน " + monthFilter;
   } else if(months.length){
     const yrs = [...new Set(months.map(m => m.key.slice(0,4)))];
@@ -6246,7 +6362,7 @@ function edDrillFinKpi(kpiKey){
   const d = edState();
   const A = edAgg(d.data, d.monthFilter, true);  // ★ exclude transfers
   const months = d.data.months || [];
-  const nMonths = Math.max(1, d.monthFilter === "all" ? months.length : 1);
+  const nMonths = Math.max(1, edScopeMonthKeys(d.data, d.monthFilter).length);
   const op = A.byAct.operating || { in:0, out:0 };
   const opNet = op.in - op.out;
 
@@ -6260,10 +6376,10 @@ function edDrillFinKpi(kpiKey){
   empCats.sort((a,b) => b.v.out - a.v.out);
   adCats .sort((a,b) => b.v.out - a.v.out);
 
-  // monthly breakdown (for burn rate)
-  const monthlyOut = months.map(m => ({
-    month: m.key,
-    out: edTxsInScope(d.data, m.key, true).reduce((s,t) => s + t.out, 0)  // ★ exclude transfers
+  // monthly breakdown (for burn rate) — ตาม scope ที่เลือก
+  const monthlyOut = edScopeMonthKeys(d.data, d.monthFilter).map(mk => ({
+    month: mk,
+    out: edTxsInScope(d.data, mk, true).reduce((s,t) => s + t.out, 0)  // ★ exclude transfers
   }));
 
   // 3 อันแรก = single value → route ไปที่ existing drill
@@ -6765,7 +6881,8 @@ function edStmtPalette(){
 
 function edRenderStmt(){
   const d = edState();
-  const months = d.data.months.map(m=>m.key);
+  // โชว์คอลัมน์ตาม scope ที่เลือก (ทุกปี=ทุกเดือน · เลือกปี=เฉพาะปีนั้น · เลือกเดือน=เดือนเดียว)
+  const months = edScopeMonthKeys(d.data, d.monthFilter);
   const filterAcct = d.stmtAcct;
   const C = edStmtPalette();  // ★ สีตามบริษัท
 
@@ -6996,7 +7113,7 @@ function edDrillSummary(kind){
   if(kind === "in"){  txs = txs.filter(t => t.in  > 0); title = "เงินสดรับรวม"; }
   if(kind === "out"){ txs = txs.filter(t => t.out > 0); title = "เงินสดจ่ายรวม"; }
   if(kind === "net") title = "กระแสเงินสดสุทธิ";
-  const period = d.monthFilter === "all" ? "รวมทุกเดือน" : edThaiMonth(d.monthFilter);
+  const period = edScopeLabel(d.monthFilter);
   edShowDrillModal(title + " · " + period, txs);
 }
 
@@ -7009,7 +7126,7 @@ function edDrillActivityIO(actKey, dir){
   if(dir === "out") txs = txs.filter(t => t.out > 0);
   const label = edActivityLabel(actKey);
   const dirL  = dir === "in" ? "รับ" : dir === "out" ? "จ่าย" : "สุทธิ";
-  const period = d.monthFilter === "all" ? "รวมทุกเดือน" : edThaiMonth(d.monthFilter);
+  const period = edScopeLabel(d.monthFilter);
   edShowDrillModal(`${label} · ${dirL} · ${period}`, txs);
 }
 
@@ -7031,29 +7148,24 @@ function edDrillOpenClose(kind){
   const rows = [];
   let total = 0;
 
-  if(monthFilter === "all"){
-    // opening = firstOpen, closing = lastClose per account
-    for(const k in data.accounts){
-      if(filterAcct !== "all" && k !== filterAcct) continue;
-      const a = data.accounts[k];
-      const v = kind === "opening" ? a.firstOpen : a.lastClose;
-      rows.push({ bank:a.bank, no:a.no, nick:a.nick, value:v });
-      total += v;
+  // เปิด = เดือนแรกที่บัญชีปรากฏใน scope · ปิด = เดือนสุดท้าย (รองรับ ทุกปี/ทั้งปี/เดือนเดียว)
+  const scope = edScopeMonthKeys(data, monthFilter);
+  for(const k in data.accounts){
+    if(filterAcct !== "all" && k !== filterAcct) continue;
+    const a = data.accounts[k];
+    let v = null;
+    if(kind === "opening"){
+      for(const mk of scope){ if(a.months[mk]){ v = a.months[mk].opening; break; } }
+    } else {
+      for(let i = scope.length - 1; i >= 0; i--){ const mk = scope[i]; if(a.months[mk]){ v = a.months[mk].closing; break; } }
     }
-  } else {
-    const m = data.months.find(x => x.key === monthFilter);
-    if(m){
-      for(const a of m.accounts){
-        if(filterAcct !== "all" && a.accountKey !== filterAcct) continue;
-        const v = kind === "opening" ? a.opening : (a.closing || a.computed);
-        rows.push({ bank:a.header.bank, no:a.header.no, nick:a.header.nick, value:v });
-        total += v;
-      }
-    }
+    if(v == null) continue;
+    rows.push({ bank:a.bank, no:a.no, nick:a.nick, value:v });
+    total += v;
   }
 
   const title = (kind === "opening" ? "เงินสดต้นงวด" : "เงินสดปลายงวด")
-    + " · " + (monthFilter === "all" ? "ทั้งปี" : edThaiMonth(monthFilter));
+    + " · " + edScopeLabel(monthFilter);
 
   const wrap = document.createElement("div");
   wrap.id = "edDrillModal";

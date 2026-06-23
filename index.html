@@ -9671,15 +9671,29 @@ function cffSetStaffQuick(kind){
   d.staffMode='range'; d.staffFrom=from; d.staffTo=to; d.staffQuick=kind;
   cffRerender();
 }
-/* ย่อ/ขยายทุกประเภทค่าใช้จ่ายในรายงาน (toggle รวม) */
+/* ย่อ/ขยายทั้งหมด (ทั้งชั้นประเภท + ชั้นเวนเดอร์) */
 function cffStaffCatToggleAll(){
   const d=cffGet(); const dt=d.data; if(!dt) return;
   const R=cffStaffComputeReport(d, dt);
-  if(!d.catOpen) d.catOpen={};
+  if(!d.catOpen) d.catOpen={}; if(!d.venOpen) d.venOpen={};
   const anyOpen = R.cats.some(([c]) => d.catOpen[c] !== false);
-  R.cats.forEach(([c]) => { d.catOpen[c] = anyOpen ? false : true; });   // มีเปิดอยู่ → ย่อหมด, ไม่งั้น → ขยายหมด
+  R.cats.forEach(([c,info]) => {
+    d.catOpen[c] = anyOpen ? false : true;                 // มีเปิดอยู่ → ย่อหมด, ไม่งั้น → ขยายหมด
+    new Set(info.items.map(p=>p.vendor)).forEach(v => { d.venOpen[c+"|"+v] = anyOpen ? false : true; });
+  });
   cffRerender();
 }
+/* ย่อ/ขยายเวนเดอร์รายตัว (ภายในประเภท) — key = "ประเภท|เวนเดอร์" · default = ย่อ */
+function cffToggleVendor(cat, ven){ const d=cffGet(); if(!d.venOpen) d.venOpen={}; const k=cat+"|"+ven; d.venOpen[k] = !d.venOpen[k]; cffRerender(); }
+/* คำอธิบายสะอาด: ตัดวันที่ ISO นำหน้า + รหัสเอกสารภายใน (PO/WO/IV/RR/RW/AC/IS...) ที่นำหน้าออก */
+function cffCleanDesc(s){
+  let t = String(s||"").trim();
+  t = t.replace(/^\d{4}-\d{2}-\d{2}\s+/, "");                         // วันที่ ISO ซ้ำกับคอลัมน์ครบกำหนด
+  t = t.replace(/^(?:PO|WO|IV|RR|RW|AC|IS|PV|PS)[\w-]*\s+/i, "");     // รหัสเอกสารภายในที่นำหน้า
+  return t.trim();
+}
+/* เลขที่เอกสารต่อรายการ: ใช้เลขบิล (detail) · ไม่มี/ประมาณการ recurring → "รอเอกสารตั้งหนี้" */
+function cffDocCode(p){ return (p && p.detail && String(p.detail).trim()) ? String(p.detail).trim() : "รอเอกสารตั้งหนี้"; }
 function cffToggleCat(name){ const d=cffGet(); if(!d.catOpen) d.catOpen={}; d.catOpen[name] = d.catOpen[name]===false ? true : false; cffRerender(); }
 function cffToggleBankTl(){ const d=cffGet(); d.bankTlOpen = d.bankTlOpen===false ? true : false; cffRerender(); }
 function cffToggleRound(k){ const d=cffGet(); if(!d.roundOpen) d.roundOpen={}; d.roundOpen[k]=!d.roundOpen[k]; cffRerender(); }
@@ -10381,7 +10395,9 @@ function cffStaffReportInner(co, dt, R, opts){
   opts = opts || {};
   const interactive = !!opts.interactive;
   const catOpen = opts.catOpen || {};
-  const isOpen = (cat) => !interactive ? true : (catOpen[cat] !== false);   // default = ขยาย
+  const venOpen = opts.venOpen || {};
+  const isOpen = (cat) => !interactive ? true : (catOpen[cat] !== false);   // ประเภท default = ขยาย
+  const isVenOpen = (cat,ven) => !interactive ? true : (venOpen[cat+"|"+ven] === true);  // เวนเดอร์ default = ย่อ
   const anyOpen = cats => cats.some(([c]) => catOpen[c] !== false);
   const { cats, bankDue, bankCat, openingCash, totalDue, netCash, periodLabel } = R;
   const todayStr = new Date().toLocaleDateString("th-TH",{day:"2-digit",month:"long",year:"numeric"});
@@ -10457,13 +10473,24 @@ function cffStaffReportInner(co, dt, R, opts){
           <tbody>
             ${cats.map(([cat,info]) => {
               const open = isOpen(cat);
-              const head = `<tr style="background:rgba(var(--brand-rgb),.06)${interactive?';cursor:pointer':''}" ${interactive?`onclick="cffToggleCat(${JSON.stringify(cat).replace(/"/g,'&quot;')})"`:''}><td style="padding:6px 10px;font-weight:700;color:var(--brand-dark)" colspan="2">${interactive?`<span style="display:inline-block;width:14px;color:var(--brand);font-size:10px">${open?'▾':'▸'}</span>`:''}${esc(cat)} <span style="font-weight:500;color:var(--ink-3);font-size:10.5px">(${info.items.length})</span></td><td style="padding:6px 10px;text-align:right;font-weight:700;color:var(--out-ink)">${nf(info.total)}</td></tr>`;
-              const items = open ? info.items.map(p => {
-                const fullDesc = [p.remark, p.internalNote].filter(Boolean).join(" · ");
-                const line2 = (p.detail || "") + (fullDesc ? " — " + fullDesc : "");
-                return `<tr><td style="padding:5px 10px 5px 22px;color:#475569"><div style="font-weight:600;color:#334155">${esc(p.vendor)}</div>${line2?`<div style="font-size:10.5px;color:#64748b;margin-top:1px;line-height:1.4">${esc(line2)}</div>`:''}</td><td style="padding:5px 10px;color:#475569;font-size:11px;white-space:nowrap">${esc(fmtDate(p.original_due))}</td><td style="padding:5px 10px;text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap">${nf(p.amount)}</td></tr>`;
-              }).join("") : "";
-              return head + items;
+              const catHead = `<tr style="background:rgba(var(--brand-rgb),.06)${interactive?';cursor:pointer':''}" ${interactive?`onclick="cffToggleCat(${JSON.stringify(cat).replace(/"/g,'&quot;')})"`:''}><td style="padding:6px 10px;font-weight:700;color:var(--brand-dark)" colspan="2">${interactive?`<span style="display:inline-block;width:14px;color:var(--brand);font-size:10px">${open?'▾':'▸'}</span>`:''}${esc(cat)} <span style="font-weight:500;color:var(--ink-3);font-size:10.5px">(${info.items.length})</span></td><td style="padding:6px 10px;text-align:right;font-weight:700;color:var(--out-ink)">${nf(info.total)}</td></tr>`;
+              if(!open) return catHead;
+              // ★ ชั้นที่ 2: กลุ่มตามเวนเดอร์ (default ย่อ — เห็นแค่ชื่อ+ยอดรวม)
+              const venMap = {};
+              for(const p of info.items){ const v=p.vendor||"—"; (venMap[v] = venMap[v] || {total:0, items:[]}); venMap[v].total += p.amount; venMap[v].items.push(p); }
+              const vendors = Object.entries(venMap).sort((a,b)=> b[1].total - a[1].total);
+              const venRows = vendors.map(([ven,vinfo]) => {
+                const vOpen = isVenOpen(cat, ven);
+                const venHead = `<tr style="${interactive?'cursor:pointer;':''}border-top:1px solid #f1f5f9" ${interactive?`onclick="cffToggleVendor(${JSON.stringify(cat).replace(/"/g,'&quot;')},${JSON.stringify(ven).replace(/"/g,'&quot;')})"`:''}><td style="padding:6px 10px 6px 22px;color:#334155" colspan="2">${interactive?`<span style="display:inline-block;width:13px;color:var(--brand);font-size:9px">${vOpen?'▾':'▸'}</span>`:''}<span style="font-weight:600">${esc(ven)}</span> <span style="font-weight:500;color:var(--ink-3);font-size:10px">(${vinfo.items.length})</span></td><td style="padding:6px 10px;text-align:right;font-weight:700;color:#334155">${nf(vinfo.total)}</td></tr>`;
+                const items = vOpen ? vinfo.items.map(p => {
+                  const doc = cffDocCode(p);
+                  const desc = cffCleanDesc((p.remark && p.remark.trim()) ? p.remark : (p.internalNote||""));
+                  const label = esc(doc) + (desc ? ` <span style="color:#64748b">— ${esc(desc)}</span>` : "");
+                  return `<tr><td style="padding:5px 10px 5px 38px;color:#475569;font-size:11px">${label}</td><td style="padding:5px 10px;color:#475569;font-size:11px;white-space:nowrap">${esc(fmtDate(p.original_due))}</td><td style="padding:5px 10px;text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap">${nf(p.amount)}</td></tr>`;
+                }).join("") : "";
+                return venHead + items;
+              }).join("");
+              return catHead + venRows;
             }).join("")}
             <tr style="border-top:2px solid var(--brand)"><td style="padding:8px 10px;font-weight:800" colspan="2">รวมทั้งสิ้น</td><td style="padding:8px 10px;text-align:right;font-weight:800;color:var(--out-ink)">${nf(totalDue)}</td></tr>
           </tbody>
@@ -10771,7 +10798,7 @@ async function renderToolCashflowStaff(){
 
     <!-- ★ รายงานสะอาด (เลย์เอาต์เดียวกับ snapshot) -->
     <div id="cffStaffReportSheet" style="background:#fff;border-radius:14px;box-shadow:0 6px 28px rgba(15,23,42,.08);border:1px solid var(--glass-border);overflow:hidden;max-width:1040px;margin:4px auto 0;font-family:'IBM Plex Sans Thai','IBM Plex Sans',sans-serif;color:#0f172a">
-      ${cffStaffReportInner(co, dt, { cats, bankDue, bankCat, openingCash, totalDue, netCash, periodLabel: reportPeriodLabel }, { interactive:true, catOpen:d.catOpen||{} })}
+      ${cffStaffReportInner(co, dt, { cats, bankDue, bankCat, openingCash, totalDue, netCash, periodLabel: reportPeriodLabel }, { interactive:true, catOpen:d.catOpen||{}, venOpen:d.venOpen||{} })}
     </div>
 
     ${(canWrite && dt.recSkips && dt.recSkips.length) ? `

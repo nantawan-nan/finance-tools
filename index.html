@@ -10508,13 +10508,13 @@ function cffStaffReportInner(co, dt, R, opts){
                 return showDesc ? `<span style="color:#475569">${esc(desc)}</span> <span style="color:#cbd5e1">·</span> ${docTag}` : docTag;
               };
               const venRows = vendors.map(([ven,vinfo]) => {
-                // ★ เวนเดอร์รายการเดียว → ยุบเป็นบรรทัดเดียว (ชื่อเด่น + เอกสาร/คำอธิบายบรรทัดย่อย)
+                const vOpen = isVenOpen(cat, ven);   // กาง = ระดับ "ตามเอกสาร" → ค่อยโชว์คำอธิบาย
+                // ★ เวนเดอร์รายการเดียว → 1 บรรทัด (ชื่อ + ยอด) · คำอธิบายโผล่เฉพาะตอนกาง (ตามเอกสาร)
                 if(vinfo.items.length === 1){
-                  const p = vinfo.items[0]; const sub = subLine(p, ven);
-                  return `<tr style="border-top:1px solid #eef2f7"><td style="padding:7px 10px 7px 22px"><div style="font-weight:600;color:#334155">${esc(ven)}</div>${sub?`<div style="font-size:10.5px;color:#64748b;margin-top:1px;line-height:1.4">${sub}</div>`:''}</td><td style="padding:7px 10px;color:#475569;font-size:11px;white-space:nowrap">${esc(fmtDate(p.original_due))}</td><td style="padding:7px 10px;text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;font-weight:600;color:#334155">${nf(p.amount)}</td></tr>`;
+                  const p = vinfo.items[0]; const sub = vOpen ? subLine(p, ven) : "";
+                  return `<tr style="border-top:1px solid #eef2f7"><td style="padding:7px 10px 7px 22px"><div style="font-weight:600;color:#334155">${esc(ven)}</div>${sub?`<div style="font-size:10.5px;color:#64748b;margin-top:2px;line-height:1.4">${sub}</div>`:''}</td><td style="padding:7px 10px;color:#475569;font-size:11px;white-space:nowrap">${esc(fmtDate(p.original_due))}</td><td style="padding:7px 10px;text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;font-weight:600;color:#334155">${nf(p.amount)}</td></tr>`;
                 }
-                // ★ เวนเดอร์หลายรายการ → หัวเวนเดอร์ (เด่น: พื้นอ่อน + ตัวหนา) + รายการย่อย
-                const vOpen = isVenOpen(cat, ven);
+                // ★ เวนเดอร์หลายรายการ → หัวเวนเดอร์ (ชื่อ + จำนวน + ยอดรวม) · กางถึงเห็นรายการเอกสาร
                 const venHead = `<tr style="${interactive?'cursor:pointer;':''}background:rgba(var(--brand-rgb),.04);border-top:1px solid #e6ecf5" ${interactive?`onclick="cffToggleVendor(${JSON.stringify(cat).replace(/"/g,'&quot;')},${JSON.stringify(ven).replace(/"/g,'&quot;')})"`:''}><td style="padding:7px 10px 7px 18px;color:var(--brand-dark)" colspan="2">${interactive?`<span style="display:inline-block;width:13px;color:var(--brand);font-size:9px">${vOpen?'▾':'▸'}</span>`:''}<span style="font-weight:700">${esc(ven)}</span> <span style="font-weight:600;color:var(--brand);background:rgba(var(--brand-rgb),.12);border-radius:999px;padding:0 7px;font-size:10px;margin-left:4px">${vinfo.items.length}</span></td><td style="padding:7px 10px;text-align:right;font-weight:700;color:var(--brand-dark)">${nf(vinfo.total)}</td></tr>`;
                 const items = vOpen ? vinfo.items.map(p => {
                   const sub = subLine(p, ven) || esc(cffDocCode(p));

@@ -5247,15 +5247,10 @@ function renderToolExecDash(){
   edRenderDashboard();
 }
 
-/* รวมข้อมูลเก่า + ใหม่ เข้าด้วยกัน — เดือนเดียวกัน (key ซ้ำ) = ของใหม่ทับ, เดือน/ปีใหม่ = เพิ่มเข้าไป
-   ใช้ตอนอัปไฟล์ปีอื่นเพิ่ม (เช่น มี 2026 อยู่แล้ว อัป 2025 เข้าไป โดย 2026 ยังอยู่ครบ) */
-function edMergeData(base, add){
-  if(!base || !base.months || !base.months.length) return add;
-  // index เดือนตาม key — ของใหม่ทับของเก่าถ้า key ตรงกัน
-  const monthMap = {};
-  for(const m of base.months) monthMap[m.key] = m;
-  for(const m of add.months)  monthMap[m.key] = m;
-  const months = Object.values(monthMap).sort((a,b)=> a.key < b.key ? -1 : 1);
+/* rebuild data structure จากชุดเดือน — ใช้ทั้ง merge และ ลบรายปี
+   (rebuild transactions/accounts/errors ใหม่หมด → firstOpen/lastClose/ยอดรวมถูกต้องเสมอ) */
+function edRebuildFromMonths(monthList, company){
+  const months = monthList.slice().sort((a,b)=> a.key < b.key ? -1 : 1);
 
   // rebuild transactions จากเดือน (กัน tx ซ้ำเวลาเดือนถูกทับ)
   const transactions = [];
@@ -5288,7 +5283,18 @@ function edMergeData(base, add){
     }
   }
 
-  return { company: base.company || add.company, months, transactions, accounts, errors };
+  return { company: company || "", months, transactions, accounts, errors };
+}
+
+/* รวมข้อมูลเก่า + ใหม่ เข้าด้วยกัน — เดือนเดียวกัน (key ซ้ำ) = ของใหม่ทับ, เดือน/ปีใหม่ = เพิ่มเข้าไป
+   ใช้ตอนอัปไฟล์ปีอื่นเพิ่ม (เช่น มี 2026 อยู่แล้ว อัป 2025 เข้าไป โดย 2026 ยังอยู่ครบ) */
+function edMergeData(base, add){
+  if(!base || !base.months || !base.months.length) return add;
+  // index เดือนตาม key — ของใหม่ทับของเก่าถ้า key ตรงกัน
+  const monthMap = {};
+  for(const m of base.months) monthMap[m.key] = m;
+  for(const m of add.months)  monthMap[m.key] = m;
+  return edRebuildFromMonths(Object.values(monthMap), base.company || add.company);
 }
 
 function edHandleFile(file){
@@ -5350,6 +5356,31 @@ function edForceShow(){
   const d = edState();
   if(!d.data) return;
   d.data.errors = [];
+  renderToolExecDash();
+}
+/* ลบข้อมูลเฉพาะปี (y = "2025") — ปีอื่นยังอยู่ครบ · ใช้แก้กรณีอัปไฟล์ผิดบริษัท/ผิดปี */
+function edDeleteYear(y){
+  const d = edState();
+  if(!d.data || !d.data.months) return;
+  y = String(y);
+  const coName = state.company === "mbark" ? "M Bark" : "Benya";
+  const keep = d.data.months.filter(m => m.key.slice(0,4) !== y);
+  const removed = d.data.months.length - keep.length;
+  if(!removed){ alert("ไม่พบข้อมูลปี " + (Number(y)+543)); return; }
+  if(!confirm("ลบข้อมูลปี " + (Number(y)+543) + " (" + y + ") ออกจาก " + coName + " ?\n\nลบ " + removed + " เดือน — ปีอื่นยังอยู่ครบ\nถ้าลบผิด อัปไฟล์ปีนั้นกลับเข้ามาใหม่ได้")) return;
+  if(!keep.length){
+    // ไม่เหลือเดือนเลย → ล้างทั้งหมด
+    edReset();
+    return;
+  }
+  d.data = edRebuildFromMonths(keep, d.data.company);
+  if(d.monthFilter && d.monthFilter !== "all" && !edScopeMonthKeys(d.data, d.monthFilter).length){
+    d.monthFilter = "all";
+  }
+  const yrsLeft = [...new Set(d.data.months.map(m=>m.key.slice(0,4)))].sort().map(yy=>Number(yy)+543).join(", ");
+  d.mergeMsg = "ลบข้อมูลปี " + (Number(y)+543) + " แล้ว — เหลือปี " + yrsLeft + " (" + d.data.months.length + " เดือน)";
+  edSave();
+  edSaveCloud();
   renderToolExecDash();
 }
 function edSetTab(tab){ edState().tab = tab; edSave(); edRenderDashboard(); }
@@ -5979,6 +6010,10 @@ function edRenderDashboard(){
         </div>
       </div>
       ${d.mergeMsg ? `<div style="background:#ecfdf5;color:#065f46;border:1px solid #a7f3d0;padding:9px 14px;border-radius:9px;margin:0 0 12px;font-size:13px;display:flex;justify-content:space-between;align-items:center;gap:10px"><span>✅ ${esc(d.mergeMsg)}</span><button onclick="edState().mergeMsg=null;edRenderDashboard()" style="background:none;border:none;color:#065f46;cursor:pointer;font-size:16px;line-height:1">✕</button></div>` : ""}
+      ${edYears.length ? `<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 12px;font-size:12.5px;color:var(--ink-3)">
+        <span style="font-weight:600">📅 ข้อมูลที่มี:</span>
+        ${edYears.map(y => `<span style="display:inline-flex;align-items:center;gap:6px;background:#f1f5f9;border:1px solid #e2e8f0;border-radius:999px;padding:4px 6px 4px 12px"><b style="color:var(--ink-1)">ปี ${Number(y)+543}</b><span style="color:var(--ink-3)">(${data.months.filter(m=>m.key.slice(0,4)===y).length} ด.)</span><button onclick="edDeleteYear('${y}')" title="ลบข้อมูลปี ${Number(y)+543} (ปีอื่นยังอยู่)" style="background:#fee2e2;color:#b91c1c;border:none;border-radius:999px;width:20px;height:20px;cursor:pointer;font-size:13px;line-height:1;display:inline-flex;align-items:center;justify-content:center">✕</button></span>`).join("")}
+      </div>` : ""}
 
       <div class="ed-tabs">
         ${tabs.map(tb => `<button class="${d.tab===tb.id?'active':''}" onclick="edSetTab('${tb.id}')">${tb.l}</button>`).join("")}

@@ -191,6 +191,7 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
   - จุดที่ patch ให้ scope-aware (กันเลขเพี้ยนตอนเลือกปี): `edAgg` opening/closing, `nMonths` (edRenderFinKpis + edDrillFinKpi), periodLabel, monthly chart (Summary), statement columns (edRenderStmt), monthlyOut breakdown, drill labels (edDrillSummary/edDrillActivityIO/edDrillOpenClose)
   - guard ใน edRenderDashboard: ถ้า `monthFilter` ชี้ปี/เดือนที่ไม่มีในข้อมูลแล้ว → reset เป็น `"all"`
 - **ปุ่ม UI:** เพิ่ม "+ อัปไฟล์เพิ่ม (รวมปี)" (เขียว) · ปุ่มเดิม "อัปไฟล์ใหม่" → เปลี่ยนชื่อ "ล้าง & เริ่มใหม่" (edReset = ลบหมด)
+- **ลบรายปี (`edDeleteYear`)** — แถบ "📅 ข้อมูลที่มี:" ใต้ toolbar โชว์ปีที่มี + ปุ่ม ✕ ต่อปี → ลบเฉพาะปีนั้น (ปีอื่นอยู่ครบ) · ใช้แก้กรณีอัปไฟล์ผิดบริษัท/ผิดปี (เช่น เผลออัป MBark ใส่ Benya — MBark เป็นคนละปีเลยไปแทนปีนั้น → ลบปีนั้นทิ้งแล้วอัปไฟล์ถูกกลับเข้ามา) · refactor `edRebuildFromMonths(monthList, company)` ใช้ร่วมกับ edMergeData (rebuild transactions/accounts/errors จากชุดเดือน)
 - **หมายเหตุ:** หน้านี้เคยมาร์ค "ห้ามแตะ" แต่เจ้าของสั่งแก้ — logic การรวมเลขเดิมไม่เปลี่ยน (behavior-preserving สำหรับ single-year), เพิ่มแค่มิติปี
 
 ### 2026-06-22 — AP: ยกเลิกการจ่าย / ตั้งเป็น "ยังไม่จ่าย" (แก้คงค้างติดลบ)

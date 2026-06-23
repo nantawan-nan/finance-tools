@@ -4554,20 +4554,25 @@ function edNormAccNo(s){
   return digits || String(s||"").replace(/[\s\-\/]/g,"").toUpperCase();
 }
 
-/* migrate loaded data: merge accounts ที่มี bank+normalizedNo เหมือนกัน */
+/* canonical key ของบัญชี — bank (upper/trim) + เลขบัญชีตัวเลขล้วน */
+function edAcctKey(bank, no){
+  return String(bank||"").trim().toUpperCase() + "·" + edNormAccNo(no);
+}
+
+/* migrate loaded data: merge accounts ที่มี bank+normalizedNo เหมือนกัน
+   ★ recompute key จาก bank+no โดยตรงทุกที่ (ไม่พึ่ง keyMap lookup) — กัน tx/เดือนที่ key เก่าไม่ตรง dict
+     (เกิดได้จากการ rebuild หลายปี/ไฟล์คนละฟอร์แมต) ตกค้างเป็นบัญชีซ้ำในกราฟ */
 function edMigrateAccounts(dataObj){
   if(!dataObj || !dataObj.accounts) return dataObj;
   const newAccounts = {};
-  const keyMap = {};   // old key → new key (normalized)
   for(const oldKey in dataObj.accounts){
     const a = dataObj.accounts[oldKey];
-    const newKey = String(a.bank || "").trim().toUpperCase() + "·" + edNormAccNo(a.no);
-    keyMap[oldKey] = newKey;
+    const newKey = edAcctKey(a.bank, a.no);
     if(!newAccounts[newKey]){
       newAccounts[newKey] = { ...a, no: a.no, months:{}, totalIn:0, totalOut:0, firstOpen:null, lastClose:null };
     }
     const acc = newAccounts[newKey];
-    // merge months
+    // merge months (เดือนคนละ key = union; เดือนซ้ำ key = บวก ซึ่งไม่ควรเกิดสำหรับบัญชีเดียวกัน)
     for(const m in (a.months||{})){
       if(!acc.months[m]) acc.months[m] = { opening:0, closing:0, in:0, out:0, ok:true };
       acc.months[m].opening += a.months[m].opening || 0;
@@ -4577,26 +4582,29 @@ function edMigrateAccounts(dataObj){
     }
     acc.totalIn  += a.totalIn  || 0;
     acc.totalOut += a.totalOut || 0;
-    if(acc.firstOpen == null) acc.firstOpen = a.firstOpen;
-    else acc.firstOpen += (a.firstOpen || 0);
-    acc.lastClose = (acc.lastClose || 0) + (a.lastClose || 0);
   }
-  dataObj.accounts = newAccounts;
-  // remap accountKey ใน transactions
-  if(Array.isArray(dataObj.transactions)){
-    for(const t of dataObj.transactions){
-      if(t.accountKey && keyMap[t.accountKey]) t.accountKey = keyMap[t.accountKey];
+  // firstOpen = opening เดือนแรกสุด, lastClose = closing เดือนล่าสุด
+  // (★ ไม่บวกซ้อน — เดิม sum ทำให้ยอดปลายงวดในโดนัทเบิ้ลตอน merge ข้ามปี)
+  for(const k in newAccounts){
+    const acc = newAccounts[k];
+    const mkeys = Object.keys(acc.months).sort();
+    if(mkeys.length){
+      acc.firstOpen = acc.months[mkeys[0]].opening;
+      acc.lastClose = acc.months[mkeys[mkeys.length-1]].closing;
     }
   }
-  // remap accountKey ใน months[].accounts[]
+  dataObj.accounts = newAccounts;
+  // recompute accountKey ทุกที่จาก bank+no โดยตรง
+  if(Array.isArray(dataObj.transactions)){
+    for(const t of dataObj.transactions) t.accountKey = edAcctKey(t.bank, t.accountNo);
+  }
   if(Array.isArray(dataObj.months)){
     for(const m of dataObj.months){
       for(const a of (m.accounts||[])){
-        if(a.accountKey && keyMap[a.accountKey]) a.accountKey = keyMap[a.accountKey];
-        // remap tx ที่ฝังในเดือน (โหลดจาก cloud = คนละ object กับ transactions) — กัน filter เพี้ยนหลัง rebuild
-        for(const it of (a.items||[])){
-          if(it.accountKey && keyMap[it.accountKey]) it.accountKey = keyMap[it.accountKey];
-        }
+        const hb = a.header ? a.header.bank : a.bank;
+        const hn = a.header ? a.header.no   : a.no;
+        a.accountKey = edAcctKey(hb, hn);
+        for(const it of (a.items||[])) it.accountKey = edAcctKey(it.bank, it.accountNo);
       }
     }
   }
@@ -4846,8 +4854,8 @@ function edParseBHG(book){
       const a = String(row[0]||"").trim();
       const mB = a.match(bankRe);
       if(mB){
-        const bank = mB[1].toUpperCase(), no = mB[2].trim(), normNo = edNormAccNo(no);
-        cur = { bank, no, nick:no, accountKey: bank+"·"+normNo, opening:0, byMonth:{} };
+        const bank = mB[1].toUpperCase(), no = mB[2].trim();
+        cur = { bank, no, nick:no, accountKey: edAcctKey(bank, no), opening:0, byMonth:{} };
         blocks.push(cur); continue;
       }
       if(!cur) continue;
@@ -4954,8 +4962,7 @@ function edParse(book){
         const info = edParseAcctHeader(cell3, accNoFromRow);
         // ★ normalize account_no: ตัด dash/space ออก เพื่อกัน duplicate
         // (เช่น "865-0-98040-5" vs "865-098040-5" = บัญชีเดียวกัน)
-        const normNo = edNormAccNo(info.no);
-        const accountKey = String(info.bank||"").trim().toUpperCase() + "·" + normNo;
+        const accountKey = edAcctKey(info.bank, info.no);
         curAcct = {
           header: info,
           accountKey,

@@ -176,6 +176,22 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-06-23 — Executive Dashboard รองรับหลายปี (multi-year merge + year filter)
+- **ปัญหาเดิม:** อัปไฟล์ใหม่ = `d.data = edParse(...)` **เขียนทับทั้งหมด** → อัป 2025 แล้ว 2026 หายเกลี้ยง
+- **แก้:** อัปไฟล์ตอนนี้ **merge** แทน replace — เดือน key ซ้ำ (เช่น `2026.03`) ของใหม่ทับ, เดือน/ปีใหม่เพิ่มเข้าไป
+  - `edMergeData(base, add)` — index เดือนตาม key → rebuild `transactions`/`accounts`/`errors` จากเดือนที่ merge แล้ว (กัน tx ซ้ำ, `firstOpen`/`lastClose` ถูกต้องข้ามปีเพราะ sort key ก่อน)
+  - `edHandleFile` เช็คว่ามี data อยู่ก่อน → ถ้ามี merge + ตั้ง `d.mergeMsg` (แถบเขียวแจ้ง "เพิ่มปี ... แล้ว") · ถ้าไม่มีก็ set ตรงๆ
+  - `edAddFile()` — สร้าง `<input type=file>` ลอยๆ เรียกจากปุ่มในหน้า dashboard
+- **Year filter** — month key มี year อยู่แล้ว (`YYYY.MM`) data model เลยรองรับหลายปีได้ทันที เพิ่มแค่ scope:
+  - `monthFilter` รับค่าใหม่ `"year:2025"` (นอกจาก `"all"` / `"2025.01"`)
+  - helper กลาง: `edScopeMonthKeys(data, mf)` (เดือนใน scope), `edScopeLabel(mf)` (ป้ายไทย), `edOpenClose(data, mf)` (เปิด=เดือนแรกของบัญชีใน scope, ปิด=เดือนสุดท้าย — แทน logic 2 แขนงเดิมใน edAgg/edDrillOpenClose)
+  - `edTxsInScope` กรอง `year:` ด้วย `t.month.slice(0,4)`
+  - dropdown: หลายปี → `<optgroup>` ต่อปี + "▸ ทั้งปี YYYY" + "ทุกปี (รวม N เดือน)" · ปีเดียว → เหมือนเดิม
+  - จุดที่ patch ให้ scope-aware (กันเลขเพี้ยนตอนเลือกปี): `edAgg` opening/closing, `nMonths` (edRenderFinKpis + edDrillFinKpi), periodLabel, monthly chart (Summary), statement columns (edRenderStmt), monthlyOut breakdown, drill labels (edDrillSummary/edDrillActivityIO/edDrillOpenClose)
+  - guard ใน edRenderDashboard: ถ้า `monthFilter` ชี้ปี/เดือนที่ไม่มีในข้อมูลแล้ว → reset เป็น `"all"`
+- **ปุ่ม UI:** เพิ่ม "+ อัปไฟล์เพิ่ม (รวมปี)" (เขียว) · ปุ่มเดิม "อัปไฟล์ใหม่" → เปลี่ยนชื่อ "ล้าง & เริ่มใหม่" (edReset = ลบหมด)
+- **หมายเหตุ:** หน้านี้เคยมาร์ค "ห้ามแตะ" แต่เจ้าของสั่งแก้ — logic การรวมเลขเดิมไม่เปลี่ยน (behavior-preserving สำหรับ single-year), เพิ่มแค่มิติปี
+
 ### 2026-06-21 — Bank Reconciliation Phase 2 (Marketplace Withdrawal Recon — Shopee)
 - เพิ่ม **แท็บที่ 5 "🛒 ถอน Marketplace"** ใต้ `renderToolBankRec` · helper prefix **`bmp*`** · ปุ่ม "Marketplace (3 ไฟล์)" บน toolbar เปิด modal อัป 3 ไฟล์พร้อมกัน
 - **Schema** `supabase/bankrec-mp-phase2.sql` — 3 ตาราง:

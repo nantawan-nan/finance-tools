@@ -10363,17 +10363,23 @@ async function renderToolCashflowForecast(){
    STAFF VIEW — daily LINE-ready report
    filter pills = วันชำระเงิน (unique due dates) · KPI 5 · Bank cards (โลโก้จริง) · Pivot
    ============================ */
+/* ★ สิ้นเดือนนี้ (ISO) — ใช้เป็นเพดานของ default view */
+function cffStaffEOM(dt){ const t=new Date(dt.todayISO); return cffISO(new Date(t.getFullYear(), t.getMonth()+1, 0)); }
+/* ★ กรอง payments ตามโหมด — default (ยังไม่เลือก) ตัดที่ "สิ้นเดือนนี้" ไม่รวมเดือนถัดไป (กันยอดเพี้ยน/นับซ้ำ recurring) */
+function cffStaffApplyFilter(payments, d, dt){
+  if(d.staffMode === "day" && d.staffDate) return payments.filter(p => p.due_date === d.staffDate);
+  if(d.staffMode === "range" && (d.staffFrom || d.staffTo)){
+    const from = d.staffFrom || "0000-01-01";
+    const to   = d.staffTo   || "9999-12-31";
+    return payments.filter(p => p.due_date >= from && p.due_date <= to);
+  }
+  const eom = cffStaffEOM(dt);
+  return payments.filter(p => p.due_date <= eom);   // default → ถึงสิ้นเดือนนี้
+}
 /* ★ คำนวณค่าสำหรับรายงานสะอาด (ใช้ร่วม: หน้าจอ + snapshot export) */
 function cffStaffComputeReport(d, dt){
   const payments = cffStaffPayments(dt, d);
-  let filtered = payments;
-  if(d.staffMode === "day" && d.staffDate){
-    filtered = payments.filter(p => p.due_date === d.staffDate);
-  } else if(d.staffMode === "range" && (d.staffFrom || d.staffTo)){
-    const from = d.staffFrom || "0000-01-01";
-    const to   = d.staffTo   || "9999-12-31";
-    filtered = payments.filter(p => p.due_date >= from && p.due_date <= to);
-  }
+  let filtered = cffStaffApplyFilter(payments, d, dt);
   const totalDue = filtered.reduce((s,p) => s + p.amount, 0);
   const openingCash = dt.balances.reduce((s,b) => s + Number(b.amount||0) - Number(b.hold||0), 0);
   const netCash = openingCash - totalDue;
@@ -10534,18 +10540,12 @@ async function renderToolCashflowStaff(){
   const todayISO = dt.todayISO;
   const payments = cffStaffPayments(dt, d);
 
-  // unique dates สำหรับ chip filter
-  const upcomingDates = Array.from(new Set(payments.map(p => p.due_date))).sort();
+  // unique dates สำหรับ chip filter — จำกัดไม่เกินสิ้นเดือนนี้ (default ไม่โชว์เดือนถัดไป)
+  const eomISO = cffStaffEOM(dt);
+  const upcomingDates = Array.from(new Set(payments.filter(p => p.due_date <= eomISO).map(p => p.due_date))).sort();
 
-  // apply filter ตาม staffMode
-  let filtered = payments;
-  if(d.staffMode === "day" && d.staffDate){
-    filtered = payments.filter(p => p.due_date === d.staffDate);
-  } else if(d.staffMode === "range" && (d.staffFrom || d.staffTo)){
-    const from = d.staffFrom || "0000-01-01";
-    const to   = d.staffTo   || "9999-12-31";
-    filtered = payments.filter(p => p.due_date >= from && p.due_date <= to);
-  }
+  // apply filter ตาม staffMode (default = ถึงสิ้นเดือนนี้)
+  const filtered = cffStaffApplyFilter(payments, d, dt);
   const totalDue = filtered.reduce((s,p) => s + p.amount, 0);
 
   // opening cash = ยอดเงินคงเหลือใช้ได้ทั้งหมด

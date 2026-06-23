@@ -9693,6 +9693,7 @@ function cffCleanDesc(s){
   let t = String(s||"").trim();
   t = t.replace(/^\d{4}-\d{2}-\d{2}\s+/, "");                         // วันที่ ISO ซ้ำกับคอลัมน์ครบกำหนด
   t = t.replace(/^(?:PO|WO|IV|RR|RW|AC|IS|PV|PS)[\w-]*\s+/i, "");     // รหัสเอกสารภายในที่นำหน้า
+  t = t.replace(/[\s·∙]*Express\s*:\s*\S+\s*$/i, "");                 // ตัด "· Express:xxxx" ท้าย (รก/ซ้ำเลขเอกสาร)
   return t.trim();
 }
 /* เลขที่เอกสารต่อรายการ: ใช้เลขบิล (detail) · ไม่มี/ประมาณการ recurring → "รอเอกสารตั้งหนี้" */
@@ -10498,14 +10499,13 @@ function cffStaffReportInner(co, dt, R, opts){
               const venMap = {};
               for(const p of info.items){ const v=p.vendor||"—"; (venMap[v] = venMap[v] || {total:0, items:[]}); venMap[v].total += p.amount; venMap[v].items.push(p); }
               const vendors = Object.entries(venMap).sort((a,b)=> b[1].total - a[1].total);
-              // คำอธิบายย่อยต่อรายการ: "เลขเอกสาร — คำอธิบาย" (ตัดส่วนที่ซ้ำชื่อเวนเดอร์)
+              // คำอธิบายย่อยต่อรายการ: "คำอธิบาย (เด่น)  ·  เลขเอกสาร (จาง)" — ตัดส่วนซ้ำชื่อเวนเดอร์ + Express
               const subLine = (p, ven) => {
                 const doc = cffDocCode(p);
                 const desc = cffCleanDesc((p.remark && p.remark.trim()) ? p.remark : (p.internalNote||""));
-                const parts = [];
-                if(doc) parts.push(esc(doc));
-                if(desc && desc !== ven && ven.indexOf(desc) < 0) parts.push(esc(desc));
-                return parts.join(` <span style="color:#cbd5e1">—</span> `);
+                const showDesc = desc && desc !== ven && ven.indexOf(desc) < 0;
+                const docTag = `<span style="color:#94a3b8">${esc(doc)}</span>`;
+                return showDesc ? `<span style="color:#475569">${esc(desc)}</span> <span style="color:#cbd5e1">·</span> ${docTag}` : docTag;
               };
               const venRows = vendors.map(([ven,vinfo]) => {
                 // ★ เวนเดอร์รายการเดียว → ยุบเป็นบรรทัดเดียว (ชื่อเด่น + เอกสาร/คำอธิบายบรรทัดย่อย)

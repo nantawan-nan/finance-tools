@@ -13402,14 +13402,16 @@ function ordParseSalesFile(rows){
 function ordShopCompany(shop){
   const raw = String(shop||"").trim(); if(!raw) return null;
   const lk = raw.toLowerCase();
+  // 1) แบรนด์ในชื่อร้าน (deterministic เชื่อถือได้สุด — ชื่อร้านบ่งบริษัทชัด)
+  if(/mommam|มอมแมม|paws|มัมแมม/i.test(raw)) return "mbark";
+  if(/betra|บีทร้า|qicare|qi\s*care|\bqi\b|คิวไอ|benya|เบญญา/i.test(raw)) return "benya";
+  // 2) BMP_SHOP_ROUTING (hardcode ถูกต้อง)
+  if(typeof BMP_SHOP_ROUTING!=="undefined" && BMP_SHOP_ROUTING[lk] && BMP_SHOP_ROUTING[lk].companyId) return BMP_SHOP_ROUTING[lk].companyId;
+  // 3) localStorage map (user เคย assign — อาจ stale/ผิดบริษัท) ใช้ท้ายสุด
   try{
     const map = (typeof bsSeedShopBrand==="function") ? bsSeedShopBrand() : {};
     for(const k in map){ if(k.toLowerCase()===lk && map[k] && map[k].company) return map[k].company; }
   }catch(e){}
-  if(typeof BMP_SHOP_ROUTING!=="undefined" && BMP_SHOP_ROUTING[lk] && BMP_SHOP_ROUTING[lk].companyId) return BMP_SHOP_ROUTING[lk].companyId;
-  // fallback ตามแบรนด์ในชื่อร้าน
-  if(/mommam|มอมแมม|paws/i.test(raw)) return "mbark";
-  if(/betra|บีทร้า|qicare|\bqi\b|คิวไอ|benya|เบญญา/i.test(raw)) return "benya";
   return null;
 }
 /* แยก orders → {mine, otherCount, otherShops:Map, unknownShops:Map} (เฉพาะไฟล์ที่มีชื่อร้าน) */

@@ -211,5 +211,12 @@ BEGIN
   END LOOP;
 END $$;
 
+-- ----------------------------------------------------------------
+-- 10. order_ledger.items — รายการสินค้าต่อออเดอร์ (รหัส/ชื่อ/จำนวน/ราคา)
+-- ----------------------------------------------------------------
+DO $$ BEGIN
+  BEGIN EXECUTE 'ALTER TABLE order_ledger ADD COLUMN IF NOT EXISTS items jsonb'; EXCEPTION WHEN OTHERS THEN NULL; END;
+END $$;
+
 -- ★ บังคับ PostgREST reload schema cache (กัน 400 "column not in schema cache" หลัง DDL)
 NOTIFY pgrst, 'reload schema';

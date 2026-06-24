@@ -13359,13 +13359,23 @@ function ordParseSalesFile(rows){
   for(let r=1;r<rows.length;r++){
     const row = rows[r]; if(!row) continue;
     const oid = String(row[ci.order]||"").trim(); if(!oid) continue;
-    if(!groups.has(oid)) groups.set(oid, { order_id:oid, status:"", date:null, products:new Set(), skus:new Set(), qty:0, ret:0, gross:0, net:0, ship:0, disc:0, refund:0, platform:"", shop:"", cancelTime:"" });
+    if(!groups.has(oid)) groups.set(oid, { order_id:oid, status:"", date:null, products:new Set(), skus:new Set(), itemMap:new Map(), qty:0, ret:0, gross:0, net:0, ship:0, disc:0, refund:0, platform:"", shop:"", cancelTime:"" });
     const g = groups.get(oid);
     if(ci.status>=0 && !g.status) g.status = String(row[ci.status]||"").trim();
     if(ci.date>=0 && !g.date) g.date = ordISO(row[ci.date]);
-    if(ci.product>=0){ const p=String(row[ci.product]||"").trim(); if(p) g.products.add(p); }
-    if(ci.sku>=0){ const s=String(row[ci.sku]||"").trim(); if(s) g.skus.add(s); }
+    const pname = ci.product>=0 ? String(row[ci.product]||"").trim() : "";
+    if(pname) g.products.add(pname);
+    const skuv = ci.sku>=0 ? String(row[ci.sku]||"").trim() : "";
+    if(skuv) g.skus.add(skuv);
     const lineQty = ci.qty>=0 ? ordNum(row[ci.qty]) : 1;
+    // รายการสินค้า (รหัส/ชื่อ/จำนวน/ราคาขายต่อหน่วย = gross ?? net) — รวม qty ถ้า SKU ซ้ำ
+    if(skuv || pname){
+      const key = skuv || pname;
+      if(!g.itemMap.has(key)) g.itemMap.set(key,{sku:skuv,name:pname,qty:0,price:0});
+      const it=g.itemMap.get(key); it.qty += lineQty;
+      const up = ordNum(row[ci.gross]) || ordNum(row[ci.net]); if(up) it.price=up;
+      if(!it.name && pname) it.name=pname;
+    }
     g.qty += lineQty;
     if(ci.ret>=0) g.ret += ordNum(row[ci.ret]);
     const mul = cfg.perUnitPrice ? (lineQty||1) : 1;   // BigSeller ราคาเป็นต่อหน่วย → ×จำนวน · หลังบ้านเป็นยอดรวมต่อบรรทัดแล้ว
@@ -13397,6 +13407,7 @@ function ordParseSalesFile(rows){
       sale_status_raw: g.status,
       products: prodArr.slice(0,5).join(" | ") + (prodArr.length>5?` (+${prodArr.length-5})`:""),
       sku_list: [...g.skus].join(","),
+      items: [...g.itemMap.values()],
       item_count: g.qty,
       order_total: net || gross,        // ยอดแสดง = net (ถ้าไม่มีใช้ gross)
       gross_total: gross,
@@ -13504,7 +13515,7 @@ function ordDismissUnknown(shopEnc){ const shop=decodeURIComponent(shopEnc); con
 async function ordIngestChannelOrders(co, parsed, srcLabel){
   const orders = parsed.orders || [];
   if(!orders.length) return { added:0, updated:0, total:0 };
-  const { data:existing } = await sb.from("order_ledger").select("id,order_id,status,order_date,order_total,channel_group")
+  const { data:existing } = await sb.from("order_ledger").select("id,order_id,status,order_date,order_total,channel_group,items")
     .eq("company_id", co).is("deleted_at", null);
   const byOid = new Map((existing||[]).filter(o=>o.order_id).map(o=>[o.order_id, o]));
   const inserts = [], updates = [];
@@ -13517,6 +13528,7 @@ async function ordIngestChannelOrders(co, parsed, srcLabel){
       company_id: co, order_id: o.order_id, channel: o.channel, channel_group: o.channel_group,
       status: o.status, order_date: o.order_date, sale_status_raw: o.sale_status_raw,
       products: o.products, item_count: o.item_count, order_total: o.order_total,
+      items: (o.items&&o.items.length)?o.items:null,
       shipping_fee: o.shipping_fee, seller_discount: o.seller_discount,
       returned_qty: o.returned_qty, is_returned: o.is_returned,
       order_src: srcLabel, order_ingested_at: now
@@ -13525,10 +13537,12 @@ async function ordIngestChannelOrders(co, parsed, srcLabel){
     // อัปเดตเฉพาะที่เปลี่ยนจริง (กันยิง DB เปล่า ๆ → ช้า) · เติม order_date ถ้าเดิมว่าง
     const fillDate = (!ex.order_date && o.order_date) ? o.order_date : (ex.order_date||null);
     const fillGroup = (!ex.channel_group && o.channel_group) ? o.channel_group : null;
-    const changed = ex.status!==o.status || Number(ex.order_total||0)!==Number(o.order_total||0) || (!ex.order_date && o.order_date) || fillGroup;
+    const fillItems = ((!ex.items || (Array.isArray(ex.items)&&!ex.items.length)) && o.items && o.items.length);
+    const changed = ex.status!==o.status || Number(ex.order_total||0)!==Number(o.order_total||0) || (!ex.order_date && o.order_date) || fillGroup || fillItems;
     if(changed){
       const upd = { status:o.status, sale_status_raw:o.sale_status_raw, is_returned:o.is_returned, returned_qty:o.returned_qty, order_total:o.order_total, order_date:fillDate };
       if(fillGroup){ upd.channel_group=o.channel_group; upd.channel=o.channel; }
+      if(fillItems){ upd.items=o.items; }
       updates.push({ id: ex.id, upd });
     }
   }
@@ -13730,8 +13744,27 @@ function ordFiltered(d){
   });
 }
 function ordToggleRow(id){ const d=ordGet(); if(d.expanded.has(id))d.expanded.delete(id); else d.expanded.add(id); renderToolOrders(); }
+function ordItemsTable(o){
+  let items=o.items;
+  if(typeof items==='string'){ try{ items=JSON.parse(items); }catch(e){ items=null; } }
+  if(!items || !items.length) return '';
+  const fmt=ordFmtMoney;
+  const GR='grid-template-columns:130px 1fr 56px 100px 110px';
+  return `<div style="padding:11px 16px;background:#fff;border-bottom:1px solid #f1f5f9">
+    <div style="font-size:11px;font-weight:700;color:var(--ink2,#475569);text-transform:uppercase;margin-bottom:6px">รายการสินค้า (${items.length})</div>
+    <div style="display:grid;${GR};gap:8px;font-size:10.5px;color:var(--ink3,#94a3b8);font-weight:700;padding-bottom:4px"><div>รหัสสินค้า</div><div>ชื่อสินค้า</div><div style="text-align:right">จำนวน</div><div style="text-align:right">ราคา/หน่วย</div><div style="text-align:right">รวม</div></div>
+    ${items.map(it=>`<div style="display:grid;${GR};gap:8px;font-size:12px;padding:5px 0;border-top:1px solid #f8fafc;align-items:center">
+      <div style="font-family:monospace;font-size:11px">${esc(it.sku||'—')}</div>
+      <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(it.name||'')}">${esc(it.name||'—')}</div>
+      <div class="tnum" style="text-align:right">${it.qty||0}</div>
+      <div class="tnum" style="text-align:right">${fmt(it.price)}</div>
+      <div class="tnum" style="text-align:right">${fmt((Number(it.qty)||0)*(Number(it.price)||0))}</div>
+    </div>`).join('')}
+  </div>`;
+}
 function ordTimeline(o){
   const fmt=(n)=>Number(n||0).toLocaleString("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2});
+  const itemsHtml = ordItemsTable(o);
   const steps = [
     { on:!!o.order_date, ic:"shopping-cart", t:"ขาย (หลังบ้าน)", d:`${o.order_date||'—'} · ${esc(o.channel||o.channel_group||'')} · ${fmt(o.order_total)} บาท${o.shipping_fee?` · ค่าส่ง ${fmt(o.shipping_fee)}`:''}${o.seller_discount?` · ส่วนลด ${fmt(o.seller_discount)}`:''}` },
     { on:!!o.iv_no, ic:"file-text", t:"คีย์ IV", d: o.iv_no?`${esc(o.iv_no)} · ${o.iv_date||''} · ยอด ${fmt(o.sale_amount)}`:'ยังไม่คีย์ IV' },
@@ -13739,7 +13772,7 @@ function ordTimeline(o){
     { on:!!o.bq_no, ic:"file-check", t:"ฝากเช็ค (BQ)", d: o.bq_no?`${esc(o.bq_no)} · ${o.deposit_date||''}`:'ยังไม่ฝาก' },
     { on:!!o.bank_in_date, ic:"landmark", t:"เงินเข้าแบงค์", d: o.bank_in_date?`${o.bank_in_date}${o.bank_matched?' · ✓ ตรง STM':''}`:'ยังไม่เข้าแบงค์' },
   ];
-  return `<div style="display:flex;flex-direction:column;gap:0;padding:12px 16px;background:#fafbfc">
+  return itemsHtml + `<div style="display:flex;flex-direction:column;gap:0;padding:12px 16px;background:#fafbfc">
     ${steps.map((s,i)=>`<div style="display:flex;gap:12px;align-items:flex-start">
       <div style="display:flex;flex-direction:column;align-items:center">
         <div style="width:30px;height:30px;border-radius:50%;background:${s.on?'#dcfce7':'#f1f5f9'};color:${s.on?'#16a34a':'#94a3b8'};display:flex;align-items:center;justify-content:center"><i data-lucide="${s.on?'check':s.ic}" style="width:15px;height:15px"></i></div>

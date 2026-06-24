@@ -19,43 +19,94 @@ ALTER TABLE brec_express_rows ADD COLUMN IF NOT EXISTS ambiguous boolean NOT NUL
 ALTER TABLE brec_bank_rows    ADD COLUMN IF NOT EXISTS ambiguous boolean NOT NULL DEFAULT false;
 
 -- 2) Cleanup existing duplicates (ก่อนเพิ่ม unique constraint)
---    เก็บแถวที่จับคู่แล้ว (มี match) ไว้ก่อน, ที่เหลือเก็บแถวเก่าสุด, soft-delete ที่เหลือ
+--    Order:
+--      a) ก่อนลบ → MIGRATE match references จาก row ที่จะลบ ไป "winner" (rn=1) ที่จะเก็บ
+--         (กัน orphaned match ตอน user อัปไฟล์ซ้ำแล้ว match ดันชี้ไป row ใหม่ที่ Phase A เลือกลบ)
+--      b) winner = matched ก่อน, ถ้าหลายตัวมี match → ตัวที่มี match มากสุด, แล้วเก่าสุด
+--      c) Soft-delete row ที่ rn > 1
 DO $$
 BEGIN
-  -- Express rows
+  -- ===== Express rows =====
+  -- a) migrate matches: ถ้า row จะถูกลบ (rn>1) มี match ชี้, redirect ไป winner ที่ stable key เดียว
   WITH ranked AS (
-    SELECT id,
-           bank_account_id, txn_date, withdrawal, deposit, COALESCE(doc_no,'') AS k,
-           EXISTS (SELECT 1 FROM brec_matches m WHERE m.express_row_id = e.id AND m.deleted_at IS NULL) AS has_match,
+    SELECT id, bank_account_id, txn_date, withdrawal, deposit, COALESCE(doc_no,'') AS k,
+           (SELECT COUNT(*) FROM brec_matches m WHERE m.express_row_id = e.id AND m.deleted_at IS NULL) AS n_match,
            created_at,
            row_number() OVER (
              PARTITION BY bank_account_id, txn_date, withdrawal, deposit, COALESCE(doc_no,'')
-             ORDER BY EXISTS (SELECT 1 FROM brec_matches m WHERE m.express_row_id = e.id AND m.deleted_at IS NULL) DESC, created_at ASC
+             ORDER BY (SELECT COUNT(*) FROM brec_matches m2 WHERE m2.express_row_id = e.id AND m2.deleted_at IS NULL) DESC,
+                      created_at ASC
+           ) AS rn
+      FROM brec_express_rows e
+     WHERE deleted_at IS NULL
+  ),
+  winners AS (
+    SELECT bank_account_id, txn_date, withdrawal, deposit, k, id AS winner_id FROM ranked WHERE rn = 1
+  ),
+  losers AS (
+    SELECT r.id AS loser_id, w.winner_id
+      FROM ranked r
+      JOIN winners w USING (bank_account_id, txn_date, withdrawal, deposit, k)
+     WHERE r.rn > 1
+  )
+  UPDATE brec_matches m
+     SET express_row_id = l.winner_id, updated_at = now()
+    FROM losers l
+   WHERE m.express_row_id = l.loser_id AND m.deleted_at IS NULL AND l.winner_id IS NOT NULL;
+
+  -- b) soft-delete the losers
+  WITH ranked AS (
+    SELECT id,
+           row_number() OVER (
+             PARTITION BY bank_account_id, txn_date, withdrawal, deposit, COALESCE(doc_no,'')
+             ORDER BY (SELECT COUNT(*) FROM brec_matches m WHERE m.express_row_id = e.id AND m.deleted_at IS NULL) DESC,
+                      created_at ASC
            ) AS rn
       FROM brec_express_rows e
      WHERE deleted_at IS NULL
   )
   UPDATE brec_express_rows
-     SET deleted_at = now(),
-         updated_at = now()
+     SET deleted_at = now(), updated_at = now()
    WHERE id IN (SELECT id FROM ranked WHERE rn > 1);
 
-  -- Bank rows
+  -- ===== Bank rows =====
   WITH ranked AS (
-    SELECT id,
-           bank_account_id, txn_date, withdrawal, deposit, COALESCE(cheque_no,'') AS c, COALESCE(ref_note,'') AS rf,
-           EXISTS (SELECT 1 FROM brec_matches m WHERE m.bank_row_id = b.id AND m.deleted_at IS NULL) AS has_match,
+    SELECT id, bank_account_id, txn_date, withdrawal, deposit, COALESCE(cheque_no,'') AS c, COALESCE(ref_note,'') AS rf,
            created_at,
            row_number() OVER (
              PARTITION BY bank_account_id, txn_date, withdrawal, deposit, COALESCE(cheque_no,''), COALESCE(ref_note,'')
-             ORDER BY EXISTS (SELECT 1 FROM brec_matches m WHERE m.bank_row_id = b.id AND m.deleted_at IS NULL) DESC, created_at ASC
+             ORDER BY (SELECT COUNT(*) FROM brec_matches m WHERE m.bank_row_id = b.id AND m.deleted_at IS NULL) DESC,
+                      created_at ASC
+           ) AS rn
+      FROM brec_bank_rows b
+     WHERE deleted_at IS NULL
+  ),
+  winners AS (
+    SELECT bank_account_id, txn_date, withdrawal, deposit, c, rf, id AS winner_id FROM ranked WHERE rn = 1
+  ),
+  losers AS (
+    SELECT r.id AS loser_id, w.winner_id
+      FROM ranked r
+      JOIN winners w USING (bank_account_id, txn_date, withdrawal, deposit, c, rf)
+     WHERE r.rn > 1
+  )
+  UPDATE brec_matches m
+     SET bank_row_id = l.winner_id, updated_at = now()
+    FROM losers l
+   WHERE m.bank_row_id = l.loser_id AND m.deleted_at IS NULL AND l.winner_id IS NOT NULL;
+
+  WITH ranked AS (
+    SELECT id,
+           row_number() OVER (
+             PARTITION BY bank_account_id, txn_date, withdrawal, deposit, COALESCE(cheque_no,''), COALESCE(ref_note,'')
+             ORDER BY (SELECT COUNT(*) FROM brec_matches m WHERE m.bank_row_id = b.id AND m.deleted_at IS NULL) DESC,
+                      created_at ASC
            ) AS rn
       FROM brec_bank_rows b
      WHERE deleted_at IS NULL
   )
   UPDATE brec_bank_rows
-     SET deleted_at = now(),
-         updated_at = now()
+     SET deleted_at = now(), updated_at = now()
    WHERE id IN (SELECT id FROM ranked WHERE rn > 1);
 EXCEPTION WHEN OTHERS THEN
   RAISE NOTICE 'duplicate cleanup skipped: %', SQLERRM;

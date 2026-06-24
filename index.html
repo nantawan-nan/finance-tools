@@ -14007,6 +14007,117 @@ function ordRenderRegister(d){
     </div>`;
 }
 
+/* ===== Recon: เทียบ BigSeller (order_ledger) ↔ หลังบ้าน (ไฟล์ที่อัป) strict 0 ===== */
+function ordGrossVal(o){
+  let it=o.items; if(typeof it==='string'){ try{it=JSON.parse(it);}catch(e){it=null;} }
+  if(it&&it.length) return +it.reduce((s,x)=>s+(Number(x.price)||0)*(Number(x.qty)||0),0).toFixed(2);
+  return Number(o.gross_total||o.order_total||0);
+}
+function ordSkuSig(o){
+  let it=o.items; if(typeof it==='string'){ try{it=JSON.parse(it);}catch(e){it=null;} }
+  if(it&&it.length) return it.map(x=>`${String(x.sku||'').toUpperCase()}×${Number(x.qty)||0}`).sort().join('|');
+  return String(o.sku_list||'').split(',').map(s=>s.trim().toUpperCase()).filter(Boolean).sort().join('|');
+}
+function ordReconDiffs(bs, be){
+  const diffs=[]; const ne=(a,b)=>Math.abs(Number(a||0)-Number(b||0))>=0.01;
+  const bg=ordGrossVal(bs), eg=ordGrossVal(be); if(ne(bg,eg)) diffs.push({f:'ยอดขาย(gross)',bs:bg,be:eg});
+  if(ne(bs.shipping_fee,be.shipping_fee)) diffs.push({f:'ค่าส่ง',bs:Number(bs.shipping_fee||0),be:Number(be.shipping_fee||0)});
+  if(ne(bs.seller_discount,be.seller_discount)) diffs.push({f:'ส่วนลด',bs:Number(bs.seller_discount||0),be:Number(be.seller_discount||0)});
+  const bsig=ordSkuSig(bs), esig=ordSkuSig(be); if(bsig!==esig) diffs.push({f:'SKU/จำนวน',bs:bsig||'—',be:esig||'—',txt:true});
+  return diffs;
+}
+function ordRunRecon(backendOrders){
+  const d=ordGet();
+  const channels=new Set(backendOrders.map(o=>o.channel_group));
+  const dts=backendOrders.map(o=>o.order_date).filter(Boolean).sort();
+  const dFrom=dts[0]||null, dTo=dts[dts.length-1]||null;
+  const beByOid=new Map(backendOrders.map(o=>[o.order_id,o]));
+  const bsScoped=(d.rows||[]).filter(o=> channels.has(o.channel_group) && o.status!=='cancelled' && (!dFrom || (o.order_date>=dFrom && o.order_date<=dTo)) );
+  const bsByOid=new Map(bsScoped.map(o=>[o.order_id,o]));
+  const results=[];
+  for(const be of backendOrders){
+    const bs=bsByOid.get(be.order_id);
+    if(!bs){ results.push({order_no:be.order_id, channel:be.channel_group, date:be.order_date, status:'only_be', be, bs:null}); continue; }
+    const diffs=ordReconDiffs(bs,be);
+    results.push({order_no:be.order_id, channel:be.channel_group, date:be.order_date, status:diffs.length?'diff':'matched', diffs, bs, be});
+  }
+  for(const bs of bsScoped){ if(!beByOid.has(bs.order_id)) results.push({order_no:bs.order_id, channel:bs.channel_group, date:bs.order_date, status:'only_bs', bs, be:null}); }
+  return { results, channels:[...channels], dFrom, dTo };
+}
+async function ordReconUpload(){
+  if(!brecCanWrite()){ alert("ไม่มีสิทธิ์"); return; }
+  const files=await new Promise(res=>{ const i=document.createElement("input"); i.type="file"; i.accept=".xlsx,.xls,.csv"; i.multiple=true; i.onchange=()=>res([...i.files]); i.click(); });
+  if(!files||!files.length) return;
+  const d=ordGet(); d.recon=d.recon||{}; d.recon.busy=true; d.view='recon'; renderToolOrders();
+  try{
+    if(!d.loaded) await ordLoad();
+    let backend=[]; const perCh={};
+    for(const file of files){
+      let rows;
+      if(/\.csv$/i.test(file.name)){ rows=bmpParseCsvText(new TextDecoder("utf-8").decode(await file.arrayBuffer())); }
+      else { const wb=XLSX.read(await file.arrayBuffer(),{type:"array",cellDates:false}); rows=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{header:1,defval:"",raw:false}); }
+      const parsed=ordParseSalesFile(rows);
+      if(!parsed){ perCh[file.name]="ไม่รู้จักฟอร์แมต"; continue; }
+      if(parsed.channel==="bigseller"){ perCh[file.name]="ข้าม (เป็นไฟล์ BigSeller ไม่ใช่หลังบ้าน)"; continue; }
+      backend=backend.concat((parsed.orders||[]).filter(o=>o.status!=='cancelled'));
+      perCh[parsed.channel]=(perCh[parsed.channel]||0)+(parsed.orders||[]).length;
+    }
+    if(!backend.length){ alert("ไม่พบออเดอร์หลังบ้าน — ต้องเป็นไฟล์ Shopee / TikTok / Lazada"); d.recon.busy=false; renderToolOrders(); return; }
+    const rec=ordRunRecon(backend);
+    Object.assign(d.recon, rec, {busy:false});
+  }catch(e){ alert("ตรวจไม่สำเร็จ: "+(e.message||e)); d.recon.busy=false; }
+  renderToolOrders();
+}
+function ordReconExport(){
+  const d=ordGet(); const rec=d.recon||{}; const res=rec.results||[];
+  const only=res.filter(r=>r.status==='only_be');
+  if(!only.length){ alert("ไม่มีออเดอร์ที่หลังบ้านมีแต่ BigSeller ยังไม่มี"); return; }
+  const co=COMPANIES.find(c=>c.id===state.company);
+  const data=only.map((r,i)=>({ "No":i+1, "วันที่":r.date||"", "ช่องทาง":r.channel, "เลขออเดอร์":r.order_no, "สินค้า":(r.be&&r.be.products)||"", "ยอดขาย":ordGrossVal(r.be||{}), "ค่าส่ง":Number((r.be&&r.be.shipping_fee)||0) }));
+  const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data), "ฝ่ายขายคีย์ไม่ครบ");
+  XLSX.writeFile(wb, `ออเดอร์คีย์ไม่ครบ_${co.code}_${new Date().toISOString().slice(0,10)}.xlsx`);
+}
+function ordRenderRecon(d){
+  const fmt=ordFmtMoney; const rec=d.recon||{};
+  if(rec.busy) return `<div class="brec-empty"><i data-lucide="loader-2"></i><div class="ttl">กำลังเทียบ…</div></div>`;
+  const upBtn=`<button class="brec-btn primary" onclick="ordReconUpload()" ${brecCanWrite()?'':'disabled'}><i data-lucide="upload"></i> อัปไฟล์หลังบ้าน (Shopee/TikTok/Lazada) แล้วเทียบ</button>`;
+  if(!rec.results){
+    return `<div style="background:#fff;border:1px solid var(--line,#e2e8f0);border-radius:12px;padding:26px;text-align:center">
+      <div style="font-size:15px;font-weight:700;margin-bottom:6px">🔍 ตรวจรายวัน — เทียบ BigSeller ↔ หลังบ้าน</div>
+      <div style="font-size:13px;color:var(--ink3,#94a3b8);margin-bottom:16px">อัปไฟล์รายงานขายหลังบ้าน → ระบบเทียบ <b>ยอดขาย + ค่าส่ง + ส่วนลด + SKU×จำนวน</b> แบบตรงเป๊ะ (0 tolerance)<br>บอกได้ว่าออเดอร์ไหนฝ่ายขายคีย์ไม่ครบ หรือยอดไม่ตรง</div>
+      ${upBtn}</div>`;
+  }
+  const res=rec.results;
+  const c={matched:0,only_be:0,only_bs:0,diff:0};
+  res.forEach(r=>c[r.status]++);
+  const meta={ only_be:{l:'หลังบ้านมี · ขายไม่คีย์',col:'#dc2626'}, diff:{l:'ยอด/SKU ไม่ตรง',col:'#d97706'}, only_bs:{l:'BigSeller เกิน · หลังบ้านไม่มี',col:'#0ea5e9'} };
+  const probs=res.filter(r=>r.status!=='matched').sort((a,b)=>(a.status>b.status?1:-1)||((a.date||'')<(b.date||'')?1:-1));
+  const GR='grid-template-columns:84px 78px 150px 1fr';
+  const card=(n,l,col)=>`<div class="hd-kpi" style="padding:13px 15px"><div style="font-size:11px;font-weight:700;text-transform:uppercase;color:${col}">${l}</div><div class="tnum" style="font-size:23px;font-weight:700;color:${col}">${n}</div></div>`;
+  return `
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px">
+      ${upBtn}
+      <button class="brec-btn" onclick="ordReconExport()"><i data-lucide="download"></i> ส่งออก "คีย์ไม่ครบ" ให้ฝ่ายขาย</button>
+      <div style="flex:1"></div>
+      <span style="font-size:12px;color:var(--ink3,#94a3b8)">ขอบเขต: ${(rec.channels||[]).join(', ')||'—'} · ${rec.dFrom||''}${rec.dTo&&rec.dTo!==rec.dFrom?' ถึง '+rec.dTo:''}</span>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:14px">
+      ${card(res.length,'ตรวจทั้งหมด','#475569')}${card(c.matched,'ตรงกัน ✓','#16a34a')}${card(c.only_be,'ขายคีย์ไม่ครบ','#dc2626')}${card(c.diff+c.only_bs,'ต้องตรวจอื่น ๆ','#d97706')}</div>
+    ${probs.length? `<div style="background:#fff;border:1px solid var(--line,#e2e8f0);border-radius:12px;overflow:hidden">
+      <div style="display:grid;${GR};gap:8px;padding:10px 14px;background:#f8fafc;font-size:11px;font-weight:700;color:var(--ink2,#475569);text-transform:uppercase"><div>วันที่</div><div>ช่องทาง</div><div>เลขออเดอร์</div><div>ปัญหา / ผลต่าง</div></div>
+      <div style="max-height:60vh;overflow-y:auto">
+        ${probs.slice(0,800).map(r=>{ const m=meta[r.status]||{l:r.status,col:'#475569'}; const detail=r.status==='diff'?(r.diffs||[]).map(df=>`<span style="margin-right:10px"><b>${df.f}:</b> ${df.txt?esc(df.bs):fmt(df.bs)} <span style="color:#94a3b8">vs</span> ${df.txt?esc(df.be):fmt(df.be)}</span>`).join(''):(r.status==='only_be'?`ยอด ${fmt(ordGrossVal(r.be||{}))} · ${esc((r.be&&r.be.products)||'')}`:`ยอด ${fmt(ordGrossVal(r.bs||{}))} · ${esc((r.bs&&r.bs.products)||'')}`);
+          return `<div style="display:grid;${GR};gap:8px;padding:10px 14px;border-top:1px solid #f1f5f9;font-size:12px;align-items:center;border-left:4px solid ${m.col}">
+            <div class="tnum">${r.date||'—'}</div>
+            <div style="font-size:11px">${esc(r.channel||'')}</div>
+            <div style="font-family:monospace;font-size:11px">${esc(r.order_no||'')}</div>
+            <div><span style="font-size:10.5px;font-weight:700;color:${m.col}">${m.l}</span> <span style="color:var(--ink2,#475569)">· ${detail}</span></div>
+          </div>`; }).join('')}
+      </div>
+      ${probs.length>800?`<div style="padding:8px 14px;font-size:12px;color:var(--ink3,#94a3b8)">แสดง 800 จาก ${probs.length}</div>`:''}
+    </div>` : `<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:12px;padding:24px;text-align:center;color:#15803d;font-weight:700">✓ ตรงกันทั้งหมด ${c.matched} ออเดอร์ — ไม่มีรายการต้องตรวจ</div>`}`;
+}
+
 async function renderToolOrders(){
   const t = TOOLS.find(x=>x.id==="orders"); const co = COMPANIES.find(c=>c.id===state.company);
   const d = ordGet(); const main = document.getElementById("main");
@@ -14029,12 +14140,12 @@ async function renderToolOrders(){
     ${ordUnknownPanel(d)}
     ${view==='search' ? ordRenderSearch(d) : `
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px">
-      ${tabBtn('board','สรุปสถานะงาน','🚦')}${tabBtn('reg','ทะเบียน','📋')}${tabBtn('month','สรุปรายเดือน','📊')}
-      <button class="hd-chip" disabled style="opacity:.5;cursor:default" title="commit ถัดไป">🔍 ตรวจรายวัน · เร็วๆนี้</button>
+      ${tabBtn('board','สรุปสถานะงาน','🚦')}${tabBtn('reg','ทะเบียน','📋')}${tabBtn('month','สรุปรายเดือน','📊')}${tabBtn('recon','ตรวจรายวัน','🔍')}
     </div>
     ${d.busy ? `<div class="brec-empty"><i data-lucide="loader-2"></i><div class="ttl">กำลังประมวลผล…</div></div>`
       : view==='month' ? ordRenderMonth(d)
       : view==='reg'   ? ordRenderRegister(d)
+      : view==='recon' ? ordRenderRecon(d)
       : ordRenderBoard(d) }
     `}
   </div>`;

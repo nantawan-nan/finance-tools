@@ -5601,6 +5601,7 @@ function edPresentKey(e){ if(e.key === "Escape") edExitPresent(); }
 
 /* ---------- Print / PDF helpers ---------- */
 const TH_MONTHS = ["มกราคม","กุมภาพันธ์","มีนาคม","เมษายน","พฤษภาคม","มิถุนายน","กรกฎาคม","สิงหาคม","กันยายน","ตุลาคม","พฤศจิกายน","ธันวาคม"];
+const TH_MON_SHORT = ["ม.ค.","ก.พ.","มี.ค.","เม.ย.","พ.ค.","มิ.ย.","ก.ค.","ส.ค.","ก.ย.","ต.ค.","พ.ย.","ธ.ค."];
 function edThaiMonth(key){
   // key = "2026.05" → "พฤษภาคม 2569"
   const [y,m] = key.split(".").map(Number);
@@ -5638,7 +5639,6 @@ async function edExportPDF(){
   const d  = edState();
   const tabs = [
     { id:"summary",  l:"Executive Summary" },
-    { id:"activity", l:"Cash Flow by Activity" },
     { id:"category", l:"Category Analysis" },
     { id:"banks",    l:"Bank Accounts" },
     { id:"explorer", l:"Transaction Explorer" },
@@ -6008,13 +6008,12 @@ async function edExportFullPDF(){
   const d  = edState();
   const tabs = [
     { id:"summary",  l:"Executive Summary" },
-    { id:"activity", l:"Cash Flow by Activity" },
     { id:"category", l:"Category Analysis" },
     { id:"banks",    l:"Bank Accounts" },
     { id:"explorer", l:"Transaction Explorer" },
     { id:"stmt",     l:"งบกระแสเงินสด" },
   ];
-  const renderers = { summary:edRenderSummary, activity:edRenderActivity, category:edRenderCategory,
+  const renderers = { summary:edRenderSummary, category:edRenderCategory,
                       banks:edRenderBanks, explorer:edRenderExplorer, stmt:edRenderStmt };
   if(!window.html2canvas || !window.jspdf){ alert("PDF library โหลดยังไม่เสร็จ — รอสักครู่แล้วลองใหม่"); return; }
 
@@ -6159,7 +6158,6 @@ function edRenderDashboard(){
 
   const tabs = [
     { id:"summary",  l:"Executive Summary" },
-    { id:"activity", l:"Cash Flow by Activity" },
     { id:"category", l:"Category Analysis" },
     { id:"banks",    l:"Bank Accounts" },
     { id:"explorer", l:"Transaction Explorer" },
@@ -6218,8 +6216,8 @@ function edRenderDashboard(){
     </div>
   `;
 
+  if(d.tab!=="summary" && d.tab!=="category" && d.tab!=="banks" && d.tab!=="explorer" && d.tab!=="stmt") d.tab="summary";  // กันแท็บเก่า (activity) ค้าง
   if(d.tab==="summary")  edRenderSummary();
-  else if(d.tab==="activity") edRenderActivity();
   else if(d.tab==="category") edRenderCategory();
   else if(d.tab==="banks")    edRenderBanks();
   else if(d.tab==="explorer") edRenderExplorer();
@@ -6388,6 +6386,15 @@ function edRenderSummary(){
       ${acts.map(actCard).join("")}
     </div>
 
+    <div style="display:grid;grid-template-columns:1.05fr 1fr;gap:18px;margin-bottom:16px">
+      ${edCashWaterfall(A, acts)}
+      <div class="card" style="margin-bottom:0">
+        <h3 style="font-size:18px">📈 กระแสเงินสดรายเดือน <span style="font-weight:400;color:#94a3b8;font-size:13px">Monthly Cash Flow · แยกตามกิจกรรม</span></h3>
+        <div style="font-size:12px;color:#94a3b8;margin:-2px 0 8px">บนเส้นศูนย์ = รับสุทธิ · ใต้เส้นศูนย์ = จ่ายสุทธิ · กดแท่งดูรายการ</div>
+        <div style="position:relative;height:320px"><canvas id="edActMonthly"></canvas></div>
+      </div>
+    </div>
+
     <div style="margin-bottom:16px">
       <div class="card" style="margin-bottom:0">
         <h3 style="font-size:20px">กระแสเงินสดรายเดือน <span style="font-weight:400;color:#94a3b8;font-size:14px">Monthly Cash Flow · รวมทุกบัญชี</span></h3>
@@ -6437,6 +6444,80 @@ function edRenderSummary(){
     },
     plugins:[edBarLabelPlugin]
   });
+
+  // ── กระแสเงินสดรายเดือน แยกตามกิจกรรม (ย้ายมาจากแท็บ Activity เดิม) ──
+  const _actCol = { operating:ED_COLORS.out, investing:"#8B5CF6", financing:ED_COLORS.in };
+  const _actSeries = [
+    { label:"ดำเนินงาน", aKey:"operating" },
+    { label:"ลงทุน",     aKey:"investing" },
+    { label:"จัดหาเงิน", aKey:"financing" },
+  ].map(s => ({
+    label:s.label, backgroundColor:_actCol[s.aKey], borderRadius:4,
+    data: months.map(m => edTxsInScope(edState().data, m, true).reduce((a,t)=> a + (t.activityKey===s.aKey ? (t.in - t.out) : 0), 0))
+  }));
+  const _actNet = months.map((m,i) => _actSeries.reduce((a,s)=>a+s.data[i], 0));
+  edMakeChart("edActMonthly", {
+    type:"bar",
+    data:{ labels:months, datasets:_actSeries },
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{position:"bottom"}, tooltip:{ callbacks:{ label:c=>c.dataset.label+": "+edFmt(c.parsed.y) } } },
+      scales:{
+        y:{ ticks:{ callback:v=>edFmtCompact(v) } },
+        x:{ ticks:{ callback:(val,idx)=>{ const k=months[idx]; return [ (TH_MON_SHORT[Number(k.slice(5,7))-1]||k)+" "+String(Number(k.slice(0,4))+543).slice(2), "สุทธิ "+edFmtCompact(_actNet[idx]) ]; }, font:{size:11} } }
+      },
+      onClick:(e,els)=>{ if(els && els.length){ edSetMonth(months[els[0].index]); edSetTab("explorer"); } }
+    }
+  });
+}
+/* กราฟ Waterfall "เงินสดเดินทางอย่างไร" — ต้นงวด → ดำเนินงาน → ลงทุน → จัดหาเงิน → ปลายงวด
+   แท่งกิจกรรมลอย (บวก=เขียว/ลบ=แดง) · แท่งยอดรวมเต็ม (น้ำเงิน) · คลิกแท่งกิจกรรมดูรายการ */
+function edCashWaterfall(A, acts){
+  const opening = A.opening, closing = A.closing;
+  const op = acts[0].net, inv = acts[1].net, fin = acts[2].net;
+  let run = opening;
+  const steps = [{ label:"ต้นงวด", kind:"total", val:opening, bottom:Math.min(0,opening), top:Math.max(0,opening) }];
+  const flow = (label, key, delta) => { const b=Math.min(run,run+delta), t=Math.max(run,run+delta); steps.push({label,key,kind:"flow",delta,bottom:b,top:t}); run+=delta; };
+  flow("ดำเนินงาน","operating",op); flow("ลงทุน","investing",inv); flow("จัดหาเงิน","financing",fin);
+  steps.push({ label:"ปลายงวด", kind:"total", val:closing, bottom:Math.min(0,closing), top:Math.max(0,closing) });
+
+  const H = 230;
+  const hi = Math.max(...steps.map(s=>s.top), 0);
+  const lo = Math.min(...steps.map(s=>s.bottom), 0);
+  const span = (hi - lo) || 1;
+  const y = v => (v - lo) / span * H;                 // ค่า → พิกัดจากล่าง
+
+  const bars = steps.map(s => {
+    const barH = Math.max(3, y(s.top) - y(s.bottom));
+    const off  = y(s.bottom);
+    let grad, valColor, valTxt;
+    if(s.kind==="total"){
+      grad = "linear-gradient(180deg,#4f8af7,#2563eb)"; valColor = "#1e3a8a";
+      valTxt = "฿" + edFmtCompact(s.val);
+    } else {
+      const pos = s.delta >= 0;
+      grad = pos ? "linear-gradient(180deg,#34d399,#10b981)" : "linear-gradient(180deg,#f87171,#ef4444)";
+      valColor = pos ? "#0d9488" : "#dc2626";
+      valTxt = (pos?"+":"−") + "฿" + edFmtCompact(Math.abs(s.delta));
+    }
+    const clickable = s.kind==="flow";
+    return `<div style="flex:1;display:flex;flex-direction:column;align-items:center">
+      <div style="position:relative;width:100%;height:${H}px">
+        <div ${clickable?`onclick="edDrillActivity('${s.key}')"`:""} style="position:absolute;left:16%;right:16%;bottom:${off}px;height:${barH}px;background:${grad};border-radius:6px;${clickable?"cursor:pointer":""};box-shadow:0 4px 10px rgba(31,42,68,.12)" ${clickable?`onmouseover="this.style.filter='brightness(1.06)'" onmouseout="this.style.filter='none'"`:""}>
+          <span style="position:absolute;top:-20px;left:50%;transform:translateX(-50%);font-size:12.5px;font-weight:700;white-space:nowrap;color:${valColor}">${valTxt}</span>
+        </div>
+      </div>
+      <div style="margin-top:9px;font-size:12.5px;color:#64748b;font-weight:600;text-align:center">${s.label}${clickable?'<span style="display:block;font-size:10px;color:#a3b3bb;font-weight:500">กดดู ›</span>':''}</div>
+    </div>`;
+  }).join("");
+
+  return `<div class="card" style="margin-bottom:0">
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px">
+      <h3 style="font-size:18px">💧 เงินสดเดินทางอย่างไร <span style="font-weight:400;color:#94a3b8;font-size:13px">Cash Flow Waterfall</span></h3>
+      <span style="font-size:11.5px;color:#94a3b8;white-space:nowrap;margin-top:5px">กดแท่งกิจกรรมเพื่อดูรายการ</span>
+    </div>
+    <div style="display:flex;align-items:flex-end;gap:8px;margin-top:28px;padding:0 4px">${bars}</div>
+  </div>`;
 }
 function edTopList(byCat, dir){
   // หักลบรับ-จ่ายในหมวดเดียวกันก่อน (net) → หมวด net บวก = รายรับ · net ลบ = รายจ่าย
@@ -6529,12 +6610,12 @@ function edRenderFinKpis(A, data, monthFilter){
   const lbl = (th, en) => `${th} <span style="font-weight:400;color:#94a3b8;font-size:11.5px">${en}</span>`;
 
   // single KPI card — คลิกได้ → drill modal
-  const card = (kpiKey, label, value, color, sub, bench) => `
+  const card = (kpiKey, label, value, color, sub, bench, ref) => `
     <div onclick="edDrillFinKpi('${kpiKey}')" style="background:rgba(255,255,255,.85);backdrop-filter:blur(6px);border:1px solid #c3dafe;border-radius:14px;padding:16px 18px;display:flex;flex-direction:column;gap:4px;cursor:pointer;transition:.15s" onmouseover="this.style.borderColor='${ED_COLORS.brand}';this.style.transform='translateY(-1px)';this.style.boxShadow='0 4px 12px rgba(0,0,0,.06)'" onmouseout="this.style.borderColor='#c3dafe';this.style.transform='none';this.style.boxShadow='none'">
       <div style="font-size:13px;font-weight:700;color:#475569">${label}</div>
       <div style="font-size:30px;font-weight:800;color:${color};letter-spacing:-.4px;margin-top:3px">${value}</div>
       ${sub?`<div style="font-size:12.5px;color:#64748b">${sub}</div>`:""}
-      ${bench?`<div style="margin-top:7px;padding:5px 9px;background:rgba(99,102,241,.07);border:1px solid #e0e7ff;border-radius:6px;font-size:12px;color:#475569;align-self:flex-start">เกณฑ์มาตรฐาน: ${bench}</div>`:""}
+      ${bench?`<div style="margin-top:7px;padding:5px 9px;background:rgba(99,102,241,.07);border:1px solid #e0e7ff;border-radius:6px;font-size:12px;color:#475569;align-self:flex-start;display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span>เกณฑ์มาตรฐาน: ${bench}</span>${ref?`<a href="${ref}" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="เปิดหน้ามาตรฐานต้นทาง (Investopedia)" style="color:#4f46e5;font-weight:700;text-decoration:none;white-space:nowrap;border-bottom:1px solid #c7d2fe">↗ ที่มา</a>`:''}</div>`:""}
     </div>`;
 
   return `
@@ -6549,25 +6630,29 @@ function edRenderFinKpis(A, data, monthFilter){
           fmtPct(cashMargin),
           evalBench(cashMargin, 10, 5, "hi"),
           "Net / Total Income",
-          "ไม่ต่ำกว่า 5% (ดี) / ไม่ต่ำกว่า 10% (ยอดเยี่ยม)")}
+          "ไม่ต่ำกว่า 5% (ดี) / ไม่ต่ำกว่า 10% (ยอดเยี่ยม)",
+          "https://www.investopedia.com/terms/n/net_margin.asp")}
 
         ${card("opRatio", lbl("อัตราส่วนเงินสดดำเนินงาน","Operating Cash Flow Ratio"),
           fmtPct(opRatio),
           evalBench(opRatio, 100, 50, "hi"),
           "Op Net / Op Income",
-          "ไม่ต่ำกว่า 50% (ดี) / ไม่ต่ำกว่า 100% (แข็งแกร่ง)")}
+          "ไม่ต่ำกว่า 50% (ดี) / ไม่ต่ำกว่า 100% (แข็งแกร่ง)",
+          "https://www.investopedia.com/terms/o/operatingcashflowratio.asp")}
 
         ${card("burn", lbl("อัตราใช้เงินสด/เดือน","Cash Burn Rate"),
           fmtCompactM(burn) + "/เดือน",
           burn <= avgIn ? goodColor : badColor,
           "ค่าใช้จ่ายดำเนินงานเฉลี่ย",
-          "ควรต่ำกว่ายอดรายรับ/เดือน")}
+          "ควรต่ำกว่ายอดรายรับ/เดือน",
+          "https://www.investopedia.com/terms/b/burnrate.asp")}
 
         ${card("opExRatio", lbl("ค่าใช้จ่ายต่อยอดขาย","Op Expense Ratio"),
           fmtPct(opExRatio),
           evalBench(opExRatio, 100, 80, "lo"),
           "Op Expense / Op Income",
-          "ไม่เกิน 80%")}
+          "ไม่เกิน 80%",
+          "https://www.investopedia.com/terms/o/operatingratio.asp")}
 
         ${card("empRatio", lbl("สัดส่วนค่าใช้จ่ายพนักงาน","Payroll Ratio"),
           fmtPct(empRatio),
@@ -6586,8 +6671,13 @@ function edRenderFinKpis(A, data, monthFilter){
         <br>• <b>อัตรากำไรเงินสด / Net Margin</b> ≥ 5–10% — เกณฑ์อัตรากำไรสุทธิทั่วไป
         &nbsp;•&nbsp; <b>Operating Cash Flow Ratio</b> ≥ 1.0 (100%) = กระแสเงินสดจากการดำเนินงานครอบคลุมภาระระยะสั้น
         &nbsp;•&nbsp; <b>Cash Burn</b> ควรต่ำกว่ารายรับเฉลี่ยต่อเดือน
-        <br>• <b>Op Expense Ratio</b> ≤ 80% &nbsp;•&nbsp; <b>สัดส่วนค่าใช้จ่ายพนักงาน</b> ≤ 30% ของรายได้ &nbsp;•&nbsp; <b>สัดส่วนค่าโฆษณา</b> ≤ 20% (แนวทางบริหารต้นทุน SME)
-        <br><span style="color:#b0bcc9">แหล่งอ้างอิงทั่วไป: Investopedia — Financial Ratios / Operating Cash Flow Ratio · หลักการบัญชีบริหารและการวิเคราะห์งบการเงิน. ปรับเกณฑ์ได้ตามนโยบายของบริษัท</span>
+        <br>• <b>Op Expense Ratio</b> ≤ 80% &nbsp;•&nbsp; <b>สัดส่วนค่าใช้จ่ายพนักงาน</b> ≤ 30% ของรายได้ &nbsp;•&nbsp; <b>สัดส่วนค่าโฆษณา</b> ≤ 20% <span style="color:#b0bcc9">(2 ตัวหลังเป็นแนวทางบริหารต้นทุน SME — ไม่มีมาตรฐานสากลตายตัว ปรับตามอุตสาหกรรม)</span>
+        <br><span style="color:#b0bcc9">แหล่งอ้างอิง (คลิก ↗ ที่การ์ดแต่ละใบ):
+          <a href="https://www.investopedia.com/terms/n/net_margin.asp" target="_blank" rel="noopener" style="color:#6366f1">Net Margin</a> ·
+          <a href="https://www.investopedia.com/terms/o/operatingcashflowratio.asp" target="_blank" rel="noopener" style="color:#6366f1">Operating Cash Flow Ratio</a> ·
+          <a href="https://www.investopedia.com/terms/b/burnrate.asp" target="_blank" rel="noopener" style="color:#6366f1">Burn Rate</a> ·
+          <a href="https://www.investopedia.com/terms/o/operatingratio.asp" target="_blank" rel="noopener" style="color:#6366f1">Operating Ratio</a>
+          — Investopedia. ปรับเกณฑ์ได้ตามนโยบายของบริษัท</span>
       </div>
     </div>`;
 }

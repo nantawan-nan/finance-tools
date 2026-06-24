@@ -8104,6 +8104,14 @@ function apoSetSearch(v){
   _apoSearchTimer = setTimeout(apoApplyChanges, 80);
 }
 function apoSetFilter(k, v){ apoGet().filter[k] = v; apoApplyChanges(); }
+/* quick filter ประเภท (toolbar dropdown) — เขียนลง colFilters.category ตัวเดียวกับ filter หัวคอลัมน์ */
+function apoSetCatFilter(val){
+  const f = apoGet().filter;
+  if(!f.colFilters) f.colFilters = {};
+  if(val === "all") delete f.colFilters.category;
+  else f.colFilters.category = [val];
+  apoApplyChanges();
+}
 function apoSetSort(k){
   const s = apoGet().sort;
   if(s.key === k) s.desc = !s.desc;
@@ -8307,6 +8315,18 @@ function fopAccOptions(accounts, selectedId){
     `<option value="${a.id}" ${String(selectedId)===String(a.id)?'selected':''}>${esc(fopAccLabel(a))}</option>`
   ).join("");
 }
+/* ป้ายสั้น (กันคอลัมน์ "ตัดจากบัญชี" ยาวเกะกะ) — ธนาคาร + 4 ตัวท้าย */
+function fopAccShort(a){
+  if(!a) return "—";
+  const name = cffBankName(a.bank_code);
+  const no = String(a.account_no||"").replace(/\D/g,"");
+  return name + (no ? " ···" + no.slice(-4) : "");
+}
+function fopAccOptionsShort(accounts, selectedId){
+  return (accounts||[]).map(a =>
+    `<option value="${a.id}" ${String(selectedId)===String(a.id)?'selected':''}>${esc(fopAccShort(a))}</option>`
+  ).join("");
+}
 /* โหลดบัญชีของบริษัทปัจจุบัน (cache ใน window) */
 async function fopLoadAccounts(cid){
   const { data } = await sb.from("bank_accounts")
@@ -8393,9 +8413,12 @@ function apoFilterAndSort(enriched){
   if(f.planned === "unset") inv = inv.filter(r => !r.planned_payment_date);
   if(f.overdueOnly)         inv = inv.filter(r => r.due_date < today && Number(r.amount_outstanding) > 0);
 
-  // sort
+  // sort — เงินกู้ยืม/ดอกเบี้ย จมล่างสุดเสมอ (ไม่ว่าจะ sort คอลัมน์ไหน) กันรกหัวตาราง
   const s = d.sort;
+  const isLoan = r => r.category === "เงินกู้ยืมและดอกเบี้ย";
   inv = inv.slice().sort((a,b) => {
+    const la = isLoan(a)?1:0, lb = isLoan(b)?1:0;
+    if(la !== lb) return la - lb;
     let av = a[s.key], bv = b[s.key];
     if(s.key === "vendor_name") { av = a._vendor; bv = b._vendor; }
     if(typeof av === "number" || /amount/.test(s.key)){ av = Number(av||0); bv = Number(bv||0); }
@@ -8568,9 +8591,10 @@ function apoBuildTable(inv, enriched, canWrite, today){
           if(!accounts.length) return '<span style="color:var(--ink-3);font-size:11px">— ยังไม่มีบัญชี —</span>';
           const sel = r.pay_from_account_id || defAcc;
           const isDefault = !r.pay_from_account_id;
-          if(!canWrite){ const a = accById[sel]; return `<span style="font-size:11.5px;color:var(--ink-2)">${esc(fopAccLabel(a))}${isDefault?' <span style="color:var(--ink-3);font-size:10px">(ค่าเริ่มต้น)</span>':''}</span>`; }
-          return `<select onchange="apoSetPayAccount('${r.id}', this.value)" title="${isDefault?'ค่าเริ่มต้น — ยังไม่ได้เลือกเอง':''}" style="font-size:11px;padding:3px 6px;border:1px solid ${isDefault?'var(--line)':'var(--in)'};border-radius:6px;background:${isDefault?'#fff':'var(--in-soft)'};color:var(--ink);font-family:inherit;min-width:150px">
-            ${fopAccOptions(accounts, sel)}
+          const a = accById[sel];
+          if(!canWrite){ return `<span style="font-size:11.5px;color:var(--ink-2)" title="${esc(fopAccLabel(a))}">${esc(fopAccShort(a))}${isDefault?' <span style="color:var(--ink-3);font-size:10px">(ค่าเริ่มต้น)</span>':''}</span>`; }
+          return `<select onchange="apoSetPayAccount('${r.id}', this.value)" title="${esc(fopAccLabel(a))}${isDefault?' · ค่าเริ่มต้น — ยังไม่ได้เลือกเอง':''}" style="font-size:11px;padding:3px 5px;border:1px solid ${isDefault?'var(--line)':'var(--in)'};border-radius:6px;background:${isDefault?'#fff':'var(--in-soft)'};color:var(--ink);font-family:inherit;width:118px;max-width:118px">
+            ${fopAccOptionsShort(accounts, sel)}
           </select>`;
         })()}</td>
         <td style="text-align:right">${fopFmt(r.amount_total)}</td>
@@ -8650,6 +8674,10 @@ async function renderToolApOutstanding(){
           <input id="apoSearch" type="text" class="input" placeholder="ค้นหาทุกคอลัมน์ — IV / ผู้ขาย / ประเภท / วันที่ / ยอดเงิน" value="${esc(f.search)}"
             oninput="apoSetSearch(this.value)" style="width:100%;padding-left:32px;font-size:12.5px">
         </div>
+        <select class="input" onchange="apoSetCatFilter(this.value)" style="font-size:12px;min-width:150px" title="กรองตามประเภท">
+          <option value="all">ทุกประเภท</option>
+          ${APO_CATEGORIES.map(c => `<option value="${esc(c)}" ${(f.colFilters&&Array.isArray(f.colFilters.category)&&f.colFilters.category.length===1&&f.colFilters.category[0]===c)?'selected':''}>${esc(c)}</option>`).join("")}
+        </select>
         <select class="input" onchange="apoSetFilter('planned', this.value)" style="font-size:12px;min-width:140px">
           <option value="all">วันชำระทั้งหมด</option>
           <option value="set" ${f.planned==='set'?'selected':''}>กำหนดแล้ว</option>
@@ -13816,11 +13844,12 @@ function ordSet(k,v){ const d=ordGet(); d[k]=v;
 }
 function ordFiltered(d){
   const q=(d.q||"").trim().toLowerCase();
+  const rmap = (d.fStatus && d.fStatus!=="all") ? ordReconMap(d) : null;
   return (d.rows||[]).filter(o=>{
     if(d.fCh!=="all" && o.channel_group!==d.fCh) return false;
     if(d.fIv==="noiv" && o.iv_no) return false;
     if(d.fIv==="hasiv" && !o.iv_no) return false;
-    if(d.fStatus && d.fStatus!=="all" && ordStatusOf(o)!==d.fStatus) return false;
+    if(d.fStatus && d.fStatus!=="all" && ordStatusOf(o,rmap)!==d.fStatus) return false;
     if(q){ const t=`${o.order_id||""} ${o.iv_no||""} ${o.products||""} ${o.channel||""}`.toLowerCase(); if(!t.includes(q)) return false; }
     return true;
   });
@@ -13878,6 +13907,8 @@ function ordExportNoIv(){
 }
 /* ===== สถานะงานต่อออเดอร์ (จากคอลัมน์ lifecycle ใน order_ledger) ===== */
 const ORD_STATUS = [
+  { k:'recon_pending', l:'รอเทียบยอดขาย',                c:'#64748b', ic:'🕵️' },
+  { k:'recon_diff',    l:'ยอดขายไม่ตรง (รอแก้)',          c:'#dc2626', ic:'⚠️' },
   { k:'wait_iv',      l:'รอคีย์ IV',                    c:'#d97706', ic:'📝' },
   { k:'wait_pay',     l:'คีย์ IV แล้ว รอรับชำระ',        c:'#0ea5e9', ic:'💵' },
   { k:'wait_re',      l:'รับชำระแล้ว รอออก RE',          c:'#8b5cf6', ic:'🧾' },
@@ -13885,8 +13916,18 @@ const ORD_STATUS = [
   { k:'wait_bank',    l:'ถอนเงินแล้ว รอเงินเข้าธนาคาร',  c:'#ea580c', ic:'🏦' },
   { k:'done',         l:'ปิดงานแล้ว',                    c:'#16a34a', ic:'✅' },
 ];
-function ordStatusOf(o){
+/* map order_no → สถานะ recon จากผลที่บันทึกไว้ */
+function ordReconMap(d){
+  const m=new Map(); ((d.recon&&d.recon.results)||[]).forEach(r=>{ if(r.order_no) m.set(r.order_no, r.status); }); return m;
+}
+function ordStatusOf(o, reconMap){
   if(o.status==='cancelled') return 'cancelled';
+  const rc = reconMap ? reconMap.get(o.order_id) : null;
+  if(rc==='diff') return 'recon_diff';
+  if(!o.iv_no){
+    if(rc==='matched') return 'wait_iv';
+    if(!rc && (o.channel_group==='shopee'||o.channel_group==='tiktok'||o.channel_group==='lazada')) return 'recon_pending';
+  }
   if(o.bank_in_date) return 'done';
   if(o.bq_no) return 'wait_bank';
   if(o.re_no) return 'wait_deposit';
@@ -13894,18 +13935,24 @@ function ordStatusOf(o){
   if(o.iv_no) return 'wait_pay';
   return 'wait_iv';
 }
-function ordStatusMeta(k){ return ORD_STATUS.find(s=>s.k===k) || { l:(k==='cancelled'?'ยกเลิก':k), c:'#94a3b8', ic:'•' }; }
+function ordStatusMeta(k){ return ORD_STATUS.find(s=>s.k===k) || { l:(k==='cancelled'?'ยกเลิก':k==='only_be'?'หลังบ้านมี · BigSeller ขาด':k), c:'#94a3b8', ic:'•' }; }
 function ordSetView(v){ const d=ordGet(); d.view=v; if(v!=='reg') d.fStatus='all'; renderToolOrders(); }
-function ordBoardGo(k){ const d=ordGet(); d.fStatus=k; d.view='reg'; renderToolOrders(); }
+function ordBoardGo(k){ const d=ordGet();
+  if(k==='only_be'){ d.view='recon'; d.recon=d.recon||{}; d.recon.filter='only_be'; renderToolOrders(); return; }
+  d.fStatus=k; d.view='reg'; renderToolOrders();
+}
 function ordFmtMoney(n){ return Number(n||0).toLocaleString("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2}); }
 
 /* แท็บ สรุปสถานะงาน (funnel) */
 function ordRenderBoard(d){
   const fmt=ordFmtMoney;
   const all=(d.rows||[]);
+  const rmap=ordReconMap(d);
   const agg={}; ORD_STATUS.forEach(s=>agg[s.k]={n:0,sum:0});
   const cancel={n:0,sum:0};
-  all.forEach(o=>{ const k=ordStatusOf(o); if(k==='cancelled'){ cancel.n++; cancel.sum+=Number(o.order_total||0); } else if(agg[k]){ agg[k].n++; agg[k].sum+=Number(o.order_total||0); } });
+  all.forEach(o=>{ const k=ordStatusOf(o,rmap); if(k==='cancelled'){ cancel.n++; cancel.sum+=Number(o.order_total||0); } else if(agg[k]){ agg[k].n++; agg[k].sum+=Number(o.order_total||0); } });
+  // หลังบ้านมี · BigSeller ขาด (only_be — ไม่อยู่ใน order_ledger)
+  const onlyBe={n:0,sum:0}; ((d.recon&&d.recon.results)||[]).forEach(r=>{ if(r.status==='only_be'){ onlyBe.n++; onlyBe.sum+=Number(ordReconNet(r.be||{}))||0; } });
   const tot={ n:all.length, sum:all.reduce((a,o)=>a+Number(o.order_total||0),0) };
   const GC='grid-template-columns:40px 1fr 120px 160px 40px';
   const row=(k,l,c,ic,n,sum)=>`<div onclick="ordBoardGo('${k}')" style="display:grid;${GC};gap:8px;padding:13px 16px;border-top:1px solid #f1f5f9;border-left:4px solid ${c};align-items:center;cursor:pointer;font-size:13px">
@@ -13918,10 +13965,11 @@ function ordRenderBoard(d){
   return `<div style="background:#fff;border:1px solid var(--line,#e2e8f0);border-radius:12px;overflow:hidden">
     <div style="display:grid;${GC};gap:8px;padding:11px 16px;background:#f8fafc;font-size:11px;font-weight:700;color:var(--ink2,#475569);text-transform:uppercase"><div></div><div>สถานะปัจจุบัน</div><div style="text-align:right">จำนวนออเดอร์</div><div style="text-align:right">ยอดเงิน</div><div></div></div>
     ${ORD_STATUS.map(s=>row(s.k,s.l,s.c,s.ic,agg[s.k].n,agg[s.k].sum)).join('')}
+    ${onlyBe.n?row('only_be','หลังบ้านมี · BigSeller ขาด (ขายไม่คีย์)','#be123c','📥',onlyBe.n,onlyBe.sum):''}
     ${row('cancelled','ยกเลิก',' #dc2626','🚫',cancel.n,cancel.sum)}
     <div style="display:grid;${GC};gap:8px;padding:13px 16px;border-top:2px solid #e2e8f0;background:#f8fafc;font-weight:700;font-size:13px"><div></div><div>รวมทุกบรรทัด (รวมยกเลิก)</div><div class="tnum" style="text-align:right">${tot.n}</div><div class="tnum" style="text-align:right">${fmt(tot.sum)}</div><div></div></div>
   </div>
-  <div style="margin-top:10px;font-size:12px;color:var(--ink3,#94a3b8)">คลิกแถวเพื่อดูออเดอร์ในสถานะนั้น · สถานะ "รอเทียบยอดขาย / ยอดไม่ตรง" จะเพิ่มเมื่อเปิดแท็บตรวจรายวัน (commit ถัดไป)</div>`;
+  <div style="margin-top:10px;font-size:12px;color:var(--ink3,#94a3b8)">คลิกแถวเพื่อดูออเดอร์ในสถานะนั้น · "รอเทียบยอดขาย/ยอดไม่ตรง/BigSeller ขาด" มาจากหน้าตรวจรายวัน (อัปไฟล์หลังบ้านเทียบเพื่ออัปเดต)</div>`;
 }
 
 /* แท็บ สรุปรายเดือน — กราฟแท่งต่อแพลตฟอร์ม */
@@ -13953,7 +14001,8 @@ function ordRenderSearch(d){
   const res=(d.rows||[]).filter(o=>`${o.order_id||''} ${o.iv_no||''} ${o.re_no||''} ${o.bq_no||''} ${o.cheque_no||''} ${o.products||''} ${o.customer||''}`.toLowerCase().includes(q)).slice(0,20);
   if(!res.length) return `<div class="brec-empty" style="border:1px solid var(--line,#e2e8f0);border-radius:12px"><i data-lucide="search-x"></i><div class="ttl">ไม่พบ "${esc(d.q)}"</div></div>`;
   const GC='grid-template-columns:repeat(5,1fr)';
-  return res.map(o=>{ const s=ordStatusMeta(ordStatusOf(o));
+  const rmap=ordReconMap(d);
+  return res.map(o=>{ const s=ordStatusMeta(ordStatusOf(o,rmap));
     return `<div style="background:#fff;border:1px solid var(--brand,#0d9488);border-radius:12px;overflow:hidden;margin-bottom:12px">
       <div style="padding:12px 16px;background:rgba(0,0,0,.02);border-bottom:1px solid #f1f5f9;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
         <span class="mono" style="font-weight:700;font-size:14px;font-family:monospace">${esc(o.order_id||'')}</span>
@@ -13976,6 +14025,7 @@ function ordRenderSearch(d){
 function ordRenderRegister(d){
   const fmt=ordFmtMoney;
   const rows = ordFiltered(d);
+  const rmap = ordReconMap(d);
   const chCount={}; (d.rows||[]).forEach(o=>{chCount[o.channel_group]=(chCount[o.channel_group]||0)+1;});
   const chChip=(v,l)=>`<button class="hd-chip ${d.fCh===v?'on':''}" onclick="ordSet('fCh','${v}')">${l}${v!=='all'&&chCount[v]?` ${chCount[v]}`:''}</button>`;
   const GR='grid-template-columns:96px 90px 130px 1fr 90px 100px 96px';
@@ -13994,7 +14044,7 @@ function ordRenderRegister(d){
         <div>วันที่</div><div>ช่องทาง</div><div>รหัสคำสั่งซื้อ</div><div>สินค้า</div><div style="text-align:right">ยอดขาย</div><div>IV</div><div>สถานะ</div>
       </div>
       <div style="max-height:60vh;overflow-y:auto">
-        ${rows.slice(0,1000).map(o=>{ const exp=d.expanded.has(o.id); const sm=ordStatusMeta(ordStatusOf(o)); return `<div style="border-bottom:1px solid #f1f5f9">
+        ${rows.slice(0,1000).map(o=>{ const exp=d.expanded.has(o.id); const sm=ordStatusMeta(ordStatusOf(o,rmap)); return `<div style="border-bottom:1px solid #f1f5f9">
           <div onclick="ordToggleRow('${o.id}')" style="display:grid;${GR};gap:8px;padding:9px 14px;font-size:12.5px;align-items:center;cursor:pointer;${o.status==='cancelled'?'opacity:.5':''}${exp?'background:#f8fafc':''}">
             <div class="tnum">${o.order_date||'—'}</div>
             <div style="font-size:11px">${esc(o.channel_group||'')}</div>

@@ -13545,7 +13545,7 @@ async function ordTagBankFromWithdrawals(co, withdrawals){
 function ordGet(){
   if(!state.ord) state.ord = {};
   const co = state.company;
-  if(!state.ord[co]) state.ord[co] = { rows:[], busy:false, q:"", fCh:"all", fIv:"all", loaded:false, expanded:new Set() };
+  if(!state.ord[co]) state.ord[co] = { rows:[], busy:false, q:"", fCh:"all", fIv:"all", fStatus:"all", view:"board", loaded:false, expanded:new Set() };
   if(!state.ord[co].expanded) state.ord[co].expanded = new Set();
   return state.ord[co];
 }
@@ -13611,6 +13611,7 @@ function ordFiltered(d){
     if(d.fCh!=="all" && o.channel_group!==d.fCh) return false;
     if(d.fIv==="noiv" && o.iv_no) return false;
     if(d.fIv==="hasiv" && !o.iv_no) return false;
+    if(d.fStatus && d.fStatus!=="all" && ordStatusOf(o)!==d.fStatus) return false;
     if(q){ const t=`${o.order_id||""} ${o.iv_no||""} ${o.products||""} ${o.channel||""}`.toLowerCase(); if(!t.includes(q)) return false; }
     return true;
   });
@@ -13647,60 +13648,165 @@ function ordExportNoIv(){
   const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data), "ยังไม่คีย์ IV");
   XLSX.writeFile(wb, `ออเดอร์ยังไม่คีย์IV_${co.code}_${new Date().toISOString().slice(0,10)}.xlsx`);
 }
-async function renderToolOrders(){
-  const t = TOOLS.find(x=>x.id==="orders"); const co = COMPANIES.find(c=>c.id===state.company);
-  const d = ordGet(); const main = document.getElementById("main");
-  homeInjectCSS();
-  if(!d.loaded && !d.busy){ main.innerHTML=`<div class="page-head"><h1>${esc(t.name)}</h1><div class="sub">กำลังโหลด...</div></div>`; try{ await ordLoad(); }catch(e){} }
+/* ===== สถานะงานต่อออเดอร์ (จากคอลัมน์ lifecycle ใน order_ledger) ===== */
+const ORD_STATUS = [
+  { k:'wait_iv',      l:'รอคีย์ IV',                    c:'#d97706', ic:'📝' },
+  { k:'wait_pay',     l:'คีย์ IV แล้ว รอรับชำระ',        c:'#0ea5e9', ic:'💵' },
+  { k:'wait_re',      l:'รับชำระแล้ว รอออก RE',          c:'#8b5cf6', ic:'🧾' },
+  { k:'wait_deposit', l:'ออก RE แล้ว รอฝากเช็ค',         c:'#f59e0b', ic:'🏧' },
+  { k:'wait_bank',    l:'ถอนเงินแล้ว รอเงินเข้าธนาคาร',  c:'#ea580c', ic:'🏦' },
+  { k:'done',         l:'ปิดงานแล้ว',                    c:'#16a34a', ic:'✅' },
+];
+function ordStatusOf(o){
+  if(o.status==='cancelled') return 'cancelled';
+  if(o.bank_in_date) return 'done';
+  if(o.bq_no) return 'wait_bank';
+  if(o.re_no) return 'wait_deposit';
+  if(o.received_at) return 'wait_re';
+  if(o.iv_no) return 'wait_pay';
+  return 'wait_iv';
+}
+function ordStatusMeta(k){ return ORD_STATUS.find(s=>s.k===k) || { l:(k==='cancelled'?'ยกเลิก':k), c:'#94a3b8', ic:'•' }; }
+function ordSetView(v){ const d=ordGet(); d.view=v; if(v!=='reg') d.fStatus='all'; renderToolOrders(); }
+function ordBoardGo(k){ const d=ordGet(); d.fStatus=k; d.view='reg'; renderToolOrders(); }
+function ordFmtMoney(n){ return Number(n||0).toLocaleString("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2}); }
+
+/* แท็บ สรุปสถานะงาน (funnel) */
+function ordRenderBoard(d){
+  const fmt=ordFmtMoney;
+  const rows=(d.rows||[]).filter(o=>o.status!=='cancelled');
+  const agg={}; ORD_STATUS.forEach(s=>agg[s.k]={n:0,sum:0});
+  rows.forEach(o=>{ const k=ordStatusOf(o); if(agg[k]){ agg[k].n++; agg[k].sum+=Number(o.order_total||0); } });
+  const tot={ n:rows.length, sum:rows.reduce((a,o)=>a+Number(o.order_total||0),0) };
+  const GC='grid-template-columns:40px 1fr 120px 160px 40px';
+  return `<div style="background:#fff;border:1px solid var(--line,#e2e8f0);border-radius:12px;overflow:hidden">
+    <div style="display:grid;${GC};gap:8px;padding:11px 16px;background:#f8fafc;font-size:11px;font-weight:700;color:var(--ink2,#475569);text-transform:uppercase"><div></div><div>สถานะปัจจุบัน</div><div style="text-align:right">จำนวนออเดอร์</div><div style="text-align:right">ยอดเงิน</div><div></div></div>
+    ${ORD_STATUS.map(s=>`<div onclick="ordBoardGo('${s.k}')" style="display:grid;${GC};gap:8px;padding:13px 16px;border-top:1px solid #f1f5f9;border-left:4px solid ${s.c};align-items:center;cursor:pointer;font-size:13px">
+      <div style="font-size:17px">${s.ic}</div>
+      <div style="font-weight:600">${s.l}</div>
+      <div class="tnum" style="text-align:right;font-weight:700;color:${s.c}">${agg[s.k].n}</div>
+      <div class="tnum" style="text-align:right">${fmt(agg[s.k].sum)}</div>
+      <div style="text-align:right;color:var(--ink3,#94a3b8)">›</div>
+    </div>`).join('')}
+    <div style="display:grid;${GC};gap:8px;padding:13px 16px;border-top:2px solid #e2e8f0;background:#f8fafc;font-weight:700;font-size:13px"><div></div><div>รวม (ไม่รวมยกเลิก)</div><div class="tnum" style="text-align:right">${tot.n}</div><div class="tnum" style="text-align:right">${fmt(tot.sum)}</div><div></div></div>
+  </div>
+  <div style="margin-top:10px;font-size:12px;color:var(--ink3,#94a3b8)">คลิกแถวเพื่อดูออเดอร์ในสถานะนั้น · สถานะ "รอเทียบยอดขาย / ยอดไม่ตรง" จะเพิ่มเมื่อเปิดแท็บตรวจรายวัน (commit ถัดไป)</div>`;
+}
+
+/* แท็บ สรุปรายเดือน — กราฟแท่งต่อแพลตฟอร์ม */
+function ordRenderMonth(d){
+  const fmt=ordFmtMoney;
+  const groups=['shopee','tiktok','lazada','offline','other'];
+  const lbl={shopee:'Shopee',tiktok:'TikTok',lazada:'Lazada',offline:'หน้าร้าน',other:'อื่นๆ'};
+  const col={shopee:'#0d9488',tiktok:'#0ea5e9',lazada:'#8b5cf6',offline:'#64748b',other:'#94a3b8'};
+  const agg={}; groups.forEach(g=>agg[g]={n:0,sum:0,ksum:0});
+  (d.rows||[]).filter(o=>o.status!=='cancelled').forEach(o=>{ const g=agg[o.channel_group]?o.channel_group:'other'; agg[g].n++; agg[g].sum+=Number(o.order_total||0); if(o.iv_no)agg[g].ksum+=Number(o.order_total||0); });
+  const max=Math.max(1,...groups.map(g=>agg[g].sum));
+  return `<div style="background:#fff;border:1px solid var(--line,#e2e8f0);border-radius:12px;padding:18px 20px">
+    <div style="font-weight:700;font-size:13.5px;margin-bottom:14px">ยอดขายต่อแพลตฟอร์ม <span style="font-weight:400;color:var(--ink3,#94a3b8)">(เต็มแท่ง = ทั้งหมด · ทึบ = คีย์ IV แล้ว) · หน่วย: บาท</span></div>
+    <div style="display:flex;align-items:flex-end;gap:26px;height:210px;border-bottom:2px solid var(--line,#e2e8f0);padding:0 8px">
+      ${groups.map(g=>{ const h=Math.round(agg[g].sum/max*175); const kh=agg[g].sum?Math.round(h*agg[g].ksum/agg[g].sum):0; return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%">
+        <div class="tnum" style="font-size:12px;font-weight:700">${fmt(agg[g].sum)}</div>
+        <div style="width:60%;height:${Math.max(0,h-kh)}px;background:${col[g]}55;border-radius:6px 6px 0 0"></div>
+        <div style="width:60%;height:${kh}px;background:${col[g]};border-radius:${kh&&h>kh?'0 0':'6px 6px'} 6px 6px"></div>
+      </div>`; }).join('')}
+    </div>
+    <div style="display:flex;gap:26px;padding:8px 8px 0">${groups.map(g=>`<div style="flex:1;text-align:center;font-size:12px;font-weight:600">${lbl[g]}<div class="tnum" style="font-size:11px;color:var(--ink3,#94a3b8)">${agg[g].n} ออเดอร์</div></div>`).join('')}</div>
+  </div>`;
+}
+
+/* ค้นหา → การ์ดสรุป + timeline */
+function ordRenderSearch(d){
+  const fmt=ordFmtMoney;
+  const q=(d.q||'').trim().toLowerCase();
+  const res=(d.rows||[]).filter(o=>`${o.order_id||''} ${o.iv_no||''} ${o.re_no||''} ${o.bq_no||''} ${o.cheque_no||''} ${o.products||''} ${o.customer||''}`.toLowerCase().includes(q)).slice(0,20);
+  if(!res.length) return `<div class="brec-empty" style="border:1px solid var(--line,#e2e8f0);border-radius:12px"><i data-lucide="search-x"></i><div class="ttl">ไม่พบ "${esc(d.q)}"</div></div>`;
+  const GC='grid-template-columns:repeat(5,1fr)';
+  return res.map(o=>{ const s=ordStatusMeta(ordStatusOf(o));
+    return `<div style="background:#fff;border:1px solid var(--brand,#0d9488);border-radius:12px;overflow:hidden;margin-bottom:12px">
+      <div style="padding:12px 16px;background:rgba(0,0,0,.02);border-bottom:1px solid #f1f5f9;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <span class="mono" style="font-weight:700;font-size:14px;font-family:monospace">${esc(o.order_id||'')}</span>
+        <span style="font-size:11px;color:var(--ink3,#94a3b8)">${esc(o.channel||o.channel_group||'')}</span>
+        <div style="flex:1"></div>
+        <span style="font-size:12px;font-weight:600;color:${s.c}">${s.ic} ${s.l}</span>
+      </div>
+      <div style="display:grid;${GC};font-size:12px">
+        <div style="padding:9px 14px;border-right:1px solid #f1f5f9"><div style="color:var(--ink3,#94a3b8);font-size:10.5px">ยอดขาย</div><div class="tnum" style="font-weight:700">${fmt(o.order_total)}</div></div>
+        <div style="padding:9px 14px;border-right:1px solid #f1f5f9"><div style="color:var(--ink3,#94a3b8);font-size:10.5px">IV</div><div class="mono" style="font-family:monospace">${o.iv_no?esc(o.iv_no):'—'}</div></div>
+        <div style="padding:9px 14px;border-right:1px solid #f1f5f9"><div style="color:var(--ink3,#94a3b8);font-size:10.5px">RE</div><div class="mono" style="font-family:monospace">${o.re_no?esc(o.re_no):'—'}</div></div>
+        <div style="padding:9px 14px;border-right:1px solid #f1f5f9"><div style="color:var(--ink3,#94a3b8);font-size:10.5px">BQ</div><div class="mono" style="font-family:monospace">${o.bq_no?esc(o.bq_no):'—'}</div></div>
+        <div style="padding:9px 14px"><div style="color:var(--ink3,#94a3b8);font-size:10.5px">เงินเข้าแบงค์</div><div>${o.bank_in_date||'—'}</div></div>
+      </div>
+      ${ordTimeline(o)}
+    </div>`; }).join('') + (res.length>=20?`<div style="font-size:12px;color:var(--ink3,#94a3b8)">แสดง 20 รายการแรก — พิมพ์ให้เจาะจงขึ้น</div>`:'');
+}
+
+/* แท็บ ทะเบียน (ตารางเดิม + ฟิลเตอร์) */
+function ordRenderRegister(d){
+  const fmt=ordFmtMoney;
   const rows = ordFiltered(d);
-  const stats = (d.rows||[]).reduce((a,o)=>{ a.total++; if(o.iv_no)a.iv++; else if(o.status!=="cancelled")a.noiv++; if(o.status==="cancelled")a.cancel++; a.sum+=Number(o.order_total||0); return a; }, {total:0,iv:0,noiv:0,cancel:0,sum:0});
-  const chCount = {}; (d.rows||[]).forEach(o=>{ chCount[o.channel_group]=(chCount[o.channel_group]||0)+1; });
-  const fmt=(n)=>Number(n||0).toLocaleString("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2});
+  const chCount={}; (d.rows||[]).forEach(o=>{chCount[o.channel_group]=(chCount[o.channel_group]||0)+1;});
   const chChip=(v,l)=>`<button class="hd-chip ${d.fCh===v?'on':''}" onclick="ordSet('fCh','${v}')">${l}${v!=='all'&&chCount[v]?` ${chCount[v]}`:''}</button>`;
-  main.innerHTML = `
-  <div class="hd">
-    <div class="page-head"><h1>${esc(t.name)} <span class="badge">${esc(co.name)}</span></h1><div class="sub">${esc(t.long)}</div></div>
-    <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin:14px 0">
-      <div class="hd-kpi"><div style="font-size:11px;color:var(--ink3,#94a3b8);font-weight:700;text-transform:uppercase">ทั้งหมด</div><div class="tnum" style="font-size:24px;font-weight:700">${stats.total}</div></div>
-      <div class="hd-kpi"><div style="font-size:11px;color:#16a34a;font-weight:700;text-transform:uppercase">คีย์ IV แล้ว</div><div class="tnum" style="font-size:24px;font-weight:700;color:#16a34a">${stats.iv}</div></div>
-      <div class="hd-kpi"><div style="font-size:11px;color:#d97706;font-weight:700;text-transform:uppercase">ยังไม่คีย์ IV</div><div class="tnum" style="font-size:24px;font-weight:700;color:#d97706">${stats.noiv}</div></div>
-      <div class="hd-kpi"><div style="font-size:11px;color:#dc2626;font-weight:700;text-transform:uppercase">ยกเลิก</div><div class="tnum" style="font-size:24px;font-weight:700;color:#dc2626">${stats.cancel}</div></div>
-      <div class="hd-kpi"><div style="font-size:11px;color:var(--ink3,#94a3b8);font-weight:700;text-transform:uppercase">ยอดขายรวม</div><div class="tnum" style="font-size:20px;font-weight:700">${fmt(stats.sum)}</div></div>
-    </div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px">
-      <button class="brec-btn primary" onclick="ordUploadFiles()" ${brecCanWrite()?'':'disabled'}><i data-lucide="upload"></i> อัปรายงานขาย (เลือกได้หลายช่องทาง)</button>
-      <button class="brec-btn" onclick="ordExportNoIv()"><i data-lucide="download"></i> ส่งออกออเดอร์ยังไม่คีย์ IV</button>
-      <div style="flex:1"></div>
-      <input id="ordQ" value="${esc(d.q||'')}" oninput="ordSet('q',this.value)" placeholder="🔍 ค้นหา order / IV / สินค้า" style="border:1px solid var(--line,#e2e8f0);border-radius:8px;padding:7px 11px;font-size:13px;min-width:240px;font-family:inherit">
-    </div>
+  const GR='grid-template-columns:96px 90px 130px 1fr 90px 100px 96px';
+  const banner=(d.fStatus&&d.fStatus!=='all')?`<div style="display:flex;align-items:center;gap:10px;background:#fff7ed;border:1px solid #fed7aa;border-radius:9px;padding:8px 13px;margin-bottom:10px;font-size:13px"><b>${ordStatusMeta(d.fStatus).ic} ${ordStatusMeta(d.fStatus).l}</b><span style="color:var(--ink3,#94a3b8)">${rows.length} ออเดอร์</span><div style="flex:1"></div><button onclick="ordSet('fStatus','all')" style="border:none;background:none;color:var(--brand,#0d9488);font-weight:600;cursor:pointer;font-size:12px">✕ ล้างตัวกรอง</button></div>`:'';
+  return `
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
-      ${chChip('all','ทุกช่อง')}${chChip('shopee','Shopee')}${chChip('tiktok','TikTok')}${chChip('lazada','Lazada')}${chChip('bigseller','BigSeller')}${chChip('offline','หน้าร้าน/อื่น')}
+      ${chChip('all','ทุกช่อง')}${chChip('shopee','Shopee')}${chChip('tiktok','TikTok')}${chChip('lazada','Lazada')}${chChip('offline','หน้าร้าน/อื่น')}
       <div style="width:14px"></div>
       <button class="hd-chip ${d.fIv==='all'?'on':''}" onclick="ordSet('fIv','all')">IV ทั้งหมด</button>
       <button class="hd-chip ${d.fIv==='noiv'?'on':''}" onclick="ordSet('fIv','noiv')">ยังไม่คีย์ IV</button>
       <button class="hd-chip ${d.fIv==='hasiv'?'on':''}" onclick="ordSet('fIv','hasiv')">คีย์แล้ว</button>
     </div>
-    ${d.busy?`<div class="brec-empty"><i data-lucide="loader-2"></i><div class="ttl">กำลังประมวลผล…</div></div>`:`
+    ${banner}
     <div style="background:#fff;border:1px solid var(--line,#e2e8f0);border-radius:12px;overflow:hidden">
-      <div style="display:grid;grid-template-columns:96px 90px 130px 1fr 90px 100px 90px;gap:8px;padding:10px 14px;background:#f8fafc;font-size:11px;font-weight:700;color:var(--ink2,#475569);text-transform:uppercase">
-        <div>วันที่</div><div>ช่องทาง</div><div>รหัสคำสั่งซื้อ</div><div>สินค้า</div><div>ยอดขาย</div><div>IV</div><div>สถานะ</div>
+      <div style="display:grid;${GR};gap:8px;padding:10px 14px;background:#f8fafc;font-size:11px;font-weight:700;color:var(--ink2,#475569);text-transform:uppercase">
+        <div>วันที่</div><div>ช่องทาง</div><div>รหัสคำสั่งซื้อ</div><div>สินค้า</div><div style="text-align:right">ยอดขาย</div><div>IV</div><div>สถานะ</div>
       </div>
       <div style="max-height:60vh;overflow-y:auto">
-        ${rows.slice(0,1000).map(o=>{ const exp=d.expanded.has(o.id); return `<div style="border-bottom:1px solid #f1f5f9">
-          <div onclick="ordToggleRow('${o.id}')" style="display:grid;grid-template-columns:96px 90px 130px 1fr 90px 100px 90px;gap:8px;padding:9px 14px;font-size:12.5px;align-items:center;cursor:pointer;${o.status==='cancelled'?'opacity:.5':''}${exp?'background:#f8fafc':''}">
+        ${rows.slice(0,1000).map(o=>{ const exp=d.expanded.has(o.id); const sm=ordStatusMeta(ordStatusOf(o)); return `<div style="border-bottom:1px solid #f1f5f9">
+          <div onclick="ordToggleRow('${o.id}')" style="display:grid;${GR};gap:8px;padding:9px 14px;font-size:12.5px;align-items:center;cursor:pointer;${o.status==='cancelled'?'opacity:.5':''}${exp?'background:#f8fafc':''}">
             <div class="tnum">${o.order_date||'—'}</div>
             <div style="font-size:11px">${esc(o.channel_group||'')}</div>
             <div class="mono" style="font-size:11px;font-family:monospace">${esc(o.order_id||'')}</div>
             <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(o.products||'')}">${esc(o.products||'')}</div>
             <div class="tnum" style="text-align:right">${fmt(o.order_total)}</div>
             <div style="font-size:11px;font-family:monospace">${o.iv_no?`<span style="color:#16a34a">${esc(o.iv_no)}</span>`:`<span style="color:#d97706">ยังไม่คีย์</span>`}</div>
-            <div>${o.status==='cancelled'?'<span style="color:#dc2626;font-size:11px">ยกเลิก</span>':(o.is_returned?'<span style="color:#d97706;font-size:11px">คืน</span>':'<span style="color:#16a34a;font-size:11px">ปกติ</span>')}</div>
+            <div style="font-size:10.5px;color:${o.status==='cancelled'?'#dc2626':sm.c};font-weight:600" title="${sm.l}">${o.status==='cancelled'?'ยกเลิก':sm.ic+' '+sm.l}</div>
           </div>
           ${exp?ordTimeline(o):''}
-        </div>`; }).join("") || `<div class="brec-empty" style="border:none"><i data-lucide="package-search"></i><div class="ttl">ยังไม่มีออเดอร์</div><div>กดปุ่ม "อัปรายงานขาย" เพื่อนำเข้าจาก 4 ช่องทาง</div></div>`}
+        </div>`; }).join("") || `<div class="brec-empty" style="border:none"><i data-lucide="package-search"></i><div class="ttl">ยังไม่มีออเดอร์</div><div>กดปุ่ม "อัปรายงานขาย" เพื่อนำเข้า</div></div>`}
       </div>
       ${rows.length>1000?`<div style="padding:8px 14px;font-size:12px;color:var(--ink3,#94a3b8)">แสดง 1,000 จาก ${rows.length} รายการ — ใช้ filter/ค้นหาเพื่อแคบลง</div>`:''}
-    </div>`}
+    </div>`;
+}
+
+async function renderToolOrders(){
+  const t = TOOLS.find(x=>x.id==="orders"); const co = COMPANIES.find(c=>c.id===state.company);
+  const d = ordGet(); const main = document.getElementById("main");
+  homeInjectCSS();
+  if(!d.loaded && !d.busy){ main.innerHTML=`<div class="page-head"><h1>${esc(t.name)}</h1><div class="sub">กำลังโหลด...</div></div>`; try{ await ordLoad(); }catch(e){} }
+  const view = (d.q && d.q.trim()) ? 'search' : (d.view||'board');
+  const tabBtn=(v,l,ic)=>`<button class="hd-chip ${(d.view||'board')===v?'on':''}" onclick="ordSetView('${v}')">${ic} ${l}</button>`;
+  main.innerHTML = `
+  <div class="hd">
+    <div class="page-head"><h1>${esc(t.name)} <span class="badge">${esc(co.name)}</span></h1><div class="sub">${esc(t.long)}</div></div>
+    <div style="margin:14px 0 12px">
+      <input id="ordQ" value="${esc(d.q||'')}" oninput="ordSet('q',this.value)" placeholder="🔍 ค้นหาเลขออเดอร์ / IV / RE / BQ / เลขเช็ค / สินค้า — เด้งสถานะเต็มทันที" style="width:100%;border:1.5px solid var(--brand,#0d9488);border-radius:11px;padding:11px 15px;font-size:14px;font-family:inherit;box-sizing:border-box">
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px">
+      <button class="brec-btn primary" onclick="ordUploadFiles()" ${brecCanWrite()?'':'disabled'}><i data-lucide="upload"></i> อัปรายงานขาย BigSeller</button>
+      <button class="brec-btn" onclick="ordExportNoIv()"><i data-lucide="download"></i> ส่งออกออเดอร์ยังไม่คีย์ IV</button>
+    </div>
+    ${view==='search' ? ordRenderSearch(d) : `
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px">
+      ${tabBtn('board','สรุปสถานะงาน','🚦')}${tabBtn('reg','ทะเบียน','📋')}${tabBtn('month','สรุปรายเดือน','📊')}
+      <button class="hd-chip" disabled style="opacity:.5;cursor:default" title="commit ถัดไป">🔍 ตรวจรายวัน · เร็วๆนี้</button>
+    </div>
+    ${d.busy ? `<div class="brec-empty"><i data-lucide="loader-2"></i><div class="ttl">กำลังประมวลผล…</div></div>`
+      : view==='month' ? ordRenderMonth(d)
+      : view==='reg'   ? ordRenderRegister(d)
+      : ordRenderBoard(d) }
+    `}
   </div>`;
   if(window.lucide&&window.lucide.createIcons){ try{ window.lucide.createIcons(); }catch(e){} }
 }

@@ -5181,37 +5181,14 @@ const edDonutPctPlugin = {
     const total = ds.data.reduce((s,v)=>s+(Number(v)||0),0);
     if(!total) return;
     ctx.save();
-    ctx.font = "700 11.5px 'IBM Plex Sans','IBM Plex Sans Thai',sans-serif";
-    ctx.textBaseline = "middle";
-    const outside = [];   // ชิ้นเล็ก → วาดป้ายนอกโดนัทพร้อมเส้นโยง (กันซ้อน)
+    ctx.font = "700 12px 'IBM Plex Sans','IBM Plex Sans Thai',sans-serif";
+    ctx.textAlign = "center"; ctx.textBaseline = "middle";
     meta.data.forEach((arc, i) => {
       const pct = (Number(ds.data[i])||0)/total*100;
-      if(pct < 0.5) return;               // ~0% จริงๆ ข้าม
-      const p = arc.getProps(['x','y','startAngle','endAngle','outerRadius','innerRadius'], true);
-      const mid = (p.startAngle + p.endAngle)/2;
-      if(pct >= 8){                        // ชิ้นใหญ่ → % กลางชิ้น (ขาว)
-        const r = (p.innerRadius + p.outerRadius)/2;
-        ctx.fillStyle = "#fff"; ctx.textAlign = "center";
-        ctx.fillText(pct.toFixed(0)+"%", p.x + Math.cos(mid)*r, p.y + Math.sin(mid)*r);
-      } else {                             // ชิ้นเล็ก → เก็บไว้วาดนอกโดนัท
-        const col = (Array.isArray(ds.backgroundColor) ? ds.backgroundColor[i] : ds.backgroundColor) || "#64748b";
-        outside.push({ mid, pct, col, cx:p.x, cy:p.y, rOut:p.outerRadius,
-          side: Math.cos(mid) >= 0 ? 1 : -1, y: p.y + Math.sin(mid)*(p.outerRadius+14) });
-      }
-    });
-    // กันป้ายซ้อนกัน: แยกซ้าย/ขวา เรียงตาม y ดันให้ห่าง ≥ 14px
-    [1,-1].forEach(side => {
-      const arr = outside.filter(o=>o.side===side).sort((a,b)=>a.y-b.y);
-      for(let i=1;i<arr.length;i++){ if(arr[i].y - arr[i-1].y < 14) arr[i].y = arr[i-1].y + 14; }
-    });
-    outside.forEach(o => {
-      const x1 = o.cx + Math.cos(o.mid)*o.rOut, y1 = o.cy + Math.sin(o.mid)*o.rOut;  // ขอบนอกชิ้น
-      const xKnee = o.cx + o.side*(o.rOut + 9);
-      const xText = o.cx + o.side*(o.rOut + 12);
-      ctx.strokeStyle = o.col; ctx.lineWidth = 1.1;
-      ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(xKnee,o.y); ctx.lineTo(xText,o.y); ctx.stroke();
-      ctx.fillStyle = o.col; ctx.textAlign = o.side>0 ? "left" : "right";
-      ctx.fillText((o.pct<1?o.pct.toFixed(1):o.pct.toFixed(0))+"%", xText + o.side*3, o.y);
+      if(pct < 8) return;                 // โชว์ % กลางชิ้นเฉพาะชิ้นใหญ่ที่มีที่พอ · ชิ้นเล็กดู % ที่ legend
+      const pos = arc.tooltipPosition();
+      ctx.fillStyle = "#fff";
+      ctx.fillText(pct.toFixed(0)+"%", pos.x, pos.y);
     });
     ctx.restore();
   }
@@ -7021,9 +6998,13 @@ function edRenderCategory(){
       type:"doughnut",
       data:{ labels:T.labels, datasets:[{ data:T.data, backgroundColor:T.labels.map((_,i)=>palette[i%palette.length]), borderColor:"#fff", borderWidth:2, hoverOffset:6 }] },
       options:{ responsive:true, maintainAspectRatio:false, cutout:"55%",
-        layout:{ padding:{ left:46, right:46, top:10, bottom:6 } },   // เผื่อที่ป้าย % นอกโดนัท (ชิ้นเล็ก)
+        layout:{ padding:{ top:6, bottom:4 } },
         plugins:{
-          legend:{ position:"bottom", labels:{ font:{size:11.5}, boxWidth:12, padding:9 } },
+          legend:{ position:"bottom", labels:{ font:{size:11.5}, boxWidth:12, padding:9,
+            generateLabels:(c)=>{ const dd=c.data, dset=dd.datasets[0], tot=dset.data.reduce((s,v)=>s+(Number(v)||0),0)||1;
+              return dd.labels.map((lab,i)=>{ const v=Number(dset.data[i])||0, pc=v/tot*100, bg=Array.isArray(dset.backgroundColor)?dset.backgroundColor[i]:dset.backgroundColor;
+                return { text: lab+"  "+(pc<1?pc.toFixed(1):pc.toFixed(0))+"%", fillStyle:bg, strokeStyle:bg, lineWidth:0, index:i }; }); }
+          } },
           tooltip:{ callbacks:{ label:c=>{ const pct=T.total?(c.parsed/T.total*100).toFixed(1):0; return " "+c.label+": "+edFmt(c.parsed)+" ("+pct+"%)"; } } }
         },
         onClick:(e,els)=>{ if(els&&els.length){ const k=T.keys[els[0].index]; if(k) edDrillCat(k, dir); } }

@@ -14018,12 +14018,12 @@ function ordSkuSig(o){
   if(it&&it.length) return it.map(x=>`${String(x.sku||'').toUpperCase()}×${Number(x.qty)||0}`).sort().join('|');
   return String(o.sku_list||'').split(',').map(s=>s.trim().toUpperCase()).filter(Boolean).sort().join('|');
 }
+function ordReconNet(o){ return +Number(o.order_total||0).toFixed(2); }
 function ordReconDiffs(bs, be){
   const diffs=[]; const ne=(a,b)=>Math.abs(Number(a||0)-Number(b||0))>=0.01;
-  const bg=ordGrossVal(bs), eg=ordGrossVal(be); if(ne(bg,eg)) diffs.push({f:'ยอดขาย(gross)',bs:bg,be:eg});
+  // ★ เทียบ "ยอดสุทธิ" (หลังหักส่วนลด) — BigSeller แยกส่วนลด (gross−ลด) · หลังบ้านหักมาแล้ว · สุทธิต้องเท่ากัน
+  if(ne(ordReconNet(bs),ordReconNet(be))) diffs.push({f:'ยอดสุทธิ',bs:ordReconNet(bs),be:ordReconNet(be)});
   if(ne(bs.shipping_fee,be.shipping_fee)) diffs.push({f:'ค่าส่ง',bs:Number(bs.shipping_fee||0),be:Number(be.shipping_fee||0)});
-  // ส่วนลดบางช่อง (Lazada) ติดลบ → เทียบค่าสัมบูรณ์
-  if(ne(Math.abs(Number(bs.seller_discount||0)),Math.abs(Number(be.seller_discount||0)))) diffs.push({f:'ส่วนลด',bs:Number(bs.seller_discount||0),be:Number(be.seller_discount||0)});
   const bsig=ordSkuSig(bs), esig=ordSkuSig(be); if(bsig!==esig) diffs.push({f:'SKU/จำนวน',bs:bsig||'—',be:esig||'—',txt:true});
   return diffs;
 }
@@ -14086,16 +14086,18 @@ function ordReconRowDetail(r){
     <div style="${diff?'color:#dc2626;font-weight:600':''}">${a}</div>
     <div style="${diff?'color:#dc2626;font-weight:600':''}">${b}</div></div>`;
   const dif=(x,y)=>String(x)!==String(y);
+  const n1=bs?fmt(ordReconNet(bs)):'—', n2=be?fmt(ordReconNet(be)):'—';
   const g1=bs?fmt(ordGrossVal(bs)):'—', g2=be?fmt(ordGrossVal(be)):'—';
   const s1=bs?fmt(bs.shipping_fee):'—', s2=be?fmt(be.shipping_fee):'—';
   const d1=bs?fmt(bs.seller_discount):'—', d2=be?fmt(be.seller_discount):'—';
   const k1=bs?(ordSkuSig(bs)||'—'):'—', k2=be?(ordSkuSig(be)||'—'):'—';
   return `<div style="padding:12px 16px;background:#fafbfc;border-top:1px dashed #e2e8f0">
     <div style="display:grid;grid-template-columns:150px 1fr 1fr;gap:8px;font-size:11px;font-weight:700;color:#475569;text-transform:uppercase;padding-bottom:2px"><div></div><div>BigSeller</div><div>หลังบ้าน</div></div>
-    ${line('ยอดขาย (gross)',g1,g2,dif(g1,g2))}
+    ${line('★ ยอดสุทธิ',n1,n2,dif(n1,n2))}
     ${line('ค่าส่ง',s1,s2,dif(s1,s2))}
-    ${line('ส่วนลด',d1,d2,dif(Math.abs(Number(bs&&bs.seller_discount||0)),Math.abs(Number(be&&be.seller_discount||0))))}
     ${line('SKU×จำนวน',esc(k1),esc(k2),dif(k1,k2))}
+    <div style="display:grid;grid-template-columns:150px 1fr 1fr;gap:8px;font-size:11.5px;padding:5px 0;border-top:1px solid #f1f5f9;color:#94a3b8"><div>อ้างอิง: gross</div><div>${g1}</div><div>${g2}</div></div>
+    <div style="display:grid;grid-template-columns:150px 1fr 1fr;gap:8px;font-size:11.5px;padding:5px 0;color:#94a3b8"><div>อ้างอิง: ส่วนลด</div><div>${d1}</div><div>${d2}</div></div>
     ${line('สินค้า',esc((bs&&bs.products)||'—'),esc((be&&be.products)||'—'),false)}
     ${r.status==='only_be'?`<div style="font-size:12px;color:#dc2626;margin-top:8px">⚠️ หลังบ้านมีออเดอร์นี้ แต่ BigSeller ยังไม่มี — ฝ่ายขายต้องคีย์เพิ่ม</div>`:''}
     ${r.status==='only_bs'?`<div style="font-size:12px;color:#0ea5e9;margin-top:8px">ℹ️ BigSeller มี แต่หลังบ้านไม่มี — อาจยกเลิก/คนละช่วงวัน</div>`:''}

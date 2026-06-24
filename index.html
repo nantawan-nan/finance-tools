@@ -11744,10 +11744,13 @@ function brecParseStatement(workbook){
    Tier 1: ref ตรง + วันตรง + ยอดตรง → confidence="exact"
    Tier 2: วันตรง + ยอดตรง (ไม่มี ref check) → confidence="suggested" */
 /* ลายเซ็นแถว — กันแถวซ้ำตอน re-upload งวดที่ทับกัน (เก็บแค่แถวใหม่จริง) */
+/* ★ Stable Transaction Key (Phase A) — ห้ามใช้ running balance!
+   เมื่อยกเลิก PS กลางงวด → balance ของทุกแถวหลังนั้นเปลี่ยน แต่รายการจริงไม่ได้เปลี่ยน
+   → ใช้แค่ field ที่ stable: date + DR/CR + amount + doc_no (express) หรือ cheque_no+ref_note (bank)
+*/
 function brecRowSig(r, source){
   const n = v => (Number(v)||0).toFixed(2);
-  const bal = (r.balance==null || r.balance==="") ? "" : n(r.balance);
-  const base = `${r.txn_date||""}|${n(r.withdrawal)}|${n(r.deposit)}|${bal}`;
+  const base = `${r.txn_date||""}|${n(r.withdrawal)}|${n(r.deposit)}`;
   return source === "express"
     ? base + "|" + String(r.doc_no||"").trim()
     : base + "|" + String(r.cheque_no||"").trim() + "|" + String(r.ref_note||"").trim();
@@ -11956,58 +11959,114 @@ async function brecUpload(kind){
     if(!parsed.accountNo) throw new Error("ไม่พบเลขบัญชีในไฟล์ — ตรวจสอบรูปแบบไฟล์");
     const acctId = await brecEnsureAccount(co, parsed.bankCode, parsed.accountNo);
     if(!acctId) throw new Error("สร้าง bank account ไม่สำเร็จ");
-    // ★ Dedup ระดับแถว — อัป STM/Express ซ้ำงวดที่ทับกันได้ ระบบเก็บแค่ "แถวใหม่"
-    //   → match/กระทบยอดที่ทำไว้ก่อนหน้ายังอยู่ครบ ไม่ต้องจับคู่ใหม่
-    const rowTable = parsed.source === "express" ? "brec_express_rows" : "brec_bank_rows";
-    const sigCols = parsed.source === "express"
-      ? "txn_date,withdrawal,deposit,balance,doc_no"
-      : "txn_date,withdrawal,deposit,balance,cheque_no,ref_note";
-    const { data:existRows } = await sb.from(rowTable).select(sigCols)
-      .eq("bank_account_id", acctId).is("deleted_at", null).limit(100000);
-    const existSig = new Set((existRows||[]).map(r => brecRowSig(r, parsed.source)));
-    const newRows = parsed.rows.filter(r => !existSig.has(brecRowSig(r, parsed.source)));
-    const dupCount = parsed.rows.length - newRows.length;
+    const src = parsed.source;
+    const rowTable = src === "express" ? "brec_express_rows" : "brec_bank_rows";
 
-    if(newRows.length === 0){
-      alert(`ทุกแถว (${parsed.rows.length}) มีอยู่ในระบบแล้ว — ไม่มีรายการใหม่\n\nการจับคู่/กระทบยอดที่ทำไว้ก่อนหน้ายังอยู่ครบ ✓`);
+    // ★ Phase A — Dedup ด้วย Stable Key (ไม่ใช้ balance)
+    //   1. detect ambiguous WITHIN file: stable key ซ้ำในไฟล์เดียว → mark ambiguous=true
+    //   2. compare with DB (เฉพาะแถว non-ambiguous) — ที่มีอยู่แล้ว = skip
+    //   3. insert เฉพาะแถวใหม่ · ambiguous insert ทั้งหมดทุกแถว (ผู้ใช้ตัดสินใจ)
+
+    // 1) Find ambiguous keys within the file
+    const fileKeyCount = new Map();
+    parsed.rows.forEach(r => { const k = brecRowSig(r, src); fileKeyCount.set(k, (fileKeyCount.get(k)||0)+1); });
+    const ambigKeys = new Set([...fileKeyCount.entries()].filter(([,n])=>n>1).map(([k])=>k));
+
+    // 2) Query existing rows (non-ambiguous + non-deleted) for stable key comparison
+    const sigCols = src === "express"
+      ? "txn_date,withdrawal,deposit,doc_no"
+      : "txn_date,withdrawal,deposit,cheque_no,ref_note";
+    const { data:existRows } = await sb.from(rowTable).select(sigCols+",ambiguous")
+      .eq("bank_account_id", acctId).is("deleted_at", null).eq("ambiguous", false).limit(100000);
+    const existSig = new Set((existRows||[]).map(r => brecRowSig(r, src)));
+
+    // 3) Categorize each parsed row
+    let dupCount = 0, newCount = 0, ambigCount = 0;
+    const toInsert = [];
+    for(const r of parsed.rows){
+      const key = brecRowSig(r, src);
+      const isAmbig = ambigKeys.has(key);
+      const isDup = existSig.has(key);
+      if(isAmbig){
+        // ambiguous within file → insert all with ambiguous=true (user reviews)
+        toInsert.push({ ...r, ambiguous: true });
+        ambigCount++;
+      } else if(isDup){
+        dupCount++;  // skip
+      } else {
+        toInsert.push({ ...r, ambiguous: false });
+        newCount++;
+      }
+    }
+
+    if(toInsert.length === 0){
+      alert(
+        `📋 ผลการอัปไฟล์ "${file.name}"\n`+
+        `บัญชี: ${parsed.bankCode} ${parsed.accountNo}\n`+
+        `งวด: ${parsed.periodFrom} → ${parsed.periodTo}\n\n`+
+        `ไฟล์นี้มี ${parsed.rows.length} รายการ\n`+
+        `• เพิ่มใหม่: 0\n`+
+        `• รายการเดิมที่พบแล้ว (ข้าม): ${dupCount}\n`+
+        `• รายการที่ต้องตรวจสอบ: 0\n\n`+
+        `✓ ไม่มีรายการใหม่ — การจับคู่/กระทบยอดที่ทำไว้ก่อนหน้ายังอยู่ครบ`
+      );
       d.busy=false; brecRefresh(); return;
     }
 
-    // Preview confirm — บอกชัดว่ามีใหม่กี่แถว ข้ามซ้ำกี่แถว
+    // Import Result Summary — ก่อนยืนยัน
     const ok = confirm(
+      `📋 ผลการอัปไฟล์ "${file.name}"\n`+
       `บัญชี: ${parsed.bankCode} ${parsed.accountNo}\n`+
       `งวด: ${parsed.periodFrom} → ${parsed.periodTo}\n\n`+
-      `พบในไฟล์ ${parsed.rows.length} รายการ\n`+
-      `• ใหม่ (จะนำเข้า): ${newRows.length}\n`+
-      `• ซ้ำของเดิม (ข้าม): ${dupCount}\n\n`+
-      `นำเข้าเฉพาะรายการใหม่ใช่ไหม? — รายการ/การจับคู่เดิมไม่ถูกแตะ`
+      `ไฟล์นี้มี ${parsed.rows.length} รายการ\n`+
+      `• เพิ่มใหม่: ${newCount}\n`+
+      `• รายการเดิมที่พบแล้ว (ข้าม): ${dupCount}\n`+
+      (ambigCount?`• รายการที่ต้องตรวจสอบ (Ambiguous — แยกไม่ได้): ${ambigCount}\n   → ลายเซ็นข้อมูลตรงกันหลายแถว (วันเดียวกัน + ยอดเท่ากัน + ref ตรง)\n   → ระบบจะนำเข้าทั้งหมดและติด flag ให้ตรวจสอบ\n`:'')+
+      `\n` +
+      `ดำเนินการนำเข้า ${toInsert.length} รายการ? (รายการ/การจับคู่เดิมไม่ถูกแตะ)`
     );
     if(!ok){ d.busy=false; brecRefresh(); return; }
 
-    // import record — hash ใส่ timestamp ให้ unique เสมอ (dedup ทำที่ระดับแถวแล้ว)
+    // import record — hash ใส่ timestamp ให้ unique เสมอ (dedup ทำที่ระดับ stable key แล้ว)
     const hash = brecHash(file.name + "|" + file.size + "|" + parsed.rows.length + "|" + parsed.periodFrom + "|" + parsed.periodTo + "|" + Date.now());
     const { data:imp, error:ie } = await sb.from("brec_imports").insert({
-      company_id: co, bank_account_id: acctId, source: parsed.source,
+      company_id: co, bank_account_id: acctId, source: src,
       filename: file.name, file_hash: hash,
       period_from: parsed.periodFrom, period_to: parsed.periodTo,
-      row_count: newRows.length, status:"imported"
+      row_count: toInsert.length, status:"imported"
     }).select("id").single();
     if(ie) throw ie;
     const importId = imp.id;
-    // chunk insert เฉพาะแถวใหม่
+
+    // chunk insert — fallback ทีละแถวถ้า chunk fail (เช่นโดน unique constraint จาก race)
     const CHUNK = 500;
-    for(let i=0;i<newRows.length;i+=CHUNK){
-      const slice = newRows.slice(i,i+CHUNK).map(r => ({
+    let raceSkip = 0, failHard = 0;
+    for(let i=0;i<toInsert.length;i+=CHUNK){
+      const slice = toInsert.slice(i,i+CHUNK).map(r => ({
         company_id: co, bank_account_id: acctId, import_id: importId, ...r
       }));
       const { error:re } = await sb.from(rowTable).insert(slice);
-      if(re) throw re;
+      if(re){
+        // chunk fail → ลองทีละแถว · ถ้า unique constraint = race (มี import อื่นแทรก) → skip ไม่ throw
+        for(const row of slice){
+          const { error:re2 } = await sb.from(rowTable).insert(row);
+          if(re2){
+            if(/duplicate key|unique constraint|23505/i.test(re2.message||re2.code||"")){ raceSkip++; }
+            else { failHard++; console.warn("brecUpload insert", re2); }
+          }
+        }
+      }
     }
+    if(failHard){ console.warn(`brecUpload: ${failHard} rows failed (hard error)`); }
     d.accountId = acctId;
     d.lastImport = imp.id;
     await brecLoad();
-    // auto-run match หลัง upload — ผู้ใช้ไม่ต้องกดปุ่มเอง
-    const proposed = brecAutoMatch(d.express, d.bank, d.matches);
+    // auto-run match หลัง upload — เฉพาะแถวที่ ambiguous=false (ของแน่นอน)
+    const proposed = brecAutoMatch(
+      (d.express||[]).filter(r=>!r.ambiguous),
+      (d.bank||[]).filter(r=>!r.ambiguous),
+      d.matches
+    );
     let matchedMsg = "";
     if(proposed.length){
       const inserts = proposed.map(p => ({ ...p, company_id: co, bank_account_id: acctId }));
@@ -12019,7 +12078,14 @@ async function brecUpload(kind){
       }
     }
     brecRefresh();
-    alert(`นำเข้ารายการใหม่ ${newRows.length} รายการ${dupCount?` (ข้ามซ้ำ ${dupCount})`:''}${matchedMsg}`);
+    alert(
+      `✓ นำเข้าสำเร็จ\n\n`+
+      `• เพิ่มใหม่: ${newCount}${raceSkip?` (skip race ${raceSkip})`:''}\n`+
+      `• ข้ามซ้ำ: ${dupCount}\n`+
+      (ambigCount?`• Ambiguous (ติด flag): ${ambigCount} — ดูในตารางและตัดสินเอง\n`:'')+
+      (failHard?`• ล้มเหลว: ${failHard}\n`:'')+
+      matchedMsg
+    );
   } catch(e){
     alert("Upload ล้มเหลว: "+(e.message||e));
     d.busy=false; brecRefresh();

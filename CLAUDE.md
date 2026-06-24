@@ -177,6 +177,28 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-06-24 — Bank Recon Phase A: Stable Transaction Key + Unique Constraint (แก้บั๊กรายการซ้ำเมื่อยกเลิก PS)
+- **เป้าหมาย:** แก้บั๊กหลัก — เมื่อยกเลิก PS กลางงวดใน Express แล้วอัป XML ใหม่ → running balance ของรายการหลังเปลี่ยน → ลายเซ็นเดิมเปลี่ยน → ระบบนับเป็นรายการใหม่ทั้งหมด → false duplicate
+- **`supabase/bankrec-phase-a-stable-key.sql`** (deploy แล้ว · idempotent + EXCEPTION-wrapped):
+  - `ALTER TABLE` เพิ่ม `ambiguous boolean NOT NULL DEFAULT false` ทั้ง `brec_express_rows` + `brec_bank_rows`
+  - cleanup duplicates เก่า: PARTITION BY stable key cols + ORDER BY (has_match DESC, created_at ASC) keep first, soft-delete ที่เหลือ
+  - `CREATE UNIQUE INDEX uniq_brec_ex_stable` ON `(bank_account_id, txn_date, withdrawal, deposit, COALESCE(doc_no,''))` WHERE `deleted_at IS NULL AND ambiguous=false`
+  - `CREATE UNIQUE INDEX uniq_brec_bk_stable` ON `(bank_account_id, txn_date, withdrawal, deposit, COALESCE(cheque_no,''), COALESCE(ref_note,''))` WHERE `deleted_at IS NULL AND ambiguous=false`
+  - partial index for ambiguous queries · NOTIFY pgrst
+- **`brecRowSig(r, source)`** — เลิกใช้ `r.balance` (running balance) เด็ดขาด:
+  - Express: `${txn_date}|${withdrawal}|${deposit}|${doc_no}`
+  - Bank: `${txn_date}|${withdrawal}|${deposit}|${cheque_no}|${ref_note}`
+- **`brecUpload` ใหม่ — 5 ขั้น:**
+  1. detect ambiguous **ภายในไฟล์** (Map<stableKey, count> · keys ที่ count≥2 → ambiguous=true ทุกแถว)
+  2. query DB เฉพาะแถว `deleted_at IS NULL AND ambiguous=false` → existSig Set
+  3. categorize: ambiguous (insert ทั้งหมด flag=true) · dup (skip) · new (insert flag=false)
+  4. **Import Result Summary** ครบ 4 บรรทัด — `confirm()` ก่อน insert: ไฟล์มี N · เพิ่มใหม่ X · ซ้ำเดิม Y · Ambiguous Z (พร้อมคำอธิบาย)
+  5. insert chunked 500 + **fallback ทีละแถว** เมื่อ chunk fail · regex match `duplicate key|unique constraint|23505` = nigh race (skip ไม่ throw) · อื่นๆ log + count failHard
+- **auto-match หลัง insert** — กรองเฉพาะ `!ambiguous` (matching รายการ ambiguous ต้องให้ user resolve ก่อน)
+- **กระทบหน้าอื่น = 0** — `brec_matches` ตารางเดิม · `brecDedupExisting` (cleanup tool เก่า) ยังใช้ `brecRowSig` ใหม่ที่ไม่มี balance → ทำงานถูกขึ้น
+- **gotcha:** หลัง deploy migration แล้ว ถ้า DB ของลูกค้าเก่ามี duplicate ที่ stable key ตรงกัน → DO $$ block soft-delete อันที่ unmatch หรือใหม่กว่า (เก็บ matched + oldest) · ดังนั้นข้อมูลเก่าจะถูก dedup ครั้งเดียวอัตโนมัติ ก่อน unique index จะถูกสร้าง
+- **Phase ถัดไป (Phase B-F):** Import Batch History · Audit Trail · Removed-from-Source detection · UI overhaul (Action-oriented) · Period Close + Version · Snapshot Excel/PDF Report
+
 ### 2026-06-24 — Orders: แท็บใหม่ "🧾 ตรวจ IV" (อัปรายงานขาย 723-5 → tag IV + validation + coverage)
 - **เป้าหมาย:** ให้รู้ว่า "IV เลขที่อะไรคือคำสั่งซื้ออะไร · คีย์ไปแล้วเท่าไหร่ · ออเดอร์ทั้งหมดมี IV กี่ตัว · สถานะถึงขั้นไหน" — แยกออกจาก Marketplace upload flow ที่ต้องอัป 3 ไฟล์พร้อมกัน
 - **`ordIvAnalyze(salesData, rows)`** — pure function · classify IV ใน 723-5 vs `order_ledger` เป็น 6 สถานะ: `new` (จะ tag), `matched` (iv ตรง+ยอดตรง), `diff` (iv ตรงแต่ยอดต่าง), `conflict` (IV ทับเลขเดิม หรือ ref ตรงแต่ ord มี iv อื่น), `voided` (ขึ้นต้น *), `orphan` (ref ไม่มีออเดอร์ match) · index ตาม order_id + iv_no (กัน iv ทับ) · coverage check (gapBefore/gapAfter — ออเดอร์ที่ก่อน/หลังช่วงรายงานที่ยังไม่มี iv)

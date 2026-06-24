@@ -13472,22 +13472,31 @@ function ordSplitByCompany(orders, myCompany, skuSets){
   }
   return { mine, otherByCompany, unknownShops };
 }
-/* แผงร้านที่ยังไม่รู้บริษัท — โชว์ออเดอร์ + ปุ่มระบุบริษัท */
+/* แผงออเดอร์ที่ยังไม่รู้บริษัท — รายตัว (โชว์ SKU/สินค้า/ยอด) + เลือกบริษัทรายออเดอร์ */
 function ordUnknownPanel(d){
   const list = d.unknownShops||[];
   if(!list.length) return '';
-  const co=COMPANIES.find(c=>c.id===state.company)||{};
-  return `<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:12px;padding:14px 16px;margin-bottom:14px">
-    <div style="font-weight:700;color:#92400e;font-size:13.5px;margin-bottom:2px">⚠️ ร้านที่ระบบยังไม่รู้บริษัท ${list.length} ร้าน · ${list.reduce((a,u)=>a+u.n,0)} ออเดอร์ — <u>ยังไม่นำเข้า</u> (กันออเดอร์เบิ้ลข้ามบริษัท)</div>
-    <div style="font-size:11.5px;color:#a16207;margin-bottom:6px">กดเลือกบริษัทให้ถูก → ถ้าเป็น ${esc(co.name||'')} จะนำเข้าให้เลย · ระบบจะจำร้านนี้ไว้ครั้งหน้าแยกเอง</div>
-    ${list.map(u=>`<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:9px 0;border-top:1px solid #fef3c7">
-      <b style="font-family:monospace;font-size:13px">${esc(u.shop)}</b>
-      <span style="font-size:12px;color:#a16207">${u.n} ออเดอร์</span>
-      <span style="font-size:11px;color:#b45309">เช่น ${u.ids.slice(0,3).map(x=>esc(x)).join(", ")}${u.n>3?' …':''}</span>
-      <div style="flex:1"></div>
-      <span style="font-size:12px;color:#92400e">เป็นของ →</span>
-      ${COMPANIES.map(c=>`<button onclick="ordAssignShop('${encodeURIComponent(u.shop)}','${c.id}')" style="border:1px solid var(--brand,#0d9488);background:#fff;color:var(--brand,#0d9488);border-radius:8px;padding:5px 12px;font-size:12px;font-weight:600;cursor:pointer">${esc(c.name)}</button>`).join('')}
-      <button onclick="ordDismissUnknown('${encodeURIComponent(u.shop)}')" title="ปิด (คงไว้ที่บริษัทปัจจุบัน)" style="border:none;background:none;color:#a16207;cursor:pointer;font-size:14px">✕</button>
+  const items=[]; list.forEach(u=>(u.orders||[]).forEach(o=>items.push({o,shop:u.shop})));
+  if(!items.length) return '';
+  const fmt=ordFmtMoney;
+  const skuName=(o)=>{ let it=o.items; if(typeof it==='string'){try{it=JSON.parse(it);}catch(e){it=null;}} if(it&&it.length) return it.map(x=>`${x.sku||''}${(x.qty>1)?'×'+x.qty:''}`).join(', '); return o.sku_list||'—'; };
+  const GR='grid-template-columns:140px 76px 1fr 140px 84px 128px';
+  const btns=(oid)=>COMPANIES.map(c=>`<button onclick="ordAssignOrder('${encodeURIComponent(oid)}','${c.id}')" style="border:1px solid var(--brand,#0d9488);background:#fff;color:var(--brand,#0d9488);border-radius:7px;padding:4px 9px;font-size:11px;font-weight:600;cursor:pointer">${esc(c.name)}</button>`).join('');
+  return `<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:12px;overflow:hidden;margin-bottom:14px">
+    <div style="padding:12px 16px">
+      <div style="font-weight:700;color:#92400e;font-size:13.5px">⚠️ ${items.length} ออเดอร์ระบุบริษัทไม่ได้ — <u>ยังไม่นำเข้า</u> (กันเบิ้ล) · เลือกบริษัทรายตัวได้</div>
+      <div style="font-size:11.5px;color:#a16207;margin-top:2px">ชื่อร้านไม่บอกแบรนด์ + SKU ไม่อยู่ในรายการบริษัทไหน → ดู SKU/สินค้าแล้วกดเลือก (ระบบจะจำ SKU นั้นไว้ครั้งหน้า)</div>
+    </div>
+    <div style="display:grid;${GR};gap:8px;padding:8px 16px;background:rgba(251,191,36,.14);font-size:10.5px;font-weight:700;color:#92400e;text-transform:uppercase">
+      <div>order_id</div><div>วันที่</div><div>SKU / สินค้า</div><div>ร้าน</div><div style="text-align:right">ยอด</div><div style="text-align:center">เป็นของ</div>
+    </div>
+    ${items.map(({o,shop})=>`<div style="display:grid;${GR};gap:8px;padding:9px 16px;border-top:1px solid #fef3c7;font-size:12px;align-items:center">
+      <div style="font-family:monospace;font-size:11px">${esc(o.order_id||'')}</div>
+      <div class="tnum">${o.order_date||'—'}</div>
+      <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(skuName(o)+' · '+(o.products||''))}"><span style="font-family:monospace;font-size:11px">${esc(skuName(o))}</span><span style="color:#a16207"> · ${esc(o.products||'')}</span></div>
+      <div style="font-size:11px;color:#b45309;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(shop)}</div>
+      <div class="tnum" style="text-align:right">${fmt(o.order_total)}</div>
+      <div style="display:flex;gap:5px;justify-content:center">${btns(o.order_id)}</div>
     </div>`).join('')}
   </div>`;
 }
@@ -13511,6 +13520,30 @@ async function ordAssignShop(shopEnc, companyId){
   renderToolOrders();
 }
 function ordDismissUnknown(shopEnc){ const shop=decodeURIComponent(shopEnc); const d=ordGet(); d.unknownShops=(d.unknownShops||[]).filter(u=>u.shop!==shop); renderToolOrders(); }
+async function ordCompanyUuid(cid){
+  const code = cid==="mbark" ? "MBARC" : "BENYA";
+  const { data } = await sb.from("companies").select("id").eq("code", code).limit(1);
+  return (data&&data[0])?data[0].id:null;
+}
+/* ระบุบริษัทรายออเดอร์ → นำเข้าออเดอร์นั้นเข้าบริษัทที่เลือก (ข้ามบริษัทได้) + จำ SKU */
+async function ordAssignOrder(oidEnc, companyId){
+  const oid=decodeURIComponent(oidEnc);
+  const cName=(c)=>(COMPANIES.find(x=>x.id===c)||{}).name||c;
+  const d=ordGet();
+  let found=null;
+  (d.unknownShops||[]).forEach(u=>{ const o=(u.orders||[]).find(x=>x.order_id===oid); if(o) found=o; });
+  if(!found){ renderToolOrders(); return; }
+  const targetUuid = await ordCompanyUuid(companyId);
+  if(!targetUuid){ alert("หา company id ไม่เจอ"); return; }
+  await ordIngestChannelOrders(targetUuid, {orders:[found]}, "ระบุบริษัทรายตัว");
+  // จำ SKU เข้ารายการของบริษัทนั้น → ครั้งหน้า auto
+  try{ if(found.sku_list){ const m=bsLoadJSON(BS_LS_SKU,{})||{}; if(!m[companyId])m[companyId]=[]; found.sku_list.split(',').map(s=>s.trim()).filter(Boolean).forEach(s=>{ if(!m[companyId].includes(s)) m[companyId].push(s); }); bsSaveJSON(BS_LS_SKU,m); } }catch(e){}
+  // เอาออกจากรายการรอ
+  (d.unknownShops||[]).forEach(u=>{ u.orders=(u.orders||[]).filter(x=>x.order_id!==oid); u.ids=(u.ids||[]).filter(x=>x!==oid); u.n=(u.orders||[]).length; });
+  d.unknownShops=(d.unknownShops||[]).filter(u=>(u.orders||[]).length>0);
+  if(companyId===state.company){ try{ await ordLoad(); }catch(e){} }
+  renderToolOrders();
+}
 /* upsert ออเดอร์จากช่องทาง (dedup by order_id) → คืน {added, updated, total} */
 async function ordIngestChannelOrders(co, parsed, srcLabel){
   const orders = parsed.orders || [];
@@ -13546,18 +13579,26 @@ async function ordIngestChannelOrders(co, parsed, srcLabel){
       updates.push({ id: ex.id, upd });
     }
   }
-  const CH=400; let insErr=null, savedN=0;
+  const CH=200; let insErr=null, savedN=0, failN=0;
   for(let i=0;i<inserts.length;i+=CH){
-    const {error}=await sb.from("order_ledger").insert(inserts.slice(i,i+CH));
-    if(error){ console.warn("ord ins",error); insErr=error; break; }
-    savedN += inserts.slice(i,i+CH).length;
+    const chunk=inserts.slice(i,i+CH);
+    const {error}=await sb.from("order_ledger").insert(chunk);
+    if(!error){ savedN += chunk.length; continue; }
+    console.warn("ord ins chunk err",error); if(!insErr) insErr=error;
+    // chunk พัง → ลองทีละแถว ข้ามตัวที่พัง (กันทั้ง chunk หาย ~400 รายการ)
+    for(const one of chunk){
+      const {error:e2}=await sb.from("order_ledger").insert(one);
+      if(e2){ failN++; if(!insErr) insErr=e2; } else savedN++;
+    }
   }
   // ★ batch ขนาน (กันช้าจากการ await ทีละแถว) — ครั้งละ 30
   const UCH=30;
   for(let i=0;i<updates.length;i+=UCH){
     await Promise.all(updates.slice(i,i+UCH).map(u=> sb.from("order_ledger").update(u.upd).eq("id", u.id) ));
   }
-  return { added: savedN, updated: updates.length, total: orders.length, error: insErr };
+  return { added: savedN, updated: updates.length, total: orders.length, failN,
+           error: (failN?insErr:null),
+           errMsg: insErr?(insErr.message||insErr.details||insErr.hint||JSON.stringify(insErr)):null };
 }
 
 /* 723-5: "จับ IV ใส่ออเดอร์" — match by order_id (ref) → tag iv_no/iv_date/ยอด
@@ -13657,7 +13698,7 @@ async function ordUploadFiles(){
   if(!files||!files.length) return;
   const d = ordGet(); d.busy=true; d.unknownShops=[]; renderToolOrders();
   try{
-    let totAdd=0, totUpd=0, perCh={}, firstErr=null;
+    let totAdd=0, totUpd=0, perCh={}, failTotal=0, firstErrMsg=null;
     let totalParsed=0, mineTotal=0; const otherByCompanyAll=new Map(), unknownShopsAll=new Map();
     const skuSets = ordCompanySkuSets();
     for(const file of files){
@@ -13681,14 +13722,13 @@ async function ordUploadFiles(){
       }
       mineTotal += (parsed.orders||[]).length;
       const r = await ordIngestChannelOrders(co, parsed, file.name);
-      totAdd+=r.added; totUpd+=r.updated;
+      totAdd+=r.added; totUpd+=r.updated; failTotal+=(r.failN||0); if(r.errMsg && !firstErrMsg) firstErrMsg=r.errMsg;
       perCh[parsed.channel]=(perCh[parsed.channel]||0)+r.total;
-      if(r.error){ firstErr = firstErr || r.error; }
     }
     await ordLoad();
-    if(firstErr){
-      alert("⚠️ บันทึกไม่สำเร็จ — DB error:\n\n"+(firstErr.message||firstErr.details||firstErr.hint||JSON.stringify(firstErr))+"\n\n(code: "+(firstErr.code||"-")+")");
-    } else {
+    // เลขจริงในระบบ (authoritative count — ไม่จำกัด limit)
+    let dbCount=null; try{ const c=await sb.from("order_ledger").select("id",{count:'exact',head:true}).eq("company_id",co).is("deleted_at",null); dbCount=c.count; }catch(e){}
+    {
       const coName = (COMPANIES.find(c=>c.id===state.company)||{}).name || state.company;
       d.unknownShops = [...unknownShopsAll.entries()].map(([shop,u])=>({shop,n:u.n,ids:u.ids,orders:u.orders}));
       const unkTotal = d.unknownShops.reduce((a,u)=>a+u.n,0);
@@ -13700,9 +13740,13 @@ async function ordUploadFiles(){
       if(unkTotal) msg += `\n  • ยังไม่รู้บริษัท (รอระบุ ยังไม่นำเข้า): ${unkTotal}  ← ดูแผงเหลืองด้านบน`;
       const sum = mineTotal + otherTotal + unkTotal;
       msg += `\n  ─ รวมตรวจ: ${sum}${sum===totalParsed?" ✓ ครบ":" ⚠️ ไม่ครบ ("+totalParsed+")"}`;
-      const dbNow=(d.rows||[]).length;
-      msg += `\n\n📊 ${coName} ในระบบจริงตอนนี้ (active): ${dbNow} ออเดอร์ = ยอดในกระดานสถานะ`;
-      if(dbNow!==mineTotal) msg += `\n⚠️ ไม่เท่าไฟล์ (${mineTotal}) — มีของค้างจากอัปทดสอบก่อนหน้า\n→ กดปุ่ม "ล้างทะเบียน เริ่มใหม่" แล้วอัปใหม่รอบเดียว เลขจะตรงเป๊ะ`;
+      const dbNow=(dbCount!=null?dbCount:(d.rows||[]).length);
+      msg += `\n\n📊 ${coName} ในระบบจริง (active): ${dbNow} ออเดอร์`;
+      if(failTotal) msg += `\n❌ บันทึกล้มเหลว ${failTotal} ออเดอร์ — เหตุผล: ${firstErrMsg||'?'}`;
+      // ตรวจว่าตรงไหม: นำเข้าจริงควร = mineTotal (− ที่ล้มเหลว)
+      const expect = mineTotal - failTotal;
+      if(dbNow!==expect && totAdd>0) msg += `\n⚠️ ในระบบ ${dbNow} ≠ คาดว่า ${expect} (ไฟล์ ${mineTotal} − ล้มเหลว ${failTotal})\n→ ส่วนต่างคือของค้างเก่า/insert ที่หาย · ถ้าเพิ่งล้าง+อัปครั้งเดียวควรเท่ากัน`;
+      else if(failTotal===0) msg += ` = ตรงกับไฟล์ ✓`;
       alert(msg);
     }
   }catch(e){ alert("อัปไม่สำเร็จ: "+(e.message||e)); }

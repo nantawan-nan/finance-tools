@@ -6615,7 +6615,7 @@ function edRenderFinKpis(A, data, monthFilter){
       <div style="font-size:13px;font-weight:700;color:#475569">${label}</div>
       <div style="font-size:30px;font-weight:800;color:${color};letter-spacing:-.4px;margin-top:3px">${value}</div>
       ${sub?`<div style="font-size:12.5px;color:#64748b">${sub}</div>`:""}
-      ${bench?`<div style="margin-top:7px;padding:5px 9px;background:rgba(99,102,241,.07);border:1px solid #e0e7ff;border-radius:6px;font-size:12px;color:#475569;align-self:flex-start;display:flex;align-items:center;gap:9px;flex-wrap:wrap"><span>เกณฑ์มาตรฐาน: ${bench}</span>${ref?`<a href="${ref}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()" title="เปิดหน้ามาตรฐานต้นทาง (Investopedia) ในแท็บใหม่" style="display:inline-flex;align-items:center;gap:4px;padding:4px 11px;background:#4f46e5;color:#fff;font-weight:700;font-size:11.5px;border-radius:999px;text-decoration:none;white-space:nowrap;cursor:pointer">↗ ดูที่มา</a>`:''}</div>`:""}
+      ${bench?`<div style="margin-top:7px;padding:5px 9px;background:rgba(99,102,241,.07);border:1px solid #e0e7ff;border-radius:6px;font-size:12px;color:#475569;align-self:flex-start;display:flex;align-items:center;gap:9px;flex-wrap:wrap"><span>เกณฑ์มาตรฐาน: ${bench}</span>${ref?`<a href="${ref}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()" title="เปิดหน้าอ้างอิงภาษาไทย (ตลาดหลักทรัพย์ฯ SET) ในแท็บใหม่" style="display:inline-flex;align-items:center;gap:4px;padding:4px 11px;background:#4f46e5;color:#fff;font-weight:700;font-size:11.5px;border-radius:999px;text-decoration:none;white-space:nowrap;cursor:pointer">↗ ดูที่มา</a>`:''}</div>`:""}
     </div>`;
 
   return `
@@ -6631,28 +6631,28 @@ function edRenderFinKpis(A, data, monthFilter){
           evalBench(cashMargin, 10, 5, "hi"),
           "Net / Total Income",
           "ไม่ต่ำกว่า 5% (ดี) / ไม่ต่ำกว่า 10% (ยอดเยี่ยม)",
-          "https://www.investopedia.com/terms/n/net_margin.asp")}
+          "https://www.setinvestnow.com/th/knowledge/article/169-the-usefulness-of-financial-ratio")}
 
         ${card("opRatio", lbl("อัตราส่วนเงินสดดำเนินงาน","Operating Cash Flow Ratio"),
           fmtPct(opRatio),
           evalBench(opRatio, 100, 50, "hi"),
           "Op Net / Op Income",
           "ไม่ต่ำกว่า 50% (ดี) / ไม่ต่ำกว่า 100% (แข็งแกร่ง)",
-          "https://www.investopedia.com/terms/o/operatingcashflowratio.asp")}
+          "https://www.setinvestnow.com/th/knowledge/article/566-tsi-survival-business-scan-techniques")}
 
         ${card("burn", lbl("อัตราใช้เงินสด/เดือน","Cash Burn Rate"),
           fmtCompactM(burn) + "/เดือน",
           burn <= avgIn ? goodColor : badColor,
           "ค่าใช้จ่ายดำเนินงานเฉลี่ย",
           "ควรต่ำกว่ายอดรายรับ/เดือน",
-          "https://www.investopedia.com/terms/b/burnrate.asp")}
+          "https://www.setinvestnow.com/th/knowledge/article/281-cash-cycle-for-business-liquidity")}
 
         ${card("opExRatio", lbl("ค่าใช้จ่ายต่อยอดขาย","Op Expense Ratio"),
           fmtPct(opExRatio),
           evalBench(opExRatio, 100, 80, "lo"),
           "Op Expense / Op Income",
           "ไม่เกิน 80%",
-          "https://www.investopedia.com/terms/o/operatingratio.asp")}
+          "https://www.setinvestnow.com/th/knowledge/article/169-the-usefulness-of-financial-ratio")}
 
         ${card("empRatio", lbl("สัดส่วนค่าใช้จ่ายพนักงาน","Payroll Ratio"),
           fmtPct(empRatio),
@@ -6672,12 +6672,11 @@ function edRenderFinKpis(A, data, monthFilter){
         &nbsp;•&nbsp; <b>Operating Cash Flow Ratio</b> ≥ 1.0 (100%) = กระแสเงินสดจากการดำเนินงานครอบคลุมภาระระยะสั้น
         &nbsp;•&nbsp; <b>Cash Burn</b> ควรต่ำกว่ารายรับเฉลี่ยต่อเดือน
         <br>• <b>Op Expense Ratio</b> ≤ 80% &nbsp;•&nbsp; <b>สัดส่วนค่าใช้จ่ายพนักงาน</b> ≤ 30% ของรายได้ &nbsp;•&nbsp; <b>สัดส่วนค่าโฆษณา</b> ≤ 20% <span style="color:#b0bcc9">(2 ตัวหลังเป็นแนวทางบริหารต้นทุน SME — ไม่มีมาตรฐานสากลตายตัว ปรับตามอุตสาหกรรม)</span>
-        <br><span style="color:#b0bcc9">แหล่งอ้างอิง (คลิก ↗ ที่การ์ดแต่ละใบ):
-          <a href="https://www.investopedia.com/terms/n/net_margin.asp" target="_blank" rel="noopener" style="color:#6366f1">Net Margin</a> ·
-          <a href="https://www.investopedia.com/terms/o/operatingcashflowratio.asp" target="_blank" rel="noopener" style="color:#6366f1">Operating Cash Flow Ratio</a> ·
-          <a href="https://www.investopedia.com/terms/b/burnrate.asp" target="_blank" rel="noopener" style="color:#6366f1">Burn Rate</a> ·
-          <a href="https://www.investopedia.com/terms/o/operatingratio.asp" target="_blank" rel="noopener" style="color:#6366f1">Operating Ratio</a>
-          — Investopedia. ปรับเกณฑ์ได้ตามนโยบายของบริษัท</span>
+        <br><span style="color:#b0bcc9">แหล่งอ้างอิงภาษาไทย — ตลาดหลักทรัพย์ฯ (SET Investnow) · คลิก ↗ ที่การ์ดแต่ละใบ:
+          <a href="https://www.setinvestnow.com/th/knowledge/article/169-the-usefulness-of-financial-ratio" target="_blank" rel="noopener" style="color:#6366f1">อัตราส่วนทางการเงิน (กำไรสุทธิ)</a> ·
+          <a href="https://www.setinvestnow.com/th/knowledge/article/566-tsi-survival-business-scan-techniques" target="_blank" rel="noopener" style="color:#6366f1">ความสามารถชำระหนี้จากกระแสเงินสด</a> ·
+          <a href="https://www.setinvestnow.com/th/knowledge/article/281-cash-cycle-for-business-liquidity" target="_blank" rel="noopener" style="color:#6366f1">วงจรเงินสด / สภาพคล่อง</a>
+          · ปรับเกณฑ์ได้ตามนโยบายของบริษัท</span>
       </div>
     </div>`;
 }

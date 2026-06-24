@@ -177,6 +177,25 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-06-24 — Bank Recon Phase B: Import Batch + History
+- **เป้าหมาย:** ทุกครั้งที่อัปไฟล์ (Express XML / Statement) → สร้าง **Import Batch** ที่อ่านชัด · เก็บสถิติเต็ม · ดูประวัติย้อนหลังได้
+- **`supabase/bankrec-phase-b-batch-history.sql`** (deploy แล้ว · idempotent):
+  - `ALTER TABLE brec_imports ADD COLUMN IF NOT EXISTS`: `batch_no text`, `rows_added int`, `rows_dup int`, `rows_ambiguous int`, `rows_failed int`, `uploader_email text`, `summary_json jsonb`
+  - `CREATE UNIQUE INDEX uq_brec_imports_batch_no` ON `(company_id, batch_no)` WHERE `batch_no IS NOT NULL AND deleted_at IS NULL`
+  - `CREATE INDEX idx_brec_imports_created` ON `(company_id, created_at DESC)` WHERE `deleted_at IS NULL` (สำหรับ list history เร็ว)
+- **Batch No format:** `IMP-{SRC}-YYYYMMDD-NNN` — เช่น `IMP-EXP-20260624-001` / `IMP-SCB-20260624-002` / `IMP-BBL-20260624-003`
+  - **`brecBatchPrefix(source, bankCode)`** — express → "EXP", bank → bank_code uppercase (SCB/BBL/KBANK ...)
+  - **`brecMakeBatchNo(co, prefix)`** — query `batch_no LIKE 'IMP-{prefix}-{ymd}-%'` → max sequence + 1 → pad 3 หลัก
+- **`brecUpload` ใหม่ — เพิ่ม:**
+  - generate batch_no ก่อน insert · `AUTH.email` เป็น uploader_email · finalStatus = `ambigCount?'warning':'success'`
+  - INSERT `brec_imports` พร้อม batch_no + rows_added + rows_dup + rows_ambiguous + rows_failed=0 + summary_json (bank_code/account_no/file_size/file_rows)
+  - หลัง insert row จริง: ถ้า failHard|raceSkip → UPDATE rows_failed + rows_dup += raceSkip + status="failed" (กรณี hard fail)
+- **`brecLoadHistory()`** — `SELECT … FROM brec_imports WHERE company_id=$co AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 200` · เก็บใน `d.history.list`
+- **`brecRenderHistoryModal(d)`** — overlay modal (max-width 1080, click-outside ปิด) · ตาราง 9 คอลัมน์: Batch No · วันเวลา · ประเภท/บัญชี/ไฟล์ · ช่วง · รายการ · เพิ่ม · ซ้ำ · ⚠ (ambig/fail) · สถานะ (badge `.ord-bd ok/warn/danger/mute`) · ผู้อัป
+- **ปุ่ม "📚 ประวัติ"** บน toolbar bankrec (ระหว่าง Export กับ ล้างแถวซ้ำ)
+- **กระทบหน้าอื่น = 0** — Phase A insert ยังทำงาน (column ใหม่ทุกตัวมี default 0/false) · modal ใช้ HTML inline ไม่ต้อง CSS ใหม่ใหญ่
+- **Phase ถัดไป (Phase C-F):** Removed-from-Source detection · Audit Trail · UI overhaul · Period Close · Snapshot Report
+
 ### 2026-06-24 — Bank Recon Phase A: Stable Transaction Key + Unique Constraint (แก้บั๊กรายการซ้ำเมื่อยกเลิก PS)
 - **เป้าหมาย:** แก้บั๊กหลัก — เมื่อยกเลิก PS กลางงวดใน Express แล้วอัป XML ใหม่ → running balance ของรายการหลังเปลี่ยน → ลายเซ็นเดิมเปลี่ยน → ระบบนับเป็นรายการใหม่ทั้งหมด → false duplicate
 - **`supabase/bankrec-phase-a-stable-key.sql`** (deploy แล้ว · idempotent + EXCEPTION-wrapped):

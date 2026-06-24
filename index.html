@@ -13314,15 +13314,15 @@ function ordChannelGroup(channel, customer){
   if(/shopee|\bsp\b|\bsh\b/.test(s)) return "shopee";
   if(/tiktok|\btt\b|\btk\b/.test(s)) return "tiktok";
   if(/lazada|\blz\b/.test(s)) return "lazada";
-  if(/line|facebook|\bfb\b|\big\b|หน้าร้าน|dealer|\bdr\b/.test(s)) return "offline";
+  if(/line|facebook|\bfb\b|\big\b|\bface\b|หน้าร้าน|dealer|\bdr\b/.test(s)) return "offline";
   return "other";
 }
 /* ===== Phase A: parser รายงานขายหลังบ้าน 4 ช่องทาง (item-level → group เป็นออเดอร์) ===== */
 const ORD_CH = {
-  shopee:    { sig:["หมายเลขคำสั่งซื้อ","สถานะการสั่งซื้อ"], order:"หมายเลขคำสั่งซื้อ", status:"สถานะการสั่งซื้อ", date:"วันที่ทำการสั่งซื้อ", product:"ชื่อสินค้า", qty:"จำนวน", ret:"จำนวนที่ส่งคืน", net:"ราคาขายสุทธิ", ship:"ค่าจัดส่งที่ชำระโดยผู้ซื้อ", disc:"โค้ดส่วนลดชำระโดยผู้ขาย", cancelKw:"ยกเลิก", group:"shopee" },
-  tiktok:    { sig:["Order ID","Order Status"], order:"Order ID", status:"Order Status", date:"Created Time", product:"Product Name", qty:"Quantity", ret:"Sku Quantity of return", net:"SKU Subtotal After Discount", ship:"Shipping Fee After Discount", disc:"SKU Seller Discount", cancelKw:"ยกเลิก|Cancel", group:"tiktok" },
-  lazada:    { sig:["orderNumber","sellerSku"], order:"orderNumber", status:"status", date:"createTime", product:"itemName", qty:null, ret:null, net:"paidPrice", ship:"shippingFee", disc:"sellerDiscountTotal", refund:"refundAmount", cancelKw:"cancel", group:"lazada" },
-  bigseller: { sig:["หมายเลขคำสั่งซื้อ","ร้านค้า BigSeller"], order:"หมายเลขคำสั่งซื้อ", status:"สถานะคำสั่งซื้อ", platform:"แพลตฟอร์ม", date:"เวลาสั่งซื้อ", product:"ชื่อสินค้า", qty:"จำนวน", net:"รวมค่าสินค้า", ship:"ค่าจัดส่ง", disc:"ส่วนลดผู้ขาย", cancelKw:"ยกเลิก", group:"bigseller" }
+  shopee:    { sig:["หมายเลขคำสั่งซื้อ","สถานะการสั่งซื้อ"], order:"หมายเลขคำสั่งซื้อ", status:"สถานะการสั่งซื้อ", date:"วันที่ทำการสั่งซื้อ", product:"ชื่อสินค้า", sku:"เลขอ้างอิง SKU (SKU Reference No.)", qty:"จำนวน", ret:"จำนวนที่ส่งคืน", gross:"ราคาขายสุทธิ", net:"ราคาขายสุทธิ", ship:"ค่าจัดส่งที่ชำระโดยผู้ซื้อ", disc:"โค้ดส่วนลดชำระโดยผู้ขาย", cancelKw:"ยกเลิก", group:"shopee" },
+  tiktok:    { sig:["Order ID","Order Status"], order:"Order ID", status:"Order Status", date:"Created Time", product:"Product Name", sku:"Seller SKU", qty:"Quantity", ret:"Sku Quantity of return", gross:"SKU Subtotal Before Discount", net:"SKU Subtotal After Discount", ship:"Shipping Fee After Discount", disc:"SKU Seller Discount", cancelKw:"ยกเลิก|Cancel", group:"tiktok" },
+  lazada:    { sig:["orderNumber","sellerSku"], order:"orderNumber", status:"status", date:"createTime", product:"itemName", sku:"sellerSku", qty:null, ret:null, gross:"unitPrice", net:"paidPrice", ship:"shippingFee", disc:"sellerDiscountTotal", refund:"refundAmount", cancelKw:"cancel", group:"lazada" },
+  bigseller: { sig:["หมายเลขคำสั่งซื้อ","ร้านค้าเพลตฟอร์ม"], order:"หมายเลขคำสั่งซื้อ", status:"สถานะคำสั่งซื้อ", platform:"แพลตฟอร์ม", shop:"ร้านค้าเพลตฟอร์ม", date:"เวลาสั่งซื้อ", product:"ชื่อสินค้า", sku:"SKU Merchant", qty:"จำนวน", gross:"ราคาสินค้าเดิม", net:"ราคา", ship:"ค่าจัดส่ง", disc:"ส่วนลดผู้ขาย", cancel:"เวลายกเลิก", cancelKw:"ยกเลิก", group:"bigseller", perUnitPrice:true }
 };
 function ordDetectChannel(headers){
   const H = headers.map(h=>String(h||"").trim());
@@ -13342,45 +13342,54 @@ function ordParseSalesFile(rows){
   const cfg = ORD_CH[ch];
   const idx = (name)=> name ? headers.indexOf(name) : -1;
   const ci = { order:idx(cfg.order), status:idx(cfg.status), date:idx(cfg.date), product:idx(cfg.product),
-    qty:idx(cfg.qty), ret:idx(cfg.ret), net:idx(cfg.net), ship:idx(cfg.ship), disc:idx(cfg.disc),
-    refund:idx(cfg.refund), platform:idx(cfg.platform) };
+    sku:idx(cfg.sku), qty:idx(cfg.qty), ret:idx(cfg.ret), gross:idx(cfg.gross), net:idx(cfg.net),
+    ship:idx(cfg.ship), disc:idx(cfg.disc), refund:idx(cfg.refund), platform:idx(cfg.platform),
+    shop:idx(cfg.shop), cancel:idx(cfg.cancel) };
   const groups = new Map();
   for(let r=1;r<rows.length;r++){
     const row = rows[r]; if(!row) continue;
     const oid = String(row[ci.order]||"").trim(); if(!oid) continue;
-    // BigSeller: เอาเฉพาะ platform ที่ไม่ใช่ shopee/tiktok/lazada
-    if(ch==="bigseller" && ci.platform>=0){
-      const pf = String(row[ci.platform]||"").toLowerCase();
-      if(/shopee|tiktok|lazada/.test(pf)) continue;
-    }
-    if(!groups.has(oid)) groups.set(oid, { order_id:oid, items:[], status:"", date:null, products:new Set(), qty:0, ret:0, net:0, ship:0, disc:0, refund:0, platform:"" });
+    if(!groups.has(oid)) groups.set(oid, { order_id:oid, status:"", date:null, products:new Set(), skus:new Set(), qty:0, ret:0, gross:0, net:0, ship:0, disc:0, refund:0, platform:"", shop:"", cancelTime:"" });
     const g = groups.get(oid);
     if(ci.status>=0 && !g.status) g.status = String(row[ci.status]||"").trim();
     if(ci.date>=0 && !g.date) g.date = ordISO(row[ci.date]);
     if(ci.product>=0){ const p=String(row[ci.product]||"").trim(); if(p) g.products.add(p); }
-    g.qty += ci.qty>=0 ? ordNum(row[ci.qty]) : 1;
+    if(ci.sku>=0){ const s=String(row[ci.sku]||"").trim(); if(s) g.skus.add(s); }
+    const lineQty = ci.qty>=0 ? ordNum(row[ci.qty]) : 1;
+    g.qty += lineQty;
     if(ci.ret>=0) g.ret += ordNum(row[ci.ret]);
-    g.net += ci.net>=0 ? ordNum(row[ci.net]) : 0;
+    const mul = cfg.perUnitPrice ? (lineQty||1) : 1;   // BigSeller ราคาเป็นต่อหน่วย → ×จำนวน · หลังบ้านเป็นยอดรวมต่อบรรทัดแล้ว
+    if(ci.gross>=0) g.gross += ordNum(row[ci.gross]) * mul;
+    if(ci.net>=0)   g.net   += ordNum(row[ci.net])   * mul;
     if(ci.ship>=0) g.ship = Math.max(g.ship, ordNum(row[ci.ship]));  // order-level (ซ้ำทุกแถว)
     if(ci.disc>=0) g.disc += ordNum(row[ci.disc]);
     if(ci.refund>=0) g.refund += ordNum(row[ci.refund]);
     if(ci.platform>=0 && !g.platform) g.platform = String(row[ci.platform]||"").trim();
+    if(ci.shop>=0 && !g.shop) g.shop = String(row[ci.shop]||"").trim();
+    if(ci.cancel>=0 && !g.cancelTime) g.cancelTime = String(row[ci.cancel]||"").trim();
   }
   const cancelRe = new RegExp(cfg.cancelKw, "i");
   const orders = [...groups.values()].map(g => {
-    const cancelled = cancelRe.test(g.status);
+    const cancelled = cancelRe.test(g.status) || (!!g.cancelTime && !/^(0|-|\s)*$/.test(g.cancelTime));
     const returned = g.ret > 0 || /คืน|return|refund/i.test(g.status);
     const prodArr = [...g.products];
+    // BigSeller = master หลาย platform → channel_group ตามแพลตฟอร์มจริงต่อออเดอร์ (ไม่ fix เป็น "bigseller")
+    const cgroup = cfg.group==="bigseller" ? ordChannelGroup(g.platform, g.shop) : cfg.group;
+    const gross = +g.gross.toFixed(2);
+    const net   = +g.net.toFixed(2);
     return {
       order_id: g.order_id,
-      channel_group: cfg.group,
-      channel: cfg.group + (g.platform?(" · "+g.platform):""),
+      channel_group: cgroup,
+      channel: g.platform || cfg.group,
+      shop: g.shop || "",
       order_date: g.date,
       status: cancelled ? "cancelled" : "active",
       sale_status_raw: g.status,
       products: prodArr.slice(0,5).join(" | ") + (prodArr.length>5?` (+${prodArr.length-5})`:""),
+      sku_list: [...g.skus].join(","),
       item_count: g.qty,
-      order_total: +g.net.toFixed(2),
+      order_total: net || gross,        // ยอดแสดง = net (ถ้าไม่มีใช้ gross)
+      gross_total: gross,
       shipping_fee: +g.ship.toFixed(2),
       seller_discount: +g.disc.toFixed(2),
       returned_qty: g.ret,
@@ -13388,6 +13397,31 @@ function ordParseSalesFile(rows){
     };
   });
   return { channel: ch, orders };
+}
+/* ===== แยกบริษัทอัตโนมัติจากชื่อร้าน (ใช้ map ที่มีอยู่ + brand fallback) ===== */
+function ordShopCompany(shop){
+  const raw = String(shop||"").trim(); if(!raw) return null;
+  const lk = raw.toLowerCase();
+  try{
+    const map = (typeof bsSeedShopBrand==="function") ? bsSeedShopBrand() : {};
+    for(const k in map){ if(k.toLowerCase()===lk && map[k] && map[k].company) return map[k].company; }
+  }catch(e){}
+  if(typeof BMP_SHOP_ROUTING!=="undefined" && BMP_SHOP_ROUTING[lk] && BMP_SHOP_ROUTING[lk].companyId) return BMP_SHOP_ROUTING[lk].companyId;
+  // fallback ตามแบรนด์ในชื่อร้าน
+  if(/mommam|มอมแมม|paws/i.test(raw)) return "mbark";
+  if(/betra|บีทร้า|qicare|\bqi\b|คิวไอ|benya|เบญญา/i.test(raw)) return "benya";
+  return null;
+}
+/* แยก orders → {mine, otherCount, otherShops:Map, unknownShops:Map} (เฉพาะไฟล์ที่มีชื่อร้าน) */
+function ordSplitByCompany(orders, myCompany){
+  const mine=[], otherShops=new Map(), unknownShops=new Map(); let otherCount=0;
+  for(const o of orders){
+    const comp = ordShopCompany(o.shop);
+    if(comp===myCompany){ mine.push(o); }
+    else if(comp){ otherCount++; otherShops.set(o.shop||"(ไม่ระบุ)", comp); }
+    else { mine.push(o); const k=o.shop||"(ไม่ระบุ)"; unknownShops.set(k,(unknownShops.get(k)||0)+1); }
+  }
+  return { mine, otherCount, otherShops, unknownShops };
 }
 /* upsert ออเดอร์จากช่องทาง (dedup by order_id) → คืน {added, updated, total} */
 async function ordIngestChannelOrders(co, parsed, srcLabel){
@@ -13521,6 +13555,7 @@ async function ordUploadFiles(){
   const d = ordGet(); d.busy=true; renderToolOrders();
   try{
     let totAdd=0, totUpd=0, perCh={}, firstErr=null;
+    let otherTotal=0; const otherShopsAll=new Map(), unknownShopsAll=new Map();
     for(const file of files){
       let rows;
       if(/\.csv$/i.test(file.name)){
@@ -13532,6 +13567,13 @@ async function ordUploadFiles(){
       }
       const parsed = ordParseSalesFile(rows);
       if(!parsed){ console.warn("unknown format", file.name); perCh[file.name]="ไม่รู้จักฟอร์แมต"; continue; }
+      // ★ แยกบริษัทอัตโนมัติจากชื่อร้าน (เฉพาะไฟล์ BigSeller ที่มีคอลัมน์ร้าน) → นำเข้าเฉพาะบริษัทปัจจุบัน
+      if(parsed.channel==="bigseller"){
+        const sp = ordSplitByCompany(parsed.orders, state.company);
+        parsed.orders = sp.mine; otherTotal += sp.otherCount;
+        sp.otherShops.forEach((c,s)=>otherShopsAll.set(s,c));
+        sp.unknownShops.forEach((n,s)=>unknownShopsAll.set(s,(unknownShopsAll.get(s)||0)+n));
+      }
       const r = await ordIngestChannelOrders(co, parsed, file.name);
       totAdd+=r.added; totUpd+=r.updated;
       perCh[parsed.channel]=(perCh[parsed.channel]||0)+r.total;
@@ -13541,7 +13583,12 @@ async function ordUploadFiles(){
     if(firstErr){
       alert("⚠️ บันทึกไม่สำเร็จ — DB error:\n\n"+(firstErr.message||firstErr.details||firstErr.hint||JSON.stringify(firstErr))+"\n\n(code: "+(firstErr.code||"-")+")");
     } else {
-      alert(`อัปสำเร็จ\nบันทึกใหม่ ${totAdd} · อัปเดต ${totUpd} ออเดอร์\n\nต่อช่องทาง: ${Object.entries(perCh).map(([k,v])=>k+"="+v).join(" · ")}`);
+      const coName = (COMPANIES.find(c=>c.id===state.company)||{}).name || state.company;
+      let msg = `อัปสำเร็จ (${coName})\nบันทึกใหม่ ${totAdd} · อัปเดต ${totUpd} ออเดอร์`;
+      if(otherTotal) msg += `\n\n⏭️ ข้ามออเดอร์ของอีกบริษัท ${otherTotal} รายการ (ร้าน: ${[...otherShopsAll.keys()].slice(0,5).join(", ")}${otherShopsAll.size>5?"…":""})\n→ สลับบริษัทแล้วอัปไฟล์เดิมเพื่อนำเข้าฝั่งนั้น`;
+      if(unknownShopsAll.size) msg += `\n\n⚠️ ร้านที่ยังไม่รู้บริษัท — นำเข้าเป็น ${coName} ไปก่อน โปรดตรวจ:\n${[...unknownShopsAll.keys()].slice(0,8).join(", ")}`;
+      msg += `\n\nต่อช่องทาง: ${Object.entries(perCh).map(([k,v])=>k+"="+v).join(" · ")}`;
+      alert(msg);
     }
   }catch(e){ alert("อัปไม่สำเร็จ: "+(e.message||e)); }
   d.busy=false; renderToolOrders();

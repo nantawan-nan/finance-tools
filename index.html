@@ -13951,25 +13951,23 @@ function ordRenderBoard(d){
   const agg={}; ORD_STATUS.forEach(s=>agg[s.k]={n:0,sum:0});
   const cancel={n:0,sum:0};
   all.forEach(o=>{ const k=ordStatusOf(o,rmap); if(k==='cancelled'){ cancel.n++; cancel.sum+=Number(o.order_total||0); } else if(agg[k]){ agg[k].n++; agg[k].sum+=Number(o.order_total||0); } });
-  // หลังบ้านมี · BigSeller ขาด (only_be — ไม่อยู่ใน order_ledger)
   const onlyBe={n:0,sum:0}; ((d.recon&&d.recon.results)||[]).forEach(r=>{ if(r.status==='only_be'){ onlyBe.n++; onlyBe.sum+=Number(ordReconNet(r.be||{}))||0; } });
   const tot={ n:all.length, sum:all.reduce((a,o)=>a+Number(o.order_total||0),0) };
-  const GC='grid-template-columns:40px 1fr 120px 160px 40px';
-  const row=(k,l,c,ic,n,sum)=>`<div onclick="ordBoardGo('${k}')" style="display:grid;${GC};gap:8px;padding:13px 16px;border-top:1px solid #f1f5f9;border-left:4px solid ${c};align-items:center;cursor:pointer;font-size:13px">
-      <div style="font-size:17px">${ic}</div>
-      <div style="font-weight:600">${l}</div>
-      <div class="tnum" style="text-align:right;font-weight:700;color:${c}">${n}</div>
-      <div class="tnum" style="text-align:right">${fmt(sum)}</div>
-      <div style="text-align:right;color:var(--ink3,#94a3b8)">›</div>
+  const row=(k,l,ic,n,sum)=>`<div class="ord-fn s-${k}" onclick="ordBoardGo('${k}')">
+      <div class="ic-w">${ic}</div>
+      <div class="lbl">${esc(l)}</div>
+      <div class="n">${n.toLocaleString("th-TH")}</div>
+      <div class="sum">${fmt(sum)}</div>
+      <div class="chev">›</div>
     </div>`;
-  return `<div style="background:#fff;border:1px solid var(--line,#e2e8f0);border-radius:12px;overflow:hidden">
-    <div style="display:grid;${GC};gap:8px;padding:11px 16px;background:#f8fafc;font-size:11px;font-weight:700;color:var(--ink2,#475569);text-transform:uppercase"><div></div><div>สถานะปัจจุบัน</div><div style="text-align:right">จำนวนออเดอร์</div><div style="text-align:right">ยอดเงิน</div><div></div></div>
-    ${ORD_STATUS.map(s=>row(s.k,s.l,s.c,s.ic,agg[s.k].n,agg[s.k].sum)).join('')}
-    ${onlyBe.n?row('only_be','หลังบ้านมี · BigSeller ขาด (ขายไม่คีย์)','#be123c','📥',onlyBe.n,onlyBe.sum):''}
-    ${row('cancelled','ยกเลิก',' #dc2626','🚫',cancel.n,cancel.sum)}
-    <div style="display:grid;${GC};gap:8px;padding:13px 16px;border-top:2px solid #e2e8f0;background:#f8fafc;font-weight:700;font-size:13px"><div></div><div>รวมทุกบรรทัด (รวมยกเลิก)</div><div class="tnum" style="text-align:right">${tot.n}</div><div class="tnum" style="text-align:right">${fmt(tot.sum)}</div><div></div></div>
+  return `<div class="ord-card">
+    <div class="ord-fn-head"><div></div><div>สถานะปัจจุบัน</div><div class="right">จำนวน</div><div class="right">ยอดเงิน (บาท)</div><div></div></div>
+    ${ORD_STATUS.map(s=>row(s.k,s.l,s.ic,agg[s.k].n,agg[s.k].sum)).join('')}
+    ${onlyBe.n?row('only_be','หลังบ้านมี · BigSeller ขาด (ขายไม่คีย์)','📥',onlyBe.n,onlyBe.sum):''}
+    ${cancel.n?row('cancelled','ยกเลิก','🚫',cancel.n,cancel.sum):''}
+    <div class="ord-fn-total"><div></div><div>รวมทุกบรรทัด (รวมยกเลิก)</div><div class="n">${tot.n.toLocaleString("th-TH")}</div><div class="sum">${fmt(tot.sum)}</div><div></div></div>
   </div>
-  <div style="margin-top:10px;font-size:12px;color:var(--ink3,#94a3b8)">คลิกแถวเพื่อดูออเดอร์ในสถานะนั้น · "รอเทียบยอดขาย/ยอดไม่ตรง/BigSeller ขาด" มาจากหน้าตรวจรายวัน (อัปไฟล์หลังบ้านเทียบเพื่ออัปเดต)</div>`;
+  <div style="margin-top:10px;font:500 12px/1.5 inherit;color:var(--n-500)">💡 คลิกแถวเพื่อดูออเดอร์ในสถานะนั้น · "รอเทียบยอดขาย / ยอดไม่ตรง / BigSeller ขาด" มาจากหน้าตรวจรายวัน (อัปไฟล์หลังบ้านเทียบ)</div>`;
 }
 
 /* แท็บ สรุปรายเดือน — กราฟแท่งต่อแพลตฟอร์ม */
@@ -13981,16 +13979,19 @@ function ordRenderMonth(d){
   const agg={}; groups.forEach(g=>agg[g]={n:0,sum:0,ksum:0});
   (d.rows||[]).filter(o=>o.status!=='cancelled').forEach(o=>{ const g=agg[o.channel_group]?o.channel_group:'other'; agg[g].n++; agg[g].sum+=Number(o.order_total||0); if(o.iv_no)agg[g].ksum+=Number(o.order_total||0); });
   const max=Math.max(1,...groups.map(g=>agg[g].sum));
-  return `<div style="background:#fff;border:1px solid var(--line,#e2e8f0);border-radius:12px;padding:18px 20px">
-    <div style="font-weight:700;font-size:13.5px;margin-bottom:14px">ยอดขายต่อแพลตฟอร์ม <span style="font-weight:400;color:var(--ink3,#94a3b8)">(เต็มแท่ง = ทั้งหมด · ทึบ = คีย์ IV แล้ว) · หน่วย: บาท</span></div>
-    <div style="display:flex;align-items:flex-end;gap:26px;height:210px;border-bottom:2px solid var(--line,#e2e8f0);padding:0 8px">
-      ${groups.map(g=>{ const h=Math.round(agg[g].sum/max*175); const kh=agg[g].sum?Math.round(h*agg[g].ksum/agg[g].sum):0; return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%">
-        <div class="tnum" style="font-size:12px;font-weight:700">${fmt(agg[g].sum)}</div>
-        <div style="width:60%;height:${Math.max(0,h-kh)}px;background:${col[g]}55;border-radius:6px 6px 0 0"></div>
-        <div style="width:60%;height:${kh}px;background:${col[g]};border-radius:${kh&&h>kh?'0 0':'6px 6px'} 6px 6px"></div>
+  return `<div class="ord-card" style="padding:20px 22px">
+    <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:18px;flex-wrap:wrap">
+      <h3 style="margin:0;font:700 15px/1.3 inherit">ยอดขายต่อแพลตฟอร์ม</h3>
+      <span style="font:500 12px/1.4 inherit;color:var(--n-500)">เต็มแท่ง = ทั้งหมด · ทึบ = คีย์ IV แล้ว · หน่วย: บาท</span>
+    </div>
+    <div style="display:flex;align-items:flex-end;gap:26px;height:220px;border-bottom:1px solid var(--n-200);padding:0 8px">
+      ${groups.map(g=>{ const h=Math.round(agg[g].sum/max*180); const kh=agg[g].sum?Math.round(h*agg[g].ksum/agg[g].sum):0; return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%">
+        <div class="tnum" style="font:700 12px/1 inherit;margin-bottom:6px">${fmt(agg[g].sum)}</div>
+        <div style="width:62%;height:${Math.max(0,h-kh)}px;background:${col[g]}33;border:1px solid ${col[g]}66;border-bottom:0;border-radius:8px 8px 0 0"></div>
+        <div style="width:62%;height:${kh}px;background:${col[g]};border-radius:${kh&&h>kh?'0 0':'8px 8px'} 8px 8px"></div>
       </div>`; }).join('')}
     </div>
-    <div style="display:flex;gap:26px;padding:8px 8px 0">${groups.map(g=>`<div style="flex:1;text-align:center;font-size:12px;font-weight:600">${lbl[g]}<div class="tnum" style="font-size:11px;color:var(--ink3,#94a3b8)">${agg[g].n} ออเดอร์</div></div>`).join('')}</div>
+    <div style="display:flex;gap:26px;padding:14px 8px 0">${groups.map(g=>`<div style="flex:1;text-align:center"><div style="font:600 12.5px/1.2 inherit">${lbl[g]}</div><div class="tnum" style="font:500 11px/1.2 inherit;color:var(--n-500);margin-top:3px">${agg[g].n} ออเดอร์</div></div>`).join('')}</div>
   </div>`;
 }
 
@@ -13999,65 +14000,75 @@ function ordRenderSearch(d){
   const fmt=ordFmtMoney;
   const q=(d.q||'').trim().toLowerCase();
   const res=(d.rows||[]).filter(o=>`${o.order_id||''} ${o.iv_no||''} ${o.re_no||''} ${o.bq_no||''} ${o.cheque_no||''} ${o.products||''} ${o.customer||''}`.toLowerCase().includes(q)).slice(0,20);
-  if(!res.length) return `<div class="brec-empty" style="border:1px solid var(--line,#e2e8f0);border-radius:12px"><i data-lucide="search-x"></i><div class="ttl">ไม่พบ "${esc(d.q)}"</div></div>`;
-  const GC='grid-template-columns:repeat(5,1fr)';
+  if(!res.length) return `<div class="ord-empty"><i data-lucide="search-x"></i><div class="ttl">ไม่พบ "${esc(d.q)}"</div><div>ลองค้นด้วยเลขออเดอร์ / IV / RE / BQ / เลขเช็ค / ชื่อสินค้า</div></div>`;
   const rmap=ordReconMap(d);
-  return res.map(o=>{ const s=ordStatusMeta(ordStatusOf(o,rmap));
-    return `<div style="background:#fff;border:1px solid var(--brand,#0d9488);border-radius:12px;overflow:hidden;margin-bottom:12px">
-      <div style="padding:12px 16px;background:rgba(0,0,0,.02);border-bottom:1px solid #f1f5f9;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-        <span class="mono" style="font-weight:700;font-size:14px;font-family:monospace">${esc(o.order_id||'')}</span>
-        <span style="font-size:11px;color:var(--ink3,#94a3b8)">${esc(o.channel||o.channel_group||'')}</span>
+  const bdCls=(k)=>{ if(k==='done') return 'ok'; if(k==='recon_diff') return 'danger'; if(k==='wait_iv'||k==='wait_deposit') return 'warn'; if(k==='wait_pay'||k==='wait_re'||k==='wait_bank') return 'info'; return 'mute'; };
+  return res.map(o=>{ const sk=ordStatusOf(o,rmap); const s=ordStatusMeta(sk);
+    return `<div class="ord-sr">
+      <div class="ord-sr-head">
+        <span class="mono" style="font:700 13px/1 'JetBrains Mono','IBM Plex Sans',monospace">${esc(o.order_id||'')}</span>
+        <span class="ord-bd mute">${esc(o.channel||o.channel_group||'—')}</span>
         <div style="flex:1"></div>
-        <span style="font-size:12px;font-weight:600;color:${s.c}">${s.ic} ${s.l}</span>
+        <span class="ord-bd ${bdCls(sk)}">${s.ic} ${s.l}</span>
       </div>
-      <div style="display:grid;${GC};font-size:12px">
-        <div style="padding:9px 14px;border-right:1px solid #f1f5f9"><div style="color:var(--ink3,#94a3b8);font-size:10.5px">ยอดขาย</div><div class="tnum" style="font-weight:700">${fmt(o.order_total)}</div></div>
-        <div style="padding:9px 14px;border-right:1px solid #f1f5f9"><div style="color:var(--ink3,#94a3b8);font-size:10.5px">IV</div><div class="mono" style="font-family:monospace">${o.iv_no?esc(o.iv_no):'—'}</div></div>
-        <div style="padding:9px 14px;border-right:1px solid #f1f5f9"><div style="color:var(--ink3,#94a3b8);font-size:10.5px">RE</div><div class="mono" style="font-family:monospace">${o.re_no?esc(o.re_no):'—'}</div></div>
-        <div style="padding:9px 14px;border-right:1px solid #f1f5f9"><div style="color:var(--ink3,#94a3b8);font-size:10.5px">BQ</div><div class="mono" style="font-family:monospace">${o.bq_no?esc(o.bq_no):'—'}</div></div>
-        <div style="padding:9px 14px"><div style="color:var(--ink3,#94a3b8);font-size:10.5px">เงินเข้าแบงค์</div><div>${o.bank_in_date||'—'}</div></div>
+      <div class="ord-sr-keys">
+        <div><div class="l">ยอดขาย</div><div class="tnum" style="font-weight:700">${fmt(o.order_total)}</div></div>
+        <div><div class="l">IV</div><div class="mono" style="font:600 12px/1 'JetBrains Mono',monospace">${o.iv_no?esc(o.iv_no):'—'}</div></div>
+        <div><div class="l">RE</div><div class="mono" style="font:600 12px/1 'JetBrains Mono',monospace">${o.re_no?esc(o.re_no):'—'}</div></div>
+        <div><div class="l">BQ</div><div class="mono" style="font:600 12px/1 'JetBrains Mono',monospace">${o.bq_no?esc(o.bq_no):'—'}</div></div>
+        <div><div class="l">เงินเข้าแบงค์</div><div>${o.bank_in_date||'—'}</div></div>
       </div>
       ${ordTimeline(o)}
-    </div>`; }).join('') + (res.length>=20?`<div style="font-size:12px;color:var(--ink3,#94a3b8)">แสดง 20 รายการแรก — พิมพ์ให้เจาะจงขึ้น</div>`:'');
+    </div>`; }).join('') + (res.length>=20?`<div style="font:500 12px/1.4 inherit;color:var(--n-500);margin-top:8px">แสดง 20 รายการแรก — พิมพ์ให้เจาะจงขึ้น</div>`:'');
 }
 
-/* แท็บ ทะเบียน (ตารางเดิม + ฟิลเตอร์) */
+/* แท็บ ทะเบียน (ตาราง + ฟิลเตอร์) */
 function ordRenderRegister(d){
   const fmt=ordFmtMoney;
   const rows = ordFiltered(d);
   const rmap = ordReconMap(d);
   const chCount={}; (d.rows||[]).forEach(o=>{chCount[o.channel_group]=(chCount[o.channel_group]||0)+1;});
-  const chChip=(v,l)=>`<button class="hd-chip ${d.fCh===v?'on':''}" onclick="ordSet('fCh','${v}')">${l}${v!=='all'&&chCount[v]?` ${chCount[v]}`:''}</button>`;
-  const GR='grid-template-columns:96px 90px 130px 1fr 90px 100px 96px';
-  const banner=(d.fStatus&&d.fStatus!=='all')?`<div style="display:flex;align-items:center;gap:10px;background:#fff7ed;border:1px solid #fed7aa;border-radius:9px;padding:8px 13px;margin-bottom:10px;font-size:13px"><b>${ordStatusMeta(d.fStatus).ic} ${ordStatusMeta(d.fStatus).l}</b><span style="color:var(--ink3,#94a3b8)">${rows.length} ออเดอร์</span><div style="flex:1"></div><button onclick="ordSet('fStatus','all')" style="border:none;background:none;color:var(--brand,#0d9488);font-weight:600;cursor:pointer;font-size:12px">✕ ล้างตัวกรอง</button></div>`:'';
+  const chChip=(v,l)=>`<button class="ord-chip ${d.fCh===v?'on':''}" onclick="ordSet('fCh','${v}')">${l}${v!=='all'&&chCount[v]?` <span class="n">${chCount[v]}</span>`:''}</button>`;
+  const bdCls=(k,cancelled)=>{ if(cancelled) return 'mute'; if(k==='done') return 'ok'; if(k==='recon_diff') return 'danger'; if(k==='wait_iv'||k==='wait_deposit') return 'warn'; if(k==='wait_pay'||k==='wait_re'||k==='wait_bank') return 'info'; return 'mute'; };
+  const banner=(d.fStatus&&d.fStatus!=='all')?`<div class="ord-banner">📌 <b>${ordStatusMeta(d.fStatus).ic} ${ordStatusMeta(d.fStatus).l}</b><span>${rows.length} ออเดอร์</span><button class="clear" onclick="ordSet('fStatus','all')">✕ ล้างตัวกรอง</button></div>`:'';
   return `
-    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+    <div class="ord-chips">
       ${chChip('all','ทุกช่อง')}${chChip('shopee','Shopee')}${chChip('tiktok','TikTok')}${chChip('lazada','Lazada')}${chChip('offline','หน้าร้าน/อื่น')}
-      <div style="width:14px"></div>
-      <button class="hd-chip ${d.fIv==='all'?'on':''}" onclick="ordSet('fIv','all')">IV ทั้งหมด</button>
-      <button class="hd-chip ${d.fIv==='noiv'?'on':''}" onclick="ordSet('fIv','noiv')">ยังไม่คีย์ IV</button>
-      <button class="hd-chip ${d.fIv==='hasiv'?'on':''}" onclick="ordSet('fIv','hasiv')">คีย์แล้ว</button>
+      <span style="width:14px"></span>
+      <button class="ord-chip ${d.fIv==='all'?'on':''}" onclick="ordSet('fIv','all')">IV ทั้งหมด</button>
+      <button class="ord-chip ${d.fIv==='noiv'?'on':''}" onclick="ordSet('fIv','noiv')">ยังไม่คีย์ IV</button>
+      <button class="ord-chip ${d.fIv==='hasiv'?'on':''}" onclick="ordSet('fIv','hasiv')">คีย์แล้ว</button>
     </div>
     ${banner}
-    <div style="background:#fff;border:1px solid var(--line,#e2e8f0);border-radius:12px;overflow:hidden">
-      <div style="display:grid;${GR};gap:8px;padding:10px 14px;background:#f8fafc;font-size:11px;font-weight:700;color:var(--ink2,#475569);text-transform:uppercase">
-        <div>วันที่</div><div>ช่องทาง</div><div>รหัสคำสั่งซื้อ</div><div>สินค้า</div><div style="text-align:right">ยอดขาย</div><div>IV</div><div>สถานะ</div>
-      </div>
+    <div class="ord-card">
       <div style="max-height:60vh;overflow-y:auto">
-        ${rows.slice(0,1000).map(o=>{ const exp=d.expanded.has(o.id); const sm=ordStatusMeta(ordStatusOf(o,rmap)); return `<div style="border-bottom:1px solid #f1f5f9">
-          <div onclick="ordToggleRow('${o.id}')" style="display:grid;${GR};gap:8px;padding:9px 14px;font-size:12.5px;align-items:center;cursor:pointer;${o.status==='cancelled'?'opacity:.5':''}${exp?'background:#f8fafc':''}">
-            <div class="tnum">${o.order_date||'—'}</div>
-            <div style="font-size:11px">${esc(o.channel_group||'')}</div>
-            <div class="mono" style="font-size:11px;font-family:monospace">${esc(o.order_id||'')}</div>
-            <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(o.products||'')}">${esc(o.products||'')}</div>
-            <div class="tnum" style="text-align:right">${fmt(o.order_total)}</div>
-            <div style="font-size:11px;font-family:monospace">${o.iv_no?`<span style="color:#16a34a">${esc(o.iv_no)}</span>`:`<span style="color:#d97706">ยังไม่คีย์</span>`}</div>
-            <div style="font-size:10.5px;color:${o.status==='cancelled'?'#dc2626':sm.c};font-weight:600" title="${sm.l}">${o.status==='cancelled'?'ยกเลิก':sm.ic+' '+sm.l}</div>
-          </div>
-          ${exp?ordTimeline(o):''}
-        </div>`; }).join("") || `<div class="brec-empty" style="border:none"><i data-lucide="package-search"></i><div class="ttl">ยังไม่มีออเดอร์</div><div>กดปุ่ม "อัปรายงานขาย" เพื่อนำเข้า</div></div>`}
+        <table class="ord-table">
+          <thead><tr>
+            <th>วันที่</th>
+            <th>ช่องทาง</th>
+            <th>รหัสคำสั่งซื้อ</th>
+            <th>สินค้า</th>
+            <th class="right">ยอดขาย</th>
+            <th>IV</th>
+            <th>สถานะ</th>
+          </tr></thead>
+          <tbody>
+          ${rows.slice(0,1000).map(o=>{ const exp=d.expanded.has(o.id); const sk=ordStatusOf(o,rmap); const sm=ordStatusMeta(sk); const cancelled=o.status==='cancelled'; return `
+            <tr class="${cancelled?'cancel':''} ${exp?'exp':''}" onclick="ordToggleRow('${o.id}')">
+              <td class="tnum" style="font-size:12px">${o.order_date||'—'}</td>
+              <td style="font-size:12px">${esc(o.channel_group||'')}</td>
+              <td class="mono">${esc(o.order_id||'')}</td>
+              <td style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(o.products||'')}">${esc(o.products||'')}</td>
+              <td class="right tnum">${fmt(o.order_total)}</td>
+              <td class="mono">${o.iv_no?`<span style="color:var(--ok-700)">${esc(o.iv_no)}</span>`:`<span style="color:var(--wn-700);font:600 11px/1 inherit">ยังไม่คีย์</span>`}</td>
+              <td><span class="ord-bd ${bdCls(sk,cancelled)}">${cancelled?'🚫 ยกเลิก':sm.ic+' '+sm.l}</span></td>
+            </tr>
+            ${exp?`<tr class="exp"><td colspan="7" style="padding:0">${ordTimeline(o)}</td></tr>`:''}
+          `; }).join("") || `<tr><td colspan="7"><div class="ord-empty" style="border:0;background:transparent"><i data-lucide="package-search"></i><div class="ttl">ยังไม่มีออเดอร์</div><div>กดปุ่ม "อัปรายงานขาย" เพื่อนำเข้า</div></div></td></tr>`}
+          </tbody>
+        </table>
       </div>
-      ${rows.length>1000?`<div style="padding:8px 14px;font-size:12px;color:var(--ink3,#94a3b8)">แสดง 1,000 จาก ${rows.length} รายการ — ใช้ filter/ค้นหาเพื่อแคบลง</div>`:''}
+      ${rows.length>1000?`<div style="padding:10px 16px;font:500 12px/1.4 inherit;color:var(--n-500);border-top:1px solid var(--n-100);background:var(--n-50)">แสดง 1,000 จาก ${rows.length.toLocaleString("th-TH")} รายการ — ใช้ filter/ค้นหาเพื่อแคบลง</div>`:''}
     </div>`;
 }
 
@@ -14323,83 +14334,318 @@ function ordReconCoverageHtml(d,res){
 function ordRenderRecon(d){
   const fmt=ordFmtMoney; const rec=d.recon||{};
   if(rec && !rec.expanded) rec.expanded=new Set();
-  if(rec.busy) return `<div class="brec-empty"><i data-lucide="loader-2"></i><div class="ttl">กำลังเทียบ…</div></div>`;
-  const upBtn=`<button class="brec-btn primary" onclick="ordReconUpload()" ${brecCanWrite()?'':'disabled'}><i data-lucide="upload"></i> อัปไฟล์หลังบ้าน (Shopee/TikTok/Lazada) แล้วเทียบ</button>`;
+  if(rec.busy) return `<div class="ord-empty"><i data-lucide="loader-2"></i><div class="ttl">กำลังเทียบ…</div></div>`;
+  const upBtn=`<button class="ord-btn primary" onclick="ordReconUpload()" ${brecCanWrite()?'':'disabled'}><i data-lucide="upload"></i> อัปไฟล์หลังบ้าน (Shopee/TikTok/Lazada)</button>`;
   if(!rec.results){
-    return `<div style="background:#fff;border:1px solid var(--line,#e2e8f0);border-radius:12px;padding:26px;text-align:center">
-      <div style="font-size:15px;font-weight:700;margin-bottom:6px">🔍 ตรวจรายวัน — เทียบ BigSeller ↔ หลังบ้าน</div>
-      <div style="font-size:13px;color:var(--ink3,#94a3b8);margin-bottom:16px">อัปไฟล์รายงานขายหลังบ้าน → ระบบเทียบ <b>ยอดขาย + ค่าส่ง + ส่วนลด + SKU×จำนวน</b> แบบตรงเป๊ะ (0 tolerance)<br>บอกได้ว่าออเดอร์ไหนฝ่ายขายคีย์ไม่ครบ หรือยอดไม่ตรง</div>
+    return `<div class="ord-card" style="padding:32px 24px;text-align:center">
+      <div style="font:700 16px/1.3 inherit;margin-bottom:8px">🔍 ตรวจรายวัน — เทียบ BigSeller ↔ หลังบ้าน</div>
+      <div style="font:500 13px/1.6 inherit;color:var(--n-600);margin-bottom:20px;max-width:560px;margin-left:auto;margin-right:auto">อัปไฟล์รายงานขายหลังบ้าน → ระบบเทียบ <b>ยอดขาย + ค่าส่ง + ส่วนลด + SKU×จำนวน</b> แบบตรงเป๊ะ (0 tolerance)<br>บอกได้ว่าออเดอร์ไหนฝ่ายขายคีย์ไม่ครบ หรือยอดไม่ตรง</div>
       ${upBtn}</div>`;
   }
   const res=rec.results;
   const c={matched:0,only_be:0,only_bs:0,diff:0};
   res.forEach(r=>c[r.status]++);
-  const meta={ matched:{l:'ตรง ✓',col:'#16a34a'}, only_be:{l:'หลังบ้านมี · ขายไม่คีย์',col:'#dc2626'}, diff:{l:'ยอด/SKU ไม่ตรง',col:'#d97706'}, only_bs:{l:'BigSeller เกิน · หลังบ้านไม่มี',col:'#0ea5e9'} };
   const filt = rec.filter || 'problems';
   const inFilter=(r)=> filt==='all' ? true : filt==='matched' ? r.status==='matched' : filt==='only_be' ? r.status==='only_be' : filt==='other' ? (r.status==='diff'||r.status==='only_bs') : r.status!=='matched';
   const list = res.filter(inFilter).sort((a,b)=>(a.status>b.status?1:-1)||((a.date||'')<(b.date||'')?1:-1));
-  const GR='grid-template-columns:84px 78px 150px 1fr';
-  const card=(key,n,l,col)=>`<div onclick="ordReconFilter('${key}')" class="hd-kpi" style="padding:13px 15px;cursor:pointer;${filt===key?`outline:2px solid ${col};outline-offset:-2px`:''}"><div style="font-size:11px;font-weight:700;text-transform:uppercase;color:${col}">${l}</div><div class="tnum" style="font-size:23px;font-weight:700;color:${col}">${n}</div></div>`;
-  const detailOf=(r)=> r.status==='matched' ? `ยอดสุทธิ ${fmt(ordReconNet(r.bs||{}))} · ${esc((r.bs&&r.bs.products)||'')}` : r.status==='diff'?(r.diffs||[]).map(df=>`<span style="margin-right:10px"><b>${df.f}:</b> ${df.txt?esc(df.bs):fmt(df.bs)} <span style="color:#94a3b8">vs</span> ${df.txt?esc(df.be):fmt(df.be)}</span>`).join(''):(r.status==='only_be'?`ยอด ${fmt(ordReconNet(r.be||{}))} · ${esc((r.be&&r.be.products)||'')}`:`ยอด ${fmt(ordReconNet(r.bs||{}))} · ${esc((r.bs&&r.bs.products)||'')}`);
+  const kpiCls={ all:'', matched:'soft-green', only_be:'soft-red', other:'soft-amber' };
+  const kpiCard=(key,n,l)=>`<div class="ord-k ${kpiCls[key]||''} click" onclick="ordReconFilter('${key}')" style="${filt===key?'outline:2px solid currentColor;outline-offset:-2px':''}"><div class="lbl">${l}</div><div class="v tnum">${n.toLocaleString("th-TH")}</div></div>`;
+  const bdMap={ matched:'ok', only_be:'danger', diff:'warn', only_bs:'info' };
+  const labMap={ matched:'ตรงกัน ✓', only_be:'หลังบ้านมี · ขายไม่คีย์', diff:'ยอด/SKU ไม่ตรง', only_bs:'BigSeller เกิน · หลังบ้านไม่มี' };
+  const detailOf=(r)=> r.status==='matched' ? `ยอดสุทธิ <b class="tnum">${fmt(ordReconNet(r.bs||{}))}</b> · ${esc((r.bs&&r.bs.products)||'')}` : r.status==='diff'?(r.diffs||[]).map(df=>`<span style="margin-right:14px"><b>${df.f}:</b> ${df.txt?esc(df.bs):fmt(df.bs)} <span style="color:var(--n-400)">vs</span> ${df.txt?esc(df.be):fmt(df.be)}</span>`).join(''):(r.status==='only_be'?`ยอด <b class="tnum">${fmt(ordReconNet(r.be||{}))}</b> · ${esc((r.be&&r.be.products)||'')}`:`ยอด <b class="tnum">${fmt(ordReconNet(r.bs||{}))}</b> · ${esc((r.bs&&r.bs.products)||'')}`);
   const filtLabel={all:'ทั้งหมด',matched:'ตรงกัน',only_be:'ขายคีย์ไม่ครบ',other:'ต้องตรวจอื่นๆ',problems:'ที่ต้องตรวจ'}[filt]||filt;
   return `
-    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px">
+    <div class="ord-actions">
       ${upBtn}
-      <button class="brec-btn" onclick="ordReconExport()"><i data-lucide="download"></i> ส่งออก "คีย์ไม่ครบ"</button>
-      <button class="brec-btn" onclick="ordReconGenReports()" style="border-color:var(--brand,#0d9488);color:var(--brand,#0d9488)"><i data-lucide="file-check-2"></i> สร้างใบกระทบยอด (ปิดรอบ)</button>
-      <button class="brec-btn" onclick="ordReconToggleHistory()"><i data-lucide="history"></i> ประวัติรายงาน</button>
+      <button class="ord-btn" onclick="ordReconExport()"><i data-lucide="download"></i> ส่งออก "คีย์ไม่ครบ"</button>
+      <button class="ord-btn" onclick="ordReconGenReports()" style="color:var(--brand,#0d9488);border-color:color-mix(in srgb,var(--brand,#0d9488) 30%,#fff)"><i data-lucide="file-check-2"></i> สร้างใบกระทบยอด (ปิดรอบ)</button>
+      <button class="ord-btn" onclick="ordReconToggleHistory()"><i data-lucide="history"></i> ประวัติรายงาน</button>
       <div style="flex:1"></div>
-      <span style="font-size:12px;color:var(--ink3,#94a3b8)">ขอบเขต: ${(rec.channels||[]).join(', ')||'—'} · ${rec.dFrom||''}${rec.dTo&&rec.dTo!==rec.dFrom?' ถึง '+rec.dTo:''}</span>
+      <span style="font:500 12px/1.4 inherit;color:var(--n-500)">ขอบเขต: ${(rec.channels||[]).join(', ')||'—'} · ${rec.dFrom||''}${rec.dTo&&rec.dTo!==rec.dFrom?' ถึง '+rec.dTo:''}</span>
     </div>
     ${rec.showHistory?ordReconHistoryHtml(d):''}
     ${ordReconCoverageHtml(d,res)}
-    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:6px">
-      ${card('all',res.length,'ตรวจทั้งหมด','#475569')}${card('matched',c.matched,'ตรงกัน ✓','#16a34a')}${card('only_be',c.only_be,'ขายคีย์ไม่ครบ','#dc2626')}${card('other',c.diff+c.only_bs,'ต้องตรวจอื่น ๆ','#d97706')}</div>
-    <div style="font-size:11.5px;color:var(--ink3,#94a3b8);margin-bottom:12px">👆 คลิกการ์ดเพื่อกรองตาราง · กำลังดู: <b>${esc(filtLabel)}</b> (${list.length})</div>
-    ${list.length? `<div style="background:#fff;border:1px solid var(--line,#e2e8f0);border-radius:12px;overflow:hidden">
-      <div style="display:grid;${GR};gap:8px;padding:10px 14px;background:#f8fafc;font-size:11px;font-weight:700;color:var(--ink2,#475569);text-transform:uppercase"><div>วันที่</div><div>ช่องทาง</div><div>เลขออเดอร์</div><div>สถานะ / ผลต่าง</div></div>
+    <div class="ord-kpis" style="margin-bottom:8px">
+      ${kpiCard('all',res.length,'ตรวจทั้งหมด')}
+      ${kpiCard('matched',c.matched,'ตรงกัน ✓')}
+      ${kpiCard('only_be',c.only_be,'ขายคีย์ไม่ครบ')}
+      ${kpiCard('other',c.diff+c.only_bs,'ต้องตรวจอื่นๆ')}
+    </div>
+    <div style="font:500 12px/1.4 inherit;color:var(--n-500);margin-bottom:12px">👆 คลิกการ์ดเพื่อกรอง · กำลังดู: <b style="color:var(--n-900)">${esc(filtLabel)}</b> (${list.length.toLocaleString("th-TH")})</div>
+    ${list.length? `<div class="ord-card">
       <div style="max-height:60vh;overflow-y:auto">
-        ${list.slice(0,800).map(r=>{ const m=meta[r.status]||{l:r.status,col:'#475569'}; const exp=rec.expanded&&rec.expanded.has(r.order_no); const detail=detailOf(r);
-          return `<div style="border-top:1px solid #f1f5f9;border-left:4px solid ${m.col}">
-            <div onclick="ordReconToggle('${encodeURIComponent(r.order_no)}')" style="display:grid;${GR};gap:8px;padding:10px 14px;font-size:12px;align-items:center;cursor:pointer;${exp?'background:#f8fafc':''}">
-              <div class="tnum">${r.date||'—'}</div>
-              <div style="font-size:11px">${esc(r.channel||'')}</div>
-              <div style="font-family:monospace;font-size:11px">${esc(r.order_no||'')} <span style="color:#cbd5e1">${exp?'▾':'▸'}</span></div>
-              <div><span style="font-size:10.5px;font-weight:700;color:${m.col}">${m.l}</span> <span style="color:var(--ink2,#475569)">· ${detail}</span></div>
-            </div>
-            ${exp?ordReconRowDetail(r):''}
-          </div>`; }).join('')}
+        <table class="ord-table">
+          <thead><tr><th style="width:90px">วันที่</th><th style="width:90px">ช่องทาง</th><th style="width:170px">เลขออเดอร์</th><th>สถานะ / ผลต่าง</th></tr></thead>
+          <tbody>
+          ${list.slice(0,800).map(r=>{ const bd=bdMap[r.status]||'mute'; const lab=labMap[r.status]||r.status; const exp=rec.expanded&&rec.expanded.has(r.order_no); const detail=detailOf(r);
+            return `<tr class="${exp?'exp':''}" onclick="ordReconToggle('${encodeURIComponent(r.order_no)}')">
+              <td class="tnum" style="font-size:12px">${r.date||'—'}</td>
+              <td style="font-size:12px">${esc(r.channel||'')}</td>
+              <td class="mono">${esc(r.order_no||'')} <span style="color:var(--n-400)">${exp?'▾':'▸'}</span></td>
+              <td><span class="ord-bd ${bd}" style="margin-right:8px">${lab}</span><span style="color:var(--n-700);font-size:12px">${detail}</span></td>
+            </tr>
+            ${exp?`<tr class="exp"><td colspan="4" style="padding:0">${ordReconRowDetail(r)}</td></tr>`:''}`; }).join('')}
+          </tbody>
+        </table>
       </div>
-      ${list.length>800?`<div style="padding:8px 14px;font-size:12px;color:var(--ink3,#94a3b8)">แสดง 800 จาก ${list.length}</div>`:''}
-    </div>` : `<div style="background:#f8fafc;border:1px solid var(--line,#e2e8f0);border-radius:12px;padding:24px;text-align:center;color:var(--ink3,#94a3b8)">— ไม่มีรายการในหมวด "${esc(filtLabel)}" —</div>`}`;
+      ${list.length>800?`<div style="padding:10px 16px;font:500 12px/1.4 inherit;color:var(--n-500);border-top:1px solid var(--n-100);background:var(--n-50)">แสดง 800 จาก ${list.length.toLocaleString("th-TH")}</div>`:''}
+    </div>` : `<div class="ord-empty">— ไม่มีรายการในหมวด "${esc(filtLabel)}" —</div>`}`;
+}
+
+/* ===== Order Ledger UI: design tokens scoped to .ord-page ===== */
+function ordInjectStyle(){
+  if(document.getElementById("ord-redesign-css")) return;
+  const s = document.createElement("style"); s.id="ord-redesign-css";
+  s.textContent = `
+  .ord-page{--ok:#10b981;--ok-700:#047857;--ok-50:#ecfdf5;--ok-100:#d1fae5;
+    --wn:#f59e0b;--wn-700:#b45309;--wn-50:#fffbeb;--wn-100:#fef3c7;
+    --dg:#dc2626;--dg-700:#b91c1c;--dg-50:#fef2f2;--dg-100:#fee2e2;
+    --in:#3b82f6;--in-700:#1d4ed8;--in-50:#eff6ff;--in-100:#dbeafe;
+    --n-900:#0f172a;--n-700:#334155;--n-600:#475569;--n-500:#64748b;--n-400:#94a3b8;
+    --n-200:#e2e8f0;--n-100:#f1f5f9;--n-50:#f8fafc;
+    font-family:"IBM Plex Sans Thai","IBM Plex Sans",system-ui,sans-serif;color:var(--n-900);}
+  .ord-page .tnum{font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1;letter-spacing:-.01em}
+  /* HERO band (gradient + watermark) */
+  .ord-hero{position:relative;overflow:hidden;border-radius:18px;padding:22px 26px;margin-bottom:16px;color:#fff;
+    background:linear-gradient(135deg, color-mix(in srgb,var(--brand,#0d9488) 95%,#000 25%) 0%, var(--brand,#0d9488) 60%, color-mix(in srgb,var(--brand,#0d9488) 70%,#fff 8%) 100%);
+    box-shadow:0 12px 32px rgba(13,148,136,.18)}
+  .ord-hero::before{content:"";position:absolute;right:-50px;top:-60px;width:260px;height:260px;background:url("logos/benya-icon.png") center/contain no-repeat;opacity:.07;filter:brightness(0) invert(1);pointer-events:none}
+  body[data-co="mbark"] .ord-hero::before{background-image:url("logos/mbark-icon.png")}
+  .ord-hero::after{content:"";position:absolute;inset:0;background:radial-gradient(800px 200px at 20% 0%, rgba(255,255,255,.13), transparent 70%);pointer-events:none}
+  .ord-hero .h-inner{position:relative;z-index:1;display:flex;align-items:center;gap:18px;flex-wrap:wrap}
+  .ord-hero .h-logo{width:54px;height:54px;flex:0 0 54px;border-radius:14px;background:rgba(255,255,255,.16) center/56% no-repeat;border:1px solid rgba(255,255,255,.22)}
+  body[data-co="benya"] .ord-hero .h-logo{background-image:url("logos/benya-icon.png")}
+  body[data-co="mbark"] .ord-hero .h-logo{background-image:url("logos/mbark-icon.png")}
+  .ord-hero h1{font:700 26px/30px "IBM Plex Sans Thai",sans-serif;margin:0;letter-spacing:-.01em;color:#fff}
+  .ord-hero .h-eyebrow{font:600 11px/1 "IBM Plex Sans Thai",sans-serif;letter-spacing:.16em;text-transform:uppercase;opacity:.82;margin-bottom:4px}
+  .ord-hero .h-sub{font:500 13px/1.5 "IBM Plex Sans Thai",sans-serif;opacity:.84;margin-top:4px}
+  .ord-hero .h-text{flex:1;min-width:0}
+  .ord-hero .h-aside{text-align:right;font:700 18px/1.3 "IBM Plex Sans Thai",sans-serif;font-variant-numeric:tabular-nums}
+  .ord-hero .h-aside small{display:block;font:500 11px/1 "IBM Plex Sans Thai",sans-serif;opacity:.78;letter-spacing:.1em;margin-bottom:4px;text-transform:uppercase}
+  .ord-hero .h-aside b{font-size:26px;letter-spacing:-.015em}
+  /* Search bar (cleaner) */
+  .ord-search{position:relative;margin-bottom:14px}
+  .ord-search input{width:100%;padding:11px 14px 11px 38px;border:1px solid var(--n-200);background:#fff;border-radius:10px;font:500 13.5px/1.4 inherit;color:var(--n-900);outline:none;transition:border-color .15s,box-shadow .15s;box-sizing:border-box}
+  .ord-search input:focus{border-color:var(--brand,#0d9488);box-shadow:0 0 0 3px color-mix(in srgb,var(--brand,#0d9488) 18%,transparent)}
+  .ord-search .ic{position:absolute;left:13px;top:50%;transform:translateY(-50%);color:var(--n-500);font-size:14px;pointer-events:none}
+  /* Action bar */
+  .ord-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:16px}
+  .ord-btn{display:inline-flex;align-items:center;gap:6px;padding:8px 14px;border-radius:9px;font:600 13px/1 "IBM Plex Sans Thai",sans-serif;border:1px solid var(--n-200);background:#fff;color:var(--n-800);cursor:pointer;transition:all .15s;white-space:nowrap}
+  .ord-btn:hover:not(:disabled){border-color:var(--n-400);background:var(--n-50)}
+  .ord-btn:disabled{opacity:.5;cursor:not-allowed}
+  .ord-btn.primary{background:var(--brand,#0d9488);color:#fff;border-color:var(--brand,#0d9488)}
+  .ord-btn.primary:hover:not(:disabled){background:color-mix(in srgb,var(--brand,#0d9488) 90%,#000);box-shadow:0 4px 12px color-mix(in srgb,var(--brand,#0d9488) 32%,transparent)}
+  .ord-btn.danger{color:var(--dg-700);border-color:var(--dg-100)}
+  .ord-btn.danger:hover:not(:disabled){background:var(--dg-50);border-color:var(--dg-100)}
+  .ord-btn i[data-lucide]{width:14px;height:14px}
+  /* KPI strip */
+  .ord-kpis{display:grid;grid-template-columns:1.3fr 1fr 1fr 1fr;gap:12px;margin-bottom:16px}
+  .ord-k{position:relative;overflow:hidden;background:#fff;border:1px solid var(--n-200);border-radius:14px;padding:14px 16px;display:flex;flex-direction:column;gap:4px;box-shadow:0 1px 2px rgba(15,23,42,.04)}
+  .ord-k .lbl{font:600 11px/1.2 inherit;color:var(--n-600);text-transform:uppercase;letter-spacing:.04em;display:flex;align-items:center;gap:6px}
+  .ord-k .v{font:700 26px/1.1 "IBM Plex Sans Thai",sans-serif;color:var(--n-900);font-variant-numeric:tabular-nums;letter-spacing:-.02em;margin-top:2px}
+  .ord-k .sub{font:500 11.5px/1.4 inherit;color:var(--n-500);margin-top:auto;padding-top:6px}
+  .ord-k.col{color:#fff;border:0}
+  .ord-k.col .lbl{color:rgba(255,255,255,.86)}
+  .ord-k.col .v{color:#fff}
+  .ord-k.col .sub{color:rgba(255,255,255,.78)}
+  .ord-k.col .ico{position:absolute;right:14px;top:14px;width:34px;height:34px;border-radius:10px;background:rgba(255,255,255,.18);display:grid;place-items:center;font-size:16px;backdrop-filter:blur(6px)}
+  .ord-k.k-brand{background:linear-gradient(135deg, color-mix(in srgb,var(--brand,#0d9488) 95%,#000 18%), var(--brand,#0d9488))}
+  .ord-k.k-red{background:linear-gradient(135deg,#7f1d1d,#dc2626)}
+  .ord-k.k-amber{background:linear-gradient(135deg,#92400e,#f59e0b)}
+  .ord-k.k-blue{background:linear-gradient(135deg,#1e3a8a,#3b82f6)}
+  .ord-k.k-green{background:linear-gradient(135deg,#065f46,#10b981)}
+  .ord-k.soft-red{background:var(--dg-50);border-color:var(--dg-100)}
+  .ord-k.soft-red .v,.ord-k.soft-red .lbl{color:var(--dg-700)}
+  .ord-k.soft-amber{background:var(--wn-50);border-color:var(--wn-100)}
+  .ord-k.soft-amber .v,.ord-k.soft-amber .lbl{color:var(--wn-700)}
+  .ord-k.soft-green{background:var(--ok-50);border-color:var(--ok-100)}
+  .ord-k.soft-green .v,.ord-k.soft-green .lbl{color:var(--ok-700)}
+  .ord-k.click{cursor:pointer;transition:transform .15s,box-shadow .15s}
+  .ord-k.click:hover{transform:translateY(-1px);box-shadow:0 8px 20px rgba(15,23,42,.08)}
+  /* Tabs (Finance OS) */
+  .ord-tabs{display:flex;gap:2px;border-bottom:1px solid var(--n-200);margin-bottom:14px;overflow-x:auto;background:#fff;border-radius:10px 10px 0 0;padding:0 6px}
+  .ord-tab{font:600 13.5px/1 "IBM Plex Sans Thai",sans-serif;color:var(--n-600);padding:12px 14px;border:0;background:transparent;border-bottom:2px solid transparent;cursor:pointer;white-space:nowrap;display:inline-flex;align-items:center;gap:6px;margin-bottom:-1px;transition:color .12s}
+  .ord-tab:hover{color:var(--n-900)}
+  .ord-tab.active{color:var(--brand,#0d9488);border-color:var(--brand,#0d9488)}
+  .ord-tab .n{font:600 11px/1 inherit;background:var(--n-100);color:var(--n-600);padding:2px 7px;border-radius:999px}
+  .ord-tab.active .n{background:color-mix(in srgb,var(--brand,#0d9488) 14%,transparent);color:var(--brand,#0d9488)}
+  .ord-tab.t-warn .n{background:var(--wn-100);color:var(--wn-700)}
+  .ord-tab.t-danger .n{background:var(--dg-100);color:var(--dg-700)}
+  /* Card surface */
+  .ord-card{background:#fff;border:1px solid var(--n-200);border-radius:14px;overflow:hidden;box-shadow:0 1px 2px rgba(15,23,42,.04)}
+  .ord-card-head{padding:14px 18px;border-bottom:1px solid var(--n-100);display:flex;align-items:center;gap:10px}
+  .ord-card-head h3{margin:0;font:700 15px/1.3 inherit}
+  .ord-card-head .sub{font:500 12px/1 inherit;color:var(--n-500)}
+  /* Table (header sticky uppercase) */
+  .ord-table{width:100%;border-collapse:separate;border-spacing:0;font:500 13px/1.4 inherit}
+  .ord-table thead th{font:600 10.5px/1 inherit;text-align:left;color:var(--n-500);padding:11px 14px;background:var(--n-50);border-bottom:1px solid var(--n-200);text-transform:uppercase;letter-spacing:.06em;position:sticky;top:0;z-index:1}
+  .ord-table tbody td{padding:11px 14px;border-bottom:1px solid var(--n-100);color:var(--n-800);vertical-align:middle}
+  .ord-table tbody tr{cursor:pointer}
+  .ord-table tbody tr:hover{background:var(--n-50)}
+  .ord-table tr.exp td{background:var(--n-50)}
+  .ord-table tr.cancel{opacity:.5}
+  .ord-table .num,.ord-table .right{text-align:right;font-variant-numeric:tabular-nums}
+  .ord-table .mono{font:600 12px/1 "JetBrains Mono","IBM Plex Sans",monospace;color:var(--n-700)}
+  /* Status badge — dot + label */
+  .ord-bd{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:999px;font:600 11px/1.5 inherit;white-space:nowrap;border:1px solid currentColor}
+  .ord-bd::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor;flex:0 0 6px}
+  .ord-bd.ok    {color:var(--ok-700); background:var(--ok-50); border-color:var(--ok-100)}
+  .ord-bd.warn  {color:var(--wn-700);background:var(--wn-50); border-color:var(--wn-100)}
+  .ord-bd.danger{color:var(--dg-700);background:var(--dg-50);border-color:var(--dg-100)}
+  .ord-bd.info  {color:var(--in-700);background:var(--in-50);border-color:var(--in-100)}
+  .ord-bd.mute  {color:var(--n-600); background:var(--n-100);border-color:var(--n-200)}
+  .ord-bd.brand {color:var(--brand,#0d9488);background:color-mix(in srgb,var(--brand,#0d9488) 10%,#fff);border-color:color-mix(in srgb,var(--brand,#0d9488) 20%,#fff)}
+  /* Filter chips */
+  .ord-chips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
+  .ord-chip{font:600 12px/1 inherit;padding:6px 12px;border-radius:999px;background:#fff;border:1px solid var(--n-200);color:var(--n-700);cursor:pointer;transition:all .12s;display:inline-flex;align-items:center;gap:6px}
+  .ord-chip:hover{border-color:var(--n-400)}
+  .ord-chip.on{background:var(--brand,#0d9488);color:#fff;border-color:var(--brand,#0d9488)}
+  .ord-chip .n{background:var(--n-100);color:var(--n-600);padding:1px 7px;border-radius:8px;font:600 10.5px/1.3 inherit}
+  .ord-chip.on .n{background:rgba(255,255,255,.22);color:#fff}
+  /* Funnel row (board) */
+  .ord-fn{display:grid;grid-template-columns:44px 1fr 110px 170px 30px;gap:10px;padding:14px 16px;border-top:1px solid var(--n-100);align-items:center;cursor:pointer;font:500 13px/1.4 inherit;transition:background .12s}
+  .ord-fn:first-of-type{border-top:0}
+  .ord-fn:hover{background:var(--n-50)}
+  .ord-fn .ic-w{width:32px;height:32px;border-radius:10px;display:grid;place-items:center;font-size:14px;background:var(--n-100);color:var(--n-700)}
+  .ord-fn.s-recon_pending .ic-w{background:var(--n-100);color:var(--n-700)}
+  .ord-fn.s-recon_diff .ic-w  {background:var(--dg-100);color:var(--dg-700)}
+  .ord-fn.s-wait_iv .ic-w     {background:var(--wn-100);color:var(--wn-700)}
+  .ord-fn.s-wait_pay .ic-w    {background:var(--in-100);color:var(--in-700)}
+  .ord-fn.s-wait_re .ic-w     {background:#ede9fe;color:#6d28d9}
+  .ord-fn.s-wait_deposit .ic-w{background:var(--wn-100);color:var(--wn-700)}
+  .ord-fn.s-wait_bank .ic-w   {background:#ffedd5;color:#9a3412}
+  .ord-fn.s-done .ic-w        {background:var(--ok-100);color:var(--ok-700)}
+  .ord-fn.s-only_be .ic-w     {background:#fce7f3;color:#9d174d}
+  .ord-fn.s-cancelled .ic-w   {background:var(--n-100);color:var(--n-600)}
+  .ord-fn .lbl{color:var(--n-900);font-weight:600}
+  .ord-fn .n{text-align:right;font-weight:700;font-variant-numeric:tabular-nums}
+  .ord-fn .sum{text-align:right;font-variant-numeric:tabular-nums;color:var(--n-700)}
+  .ord-fn .chev{text-align:right;color:var(--n-400)}
+  .ord-fn-head{display:grid;grid-template-columns:44px 1fr 110px 170px 30px;gap:10px;padding:11px 16px;background:var(--n-50);font:600 10.5px/1 inherit;color:var(--n-500);text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid var(--n-200)}
+  .ord-fn-head .right{text-align:right}
+  .ord-fn-total{display:grid;grid-template-columns:44px 1fr 110px 170px 30px;gap:10px;padding:14px 16px;border-top:2px solid var(--n-200);background:var(--n-50);font:700 13px/1.4 inherit}
+  .ord-fn-total .n,.ord-fn-total .sum{text-align:right;font-variant-numeric:tabular-nums}
+  /* Search result card */
+  .ord-sr{background:#fff;border:1px solid var(--n-200);border-radius:14px;overflow:hidden;margin-bottom:12px;box-shadow:0 1px 2px rgba(15,23,42,.04)}
+  .ord-sr-head{padding:12px 16px;background:var(--n-50);border-bottom:1px solid var(--n-100);display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  .ord-sr-keys{display:grid;grid-template-columns:repeat(5,1fr);border-bottom:1px solid var(--n-100)}
+  .ord-sr-keys > div{padding:10px 14px;border-right:1px solid var(--n-100);font:500 12px/1.4 inherit}
+  .ord-sr-keys > div:last-child{border-right:0}
+  .ord-sr-keys .l{font:600 10.5px/1 inherit;color:var(--n-500);text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px}
+  /* Empty state */
+  .ord-empty{background:var(--n-50);border:1px dashed var(--n-200);border-radius:14px;padding:42px 22px;text-align:center;color:var(--n-600)}
+  .ord-empty i[data-lucide]{width:36px;height:36px;margin-bottom:10px;opacity:.5}
+  .ord-empty .ttl{font:700 15px/1.3 inherit;color:var(--n-900);margin-bottom:4px}
+  /* Banner (filter active) */
+  .ord-banner{display:flex;align-items:center;gap:10px;background:var(--wn-50);border:1px solid var(--wn-100);border-radius:10px;padding:8px 14px;margin-bottom:12px;font:500 13px/1.4 inherit}
+  .ord-banner b{color:var(--n-900);font-weight:700}
+  .ord-banner .clear{margin-left:auto;border:0;background:transparent;color:var(--brand,#0d9488);font-weight:600;cursor:pointer;font-size:12.5px}
+  @media (max-width:1024px){.ord-kpis{grid-template-columns:repeat(2,1fr)}}
+  @media (max-width:640px){.ord-kpis{grid-template-columns:1fr}.ord-hero h1{font-size:22px}.ord-hero .h-aside{text-align:left}}
+  `;
+  document.head.appendChild(s);
+}
+
+/* คำนวณ KPI สำหรับ hero/strip */
+function ordKpis(d){
+  const all=(d.rows||[]); const rmap=ordReconMap(d);
+  let totN=0,totSum=0,actN=0,actSum=0,flowN=0,doneN=0,doneSum=0,cancelN=0;
+  all.forEach(o=>{
+    const k=ordStatusOf(o,rmap); const v=Number(o.order_total||0);
+    if(k==='cancelled'){ cancelN++; return; }
+    totN++; totSum+=v;
+    if(k==='recon_diff'||k==='wait_iv') { actN++; actSum+=v; }
+    else if(k==='wait_pay'||k==='wait_re'||k==='wait_deposit'||k==='wait_bank'){ flowN++; }
+    else if(k==='done'){ doneN++; doneSum+=v; }
+  });
+  const onlyBe=((d.recon&&d.recon.results)||[]).filter(r=>r.status==='only_be').length;
+  const pct=totN?Math.round(doneN/totN*100):0;
+  return { totN, totSum, actN, actSum, flowN, doneN, doneSum, cancelN, onlyBe, pct };
 }
 
 async function renderToolOrders(){
   const t = TOOLS.find(x=>x.id==="orders"); const co = COMPANIES.find(c=>c.id===state.company);
   const d = ordGet(); const main = document.getElementById("main");
-  homeInjectCSS();
-  if(!d.loaded && !d.busy){ main.innerHTML=`<div class="page-head"><h1>${esc(t.name)}</h1><div class="sub">กำลังโหลด...</div></div>`; try{ await ordLoad(); }catch(e){} }
+  homeInjectCSS(); ordInjectStyle();
+  if(!d.loaded && !d.busy){ main.innerHTML=`<div class="ord-page"><div class="ord-empty"><i data-lucide="loader-2"></i><div class="ttl">กำลังโหลด…</div></div></div>`; try{ await ordLoad(); }catch(e){} }
   if(!d.reconLoaded){ d.reconLoaded=true; try{ await ordReconLoad(); }catch(e){ console.warn("reconLoad",e); } }
   const view = (d.q && d.q.trim()) ? 'search' : (d.view||'board');
-  const tabBtn=(v,l,ic)=>`<button class="hd-chip ${(d.view||'board')===v?'on':''}" onclick="ordSetView('${v}')">${ic} ${l}</button>`;
+  const k = ordKpis(d);
+  const fmt = ordFmtMoney;
+  const today = new Date().toLocaleDateString("th-TH",{day:"numeric",month:"short",year:"numeric"});
+  const tabBtn=(v,l,cnt,cls)=>`<button class="ord-tab ${(d.view||'board')===v?'active':''} ${cls||''}" onclick="ordSetView('${v}')">${l}${cnt!=null?`<span class="n">${cnt}</span>`:''}</button>`;
+
   main.innerHTML = `
-  <div class="hd">
-    <div class="page-head"><h1>${esc(t.name)} <span class="badge">${esc(co.name)}</span></h1><div class="sub">${esc(t.long)}</div></div>
-    <div style="margin:14px 0 12px">
-      <input id="ordQ" value="${esc(d.q||'')}" oninput="ordSet('q',this.value)" placeholder="🔍 ค้นหาเลขออเดอร์ / IV / RE / BQ / เลขเช็ค / สินค้า — เด้งสถานะเต็มทันที" style="width:100%;border:1.5px solid var(--brand,#0d9488);border-radius:11px;padding:11px 15px;font-size:14px;font-family:inherit;box-sizing:border-box">
+  <div class="ord-page">
+
+    <!-- HERO -->
+    <section class="ord-hero">
+      <div class="h-inner">
+        <div class="h-logo"></div>
+        <div class="h-text">
+          <div class="h-eyebrow">${esc(co.name)} · Order Pipeline</div>
+          <h1>${esc(t.name)}</h1>
+          <div class="h-sub">${esc(t.long)}</div>
+        </div>
+        <div class="h-aside">
+          <small>ออเดอร์รวม</small>
+          <b class="tnum">${k.totN.toLocaleString("th-TH")}</b>
+          <div style="font:500 11.5px/1.4 inherit;opacity:.82;margin-top:2px">${fmt(k.totSum)} บาท · ${esc(today)}</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Search -->
+    <div class="ord-search">
+      <span class="ic">🔍</span>
+      <input id="ordQ" value="${esc(d.q||'')}" oninput="ordSet('q',this.value)" placeholder="ค้นหาเลขออเดอร์ / IV / RE / BQ / เลขเช็ค / สินค้า — เด้งสถานะเต็มทันที">
     </div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px">
-      <button class="brec-btn primary" onclick="ordUploadFiles()" ${brecCanWrite()?'':'disabled'}><i data-lucide="upload"></i> อัปรายงานขาย BigSeller</button>
-      <button class="brec-btn" onclick="ordExportNoIv()"><i data-lucide="download"></i> ส่งออกออเดอร์ยังไม่คีย์ IV</button>
+
+    <!-- Actions -->
+    <div class="ord-actions">
+      <button class="ord-btn primary" onclick="ordUploadFiles()" ${brecCanWrite()?'':'disabled'}><i data-lucide="upload"></i> อัปรายงานขาย BigSeller</button>
+      <button class="ord-btn" onclick="ordExportNoIv()"><i data-lucide="download"></i> ส่งออกออเดอร์ยังไม่คีย์ IV</button>
       <div style="flex:1"></div>
-      <button class="brec-btn" onclick="ordResetLedger()" ${brecCanWrite()?'':'disabled'} style="color:#dc2626;border-color:#fecaca"><i data-lucide="trash-2"></i> ล้างทะเบียน เริ่มใหม่</button>
+      <button class="ord-btn danger" onclick="ordResetLedger()" ${brecCanWrite()?'':'disabled'}><i data-lucide="trash-2"></i> ล้างทะเบียน เริ่มใหม่</button>
     </div>
+
     ${ordUnknownPanel(d)}
-    ${view==='search' ? ordRenderSearch(d) : `
-    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px">
-      ${tabBtn('board','สรุปสถานะงาน','🚦')}${tabBtn('reg','ทะเบียน','📋')}${tabBtn('month','สรุปรายเดือน','📊')}${tabBtn('recon','ตรวจรายวัน','🔍')}
+
+    <!-- KPI strip (Level 2: hierarchy — total brand, ต้องทำ red, ไหลผ่าน blue, ปิดแล้ว green) -->
+    <div class="ord-kpis">
+      <div class="ord-k k-brand col">
+        <span class="ico">📦</span>
+        <div class="lbl">ออเดอร์ใน Pipeline</div>
+        <div class="v tnum">${k.totN.toLocaleString("th-TH")}</div>
+        <div class="sub">${fmt(k.totSum)} บาท${k.cancelN?` · ยกเลิก ${k.cancelN}`:''}</div>
+      </div>
+      <div class="ord-k ${k.actN?'soft-red':''} click" onclick="ordSetView('reg')" title="ดูในทะเบียน">
+        <div class="lbl">ต้องดำเนินการ</div>
+        <div class="v tnum">${k.actN}</div>
+        <div class="sub">${k.actN?fmt(k.actSum)+' บาท · รอคีย์ IV / ยอดไม่ตรง':'ไม่มีรายการค้าง'}</div>
+      </div>
+      <div class="ord-k ${k.onlyBe?'soft-amber':''} click" onclick="ordSetView('recon')" title="ไปแท็บตรวจรายวัน">
+        <div class="lbl">รอเทียบ / หลังบ้านขาด</div>
+        <div class="v tnum">${k.onlyBe}</div>
+        <div class="sub">${k.onlyBe?'อัปไฟล์หลังบ้านเพื่อเทียบยอด':'เทียบครบหรือยังไม่ได้อัปไฟล์'}</div>
+      </div>
+      <div class="ord-k ${k.pct>=80?'soft-green':''}">
+        <div class="lbl">ปิดงานแล้ว</div>
+        <div class="v tnum">${k.pct}%</div>
+        <div class="sub">${k.doneN.toLocaleString("th-TH")} จาก ${k.totN.toLocaleString("th-TH")} · ${fmt(k.doneSum)} บาท</div>
+      </div>
     </div>
-    ${d.busy ? `<div class="brec-empty"><i data-lucide="loader-2"></i><div class="ttl">กำลังประมวลผล…</div></div>`
+
+    ${view==='search' ? ordRenderSearch(d) : `
+    <!-- Tabs -->
+    <div class="ord-tabs">
+      ${tabBtn('board','🚦 สรุปสถานะงาน')}
+      ${tabBtn('reg','📋 ทะเบียน', k.totN)}
+      ${tabBtn('month','📊 สรุปรายเดือน')}
+      ${tabBtn('recon','🔍 ตรวจรายวัน', k.onlyBe||null, k.onlyBe?'t-danger':'')}
+    </div>
+
+    ${d.busy ? `<div class="ord-empty"><i data-lucide="loader-2"></i><div class="ttl">กำลังประมวลผล…</div></div>`
       : view==='month' ? ordRenderMonth(d)
       : view==='reg'   ? ordRenderRegister(d)
       : view==='recon' ? ordRenderRecon(d)

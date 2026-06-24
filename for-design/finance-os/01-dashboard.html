@@ -1,0 +1,343 @@
+<!doctype html>
+<html lang="th" data-co="benya">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>01 · Dashboard ภาพรวม · Benya Financial Console</title>
+<link rel="stylesheet" href="tokens.css">
+<style>
+  /* Dashboard-specific tweaks */
+  .work-queue{display:grid;grid-template-columns:1.6fr 1fr;gap:16px;margin-bottom:18px}
+  .wq-list .wq-item{display:flex;align-items:center;gap:12px;padding:12px 14px;border:1px solid var(--n-200);background:#fff;border-radius:10px;margin-bottom:8px;transition:border-color .12s var(--ease)}
+  .wq-list .wq-item:hover{border-color:var(--p-300);background:var(--p-50)}
+  .wq-list .wq-item .ic{width:36px;height:36px;border-radius:9px;display:grid;place-items:center;font-size:16px;flex:0 0 36px}
+  .wq-list .wq-item .ic.red{background:var(--dg-100);color:var(--dg-700)}
+  .wq-list .wq-item .ic.amber{background:var(--wn-100);color:var(--wn-700)}
+  .wq-list .wq-item .ic.blue{background:var(--in-100);color:var(--in-700)}
+  .wq-list .wq-item .t{flex:1;line-height:1.3}
+  .wq-list .wq-item .t b{font:var(--t-h3)}
+  .wq-list .wq-item .t small{font:var(--t-cap);color:var(--n-500);display:block}
+  .wq-list .wq-item .val{font:700 16px/1.2 'IBM Plex Sans Thai',sans-serif;text-align:right;font-variant-numeric:tabular-nums}
+  .wq-list .wq-item .val small{display:block;font:var(--t-cap);color:var(--n-500);font-weight:500}
+  .pie-mock{aspect-ratio:1;background:conic-gradient(var(--p-700) 0 62%,var(--ok-600) 62% 86%,var(--wn-600) 86% 96%,var(--dg-600) 96% 100%);border-radius:50%;position:relative;max-width:160px;margin:0 auto}
+  .pie-mock::after{content:"";position:absolute;inset:18%;background:#fff;border-radius:50%}
+  .pie-center{position:absolute;inset:0;display:grid;place-items:center;text-align:center;line-height:1.1}
+  .pie-center b{font:700 22px/1.1 'IBM Plex Sans Thai';font-variant-numeric:tabular-nums;display:block}
+  .pie-center small{font:var(--t-cap);color:var(--n-500)}
+  .legend{display:flex;flex-wrap:wrap;gap:10px;justify-content:center;margin-top:14px}
+  .legend i{width:10px;height:10px;border-radius:3px;display:inline-block;margin-right:5px;vertical-align:middle}
+  .legend span{font:var(--t-cap);color:var(--n-700)}
+  .quick-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- =================== Sidebar (Benya, ภาพรวม active) =================== -->
+  <aside class="side">
+    <div class="brand">
+      <div class="logo"></div>
+      <div class="nm">Benya<small>Financial Console</small></div>
+    </div>
+    <div class="grp">แดชบอร์ด <span class="chev">▾</span></div>
+    <nav class="nav">
+      <a class="active" href="01-dashboard.html"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg><span>ภาพรวม</span></a>
+      <a href="#"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20M5 9l7-7 7 7"/></svg><span>War Room · รายรับ</span></a>
+      <a href="#"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 18 0 9 9 0 0 0-18 0z M12 3v9l5 3"/></svg><span>Weekly Forecast</span></a>
+      <a href="#"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 17 9 11 13 15 21 7"/><polyline points="14 7 21 7 21 14"/></svg><span>พรีเซนต์ Cash Flow</span></a>
+      <a href="#"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18 M7 16l4-4 3 3 5-7"/></svg><span>งบกำไรขาดทุน</span></a>
+    </nav>
+    <div class="grp">รายงาน / วิเคราะห์</div>
+    <nav class="nav">
+      <a href="02-workqueue.html"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg><span>กระทบยอดธนาคาร</span><span class="count danger">14</span></a>
+      <a href="04-table.html"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg><span>การเงินทั้งหมด</span><span class="count">132</span></a>
+      <a href="#"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1v22 M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg><span>เจ้าหนี้คงค้าง</span><span class="count warn">77</span></a>
+      <a href="05-report.html"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z M2 17l10 5 10-5 M2 12l10 5 10-5"/></svg><span>ประวัติรายงาน</span><span class="count">709</span></a>
+    </nav>
+    <div class="side-foot">
+      <div class="av">NA</div>
+      <div class="who"><b>Nantawan</b><small>เชื่อมต่อแล้ว</small></div>
+    </div>
+  </aside>
+
+  <!-- =================== Main =================== -->
+  <main class="main">
+
+    <!-- Top bar -->
+    <div class="topbar">
+      <div class="bcrumb"><b>Benya</b> <span class="sep">›</span> แดชบอร์ด <span class="sep">›</span> <b>ภาพรวม</b></div>
+      <div class="right">
+        <button class="present">โหมดนำเสนอ</button>
+        <div class="topbar"><div class="gsearch"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg><input placeholder="ค้นหา IV / ผู้ขาย / ธนาคาร..."></div></div>
+        <span class="today">📅 พ. 24 มิ.ย. 2569</span>
+      </div>
+    </div>
+
+    <!-- HERO -->
+    <section class="hero">
+      <div class="h-inner">
+        <div class="h-logo"></div>
+        <div class="h-text">
+          <div class="h-eyebrow">Benya · Financial Console</div>
+          <h1 class="h-title">สรุปกระแสเงินสด · มิถุนายน 2569</h1>
+          <div class="h-sub">รอบบัญชี: 1 – 30 มิ.ย. 2569 · อัปเดตล่าสุด 24 มิ.ย. 2569 14:32</div>
+        </div>
+        <div class="h-aside">
+          <small>วันที่</small>
+          24 / 06 / 2569
+        </div>
+      </div>
+    </section>
+
+    <!-- PRIORITY ALERT (Level 1) -->
+    <div class="alert danger">
+      <div class="ic-wrap">⚠</div>
+      <div>
+        <h4>คาดการณ์เงินสดสิ้นเดือนติดลบ <span class="tnum">(218,098)</span></h4>
+        <p>ต้องเติมเงินอย่างน้อย <b class="tnum">218,098 บาท</b> หรือเลื่อนการจ่าย <b>3 รายการ</b> ก่อน 28 มิ.ย. — บัญชี SCB ····4863 ไม่พอช่วงปลายเดือน</p>
+      </div>
+      <div class="actions">
+        <button class="btn btn-outline btn-sm">ดูรายละเอียด</button>
+        <button class="btn btn-primary btn-sm">วางแผนเงินสด →</button>
+      </div>
+    </div>
+
+    <!-- KPI GRID — Level 2 (Cash Gap เด่นที่สุด) -->
+    <div class="kpi-grid">
+      <div class="kpi kpi-critical">
+        <div class="lbl">คาดคงเหลือสิ้นเดือน · CASH GAP</div>
+        <div class="v">(218,098)</div>
+        <div class="hint">B/F 25,435,361 + รับ 4,129,839 − จ่าย 29,783,298</div>
+      </div>
+      <div class="kpi kpi-blue kpi-colored">
+        <div class="ico">💰</div>
+        <div class="lbl">เงินสดยกมา · B/F</div>
+        <div class="v">1,399,283</div>
+        <div class="hint">ต้นเดือน · มิ.ย. 2569</div>
+      </div>
+      <div class="kpi kpi-teal kpi-colored">
+        <div class="ico">🏦</div>
+        <div class="lbl">เงินสดใช้ได้ปัจจุบัน</div>
+        <div class="v">25,435,361</div>
+        <div class="hint">ยอดพร้อมใช้จริง · ณ วันนี้</div>
+      </div>
+      <div class="kpi kpi-orange kpi-colored">
+        <div class="ico">📈</div>
+        <div class="lbl">รับสะสมเดือนนี้</div>
+        <div class="v">71,704,675</div>
+        <div class="hint"><span class="badge">22 ใบ · MTD</span></div>
+      </div>
+    </div>
+
+    <!-- PLAN VS ACTUAL — Level 2 -->
+    <div class="pva">
+      <div class="pva-card over">
+        <div class="pva-head">
+          <h4>รับเงินโครงการ (IV)</h4>
+          <span class="pct over">147.2%</span>
+        </div>
+        <div class="pva-body">
+          <div class="col plan"><div class="l">PLAN</div><div class="v">27,912,506</div></div>
+          <div class="col actual"><div class="l">ACTUAL</div><div class="v" style="color:var(--ok-700)">41,094,278</div></div>
+        </div>
+        <div class="pva-bar"><i style="width:100%"></i></div>
+        <div class="pva-foot"><span>แผนล็อก 27.9M · รับจริง 41.1M</span><span class="diff up">+13,181,772</span></div>
+      </div>
+      <div class="pva-card ok">
+        <div class="pva-head">
+          <h4>เงินกู้ / สินเชื่อหมุนเวียน</h4>
+          <span class="pct ok">101.1%</span>
+        </div>
+        <div class="pva-body">
+          <div class="col plan"><div class="l">PLAN</div><div class="v">25,000,000</div></div>
+          <div class="col actual"><div class="l">ACTUAL</div><div class="v" style="color:var(--pp-600)">25,271,000</div></div>
+        </div>
+        <div class="pva-bar"><i style="width:100%;background:var(--pp-600)"></i></div>
+        <div class="pva-foot"><span>เบิกแล้ว 101.1%</span><span class="diff up">+271,000</span></div>
+      </div>
+      <div class="pva-card under">
+        <div class="pva-head">
+          <h4>ค่าใช้จ่ายรวม (4 หมวด)</h4>
+          <span class="pct under">62.1%</span>
+        </div>
+        <div class="pva-body">
+          <div class="col plan"><div class="l">PLAN</div><div class="v">71,460,000</div></div>
+          <div class="col actual"><div class="l">ACTUAL</div><div class="v" style="color:var(--dg-700)">44,384,005</div></div>
+        </div>
+        <div class="pva-bar"><i style="width:62%"></i></div>
+        <div class="pva-foot"><span>เหลือเดือนนี้ −27.1M</span><span class="diff down">เหลือจ่าย 27,075,995</span></div>
+      </div>
+    </div>
+
+    <!-- WORK QUEUE + Cash composition -->
+    <div class="work-queue">
+
+      <!-- Left: งานต้องดำเนินการ (Level 1) -->
+      <div class="card">
+        <div class="card-head">
+          <h3>งานที่ต้องดำเนินการ</h3>
+          <div class="sub">3 รายการแรก · เรียงตามความเสี่ยง</div>
+          <button class="btn btn-ghost btn-sm more">ดูทั้งหมด (14) →</button>
+        </div>
+
+        <div class="wq-list">
+          <div class="wq-item">
+            <div class="ic red">!</div>
+            <div class="t">
+              <b>กระทบยอดธนาคาร SCB ····4863</b>
+              <small>14 รายการค้าง · ผลต่าง 1,247,820 บาท · งวด 22–24 มิ.ย.</small>
+            </div>
+            <div class="val">
+              <span class="tnum neg">1,247,820</span>
+              <small>ผลต่าง</small>
+            </div>
+            <button class="btn btn-primary btn-sm">เปิดงาน →</button>
+          </div>
+
+          <div class="wq-item">
+            <div class="ic amber">⏰</div>
+            <div class="t">
+              <b>วางแผนจ่าย AP · เกินกำหนด 5,109,986.66</b>
+              <small>77 บิลเกินกำหนด · ยังไม่กำหนดวันชำระ 12 ใบ</small>
+            </div>
+            <div class="val">
+              <span class="tnum">77</span>
+              <small>บิล</small>
+            </div>
+            <button class="btn btn-outline btn-sm">ตั้งวันชำระ →</button>
+          </div>
+
+          <div class="wq-item">
+            <div class="ic blue">📥</div>
+            <div class="t">
+              <b>คีย์ IV จากออเดอร์ BigSeller</b>
+              <small>21 ออเดอร์รับเงินแล้ว ยังไม่มี IV · ค้างนานสุด 3 วัน</small>
+            </div>
+            <div class="val">
+              <span class="tnum">21</span>
+              <small>ออเดอร์</small>
+            </div>
+            <button class="btn btn-outline btn-sm">เปิดทะเบียน →</button>
+          </div>
+        </div>
+
+        <div class="row" style="margin-top:14px;padding:12px 14px;background:var(--n-50);border:1px solid var(--n-200);border-radius:10px">
+          <div class="col" style="flex:1;gap:4px">
+            <div class="lbl" style="margin:0">ความคืบหน้ารอบบัญชีนี้ (มิ.ย. 2569)</div>
+            <div class="prg ok" style="margin-top:6px"><i style="width:78%"></i></div>
+            <div class="prg-text"><span>กระทบยอดแล้ว 102 / 132 รายการ</span><b>77.3%</b></div>
+          </div>
+          <button class="btn btn-soft btn-sm">ปิดรอบ →</button>
+        </div>
+      </div>
+
+      <!-- Right: Cash composition donut + quick stats -->
+      <div class="card">
+        <div class="card-head">
+          <h3>โครงสร้างเงินสดวันนี้</h3>
+          <div class="sub">31,435,361.48 บาท</div>
+        </div>
+        <div style="position:relative;max-width:160px;margin:0 auto">
+          <div class="pie-mock"></div>
+          <div class="pie-center">
+            <div>
+              <b>31.4M</b>
+              <small>ใช้ได้จริง</small>
+            </div>
+          </div>
+        </div>
+        <div class="legend">
+          <span><i style="background:var(--p-700)"></i>SCB 62%</span>
+          <span><i style="background:var(--ok-600)"></i>BBL 24%</span>
+          <span><i style="background:var(--wn-600)"></i>KTB 10%</span>
+          <span><i style="background:var(--dg-600)"></i>KBANK 4%</span>
+        </div>
+        <hr class="divider">
+        <div class="quick-grid">
+          <div><div class="lbl">ใช้ได้รวม</div><div class="tnum" style="font:700 16px/1.2 'IBM Plex Sans Thai'">31,435,361</div></div>
+          <div><div class="lbl">เช็คยังไม่เคลียร์</div><div class="tnum" style="font:700 16px/1.2 'IBM Plex Sans Thai';color:var(--wn-700)">39 ฉบับ</div></div>
+          <div><div class="lbl">จ่ายในเดือนนี้</div><div class="tnum" style="font:700 16px/1.2 'IBM Plex Sans Thai';color:var(--dg-700)">34,699,832</div></div>
+          <div><div class="lbl">รับในเดือนนี้</div><div class="tnum" style="font:700 16px/1.2 'IBM Plex Sans Thai';color:var(--ok-700)">3,692,351</div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- BANK CARDS (Level 2 — สถานะบัญชี) -->
+    <div class="card" style="margin-bottom:18px">
+      <div class="card-head">
+        <h3>ยอดบัญชีรายธนาคาร · ใช้ได้จริง</h3>
+        <div class="sub">เช็คยังไม่เคลียร์ถูกหักออกแล้ว</div>
+        <button class="btn btn-ghost btn-sm more">ดูทั้งหมด →</button>
+      </div>
+      <div class="bank-grid">
+        <!-- Bank 1 -->
+        <div class="bank-card critical">
+          <div class="bank-head">
+            <div class="logo">SCB</div>
+            <div class="info"><b>SCB</b><small>···· 4863</small></div>
+            <div class="amt"><small>ใช้ได้จริง</small><b>18,491,800</b></div>
+          </div>
+          <div class="bank-body">
+            <div class="row"><div class="when">▾ 25/06/2569 <span class="ct">1 รายการ</span></div><div class="delta in">+7,500,000</div><div class="bal">25,991,800</div></div>
+            <div class="row"><div class="when">▾ 26/06/2569 <span class="ct">10 รายการ</span></div><div class="delta out">−10,446,659</div><div class="bal">15,545,141</div></div>
+            <div class="row"><div class="when">▾ 30/06/2569 <span class="ct">498 รายการ</span></div><div class="delta out">−15,739,609</div><div class="bal neg">(194,468)</div></div>
+          </div>
+          <div class="bank-foot crit">
+            <span>คงเหลือสุทธิช่วงเดือนนี้</span>
+            <span class="net">(194,468)</span>
+          </div>
+          <div class="bank-cta">
+            <div class="msg">ต้องเติม ≈ 194,468 บาท ก่อนรายการครบกำหนด</div>
+            <button class="btn btn-primary btn-sm">โอนเข้าบัญชีนี้ →</button>
+          </div>
+        </div>
+
+        <!-- Bank 2 -->
+        <div class="bank-card">
+          <div class="bank-head bbl">
+            <div class="logo">BBL</div>
+            <div class="info"><b>BBL</b><small>···· 8040</small></div>
+            <div class="amt"><small>ใช้ได้จริง</small><b>7,548,231</b></div>
+          </div>
+          <div class="bank-body">
+            <div class="row"><div class="when">▾ 24/06/2569 <span class="ct">3 รายการ</span></div><div class="delta in">+1,200,000</div><div class="bal">7,548,231</div></div>
+            <div class="row"><div class="when">▾ 26/06/2569 <span class="ct">2 รายการ</span></div><div class="delta out">−45,200</div><div class="bal">7,503,031</div></div>
+          </div>
+          <div class="bank-foot">
+            <span>เคลื่อนไหวเดือนนี้ <b class="tnum">+1.15M</b></span>
+            <span class="net pos">+1,154,800</span>
+          </div>
+        </div>
+
+        <!-- Bank 3 -->
+        <div class="bank-card">
+          <div class="bank-head kbank">
+            <div class="logo">KB</div>
+            <div class="info"><b>KBANK</b><small>···· 2125</small></div>
+            <div class="amt"><small>ใช้ได้จริง</small><b>2,114,655</b></div>
+          </div>
+          <div class="bank-body">
+            <div class="row"><div class="when">▾ 25/06/2569 <span class="ct">29 รายการ</span></div><div class="delta out">−283,478</div><div class="bal">1,831,177</div></div>
+            <div class="row"><div class="when">▸ 22/06/2569 <span class="ct">4 รายการ</span></div><div class="delta in">+98,000</div><div class="bal">2,114,655</div></div>
+          </div>
+          <div class="bank-foot">
+            <span>เคลื่อนไหวเดือนนี้ <b class="tnum">−185k</b></span>
+            <span class="net neg">−185,478</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Visual hierarchy note (design only) -->
+    <div class="alert info">
+      <div class="ic-wrap">i</div>
+      <div>
+        <h4>Visual Hierarchy หน้านี้</h4>
+        <p><b>Level 1 (วิกฤต):</b> Cash Gap card สีแดง + Priority Alert บน · <b>Level 2 (สถานะ):</b> KPI สี + Plan vs Actual + Bank cards · <b>Level 3 (รายละเอียด):</b> Work Queue + Donut composition · ผู้ใช้เห็น "งานต้องทำ" ภายใน 3 วินาทีโดยไม่ต้องเลื่อน</p>
+      </div>
+    </div>
+
+  </main>
+</div>
+</body>
+</html>

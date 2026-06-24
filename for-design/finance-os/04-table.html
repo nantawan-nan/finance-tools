@@ -1,0 +1,320 @@
+<!doctype html>
+<html lang="th" data-co="benya">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>04 · Data Table · ตารางการเงินทั้งหมด · Benya</title>
+<link rel="stylesheet" href="tokens.css">
+<style>
+  .stat-strip{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:18px}
+  .stat-strip .kpi{padding:14px 16px}
+  .stat-strip .kpi .v{font:700 22px/26px 'IBM Plex Sans Thai',sans-serif}
+  .colhead-flex{display:flex;align-items:center;gap:6px}
+  .colhead-flex .icaz{opacity:.5;font-size:11px}
+  .tbl-wrap{background:#fff;border:1px solid var(--n-200);border-radius:var(--r-lg);overflow:hidden;box-shadow:var(--sh-1)}
+  .tbl-wrap .toolbar{margin:0;border:0;border-radius:0;border-bottom:1px solid var(--n-200);box-shadow:none}
+  .tbl-wrap .tbl tfoot td{position:sticky;bottom:0}
+  .row-actions{display:inline-flex;gap:4px;opacity:.4;transition:opacity .12s var(--ease)}
+  tr:hover .row-actions{opacity:1}
+  .row-actions button{background:transparent;border:0;cursor:pointer;width:24px;height:24px;border-radius:5px;color:var(--n-600)}
+  .row-actions button:hover{background:var(--n-100);color:var(--n-900)}
+  .drillable{cursor:pointer;color:var(--p-700);font-weight:600}
+  .drillable:hover{text-decoration:underline}
+  .pagebar{display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--n-50);border-top:1px solid var(--n-200);font:var(--t-cap);color:var(--n-700)}
+  .pagebar .right{margin-left:auto;display:flex;align-items:center;gap:4px}
+  .pagebar button{font:var(--t-cap);font-weight:600;border:1px solid var(--n-200);background:#fff;padding:5px 10px;border-radius:6px;cursor:pointer}
+  .pagebar button.active{background:var(--p-700);color:#fff;border-color:var(--p-700)}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- Sidebar -->
+  <aside class="side">
+    <div class="brand"><div class="logo"></div><div class="nm">Benya<small>Financial Console</small></div></div>
+    <div class="grp">แดชบอร์ด</div>
+    <nav class="nav">
+      <a href="01-dashboard.html"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg><span>ภาพรวม</span></a>
+    </nav>
+    <div class="grp">รายงาน / วิเคราะห์</div>
+    <nav class="nav">
+      <a href="02-workqueue.html"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg><span>กระทบยอดธนาคาร</span><span class="count danger">14</span></a>
+      <a class="active" href="04-table.html"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg><span>การเงินทั้งหมด</span><span class="count">132</span></a>
+      <a href="#"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1v22 M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg><span>เจ้าหนี้คงค้าง</span><span class="count warn">77</span></a>
+      <a href="05-report.html"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z M2 17l10 5 10-5 M2 12l10 5 10-5"/></svg><span>ประวัติรายงาน</span><span class="count">709</span></a>
+    </nav>
+    <div class="side-foot"><div class="av">NA</div><div class="who"><b>Nantawan</b><small>เชื่อมต่อแล้ว</small></div></div>
+  </aside>
+
+  <!-- Main -->
+  <main class="main">
+
+    <div class="topbar">
+      <div class="bcrumb"><b>Benya</b> <span class="sep">›</span> รายงาน <span class="sep">›</span> <b>การเงินทั้งหมด</b></div>
+      <div class="right">
+        <button class="present">โหมดนำเสนอ</button>
+        <span class="today">📅 พ. 24 มิ.ย. 2569</span>
+      </div>
+    </div>
+
+    <!-- HERO band (Water POG style) -->
+    <section class="hero">
+      <div class="h-inner">
+        <div class="h-logo"></div>
+        <div class="h-text">
+          <div class="h-eyebrow">Benya · Financial Ledger</div>
+          <h1 class="h-title">รายการการเงินทั้งหมด</h1>
+          <div class="h-sub">รวมรายรับ-รายจ่าย-โอน-ปรับปรุงทุกบัญชี · 132 รายการในเดือนนี้</div>
+        </div>
+        <div class="h-aside">
+          <small>หน่วย: บาท</small>
+          <span class="tnum">31,435,361.48</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Mini KPI strip (Level 2) -->
+    <div class="stat-strip">
+      <div class="kpi">
+        <div class="lbl">รับสะสมเดือนนี้</div>
+        <div class="v" style="color:var(--ok-700)">+71,704,675</div>
+        <div class="hint">22 รายการ · <b class="delta up">+12.4%</b> vs เดือนก่อน</div>
+      </div>
+      <div class="kpi">
+        <div class="lbl">จ่ายสะสมเดือนนี้</div>
+        <div class="v" style="color:var(--dg-700)">−34,699,832</div>
+        <div class="hint">109 รายการ · <b class="delta down">−5.8%</b> vs เดือนก่อน</div>
+      </div>
+      <div class="kpi">
+        <div class="lbl">สุทธิ MTD</div>
+        <div class="v" style="color:var(--p-700)">+37,004,843</div>
+        <div class="hint">ก่อนหักภาษี + ค่าธรรมเนียม</div>
+      </div>
+      <div class="kpi">
+        <div class="lbl">ค้างกระทบยอด</div>
+        <div class="v" style="color:var(--wn-700)">14</div>
+        <div class="hint">ผลต่าง <span class="neg tnum">−1,247,820</span> บาท</div>
+      </div>
+    </div>
+
+    <!-- Filter chips (date) -->
+    <div class="chip-row" style="margin-bottom:14px">
+      <button class="chip">วันนี้ <span class="n">3</span></button>
+      <button class="chip">สัปดาห์นี้ <span class="n">28</span></button>
+      <button class="chip active">เดือนนี้ <span class="n">132</span></button>
+      <button class="chip">เดือนก่อน <span class="n">141</span></button>
+      <button class="chip">ไตรมาส 2/2569 <span class="n">412</span></button>
+      <button class="chip">ปีนี้ <span class="n">1,876</span></button>
+      <button class="chip" style="border-style:dashed">เลือกช่วงเอง...</button>
+    </div>
+
+    <!-- Toolbar + table -->
+    <div class="tbl-wrap">
+
+      <div class="toolbar">
+        <div class="search-box">
+          <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+          <input class="input" placeholder="ค้นหา IV / PS / RR / ผู้ขาย / จำนวน...">
+        </div>
+        <select class="input" style="font-size:12px"><option>ทุกบัญชี</option><option>SCB ····4863</option><option>BBL ····8040</option><option>KBANK ····2125</option></select>
+        <select class="input" style="font-size:12px"><option>ทุกประเภทเอกสาร</option><option>RR · รับชำระ</option><option>PS · จ่ายเช็ค</option><option>PV · จ่ายโอน</option><option>JV · ปรับปรุง</option></select>
+        <select class="input" style="font-size:12px"><option>ทุกสถานะ</option><option>Matched</option><option>Pending</option><option>Mismatch</option><option>Missing</option><option>Excluded</option></select>
+        <select class="input" style="font-size:12px"><option>ทุก Batch</option><option>IMP-SCB-20260624-001</option></select>
+        <button class="btn btn-ghost btn-sm">เพิ่มตัวกรอง +</button>
+        <span style="margin-left:auto;display:flex;gap:6px">
+          <button class="btn btn-outline btn-sm">📋 ตั้งค่าคอลัมน์</button>
+          <button class="btn btn-outline btn-sm">⬇ Export</button>
+        </span>
+      </div>
+
+      <div style="max-height:520px;overflow:auto">
+      <table class="tbl">
+        <thead>
+          <tr>
+            <th style="width:32px"><input type="checkbox"></th>
+            <th><div class="colhead-flex">วันที่ <span class="icaz">▼</span></div></th>
+            <th>ประเภท</th>
+            <th>เลขเอกสาร</th>
+            <th>ชื่อรายการ / คู่สัญญา</th>
+            <th>บัญชี</th>
+            <th class="right">รับเข้า</th>
+            <th class="right">จ่ายออก</th>
+            <th class="right">ยอดคงเหลือ</th>
+            <th>สถานะ</th>
+            <th style="width:80px"></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><input type="checkbox"></td>
+            <td>24 มิ.ย. 2569</td>
+            <td><span class="bd bd-info">RR</span></td>
+            <td class="mono">RR2606089</td>
+            <td>บจ.แสงไทยฟาร์ม · ค่าสินค้าเดือน พ.ค.<br><small class="muted">อ้างอิง IV2605142</small></td>
+            <td>SCB ····4863</td>
+            <td class="right num pos">+1,247,800.00</td>
+            <td class="right num">—</td>
+            <td class="right num">25,991,800.24</td>
+            <td><span class="bd bd-ok"><span class="dot"></span> Matched</span></td>
+            <td><span class="row-actions"><button title="ดู">👁</button><button title="แก้ไข">✎</button><button title="เพิ่มเติม">⋯</button></span></td>
+          </tr>
+
+          <tr>
+            <td><input type="checkbox"></td>
+            <td>23 มิ.ย. 2569</td>
+            <td><span class="bd bd-mute">PV</span></td>
+            <td class="mono">PV2606078</td>
+            <td>บจ.พลังงานไทย · ค่าไฟฟ้าโรงงาน 5/2569<br><small class="muted">หมายเหตุ: แยกหักภาษี ณ ที่จ่าย</small></td>
+            <td>SCB ····4863</td>
+            <td class="right num">—</td>
+            <td class="right num neg">287,500.00</td>
+            <td class="right num">24,744,000.24</td>
+            <td><span class="bd bd-ok"><span class="dot"></span> Matched</span></td>
+            <td><span class="row-actions"><button>👁</button><button>✎</button><button>⋯</button></span></td>
+          </tr>
+
+          <tr class="warn">
+            <td><input type="checkbox"></td>
+            <td>22 มิ.ย. 2569</td>
+            <td><span class="bd bd-mute">PV</span></td>
+            <td class="mono">PV2606076</td>
+            <td>บจ.เคมีฟาร์ พลัส · ค่าวัตถุดิบ</td>
+            <td>SCB ····4863</td>
+            <td class="right num">—</td>
+            <td class="right num neg">287,500.00</td>
+            <td class="right num">25,031,500.24</td>
+            <td><span class="bd bd-warn"><span class="dot"></span> ผลต่าง +250</span></td>
+            <td><a href="03-detail.html" class="drillable">ตรวจ →</a></td>
+          </tr>
+
+          <tr class="danger">
+            <td><input type="checkbox"></td>
+            <td>20 มิ.ย. 2569</td>
+            <td><span class="bd bd-mute">PS</span></td>
+            <td class="mono">PS2606031</td>
+            <td>บ.ขนส่งโชคเจริญ · ค่าขนส่ง <span class="bd bd-mute" style="margin-left:4px">ถูกยกเลิก 23/06</span></td>
+            <td>SCB ····4863</td>
+            <td class="right num">—</td>
+            <td class="right num dim">72,000.00</td>
+            <td class="right num">—</td>
+            <td><span class="bd bd-danger"><span class="dot"></span> Removed from Source</span></td>
+            <td><span class="row-actions"><button>👁</button><button>📦</button></span></td>
+          </tr>
+
+          <tr>
+            <td><input type="checkbox"></td>
+            <td>19 มิ.ย. 2569</td>
+            <td><span class="bd bd-info">RR</span></td>
+            <td class="mono">RR2606087</td>
+            <td>BigSeller · Shopee BQ2606040001<br><small class="muted">รวม 18 ออเดอร์ · withdrawal</small></td>
+            <td>SCB ····4863</td>
+            <td class="right num pos">+82,418.00</td>
+            <td class="right num">—</td>
+            <td class="right num">25,319,000.24</td>
+            <td><span class="bd bd-ok"><span class="dot"></span> Matched</span></td>
+            <td><span class="row-actions"><button>👁</button><button>⋯</button></span></td>
+          </tr>
+
+          <tr>
+            <td><input type="checkbox"></td>
+            <td>18 มิ.ย. 2569</td>
+            <td><span class="bd bd-info">RR</span></td>
+            <td class="mono dim">—</td>
+            <td>FT 6918 · เงินเข้าจาก บจ.แสงไทยฟาร์ม <span class="bd bd-warn" style="margin-left:4px">ยังไม่คีย์ Express</span></td>
+            <td>SCB ····4863</td>
+            <td class="right num pos">+128,500.00</td>
+            <td class="right num">—</td>
+            <td class="right num">25,236,582.24</td>
+            <td><span class="bd bd-danger"><span class="dot"></span> Missing in Express</span></td>
+            <td><a href="03-detail.html" class="drillable">สร้าง RR →</a></td>
+          </tr>
+
+          <tr>
+            <td><input type="checkbox"></td>
+            <td>15 มิ.ย. 2569</td>
+            <td><span class="bd bd-mute">PS</span></td>
+            <td class="mono">PS2606024</td>
+            <td>ปตท. · ค่าน้ำมัน</td>
+            <td>SCB ····4863</td>
+            <td class="right num">—</td>
+            <td class="right num neg">45,200.00</td>
+            <td class="right num">25,108,082.24</td>
+            <td><span class="bd bd-info"><span class="dot"></span> Suggested 96%</span></td>
+            <td><span class="row-actions"><button>👁</button><button>⋯</button></span></td>
+          </tr>
+
+          <tr>
+            <td><input type="checkbox"></td>
+            <td>12 มิ.ย. 2569</td>
+            <td><span class="bd bd-mute">JV</span></td>
+            <td class="mono">JV2606009</td>
+            <td>ปรับปรุงค่าธรรมเนียมโอนเดือนพฤษภาคม<br><small class="muted">ผ่านบัญชีหลัก SCB</small></td>
+            <td>SCB ····4863</td>
+            <td class="right num">—</td>
+            <td class="right num neg">3,420.00</td>
+            <td class="right num">25,153,282.24</td>
+            <td><span class="bd bd-ok"><span class="dot"></span> Matched</span></td>
+            <td><span class="row-actions"><button>👁</button><button>⋯</button></span></td>
+          </tr>
+
+          <tr>
+            <td><input type="checkbox"></td>
+            <td>10 มิ.ย. 2569</td>
+            <td><span class="bd bd-info">RR</span></td>
+            <td class="mono">RR2606076</td>
+            <td>โรงพยาบาลศรีพิทักษ์ · ค่าอุปกรณ์การแพทย์<br><small class="muted">IV2606031 · 3 รายการ</small></td>
+            <td>BBL ····8040</td>
+            <td class="right num pos">+1,524,000.00</td>
+            <td class="right num">—</td>
+            <td class="right num">7,548,231.50</td>
+            <td><span class="bd bd-ok"><span class="dot"></span> Matched</span></td>
+            <td><span class="row-actions"><button>👁</button><button>⋯</button></span></td>
+          </tr>
+
+          <tr>
+            <td><input type="checkbox"></td>
+            <td>08 มิ.ย. 2569</td>
+            <td><span class="bd bd-mute">PS</span></td>
+            <td class="mono">PS2606001</td>
+            <td>บ.ขนส่งโชคเจริญ · ค่าขนส่ง</td>
+            <td>SCB ····4863</td>
+            <td class="right num">—</td>
+            <td class="right num neg">15,450.00</td>
+            <td class="right num">—</td>
+            <td><span class="bd bd-danger"><span class="dot"></span> Missing in Bank</span></td>
+            <td><a href="03-detail.html" class="drillable">ตรวจ →</a></td>
+          </tr>
+        </tbody>
+        <tfoot>
+          <tr>
+            <td colspan="6" style="text-align:right">รวม 132 รายการ (กำลังแสดง 10 รายการแรก)</td>
+            <td class="right num tnum">+71,704,675.00</td>
+            <td class="right num tnum">−34,699,832.00</td>
+            <td class="right num tnum">+37,004,843.00</td>
+            <td colspan="2"></td>
+          </tr>
+        </tfoot>
+      </table>
+      </div>
+
+      <div class="pagebar">
+        <span>10 / 132 รายการ</span>
+        <span class="bd bd-mute">เลือก 0</span>
+        <div class="right">
+          <button>« ก่อน</button>
+          <button class="active">1</button>
+          <button>2</button>
+          <button>3</button>
+          <button>…</button>
+          <button>14</button>
+          <button>ถัด »</button>
+        </div>
+      </div>
+    </div>
+
+    <p class="muted" style="margin-top:14px;font:var(--t-cap)">หมายเหตุการออกแบบ — ตารางใช้ Zebra แบบเบามาก (ไม่มีพื้น), Hover จับสายตา · Status badge มี icon dot + ข้อความเสมอ (ไม่พึ่งสีอย่างเดียว) · จำนวนเงินจัดชิดขวา + tabular nums · ติดลบ "+/−" นำเครื่องหมาย ไม่ใช้สีแดงกับทุกบรรทัด</p>
+
+  </main>
+</div>
+</body>
+</html>

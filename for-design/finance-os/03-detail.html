@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="th" data-co="benya">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>03 · Detail · รายละเอียดการกระทบยอด · Benya</title>
+<link rel="stylesheet" href="tokens.css">
+<style>
+  /* Detail page-specific: 2 column compare + side audit */
+  .detail-grid{display:grid;grid-template-columns:1.4fr 1fr;gap:16px;align-items:flex-start}
+  .pair{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:16px}
+  .pair .leaf{background:#fff;border:1px solid var(--n-200);border-radius:var(--r-lg);overflow:hidden;box-shadow:var(--sh-1)}
+  .pair .leaf > h4{margin:0;padding:12px 16px;font:var(--t-h3);background:var(--n-50);border-bottom:1px solid var(--n-200);display:flex;align-items:center;gap:8px}
+  .pair .leaf.express > h4{background:linear-gradient(90deg,var(--p-50),#fff);border-bottom-color:var(--p-100);color:var(--p-800)}
+  .pair .leaf.bank > h4{background:linear-gradient(90deg,var(--in-50),#fff);border-bottom-color:var(--in-100);color:var(--in-700)}
+  .kv{display:grid;grid-template-columns:130px 1fr;gap:8px 14px;padding:14px 16px}
+  .kv .k{font:var(--t-cap);color:var(--n-500);text-transform:uppercase;letter-spacing:.04em;font-weight:600;padding-top:3px}
+  .kv .v{font:var(--t-body);color:var(--n-900);font-variant-numeric:tabular-nums}
+  .kv .v.lg{font:700 22px/1.2 'IBM Plex Sans Thai';margin:-2px 0 0}
+  .kv .v.lg.neg{color:var(--dg-700)} .kv .v.lg.pos{color:var(--ok-700)}
+  .kv .v code{background:var(--n-100);padding:2px 6px;border-radius:5px;font:var(--t-mono);font-size:11.5px;color:var(--n-700)}
+
+  .diff-card{background:#fff;border:1px solid var(--ok-100);border-radius:var(--r-lg);padding:14px 16px;display:flex;align-items:center;gap:12px;margin-bottom:16px}
+  .diff-card.warn{border-color:var(--wn-100);background:var(--wn-50)}
+  .diff-card .ic{width:38px;height:38px;border-radius:10px;display:grid;place-items:center;background:var(--ok-100);color:var(--ok-700);font-size:18px}
+  .diff-card.warn .ic{background:var(--wn-100);color:var(--wn-700)}
+  .diff-card .t{flex:1}
+  .diff-card .t b{font:var(--t-h2);color:var(--n-900)}
+  .diff-card .t small{font:var(--t-cap);color:var(--n-600);display:block;margin-top:2px}
+
+  .stage-card{background:#fff;border:1px solid var(--n-200);border-radius:var(--r-lg);padding:16px;box-shadow:var(--sh-1)}
+  .stage-card h3{margin:0 0 12px;font:var(--t-h2);display:flex;align-items:center;gap:8px}
+  .stage-card h3 .bd{font-size:11px}
+
+  .stage-row{display:grid;grid-template-columns:120px 1fr auto;gap:10px;padding:8px 0;border-bottom:1px solid var(--n-100);font:var(--t-body)}
+  .stage-row:last-child{border-bottom:0}
+  .stage-row .lbl{color:var(--n-500);font:var(--t-cap);text-transform:uppercase;letter-spacing:.04em;font-weight:600;padding-top:3px}
+  .stage-row .v{color:var(--n-900);font-variant-numeric:tabular-nums}
+  .stage-row .by{color:var(--n-600);font:var(--t-cap)}
+
+  .meta-pills{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- Sidebar -->
+  <aside class="side">
+    <div class="brand"><div class="logo"></div><div class="nm">Benya<small>Financial Console</small></div></div>
+    <div class="grp">แดชบอร์ด</div>
+    <nav class="nav">
+      <a href="01-dashboard.html"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg><span>ภาพรวม</span></a>
+    </nav>
+    <div class="grp">รายงาน / วิเคราะห์</div>
+    <nav class="nav">
+      <a class="active" href="02-workqueue.html"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg><span>กระทบยอดธนาคาร</span><span class="count danger">14</span></a>
+      <a href="04-table.html"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg><span>การเงินทั้งหมด</span><span class="count">132</span></a>
+      <a href="05-report.html"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z M2 17l10 5 10-5 M2 12l10 5 10-5"/></svg><span>ประวัติรายงาน</span><span class="count">709</span></a>
+    </nav>
+    <div class="side-foot"><div class="av">NA</div><div class="who"><b>Nantawan</b><small>เชื่อมต่อแล้ว</small></div></div>
+  </aside>
+
+  <!-- Main -->
+  <main class="main">
+
+    <div class="topbar">
+      <div class="bcrumb"><b>Benya</b> <span class="sep">›</span> กระทบยอดธนาคาร <span class="sep">›</span> SCB ····4863 <span class="sep">›</span> <b>PV2606012 ⇄ BT2606015</b></div>
+      <div class="right">
+        <button class="btn btn-ghost btn-sm">← ก่อนหน้า</button>
+        <button class="btn btn-ghost btn-sm">ถัดไป →</button>
+        <button class="btn btn-outline btn-sm">ปิด</button>
+      </div>
+    </div>
+
+    <!-- Page head -->
+    <div class="phead">
+      <div>
+        <h1>รายละเอียดการกระทบยอด</h1>
+        <div class="sub">เทียบเอกสาร Express ↔ Bank Statement · ดูประวัติการแก้ไขทั้งหมด</div>
+        <div class="meta-pills" style="margin-top:8px">
+          <span class="bd bd-info">Suggested 96%</span>
+          <span class="bd bd-warn">ผลต่าง +250.00</span>
+          <span class="bd bd-mute">งวด มิ.ย. 2569 · v1</span>
+          <span class="bd bd-brand">Batch IMP-SCB-20260624-001</span>
+        </div>
+      </div>
+      <div class="actions">
+        <button class="btn btn-outline">ดูใบ PV →</button>
+        <button class="btn btn-outline">ดูแถวใน Statement →</button>
+        <button class="btn btn-primary">ยืนยันการจับคู่ + บันทึก Adjustment 250.00 →</button>
+      </div>
+    </div>
+
+    <!-- Diff summary banner -->
+    <div class="diff-card warn">
+      <div class="ic">⚖</div>
+      <div class="t">
+        <b>ผลต่าง <span class="tnum neg">+250.00</span> บาท</b>
+        <small>ค่าธรรมเนียมโอน 250.00 ไม่ได้ลงบัญชีฝั่ง Express — แนะนำสร้าง Adjustment ค่าธรรมเนียมธนาคาร แล้วผูกเป็นคู่</small>
+      </div>
+      <div class="row" style="gap:6px">
+        <button class="btn btn-outline btn-sm">สร้าง Adjustment</button>
+        <button class="btn btn-outline btn-sm">ยกเลิกการจับคู่</button>
+      </div>
+    </div>
+
+    <!-- Detail grid: pair (left) + audit/meta (right) -->
+    <div class="detail-grid">
+
+      <!-- LEFT: Pair comparison -->
+      <div>
+        <div class="pair">
+          <!-- Express -->
+          <section class="leaf express">
+            <h4>📘 Express<span class="bd bd-brand" style="margin-left:auto">PV2606012</span></h4>
+            <div class="kv">
+              <div class="k">วันที่</div><div class="v">12 มิ.ย. 2569 · 14:08</div>
+              <div class="k">ประเภท</div><div class="v">PV · จ่ายโอนเงิน</div>
+              <div class="k">เลขเอกสาร</div><div class="v"><code>PV2606012</code></div>
+              <div class="k">บัญชี</div><div class="v">SCB ···· 4863 · กระแสรายวัน</div>
+              <div class="k">ยอด</div><div class="v lg neg">287,500.00</div>
+              <div class="k">ผู้รับ</div><div class="v">บจ.เคมีฟาร์ พลัส</div>
+              <div class="k">อ้างอิง</div><div class="v"><code>BT2606015</code></div>
+              <div class="k">หมายเหตุ</div><div class="v">ค่าวัตถุดิบเดือน พ.ค. · ผ่าน BIZ NET</div>
+              <div class="k">ผู้บันทึก</div><div class="v">Krittikorn · 12 มิ.ย. 2569 14:30</div>
+            </div>
+          </section>
+
+          <!-- Bank -->
+          <section class="leaf bank">
+            <h4>🏦 SCB Business Net<span class="bd bd-info" style="margin-left:auto">BT2606015</span></h4>
+            <div class="kv">
+              <div class="k">วันที่</div><div class="v">12 มิ.ย. 2569 · 14:08:22</div>
+              <div class="k">ประเภท</div><div class="v">โอนระหว่างบัญชี (FT)</div>
+              <div class="k">Bank Ref</div><div class="v"><code>BT2606015-3389</code></div>
+              <div class="k">บัญชี</div><div class="v">SCB ···· 4863</div>
+              <div class="k">ยอด</div><div class="v lg neg">287,750.00</div>
+              <div class="k">รวมค่าธรรมเนียม</div><div class="v">250.00 บาท · หักท้ายรายการ</div>
+              <div class="k">Note (ใบสำคัญ)</div><div class="v"><code>BTPV2606012</code></div>
+              <div class="k">Description</div><div class="v">FT BIZNET to KASIKORN 002-3-12345 · BT</div>
+              <div class="k">Running Balance</div><div class="v dim">18,492,050.24 <small class="muted">(ใช้ validate เท่านั้น)</small></div>
+            </div>
+          </section>
+        </div>
+
+        <!-- Diff breakdown -->
+        <div class="card">
+          <div class="card-head"><h3>เปรียบเทียบรายช่อง</h3><div class="sub">ช่องที่ต่างจะ Highlight</div></div>
+          <table class="tbl">
+            <thead><tr><th>ช่อง</th><th>Express</th><th>Bank</th><th class="right">ต่าง</th><th>การจัดการ</th></tr></thead>
+            <tbody>
+              <tr><td>วันที่</td><td>12 มิ.ย. 2569</td><td>12 มิ.ย. 2569</td><td class="right">—</td><td><span class="bd bd-ok">✓ ตรง</span></td></tr>
+              <tr><td>Reference</td><td><code>BT2606015</code></td><td><code>BT2606015-3389</code></td><td class="right">—</td><td><span class="bd bd-ok">✓ ตรง (prefix)</span></td></tr>
+              <tr class="warn"><td>ยอด (DR)</td><td class="tnum">287,500.00</td><td class="tnum">287,750.00</td><td class="right tnum" style="color:var(--wn-700)"><b>+250.00</b></td><td><span class="bd bd-warn">⚠ ต้อง Adjust</span></td></tr>
+              <tr><td>คู่ปลายทาง</td><td>เคมีฟาร์ พลัส</td><td>KASIKORN 002-3-12345</td><td class="right">—</td><td><span class="bd bd-info">ผูกตาม BT-Ref</span></td></tr>
+            </tbody>
+            <tfoot><tr><td colspan="2">ผลรวม</td><td class="right tnum">287,750.00</td><td class="right tnum" style="color:var(--wn-700)"><b>+250.00</b></td><td>ค่าธรรมเนียมโอน</td></tr></tfoot>
+          </table>
+        </div>
+      </div>
+
+      <!-- RIGHT: Audit + meta -->
+      <div>
+        <!-- Audit Trail -->
+        <div class="stage-card" style="margin-bottom:16px">
+          <h3>Audit Trail <span class="bd bd-mute">7 events</span></h3>
+          <ul class="tl">
+            <li class="done">
+              <div class="when">23 มิ.ย. 2569 · 09:48</div>
+              <div class="who"><b>ระบบ</b> · จับคู่อัตโนมัติ (Auto Match) confidence 96%</div>
+              <div class="note">ใช้เกณฑ์ Ref + วันที่ตรง + ยอดต่าง ≤ 500.00</div>
+            </li>
+            <li class="warn">
+              <div class="when">23 มิ.ย. 2569 · 09:48</div>
+              <div class="who"><b>ระบบ</b> · ติด <code>Amount Mismatch</code> +250.00</div>
+            </li>
+            <li>
+              <div class="when">22 มิ.ย. 2569 · 16:02</div>
+              <div class="who"><b>Nantawan W.</b> · Import Statement (IMP-SCB-20260624-001)</div>
+              <div class="note">ไฟล์: SCB_4863_June_W3.xlsx · 287 รายการ · ใหม่ 12 · ซ้ำ 275</div>
+            </li>
+            <li>
+              <div class="when">12 มิ.ย. 2569 · 14:30</div>
+              <div class="who"><b>Krittikorn</b> · บันทึก PV2606012 ใน Express</div>
+            </li>
+            <li>
+              <div class="when">12 มิ.ย. 2569 · 14:08</div>
+              <div class="who"><b>SCB Business Net</b> · ตัดบัญชี 287,750.00 (รวม fee 250.00)</div>
+            </li>
+          </ul>
+        </div>
+
+        <!-- Match metadata -->
+        <div class="stage-card">
+          <h3>ข้อมูลการจับคู่</h3>
+          <div class="stage-row"><div class="lbl">Match ID</div><div class="v"><code>MTC-26060023</code></div><div></div></div>
+          <div class="stage-row"><div class="lbl">สถานะ</div><div class="v"><span class="bd bd-warn">Amount Mismatch</span></div><div></div></div>
+          <div class="stage-row"><div class="lbl">Confidence</div><div class="v">96%</div><div class="by">วันที่/ref/ยอด</div></div>
+          <div class="stage-row"><div class="lbl">วิธี</div><div class="v">Auto Match</div><div class="by">โดยระบบ</div></div>
+          <div class="stage-row"><div class="lbl">Reviewer</div><div class="v">— ยังไม่มี —</div><div></div></div>
+          <div class="stage-row"><div class="lbl">รอบบัญชี</div><div class="v">มิ.ย. 2569 · v1 (Draft)</div><div></div></div>
+          <hr class="divider">
+          <div class="row" style="gap:8px;flex-wrap:wrap">
+            <button class="btn btn-primary btn-sm">ยืนยัน + Adjust 250.00 →</button>
+            <button class="btn btn-outline btn-sm">เลือกคู่ใหม่</button>
+            <button class="btn btn-danger btn-sm">ยกเลิกการจับคู่</button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+  </main>
+</div>
+</body>
+</html>

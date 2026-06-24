@@ -177,6 +177,20 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-06-24 — Orders page UI redesign (Finance OS style) + design system mockups
+- **เป้าหมาย:** รื้อ UI หน้าทะเบียนคำสั่งซื้อ ให้ดู Modern Financial Console (อิงสไตล์ Water POG) · ยังไม่แตะ logic/data flow
+- **Design system (`for-design/finance-os/`)** — Brand Palette + Design Tokens + 5 mockup HTML (Dashboard / Work Queue / Detail / Data Table / Report PDF Preview) · ใช้เป็น reference เวลา redesign หน้าอื่น · เปิดดูที่ `/for-design/finance-os/index.html` · `data-co="benya|mbark"` สลับธีม teal ↔ navy ใน tokens เดียวกัน
+- **`ordInjectStyle()`** — design tokens scoped ใต้ `.ord-page` (ไม่กระทบ CSS หน้าอื่น): `--ok/-wn/-dg/-in/-n-*` palette + hero band + KPI gradient/soft variants + tabs + table + badge dot+label + chips + funnel rows + empty state
+- **`renderToolOrders`** — รื้อ shell ใหม่: Hero band (gradient ตาม `--brand` + watermark โลโก้จาง + ชื่อหน้า TH/EN + ยอดออเดอร์รวมขวา) · search box clean · action bar `.ord-btn` + lucide icon · **KPI strip 4 ใบ hierarchy** (brand gradient=ทั้งหมด · soft-red=ต้องทำ · soft-amber=รอเทียบ/หลังบ้านขาด · soft-green=ปิดแล้ว%) คลิกได้ทุกใบ · tabs underline + count chip warn/danger
+- **`ordKpis(d)`** — helper คำนวณ 4 KPI จาก rows + rmap: totN/totSum, actN/actSum (recon_diff+wait_iv), flowN, doneN/doneSum, onlyBe, pct
+- **Sub-renderers ใช้ tokens ใหม่:**
+  - `ordRenderBoard` → `.ord-fn` funnel rows + ic-w สีต่อ status + sticky header uppercase + total row
+  - `ordRenderRegister` → `<table>` + `.ord-bd` status badge (dot+icon+label) ไม่พึ่งสีอย่างเดียว · mono สำหรับ order_id/IV · filter `.ord-chip`
+  - `ordRenderRecon` → KPI strip 4 ใบ (soft variants ตาม filter) + table แบบเดียวกับ register
+  - `ordRenderMonth` → `.ord-card` wrap + แท่งสองชั้น (โปร่ง 33%/border + ทึบ ksum) ขอบมน 8px
+  - `ordRenderSearch` → `.ord-sr` result card · header pill + 5-col grid keys + status badge
+- **กระทบหน้าอื่น = 0** — CSS scoped ใต้ `.ord-page` ล้วน · function data ไม่แตะ (ordGet/ordSet/ordFiltered/ordSetView/ordReconMap คงเดิม)
+
 ### 2026-06-24 — Order Pipeline redesign (Stage 1: schema) — ยุบ order master เดียว + recon ครบสาย
 - **เป้าหมาย:** ทะเบียนคำสั่งซื้อ = hub งานด้านรับทั้งสาย (ออเดอร์→ตรวจ BigSeller↔หลังบ้าน→คีย์ IV→รับชำระ→เงินเข้าแบงค์) เกาะออเดอร์เดียว timeline เดียว · export AutoKey ทุกสเตป
 - **ตัดสินใจ:** ยึด BigSeller `orders`/`order_items` เป็น **order master เดียว** (deprecate `order_ledger`) · รายงานหลังบ้าน Shopee/TikTok/Lazada = แหล่ง recon

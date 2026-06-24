@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="th" data-co="benya">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>05 · Report Preview · Bank Reconciliation Report · Benya</title>
+<link rel="stylesheet" href="tokens.css">
+<style>
+  body{background:#E5E7EB}
+  .paper-wrap{padding:24px 32px 64px;max-width:none}
+  .paper{
+    width:880px; margin:0 auto;
+    background:#fff;
+    border-radius:6px;
+    box-shadow:0 24px 60px rgba(15,23,42,.18), 0 4px 8px rgba(15,23,42,.06);
+    padding:48px 56px;
+    border:1px solid var(--n-200);
+  }
+  .rpt-head{
+    position:relative; overflow:hidden;
+    border-radius:12px;
+    background:var(--hero-grad);
+    color:#fff; padding:22px 26px;
+    margin:-12px -12px 18px;
+  }
+  .rpt-head::before{
+    content:""; position:absolute; right:-50px; top:-60px; width:260px; height:260px;
+    background:var(--co-logo-url) center/contain no-repeat;
+    opacity:.08; filter:brightness(0) invert(1);
+  }
+  .rpt-head .top-row{display:flex;align-items:flex-start;gap:14px;position:relative;z-index:1}
+  .rpt-head .h-logo{width:48px;height:48px;border-radius:10px;background:rgba(255,255,255,.18) var(--co-logo-url) center/56% no-repeat;border:1px solid rgba(255,255,255,.22);flex:0 0 48px}
+  .rpt-head .who{flex:1;line-height:1.3}
+  .rpt-head .who small{font:var(--t-cap);letter-spacing:.16em;text-transform:uppercase;opacity:.78}
+  .rpt-head .who h1{font:700 26px/30px 'IBM Plex Sans Thai';margin:2px 0 4px}
+  .rpt-head .who p{font:var(--t-body);opacity:.82;margin:0}
+  .rpt-head .rno{text-align:right;font:var(--t-cap);opacity:.78}
+  .rpt-head .rno b{display:block;font:700 16px/1.2 'JetBrains Mono';color:#fff;letter-spacing:.04em;margin-bottom:4px}
+
+  .rpt-meta{display:grid;grid-template-columns:repeat(4,1fr);gap:10px 18px;padding:14px 16px;background:var(--n-50);border:1px solid var(--n-200);border-radius:10px;margin-bottom:18px}
+  .rpt-meta .k{font:var(--t-cap);color:var(--n-500);text-transform:uppercase;letter-spacing:.04em}
+  .rpt-meta .v{font:var(--t-h3);color:var(--n-900)}
+
+  h2.rpt-sec{font:700 16px/22px 'IBM Plex Sans Thai';margin:22px 0 10px;padding-bottom:6px;border-bottom:2px solid var(--p-700);color:var(--p-900);display:flex;align-items:center;gap:8px}
+  h2.rpt-sec .n{font:var(--t-cap);background:var(--p-100);color:var(--p-700);padding:1px 8px;border-radius:5px;font-weight:700}
+
+  .sum-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px}
+  .sum-card{background:#fff;border:1px solid var(--n-200);border-radius:10px;padding:12px 14px}
+  .sum-card .l{font:var(--t-cap);color:var(--n-600);text-transform:uppercase;letter-spacing:.04em}
+  .sum-card .v{font:700 20px/26px 'IBM Plex Sans Thai';font-variant-numeric:tabular-nums;color:var(--n-900)}
+  .sum-card.ok .v{color:var(--ok-700)}
+  .sum-card.warn .v{color:var(--wn-700)}
+  .sum-card.danger .v{color:var(--dg-700)}
+  .sum-card.brand{background:var(--p-50);border-color:var(--p-100)}
+  .sum-card.brand .v{color:var(--p-900)}
+
+  table.rpt-tbl{width:100%;border-collapse:separate;border-spacing:0;font:var(--t-body);margin-bottom:12px}
+  table.rpt-tbl th{background:var(--n-100);font:var(--t-cap);font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--n-700);padding:8px 10px;border-bottom:1px solid var(--n-200);text-align:left}
+  table.rpt-tbl td{padding:8px 10px;border-bottom:1px solid var(--n-100);color:var(--n-800);font-size:12.5px}
+  table.rpt-tbl .num{text-align:right;font-variant-numeric:tabular-nums}
+  table.rpt-tbl tfoot td{background:var(--p-50);border-top:2px solid var(--p-200);font-weight:700;color:var(--p-900)}
+
+  .sign-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:24px;margin-top:38px;padding-top:18px;border-top:1px dashed var(--n-300)}
+  .sign{text-align:center}
+  .sign .line{border-top:1px solid var(--n-700);margin:48px 14px 8px}
+  .sign .role{font:var(--t-body);font-weight:600;color:var(--n-900)}
+  .sign .nm{font:var(--t-cap);color:var(--n-600);margin-top:2px}
+
+  .stamp{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border:2px solid var(--ok-600);color:var(--ok-700);border-radius:6px;font:700 11px/1.2 'IBM Plex Sans Thai';transform:rotate(-2deg);text-transform:uppercase;letter-spacing:.08em;margin-left:8px}
+  .stamp.draft{border-color:var(--wn-600);color:var(--wn-700)}
+
+  .pdf-toolbar{display:flex;align-items:center;gap:10px;max-width:880px;margin:0 auto 14px;padding:10px 14px;background:#fff;border:1px solid var(--n-200);border-radius:10px;box-shadow:var(--sh-1)}
+  .pdf-toolbar .name{font:var(--t-h3)}
+  .pdf-toolbar .right{margin-left:auto;display:flex;gap:8px}
+  .page-no{text-align:center;font:var(--t-cap);color:var(--n-500);margin-top:18px}
+
+  @media print{
+    body{background:#fff}
+    .paper-wrap{padding:0}
+    .paper{width:auto;box-shadow:none;border:0;padding:0;border-radius:0}
+    .pdf-toolbar,.app .side,.app .topbar{display:none}
+    .rpt-head{margin:0 0 18px}
+  }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- Sidebar (collapsed thinking) -->
+  <aside class="side">
+    <div class="brand"><div class="logo"></div><div class="nm">Benya<small>Financial Console</small></div></div>
+    <div class="grp">รายงาน / วิเคราะห์</div>
+    <nav class="nav">
+      <a href="02-workqueue.html"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg><span>กระทบยอดธนาคาร</span><span class="count danger">14</span></a>
+      <a href="04-table.html"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/></svg><span>การเงินทั้งหมด</span><span class="count">132</span></a>
+      <a class="active" href="05-report.html"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/></svg><span>ประวัติรายงาน</span><span class="count">709</span></a>
+    </nav>
+    <div class="side-foot"><div class="av">NA</div><div class="who"><b>Nantawan</b><small>เชื่อมต่อแล้ว</small></div></div>
+  </aside>
+
+  <!-- Main -->
+  <main class="main paper-wrap no-print-side">
+
+    <div class="topbar no-print">
+      <div class="bcrumb"><b>Benya</b> <span class="sep">›</span> รายงาน <span class="sep">›</span> <b>ตัวอย่างใบกระทบยอด</b></div>
+      <div class="right"><span class="today">📅 พ. 24 มิ.ย. 2569</span></div>
+    </div>
+
+    <!-- PDF toolbar (preview mode) -->
+    <div class="pdf-toolbar no-print">
+      <span class="bd bd-mute">PDF Preview</span>
+      <span class="name">Bank_Reconciliation_SCB_2026-06-01_to_2026-06-30.pdf</span>
+      <span class="bd bd-info">Version 1</span>
+      <span class="bd bd-ok">Closed · 24 มิ.ย. 2569</span>
+      <div class="right">
+        <button class="btn btn-outline btn-sm">⬇ ดาวน์โหลด PDF</button>
+        <button class="btn btn-outline btn-sm">📊 ดาวน์โหลด Excel</button>
+        <button class="btn btn-primary btn-sm" onclick="window.print()">🖨 พิมพ์</button>
+      </div>
+    </div>
+
+    <!-- Paper -->
+    <div class="paper">
+
+      <!-- Hero report header -->
+      <div class="rpt-head">
+        <div class="top-row">
+          <div class="h-logo"></div>
+          <div class="who">
+            <small>Bank Reconciliation Report</small>
+            <h1>ใบกระทบยอดธนาคาร · มิถุนายน 2569</h1>
+            <p>Benya Medical Innovations Co., Ltd. · SCB กระแสรายวัน 136-2-684889</p>
+          </div>
+          <div class="rno">
+            <b>BR-SCB-202606-001</b>
+            สร้างเมื่อ 24 มิ.ย. 2569 14:32<br>
+            โดย Nantawan W.
+          </div>
+        </div>
+      </div>
+
+      <!-- Meta -->
+      <div class="rpt-meta">
+        <div><div class="k">ช่วงข้อมูล</div><div class="v">1 มิ.ย. – 30 มิ.ย. 2569</div></div>
+        <div><div class="k">ธนาคาร / บัญชี</div><div class="v">SCB · 136-2-684889</div></div>
+        <div><div class="k">สถานะรอบ</div><div class="v">Closed <span class="stamp">Approved</span></div></div>
+        <div><div class="k">เวอร์ชัน</div><div class="v">v1 · ปิดงวดล็อก</div></div>
+      </div>
+
+      <!-- Section 1: Summary -->
+      <h2 class="rpt-sec"><span class="n">1</span> สรุปผลการกระทบยอด</h2>
+
+      <div class="sum-grid">
+        <div class="sum-card"><div class="l">ยอดรับสะสม (Express)</div><div class="v">71,704,675.00</div></div>
+        <div class="sum-card"><div class="l">ยอดจ่ายสะสม (Express)</div><div class="v">34,699,832.00</div></div>
+        <div class="sum-card brand"><div class="l">ผลต่างสุทธิ Express ↔ Bank</div><div class="v">0.00</div></div>
+
+        <div class="sum-card ok"><div class="l">Matched</div><div class="v">122 รายการ</div></div>
+        <div class="sum-card warn"><div class="l">Amount Mismatch (ปรับแล้ว)</div><div class="v">3 รายการ</div></div>
+        <div class="sum-card"><div class="l">Excluded / Removed</div><div class="v">3 รายการ</div></div>
+      </div>
+
+      <table class="rpt-tbl">
+        <thead>
+          <tr><th>สถานะ</th><th class="num">จำนวน</th><th class="num">ยอดรวม (บาท)</th><th>หมายเหตุ</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Matched · ตรงเป๊ะ</td><td class="num">119</td><td class="num">35,852,420.00</td><td>วันที่ + Ref + ยอด ตรงกัน</td></tr>
+          <tr><td>Amount Mismatch (สร้าง Adjustment แล้ว)</td><td class="num">3</td><td class="num">863,750.00</td><td>ค่าธรรมเนียมโอน 3 รายการ</td></tr>
+          <tr><td>Missing in Bank</td><td class="num">0</td><td class="num">—</td><td>ตรวจครบทั้งงวด</td></tr>
+          <tr><td>Missing in Express</td><td class="num">0</td><td class="num">—</td><td>ตรวจครบทั้งงวด</td></tr>
+          <tr><td>Excluded / Removed</td><td class="num">3</td><td class="num">152,400.00</td><td>PS ถูกยกเลิกใน Express</td></tr>
+        </tbody>
+        <tfoot>
+          <tr><td>รวม</td><td class="num">125</td><td class="num">36,868,570.00</td><td>ผลกระทบยอดสมดุล ✓</td></tr>
+        </tfoot>
+      </table>
+
+      <!-- Section 2: Adjustments -->
+      <h2 class="rpt-sec"><span class="n">2</span> รายการปรับปรุง (Adjustments)</h2>
+
+      <table class="rpt-tbl">
+        <thead>
+          <tr><th>วันที่</th><th>เลขที่</th><th>คำอธิบาย</th><th class="num">ยอด (บาท)</th><th>ประเภท</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>12 มิ.ย. 2569</td><td class="mono">ADJ-2606-001</td><td>ค่าธรรมเนียมโอน BIZ NET → เคมีฟาร์</td><td class="num">250.00</td><td>Bank Fee</td></tr>
+          <tr><td>18 มิ.ย. 2569</td><td class="mono">ADJ-2606-002</td><td>ค่าธรรมเนียมโอน → ปตท.</td><td class="num">75.00</td><td>Bank Fee</td></tr>
+          <tr><td>25 มิ.ย. 2569</td><td class="mono">ADJ-2606-003</td><td>ดอกเบี้ยรับ บัญชีกระแสฯ</td><td class="num">−1,420.00</td><td>Bank Interest</td></tr>
+        </tbody>
+        <tfoot><tr><td colspan="3">รวมรายการปรับปรุง</td><td class="num">−1,095.00</td><td></td></tr></tfoot>
+      </table>
+
+      <!-- Section 3: Removed/Excluded -->
+      <h2 class="rpt-sec"><span class="n">3</span> รายการที่หายจากต้นทาง / Excluded</h2>
+
+      <table class="rpt-tbl">
+        <thead><tr><th>วันที่ในระบบ</th><th>เลขที่</th><th>คู่สัญญา</th><th class="num">ยอด</th><th>วันที่หาย / Exclude</th><th>เหตุผล</th></tr></thead>
+        <tbody>
+          <tr><td>20 มิ.ย. 2569</td><td class="mono">PS2606031</td><td>บ.ขนส่งโชคเจริญ</td><td class="num">72,000.00</td><td>23 มิ.ย. 2569 · Nantawan</td><td>ยกเลิกใบสำคัญใน Express</td></tr>
+          <tr><td>11 มิ.ย. 2569</td><td class="mono">PS2606008</td><td>บ.ออดิตไทย</td><td class="num">68,400.00</td><td>18 มิ.ย. 2569 · Krittikorn</td><td>คีย์ซ้ำ — ใบจริง PS2606009</td></tr>
+          <tr><td>04 มิ.ย. 2569</td><td class="mono">RR2606003</td><td>—</td><td class="num">12,000.00</td><td>05 มิ.ย. 2569 · Nantawan</td><td>เป็นเงินคืนสด ไม่ถือเป็นรับ</td></tr>
+        </tbody>
+      </table>
+
+      <!-- Signatures -->
+      <div class="sign-grid">
+        <div class="sign">
+          <div class="line"></div>
+          <div class="role">ผู้จัดทำ</div>
+          <div class="nm">Nantawan W.</div>
+          <div class="nm">24 มิ.ย. 2569</div>
+        </div>
+        <div class="sign">
+          <div class="line"></div>
+          <div class="role">ผู้ตรวจสอบ</div>
+          <div class="nm">_______________________</div>
+          <div class="nm">.../.../...</div>
+        </div>
+        <div class="sign">
+          <div class="line"></div>
+          <div class="role">ผู้อนุมัติ</div>
+          <div class="nm">_______________________</div>
+          <div class="nm">.../.../...</div>
+        </div>
+      </div>
+
+      <div class="page-no">หน้า 1 / 4 · BR-SCB-202606-001 · Benya Medical Innovations Co., Ltd.</div>
+    </div>
+
+    <p class="muted" style="text-align:center;margin-top:18px;font:var(--t-cap)">
+      Excel จะมี Sheet: Summary · Matched · Missing in Bank · Missing in Express · Amount Mismatch · Pending/Ambiguous · Removed/Excluded · Audit Trail · Import Batch History
+      <br>ไฟล์ Excel ชื่อ <code>Bank_Reconciliation_SCB_2026-06-01_to_2026-06-30.xlsx</code> · ทุก Sheet มี Header รายงาน + Freeze Pane + Filter + Format วันที่/เงิน + ยอดรวมท้ายตาราง
+    </p>
+
+  </main>
+</div>
+</body>
+</html>

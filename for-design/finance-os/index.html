@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="th" data-co="benya">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Finance OS Mockups · Benya × MBark</title>
+<link rel="stylesheet" href="tokens.css">
+<style>
+  body{background:var(--n-50)}
+  .wrap{max-width:1180px;margin:0 auto;padding:36px 24px 80px}
+  .pg-card{display:grid;grid-template-columns:repeat(2,1fr);gap:18px;margin-bottom:24px}
+  .pg{background:#fff;border:1px solid var(--n-200);border-radius:var(--r-lg);overflow:hidden;text-decoration:none;color:inherit;box-shadow:var(--sh-1);transition:all .15s var(--ease)}
+  .pg:hover{transform:translateY(-2px);box-shadow:var(--sh-3);border-color:var(--p-300)}
+  .pg .thumb{aspect-ratio:16/9;background:linear-gradient(135deg,var(--p-50),#fff);border-bottom:1px solid var(--n-200);position:relative;overflow:hidden}
+  .pg .thumb .strip{position:absolute;left:0;right:0;top:0;height:36%;background:var(--hero-grad)}
+  .pg .thumb .kpi{position:absolute;left:14%;right:14%;top:32%;height:24%;display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+  .pg .thumb .kpi i{background:#fff;border-radius:6px;box-shadow:var(--sh-1)}
+  .pg .thumb .kpi i:first-child{background:linear-gradient(135deg,#991B1B,#DC2626)}
+  .pg .thumb .body{position:absolute;left:14%;right:14%;top:64%;bottom:8%;display:flex;flex-direction:column;gap:4px}
+  .pg .thumb .body i{flex:1;background:#fff;border-radius:4px;box-shadow:var(--sh-1)}
+  .pg .meta{padding:16px 18px}
+  .pg .meta .num{font:var(--t-cap);color:var(--p-700);font-weight:700;letter-spacing:.16em;text-transform:uppercase}
+  .pg .meta h3{font:var(--t-h2);margin:4px 0}
+  .pg .meta p{font:var(--t-body);color:var(--n-600);margin:0 0 10px}
+  .pg .meta .pri{display:flex;gap:6px;flex-wrap:wrap}
+  .opener{display:flex;align-items:center;gap:14px;margin-bottom:24px;padding:18px 22px;background:#fff;border:1px solid var(--n-200);border-radius:var(--r-lg);box-shadow:var(--sh-1)}
+  .opener .logo{width:54px;height:54px;border-radius:14px;background:var(--p-50) var(--co-logo-url) center/64% no-repeat;border:1px solid var(--p-100)}
+  .opener h1{font:var(--t-display);margin:0;letter-spacing:-.015em}
+  .opener .sub{font:var(--t-body);color:var(--n-600);margin-top:4px}
+  .opener .actions{margin-left:auto;display:flex;gap:8px}
+  .co-switch{display:inline-flex;background:var(--n-100);border-radius:999px;padding:4px;border:1px solid var(--n-200)}
+  .co-switch button{font:var(--t-cap);font-weight:600;padding:6px 14px;border:0;background:transparent;color:var(--n-600);border-radius:999px;cursor:pointer}
+  .co-switch button.active{background:#fff;color:var(--p-700);box-shadow:var(--sh-1)}
+  .principle{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:24px}
+  .principle .it{padding:14px 16px;background:#fff;border:1px solid var(--n-200);border-radius:10px}
+  .principle .it b{font:var(--t-h3);display:block;margin-bottom:4px;color:var(--p-800)}
+  .principle .it p{font:var(--t-cap);color:var(--n-600);margin:0;line-height:1.6}
+
+  .swatches{display:grid;grid-template-columns:repeat(11,1fr);gap:4px;margin-top:14px}
+  .sw{aspect-ratio:1;border-radius:6px;border:1px solid var(--n-200);position:relative}
+  .sw small{position:absolute;left:50%;bottom:-18px;transform:translateX(-50%);font:10px/1 'JetBrains Mono';color:var(--n-500);white-space:nowrap}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+
+  <div class="opener">
+    <div class="logo"></div>
+    <div>
+      <h1>Finance OS — Design System & Mockups</h1>
+      <div class="sub">Benya × MBark · 5 หน้า + Design Tokens · อิงสไตล์ Water POG Financial Console</div>
+    </div>
+    <div class="actions">
+      <div class="co-switch">
+        <button class="active" onclick="document.documentElement.setAttribute('data-co','benya');this.classList.add('active');this.nextElementSibling.classList.remove('active')">Benya</button>
+        <button onclick="document.documentElement.setAttribute('data-co','mbark');this.classList.add('active');this.previousElementSibling.classList.remove('active')">M Bark</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Pages -->
+  <div class="pg-card">
+
+    <a class="pg" href="01-dashboard.html">
+      <div class="thumb">
+        <div class="strip"></div>
+        <div class="kpi"><i></i><i></i><i></i><i></i></div>
+        <div class="body"><i></i><i></i><i></i></div>
+      </div>
+      <div class="meta">
+        <div class="num">หน้า 01 · Dashboard</div>
+        <h3>ภาพรวมเงินสด (Cash Overview)</h3>
+        <p>Hero + Cash Gap alert + 4 KPIs สี + Plan vs Actual + Work Queue + Bank cards · ผู้ใช้เห็นงานต้องทำใน 3 วินาที</p>
+        <div class="pri">
+          <span class="bd bd-danger">L1 · Cash Gap (218,098)</span>
+          <span class="bd bd-info">L2 · KPI สี + Bank</span>
+          <span class="bd bd-mute">L3 · Work Queue</span>
+        </div>
+      </div>
+    </a>
+
+    <a class="pg" href="02-workqueue.html">
+      <div class="thumb">
+        <div class="strip" style="height:18%;background:#fff;border-bottom:1px solid var(--n-200)"></div>
+        <div class="kpi" style="top:22%;height:18%"><i style="background:linear-gradient(135deg,#991B1B,#DC2626)"></i><i style="background:var(--ok-50)"></i><i style="background:var(--in-50)"></i><i style="display:none"></i></div>
+        <div class="body" style="top:46%"><i style="border-left:3px solid var(--dg-600)"></i><i style="border-left:3px solid var(--wn-600)"></i><i></i><i></i></div>
+      </div>
+      <div class="meta">
+        <div class="num">หน้า 02 · Work Queue</div>
+        <h3>กระทบยอดธนาคาร (Bank Recon)</h3>
+        <p>Action-oriented · Tab "ต้องดำเนินการ" default · Comparison rows ฝั่ง Express ↔ Bank · 5 สถานะ + bulk action</p>
+        <div class="pri">
+          <span class="bd bd-danger">14 ค้าง</span>
+          <span class="bd bd-warn">Mismatch 3</span>
+          <span class="bd bd-ok">122 สำเร็จ</span>
+        </div>
+      </div>
+    </a>
+
+    <a class="pg" href="03-detail.html">
+      <div class="thumb">
+        <div class="strip" style="height:16%;background:#fff;border-bottom:1px solid var(--n-200)"></div>
+        <div class="body" style="top:22%;display:grid;grid-template-columns:1.4fr 1fr;gap:8px;padding:0 14%"><i style="border:1px solid var(--n-200);background:#fff"></i><i style="border:1px solid var(--n-200);background:#fff"></i></div>
+      </div>
+      <div class="meta">
+        <div class="num">หน้า 03 · Detail</div>
+        <h3>รายละเอียดการกระทบยอด</h3>
+        <p>เทียบรายช่อง Express vs Bank · Diff card · Audit Trail timeline · Match metadata + Confidence</p>
+        <div class="pri">
+          <span class="bd bd-warn">ผลต่าง +250.00</span>
+          <span class="bd bd-info">Suggested 96%</span>
+          <span class="bd bd-mute">7 events</span>
+        </div>
+      </div>
+    </a>
+
+    <a class="pg" href="04-table.html">
+      <div class="thumb">
+        <div class="strip"></div>
+        <div class="kpi" style="top:32%;height:18%"><i></i><i></i><i></i><i></i></div>
+        <div class="body" style="top:56%;display:flex;flex-direction:column;gap:3px"><i></i><i></i><i></i><i></i><i></i></div>
+      </div>
+      <div class="meta">
+        <div class="num">หน้า 04 · Data Table</div>
+        <h3>รายการการเงินทั้งหมด</h3>
+        <p>Hero + chip ช่วงเวลา + filter หลายช่อง + ตารางสถานะ badge + sticky footer total · Zebra เบา + tabular nums</p>
+        <div class="pri">
+          <span class="bd bd-mute">132 รายการ</span>
+          <span class="bd bd-info">Filter 7 มิติ</span>
+          <span class="bd bd-ok">Net +37M</span>
+        </div>
+      </div>
+    </a>
+
+    <a class="pg" href="05-report.html" style="grid-column:1 / -1">
+      <div class="thumb" style="aspect-ratio:32/9">
+        <div style="position:absolute;left:20%;right:20%;top:8%;bottom:8%;background:#fff;border-radius:6px;box-shadow:var(--sh-3);border:1px solid var(--n-200)">
+          <div style="height:30%;background:var(--hero-grad);border-radius:6px 6px 0 0;margin:6px 6px 0"></div>
+          <div style="display:flex;gap:6px;padding:8px"><i style="flex:1;height:10px;background:var(--n-100);border-radius:3px"></i><i style="flex:1;height:10px;background:var(--n-100);border-radius:3px"></i><i style="flex:1;height:10px;background:var(--p-50);border-radius:3px"></i></div>
+          <div style="padding:0 8px;display:flex;flex-direction:column;gap:3px"><i style="height:6px;background:var(--n-100);border-radius:2px"></i><i style="height:6px;background:var(--n-100);border-radius:2px"></i><i style="height:6px;background:var(--n-100);border-radius:2px"></i></div>
+        </div>
+      </div>
+      <div class="meta">
+        <div class="num">หน้า 05 · Report Preview</div>
+        <h3>Bank Reconciliation Report (PDF/Excel)</h3>
+        <p>Snapshot ปิดงวด v1 · Hero report header + Report No. · Summary 3+3 cards + Adjustments + Removed · ช่องลงชื่อ ผู้จัดทำ / ผู้ตรวจสอบ / ผู้อนุมัติ · Excel 9 sheets</p>
+        <div class="pri">
+          <span class="bd bd-ok">Closed v1</span>
+          <span class="bd bd-brand">BR-SCB-202606-001</span>
+          <span class="bd bd-mute">Excel + PDF</span>
+        </div>
+      </div>
+    </a>
+
+  </div>
+
+  <!-- Principle reminder -->
+  <h2 style="font:var(--t-h1);margin:32px 0 12px">หลักการที่ยึด</h2>
+  <div class="principle">
+    <div class="it"><b>Data-first hierarchy</b><p>Level 1 (วิกฤต) เด่นกว่า Level 2 (สถานะ) เด่นกว่า Level 3 (รายละเอียด) — ไม่มี KPI หลายกล่องเท่ากันทุกใบ</p></div>
+    <div class="it"><b>One Primary per page</b><p>ปุ่มหลัก 1 ปุ่มต่อหน้า (Close Period / ยืนยัน / โอนเข้าบัญชี) · ปุ่มเสี่ยงใน "More Actions" จำกัดสิทธิ์</p></div>
+    <div class="it"><b>Brand color authority</b><p>Benya teal · MBark navy เป็น Primary 700 · Neutral/Semantic ใช้ family เดียวกันทั้ง 2 บริษัท</p></div>
+    <div class="it"><b>Status = สี + icon + ข้อความ</b><p>ไม่ใช้สีอย่างเดียวบอกสถานะ · Badge ทุกใบมี dot + label ที่อ่านง่าย</p></div>
+    <div class="it"><b>เลขการเงิน = tabular + ชิดขวา</b><p>ทุกตัวเลขเปิด tabular-nums + เครื่องหมาย +/− นำหน้า · ติดลบไม่ใช้แดงทั่วบรรทัด ใช้แค่ตรง exception</p></div>
+    <div class="it"><b>Hero band มีเฉพาะหน้าหลัก/รายงาน</b><p>หน้าทำงาน (Work Queue) ใช้ page head เรียบ ไม่ต้องมี hero · กันรกและช่วยเน้นข้อมูลค้าง</p></div>
+  </div>
+
+  <!-- Palette card -->
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:24px">
+    <div class="card">
+      <div class="card-head"><h3>Brand Palette — Benya (teal)</h3><div class="sub">Primary 700 = #0D9488</div></div>
+      <div class="swatches">
+        <div class="sw" style="background:#042F2E"><small>950</small></div>
+        <div class="sw" style="background:#0F2A33"><small>900</small></div>
+        <div class="sw" style="background:#0C4A47"><small>800</small></div>
+        <div class="sw" style="background:#0D9488"><small>700</small></div>
+        <div class="sw" style="background:#14B8A6"><small>600</small></div>
+        <div class="sw" style="background:#2DD4BF"><small>500</small></div>
+        <div class="sw" style="background:#5EEAD4"><small>400</small></div>
+        <div class="sw" style="background:#99F6E4"><small>300</small></div>
+        <div class="sw" style="background:#CCFBF1"><small>200</small></div>
+        <div class="sw" style="background:#CCFBF1"><small>100</small></div>
+        <div class="sw" style="background:#F0FDFA"><small>50</small></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-head"><h3>Brand Palette — MBark (navy)</h3><div class="sub">Primary 700 = #1E3A8A</div></div>
+      <div class="swatches">
+        <div class="sw" style="background:#0B1432"><small>950</small></div>
+        <div class="sw" style="background:#0F1B3D"><small>900</small></div>
+        <div class="sw" style="background:#172554"><small>800</small></div>
+        <div class="sw" style="background:#1E3A8A"><small>700</small></div>
+        <div class="sw" style="background:#2952C0"><small>600</small></div>
+        <div class="sw" style="background:#4F75D6"><small>500</small></div>
+        <div class="sw" style="background:#7E9CE6"><small>400</small></div>
+        <div class="sw" style="background:#A5B9EE"><small>300</small></div>
+        <div class="sw" style="background:#DBE3F4"><small>200</small></div>
+        <div class="sw" style="background:#DBE3F4"><small>100</small></div>
+        <div class="sw" style="background:#EFF3FA"><small>50</small></div>
+      </div>
+    </div>
+  </div>
+
+  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-top:18px">
+    <div class="card" style="padding:14px">
+      <div style="font:var(--t-cap);font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--ok-700);margin-bottom:8px">Success</div>
+      <div class="swatches" style="grid-template-columns:repeat(5,1fr)">
+        <div class="sw" style="background:#064E3B"></div><div class="sw" style="background:#047857"></div><div class="sw" style="background:#10B981"></div><div class="sw" style="background:#D1FAE5"></div><div class="sw" style="background:#ECFDF5"></div>
+      </div>
+    </div>
+    <div class="card" style="padding:14px">
+      <div style="font:var(--t-cap);font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--wn-700);margin-bottom:8px">Warning</div>
+      <div class="swatches" style="grid-template-columns:repeat(5,1fr)">
+        <div class="sw" style="background:#7C2D12"></div><div class="sw" style="background:#B45309"></div><div class="sw" style="background:#F59E0B"></div><div class="sw" style="background:#FEF3C7"></div><div class="sw" style="background:#FFFBEB"></div>
+      </div>
+    </div>
+    <div class="card" style="padding:14px">
+      <div style="font:var(--t-cap);font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--dg-700);margin-bottom:8px">Danger</div>
+      <div class="swatches" style="grid-template-columns:repeat(5,1fr)">
+        <div class="sw" style="background:#7F1D1D"></div><div class="sw" style="background:#B91C1C"></div><div class="sw" style="background:#DC2626"></div><div class="sw" style="background:#FEE2E2"></div><div class="sw" style="background:#FEF2F2"></div>
+      </div>
+    </div>
+    <div class="card" style="padding:14px">
+      <div style="font:var(--t-cap);font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--in-700);margin-bottom:8px">Info</div>
+      <div class="swatches" style="grid-template-columns:repeat(5,1fr)">
+        <div class="sw" style="background:#1E3A8A"></div><div class="sw" style="background:#1D4ED8"></div><div class="sw" style="background:#2563EB"></div><div class="sw" style="background:#DBEAFE"></div><div class="sw" style="background:#EFF6FF"></div>
+      </div>
+    </div>
+  </div>
+
+  <p style="text-align:center;margin-top:30px;color:var(--n-500);font:var(--t-cap)">
+    Built for Benya Medical Innovations × M Bark Co., Ltd. · เปิดแต่ละไฟล์ผ่าน <code>http://localhost:8000/for-design/finance-os/</code>
+  </p>
+
+</div>
+</body>
+</html>

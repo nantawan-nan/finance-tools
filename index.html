@@ -5185,7 +5185,7 @@ const edDonutPctPlugin = {
     ctx.textAlign = "center"; ctx.textBaseline = "middle";
     meta.data.forEach((arc, i) => {
       const pct = (Number(ds.data[i])||0)/total*100;
-      if(pct < 8) return;                 // โชว์ % กลางชิ้นเฉพาะชิ้นใหญ่ที่มีที่พอ · ชิ้นเล็กดู % ที่ legend
+      if(pct < 8) return;                 // % กลางวงเฉพาะชิ้นใหญ่ (ไม่ชนขอบ) · ชิ้นเล็กดู % ครบที่ legend
       const pos = arc.tooltipPosition();
       ctx.fillStyle = "#fff";
       ctx.fillText(pct.toFixed(0)+"%", pos.x, pos.y);

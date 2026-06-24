@@ -3412,12 +3412,19 @@ async function homeLoadStats(){
   try{
     const co = await fopCompanyId(); if(!co) return;
     const todayISO = new Date().toISOString().slice(0,10);
-    const [ordRes, apRes, balRes] = await Promise.all([
-      sb.from("order_ledger").select("iv_no,re_no,status,order_total,bank_in_date,order_date").eq("company_id",co).is("deleted_at",null).limit(20000),
+    // order_ledger แบ่งหน้า (Supabase ส่งกลับสูงสุด 1000 แถว/ครั้ง)
+    let orders=[], ofrom=0; const osz=1000;
+    while(true){
+      const { data, error } = await sb.from("order_ledger").select("iv_no,re_no,status,order_total,bank_in_date,order_date").eq("company_id",co).is("deleted_at",null).range(ofrom,ofrom+osz-1);
+      if(error){ console.warn("homeLoadStats ord",error); break; }
+      if(!data || !data.length) break;
+      orders=orders.concat(data);
+      if(data.length<osz) break; ofrom+=osz;
+    }
+    const [apRes, balRes] = await Promise.all([
       sb.from("ap_invoices").select("amount_outstanding").eq("company_id",co).is("deleted_at",null),
       sb.rpc("fn_balance_as_of",{ p_company:co, p_as_of: todayISO })
     ]);
-    const orders = ordRes.data||[];
     const active = orders.filter(o=>o.status!=="cancelled");
     const withIv = active.filter(o=>o.iv_no);
     const rePending = withIv.filter(o=>!o.re_no);
@@ -13786,9 +13793,18 @@ async function ordResetLedger(){
 }
 async function ordLoad(){
   const d = ordGet(); const co = await fopCompanyId(); if(!co) return;
-  const { data } = await sb.from("order_ledger").select("*").eq("company_id", co).is("deleted_at", null)
-    .order("order_date",{ascending:false}).order("order_id",{ascending:true}).limit(5000);
-  d.rows = data||[]; d.loaded=true;
+  // ★ Supabase/PostgREST ส่งกลับสูงสุด 1000 แถว/ครั้ง → ต้องแบ่งหน้า (range) ดึงให้ครบ
+  let rows=[], from=0; const sz=1000;
+  while(true){
+    const { data, error } = await sb.from("order_ledger").select("*").eq("company_id", co).is("deleted_at", null)
+      .order("order_date",{ascending:false}).order("order_id",{ascending:true}).range(from, from+sz-1);
+    if(error){ console.warn("ordLoad", error); break; }
+    if(!data || !data.length) break;
+    rows = rows.concat(data);
+    if(data.length < sz) break;
+    from += sz;
+  }
+  d.rows = rows; d.loaded=true;
 }
 function ordSet(k,v){ const d=ordGet(); d[k]=v;
   if(k==="q"){ const c=(document.getElementById("ordQ")||{}).selectionStart; renderToolOrders(); requestAnimationFrame(()=>{const n=document.getElementById("ordQ"); if(n){n.focus(); if(c!=null)try{n.setSelectionRange(c,c);}catch(e){}}}); }

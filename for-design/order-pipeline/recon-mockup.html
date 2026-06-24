@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Order Pipeline — Recon mockup</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --brand:#0d9488; --brand-rgb:13,148,136; --brand-dark:#0f766e;
+    --ink:#1F2A44; --ink2:#5B6B86; --ink3:#9AA8BF; --line:#E6EDF4;
+    --ok:#16a34a; --warn:#d97706; --bad:#dc2626; --bg:#F5F8FB;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);font-family:"IBM Plex Sans Thai","IBM Plex Sans",system-ui,sans-serif;color:var(--ink);padding:26px}
+  .wrap{max-width:1180px;margin:0 auto}
+  h1{font-size:23px;margin:0 0 2px} .sub{color:var(--ink2);font-size:13.5px;margin-bottom:18px}
+  .tnum{font-variant-numeric:tabular-nums}
+  /* tabs */
+  .tabs{display:flex;gap:6px;margin-bottom:18px;flex-wrap:wrap}
+  .tab{font-size:13.5px;font-weight:600;padding:9px 16px;border-radius:11px;border:1px solid var(--line);background:#fff;color:var(--ink2);cursor:pointer}
+  .tab.on{background:var(--brand);color:#fff;border-color:var(--brand)}
+  /* cards */
+  .kpis{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:18px}
+  .kpi{background:#fff;border:1px solid var(--line);border-radius:16px;padding:15px 16px;box-shadow:0 5px 16px rgba(31,42,68,.05)}
+  .kpi .lbl{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.3px}
+  .kpi .val{font-size:27px;font-weight:700;margin-top:3px}
+  .bar{display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
+  .btn{border:none;border-radius:10px;padding:9px 15px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;display:inline-flex;align-items:center;gap:7px;background:#fff;border:1px solid var(--line);color:var(--ink2)}
+  .btn.primary{background:var(--brand);color:#fff;border-color:var(--brand)}
+  .date{border:1px solid var(--line);border-radius:9px;padding:8px 11px;font-size:13px;font-family:inherit}
+  .panel{background:#fff;border:1px solid var(--line);border-radius:14px;overflow:hidden;box-shadow:0 5px 16px rgba(31,42,68,.05)}
+  .phead{display:grid;grid-template-columns:90px 88px 130px 1fr 110px 110px 150px;gap:10px;padding:11px 16px;background:#F8FAFC;font-size:11px;font-weight:700;text-transform:uppercase;color:var(--ink2)}
+  .prow{display:grid;grid-template-columns:90px 88px 130px 1fr 110px 110px 150px;gap:10px;padding:11px 16px;font-size:12.5px;align-items:center;border-top:1px solid #F1F5F9}
+  .prow .mono{font-family:"IBM Plex Sans",monospace;font-size:11.5px}
+  .chip{display:inline-block;font-size:11px;font-weight:600;padding:3px 9px;border-radius:999px}
+  .c-bad{background:#FEE2E2;color:#991B1B} .c-warn{background:#FEF3C7;color:#92400E}
+  .c-ok{background:#DCFCE7;color:#15803D} .c-info{background:#E0F2FE;color:#075985}
+  .lstrip{border-left:4px solid transparent}
+  .s-amount{border-left-color:var(--warn)} .s-sku{border-left-color:#8B5CF6}
+  .s-onlybe{border-left-color:var(--bad)} .s-onlybs{border-left-color:#0ea5e9}
+  .mini{font-size:11px;color:var(--ink3)}
+  .act{display:flex;gap:6px}
+  .act button{font-size:11px;padding:4px 9px;border-radius:7px;border:1px solid var(--line);background:#fff;cursor:pointer;color:var(--ink2)}
+  .act .go{background:var(--brand);color:#fff;border-color:var(--brand)}
+  .note{background:#FFFBEB;border:1px solid #FDE68A;border-radius:10px;padding:10px 13px;font-size:12.5px;color:#92400E;margin-bottom:14px}
+  /* timeline */
+  .tl{padding:14px 18px;background:#FAFBFC}
+  .tlrow{display:flex;gap:12px;align-items:flex-start}
+  .tldot{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px}
+  .tldot.on{background:#DCFCE7;color:var(--ok)} .tldot.off{background:#F1F5F9;color:var(--ink3)}
+  .tlbar{width:2px;height:20px;margin:2px 13px}
+  .tlbar.on{background:#86EFAC} .tlbar.off{background:#E2E8F0}
+  .seg{display:none} .seg.show{display:block}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>ทะเบียนคำสั่งซื้อ <span style="font-size:13px;font-weight:600;color:var(--brand);background:rgba(var(--brand-rgb),.1);padding:3px 10px;border-radius:8px;vertical-align:middle">Benya</span></h1>
+  <div class="sub">mockup — ส่วนที่เพิ่มใหม่: ตรวจรายวัน · สถานะ IV · รับชำระ · timeline จาก event log</div>
+
+  <!-- ============ GLOBAL ORDER SEARCH (เห็นทุกแท็บ) ============ -->
+  <div style="margin-bottom:16px">
+    <div style="position:relative">
+      <input id="gsearch" oninput="gsearch(this.value)" placeholder="🔍 ค้นหาเลขออเดอร์ / IV / RE / BQ / เลขเช็ค / ลูกค้า / SKU — เด้งสถานะเต็มทันที"
+        style="width:100%;border:1.5px solid var(--brand);border-radius:12px;padding:13px 16px;font-size:14px;font-family:inherit;box-shadow:0 4px 14px rgba(var(--brand-rgb),.1)">
+    </div>
+    <!-- ผลค้นหา: การ์ดสรุป + timeline -->
+    <div id="gresult" style="margin-top:12px">
+      <div class="panel" style="border-color:var(--brand)">
+        <div style="padding:14px 18px;background:rgba(var(--brand-rgb),.06);border-bottom:1px solid var(--line);display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+          <span class="mono" style="font-size:15px;font-weight:700">2406230SP771</span>
+          <span class="chip c-info">Shopee · benya_official</span>
+          <span class="chip" style="background:rgba(var(--brand-rgb),.12);color:var(--brand-dark)">Benya</span>
+          <div style="flex:1"></div>
+          <span class="chip c-warn" style="font-size:12px">🧾 สถานะ: รับชำระแล้ว รอออก RE</span>
+        </div>
+        <!-- แถวสรุปเลขสำคัญ -->
+        <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:0;border-bottom:1px solid var(--line)">
+          <div style="padding:11px 14px;border-right:1px solid var(--line)"><div class="mini">ยอดขาย (gross)</div><div class="tnum" style="font-weight:700">1,500.00</div></div>
+          <div style="padding:11px 14px;border-right:1px solid var(--line)"><div class="mini">IV</div><div class="mono" style="font-weight:700;color:var(--ok)">2606000412</div><div class="mini">23/06</div></div>
+          <div style="padding:11px 14px;border-right:1px solid var(--line)"><div class="mini">RE</div><div class="mono" style="color:var(--ink3)">— รอออก —</div></div>
+          <div style="padding:11px 14px;border-right:1px solid var(--line)"><div class="mini">เลขเช็ค</div><div class="mono">SP2406230SP771</div></div>
+          <div style="padding:11px 14px;border-right:1px solid var(--line)"><div class="mini">BQ / เงินเข้า</div><div class="mono" style="color:var(--ink3)">— ยังไม่ถอน —</div></div>
+          <div style="padding:11px 14px"><div class="mini">คงค้าง</div><div class="tnum" style="font-weight:700;color:var(--warn)">0.00</div></div>
+        </div>
+        <!-- timeline -->
+        <div class="tl">
+          <div class="tlrow"><div class="tldot on">🛒</div><div><b style="font-size:13px">ขาย</b><div class="mini">23/06 · Shopee benya_official · gross 1,500 · ส่วนลด 0 · ค่าส่ง 0</div></div></div>
+          <div class="tlbar on"></div>
+          <div class="tlrow"><div class="tldot on">✓</div><div><b style="font-size:13px">ตรวจรายวัน</b><div class="mini">23/06 · ตรงกับหลังบ้าน (ยอด+SKU)</div></div></div>
+          <div class="tlbar on"></div>
+          <div class="tlrow"><div class="tldot on">📄</div><div><b style="font-size:13px">คีย์ IV</b><div class="mini">2606000412 · 23/06 · ยอดตรง · 723-5_2306.csv</div></div></div>
+          <div class="tlbar on"></div>
+          <div class="tlrow"><div class="tldot on">💰</div><div><b style="font-size:13px">รับชำระ</b><div class="mini">รับแล้ว net 1,432.50 · fee 67.50 · <b style="color:var(--warn)">รอออก RE</b></div></div></div>
+          <div class="tlbar off"></div>
+          <div class="tlrow"><div class="tldot off">🏦</div><div><b style="font-size:13px;color:var(--ink3)">BQ → เงินเข้าแบงค์</b><div class="mini">ยังไม่ถอน</div></div></div>
+        </div>
+      </div>
+      <div class="mini" style="margin-top:6px">พิมพ์เลข BQ/เลขเช็ค → โชว์ทุกออเดอร์ในรอบถอน/เช็คนั้น (1 BQ : หลายเช็ค) เป็นลิสต์การ์ด</div>
+    </div>
+  </div>
+
+  <div class="tabs">
+    <button class="tab on" onclick="seg('board')">🚦 สรุปสถานะงาน</button>
+    <button class="tab" onclick="seg('reg')">📋 ทะเบียน</button>
+    <button class="tab" onclick="seg('recon')">🔍 ตรวจรายวัน (Recon)</button>
+    <button class="tab" onclick="seg('iv')">🧾 สถานะ IV</button>
+    <button class="tab" onclick="seg('ar')">💰 รับชำระ/ลูกหนี้</button>
+    <button class="tab" onclick="seg('sum')">📊 สรุปรายเดือน</button>
+  </div>
+
+  <!-- ============ STATUS BOARD (default) ============ -->
+  <div id="board" class="seg show">
+    <div class="bar">
+      <span class="mini">ภาพรวมงานด้านรับ · ทุกออเดอร์อยู่สถานะเดียว = สเตปแรกที่ยังไม่เสร็จ · คลิกแถวเพื่อกรองดู</span>
+      <div style="flex:1"></div>
+      <button class="btn">⬇ Excel</button>
+    </div>
+    <div class="panel">
+      <div class="phead" style="grid-template-columns:34px 1fr 130px 150px 70px"><div></div><div>สถานะปัจจุบัน</div><div>จำนวนออเดอร์</div><div>ยอดเงิน (บาท)</div><div></div></div>
+      <div class="prow lstrip" style="grid-template-columns:34px 1fr 130px 150px 70px;border-left-color:#94a3b8;cursor:pointer"><div style="font-size:16px">🕒</div><div><b>รอเทียบยอดขาย</b></div><div class="tnum">15</div><div class="tnum">28,500</div><div class="act"><button>ดู</button></div></div>
+      <div class="prow lstrip" style="grid-template-columns:34px 1fr 130px 150px 70px;border-left-color:var(--bad);cursor:pointer;background:#FEF2F2"><div style="font-size:16px">⚠️</div><div><b style="color:var(--bad)">ยอดขายไม่ตรง</b> <span class="mini">— ต้องตรวจ/แจ้งฝ่ายขาย</span></div><div class="tnum" style="color:var(--bad)">3</div><div class="tnum">4,200</div><div class="act"><button class="go">ดู</button></div></div>
+      <div class="prow lstrip" style="grid-template-columns:34px 1fr 130px 150px 70px;border-left-color:var(--warn);cursor:pointer"><div style="font-size:16px">📝</div><div><b>รอคีย์ IV</b></div><div class="tnum">42</div><div class="tnum">86,900</div><div class="act"><button>export</button></div></div>
+      <div class="prow lstrip" style="grid-template-columns:34px 1fr 130px 150px 70px;border-left-color:#0ea5e9;cursor:pointer"><div style="font-size:16px">💵</div><div><b>คีย์ IV แล้ว รอรับชำระ</b></div><div class="tnum">120</div><div class="tnum">245,000</div><div class="act"><button>ดู</button></div></div>
+      <div class="prow lstrip" style="grid-template-columns:34px 1fr 130px 150px 70px;border-left-color:#8B5CF6;cursor:pointer"><div style="font-size:16px">🧾</div><div><b>รับชำระแล้ว รอออก RE</b></div><div class="tnum">18</div><div class="tnum">32,000</div><div class="act"><button>ดู</button></div></div>
+      <div class="prow lstrip" style="grid-template-columns:34px 1fr 130px 150px 70px;border-left-color:#f59e0b;cursor:pointer"><div style="font-size:16px">🏦</div><div><b>ถอนเงินแล้ว รอเงินเข้าธนาคาร</b></div><div class="tnum">5</div><div class="tnum">78,500</div><div class="act"><button>ดู</button></div></div>
+      <div class="prow lstrip" style="grid-template-columns:34px 1fr 130px 150px 70px;border-left-color:var(--ok);cursor:pointer;background:#F0FDF4"><div style="font-size:16px">✅</div><div><b style="color:var(--ok)">ปิดงานแล้ว</b></div><div class="tnum" style="color:var(--ok)">1,250</div><div class="tnum">2,450,000</div><div class="act"><button>ดู</button></div></div>
+      <div class="prow" style="grid-template-columns:34px 1fr 130px 150px 70px;background:#F8FAFC;font-weight:700"><div></div><div>รวม (ไม่รวมยกเลิก)</div><div class="tnum">1,453</div><div class="tnum">2,925,100</div><div></div></div>
+    </div>
+    <div class="mini" style="margin-top:10px">+ มีแถวเสริมตามจริง: "รออนุมัติ (คีย์มือ FB/LINE)" · "คีย์ IV ผิด รอแก้" · "ออก RE แล้ว รอฝากเช็ค" — funnel ชี้คอขวดว่าค้างเยอะที่สเตปไหน</div>
+  </div>
+
+  <!-- ============ RECON ============ -->
+  <div id="recon" class="seg">
+    <div class="bar">
+      <input class="date" type="date" value="2026-06-24">
+      <button class="btn primary">📥 อัปไฟล์หลังบ้าน (Shopee/TikTok/Lazada) แล้วเทียบ</button>
+      <div style="flex:1"></div>
+      <button class="btn">⬇ ออเดอร์คีย์ไม่ครบ (ส่งฝ่ายขาย)</button>
+      <button class="btn">⬇ รายงานขายรายวัน (ตาม order_no)</button>
+    </div>
+
+    <div class="kpis">
+      <div class="kpi"><div class="lbl" style="color:var(--ink3)">ตรวจทั้งหมด</div><div class="val tnum">214</div></div>
+      <div class="kpi"><div class="lbl" style="color:var(--ok)">ตรงกัน ✓</div><div class="val tnum" style="color:var(--ok)">198</div></div>
+      <div class="kpi"><div class="lbl" style="color:var(--bad)">หลังบ้านมี · ขายยังไม่คีย์</div><div class="val tnum" style="color:var(--bad)">7</div></div>
+      <div class="kpi"><div class="lbl" style="color:var(--warn)">ยอดต่าง</div><div class="val tnum" style="color:var(--warn)">5</div></div>
+      <div class="kpi"><div class="lbl" style="color:#8B5CF6">SKU/จำนวนต่าง</div><div class="val tnum" style="color:#8B5CF6">4</div></div>
+    </div>
+
+    <div class="note">⚠️ <b>16 รายการต้องตรวจสอบ</b> — แสดงเฉพาะที่ไม่ตรง (198 ที่ตรงเก็บ log ไว้แล้ว · กดดูได้ที่ "ตรงกัน")</div>
+
+    <div class="panel">
+      <div class="phead"><div>วันที่</div><div>ช่องทาง</div><div>order_no</div><div>ปัญหา</div><div>BigSeller</div><div>หลังบ้าน</div><div>จัดการ</div></div>
+
+      <div class="prow lstrip s-onlybe" style="cursor:pointer" onclick="tl('t1')">
+        <div class="tnum">24/06</div><div>Shopee</div><div class="mono">2406240SP881</div>
+        <div><span class="chip c-bad">หลังบ้านมี ขายไม่คีย์</span> <span class="mini">— ฝ่ายขายยังไม่ลง BigSeller</span></div>
+        <div class="mini">— ไม่มี —</div><div class="tnum">1,290.00</div>
+        <div class="act"><button class="go">แจ้งฝ่ายขาย</button><button>ปิด</button></div>
+      </div>
+      <div id="t1" class="seg tl">
+        <div class="tlrow"><div class="tldot on">🛒</div><div><b style="font-size:13px">ขาย (หลังบ้าน Shopee)</b><div class="mini">24/06/2026 · 1,290.00 · ดึงจากไฟล์ shopee_2406.xlsx</div></div></div>
+        <div class="tlbar off"></div>
+        <div class="tlrow"><div class="tldot off">📄</div><div><b style="font-size:13px;color:var(--ink3)">BigSeller / IV</b><div class="mini">ยังไม่พบใน BigSeller → ฝ่ายขายต้องคีย์เพิ่ม</div></div></div>
+      </div>
+
+      <div class="prow lstrip s-amount">
+        <div class="tnum">24/06</div><div>TikTok</div><div class="mono">576123884019</div>
+        <div><span class="chip c-warn">ยอดต่าง 50.00</span> <span class="mini">BigSeller น้อยกว่าหลังบ้าน</span></div>
+        <div class="tnum">850.00</div><div class="tnum" style="color:var(--warn)">900.00</div>
+        <div class="act"><button class="go">แก้ BigSeller</button><button>ยอมรับ</button></div>
+      </div>
+
+      <div class="prow lstrip s-sku">
+        <div class="tnum">24/06</div><div>Lazada</div><div class="mono">LZ-7781902</div>
+        <div><span class="chip" style="background:#EDE9FE;color:#6D28D9">SKU ต่าง</span> <span class="mini">หลังบ้านมี <b>BTR-02 ×1</b> เกินจาก BigSeller</span></div>
+        <div class="tnum">2,400.00</div><div class="tnum">2,400.00</div>
+        <div class="act"><button class="go">ดูรายละเอียด</button><button>ยอมรับ</button></div>
+      </div>
+
+      <div class="prow lstrip s-onlybs">
+        <div class="tnum">24/06</div><div>Shopee</div><div class="mono">2406240SP002</div>
+        <div><span class="chip c-info">BigSeller มี · หลังบ้านไม่มี</span> <span class="mini">— อาจยกเลิก/คนละวัน</span></div>
+        <div class="tnum">560.00</div><div class="mini">— ไม่มี —</div>
+        <div class="act"><button class="go">ตรวจ</button><button>ปิด</button></div>
+      </div>
+
+      <div class="prow" style="background:#F8FAFC;color:var(--ink3);font-size:12px;grid-template-columns:1fr">
+        … แสดง 4 จาก 16 รายการที่ต้องตรวจ · 198 รายการตรงกันถูกเก็บ log แล้ว
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ IV STATUS ============ -->
+  <div id="iv" class="seg">
+    <div class="bar">
+      <button class="btn primary">📥 อัปรายงานขาย 723-5</button>
+      <div style="flex:1"></div>
+      <button class="btn">⬇ รายการรอแก้ IV (ให้บัญชีโหลดไปแก้)</button>
+    </div>
+    <div class="kpis" style="grid-template-columns:repeat(4,1fr)">
+      <div class="kpi"><div class="lbl" style="color:var(--ink3)">ออเดอร์ทั้งหมด</div><div class="val tnum">214</div></div>
+      <div class="kpi"><div class="lbl" style="color:var(--ok)">มี IV ถูกต้อง</div><div class="val tnum" style="color:var(--ok)">181</div></div>
+      <div class="kpi"><div class="lbl" style="color:var(--warn)">รอคีย์ IV</div><div class="val tnum" style="color:var(--warn)">26</div></div>
+      <div class="kpi"><div class="lbl" style="color:var(--bad)">คีย์ผิด · รอแก้</div><div class="val tnum" style="color:var(--bad)">7</div></div>
+    </div>
+    <div class="panel">
+      <div class="phead" style="grid-template-columns:90px 130px 130px 1fr 120px 130px"><div>วันที่</div><div>order_no</div><div>IV</div><div>ปัญหา</div><div>ยอดควรเป็น</div><div>ยอด IV</div></div>
+      <div class="prow lstrip s-amount" style="grid-template-columns:90px 130px 130px 1fr 120px 130px">
+        <div class="tnum">23/06</div><div class="mono">2406230SP771</div><div class="mono">2606000412</div>
+        <div><span class="chip c-warn">ยอด IV ไม่ตรง</span></div><div class="tnum">1,500.00</div><div class="tnum" style="color:var(--bad)">1,050.00</div>
+      </div>
+      <div class="prow lstrip s-onlybe" style="grid-template-columns:90px 130px 130px 1fr 120px 130px">
+        <div class="tnum">24/06</div><div class="mono">2406240SP881</div><div class="mini">—</div>
+        <div><span class="chip c-bad">ยังไม่คีย์ IV</span></div><div class="tnum">1,290.00</div><div class="mini">—</div>
+      </div>
+    </div>
+    <div class="mini" style="margin-top:10px">โหลด "รายการรอแก้ IV" → แก้ในระบบบัญชี → อัป 723-5 ใหม่ → สถานะ flip เป็น "ถูกต้อง" อัตโนมัติ</div>
+  </div>
+
+  <!-- ============ AR ============ -->
+  <div id="ar" class="seg">
+    <div class="kpis" style="grid-template-columns:repeat(4,1fr)">
+      <div class="kpi"><div class="lbl" style="color:var(--warn)">คีย์ IV แล้ว · ยังไม่รับชำระ</div><div class="val tnum" style="color:var(--warn)">19</div></div>
+      <div class="kpi"><div class="lbl" style="color:var(--ink3)">รับชำระบางส่วน</div><div class="val tnum">3</div></div>
+      <div class="kpi"><div class="lbl" style="color:var(--ok)">รับครบ · ออก RE</div><div class="val tnum" style="color:var(--ok)">162</div></div>
+      <div class="kpi"><div class="lbl" style="color:var(--ink3)">คงค้างรวม (บาท)</div><div class="val tnum" style="font-size:21px">48,200</div></div>
+    </div>
+    <div class="panel">
+      <div class="phead" style="grid-template-columns:130px 120px 110px 110px 110px 110px 1fr"><div>order_no</div><div>IV</div><div>ยอด IV</div><div>net เข้ากระเป๋า</div><div>ค่าธรรมเนียม</div><div>คงค้าง</div><div>RE / สถานะ</div></div>
+      <div class="prow" style="grid-template-columns:130px 120px 110px 110px 110px 110px 1fr">
+        <div class="mono">2406230SP771</div><div class="mono">2606000412</div><div class="tnum">1,500.00</div>
+        <div class="tnum" style="color:var(--ok)">1,432.50</div><div class="tnum mini">67.50</div><div class="tnum">0.00</div>
+        <div><span class="chip c-ok">RE2606000088</span></div>
+      </div>
+      <div class="prow lstrip s-amount" style="grid-template-columns:130px 120px 110px 110px 110px 110px 1fr">
+        <div class="mono">2406240TT019</div><div class="mono">2606000455</div><div class="tnum">900.00</div>
+        <div class="tnum mini">—</div><div class="tnum mini">—</div><div class="tnum" style="color:var(--warn)">900.00</div>
+        <div><span class="chip c-warn">คีย์ IV แล้ว ยังไม่รับชำระ</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ REGISTER (เดิม + คอลัมน์ใหม่) ============ -->
+  <div id="reg" class="seg">
+
+    <!-- การ์ดสรุปตอนนำเข้า: แยกบริษัทอัตโนมัติจากชื่อร้าน -->
+    <div class="panel" style="margin-bottom:14px;border-color:#FDE68A">
+      <div style="padding:13px 16px;background:#FFFBEB;border-bottom:1px solid #FDE68A;font-weight:700;font-size:13.5px;color:#92400E">
+        📥 นำเข้า bigseller_2406.xlsx — พบ <b>2 บริษัทปนกัน</b> · ระบบแยกตามชื่อร้านให้แล้ว
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:0">
+        <div style="padding:14px 16px;border-right:1px solid var(--line)">
+          <div class="mini">Benya (บริษัทปัจจุบัน)</div>
+          <div style="font-size:22px;font-weight:700;color:var(--brand)">214 <span style="font-size:12px;font-weight:600;color:var(--ink2)">ออเดอร์ → นำเข้า ✓</span></div>
+          <div class="mini">ร้าน: benya_official · betra_brand</div>
+        </div>
+        <div style="padding:14px 16px;border-right:1px solid var(--line)">
+          <div class="mini">M Bark (อีกบริษัท)</div>
+          <div style="font-size:22px;font-weight:700;color:var(--ink3)">98 <span style="font-size:12px;font-weight:600;color:var(--ink2)">ข้ามไว้</span></div>
+          <div class="mini">ร้าน: mommam_official · MommamOfficialTH</div>
+        </div>
+        <div style="padding:14px 16px">
+          <div class="mini" style="color:var(--bad)">ร้านที่ยังไม่รู้จัก</div>
+          <div style="font-size:22px;font-weight:700;color:var(--bad)">1 <span style="font-size:12px;font-weight:600;color:var(--ink2)">ร้าน · 12 ออเดอร์</span></div>
+          <div class="mini">ต้องระบุบริษัทก่อน ↓</div>
+        </div>
+      </div>
+      <!-- unknown shop assignment -->
+      <div style="padding:13px 16px;border-top:1px dashed var(--line);display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <span style="font-size:13px">ร้าน <b class="mono">"Qicare_outlet"</b> เป็นของบริษัทไหน?</span>
+        <button class="btn" style="border-color:var(--brand);color:var(--brand)">Benya</button>
+        <button class="btn">M Bark</button>
+        <span class="mini">→ จำไว้ใน shop_registry · เดือนหน้าแยกเองอัตโนมัติ (ทุกเครื่องเห็นเหมือนกัน)</span>
+        <div style="flex:1"></div>
+        <button class="btn primary">นำเข้าทั้ง 2 บริษัทเลย</button>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="phead" style="grid-template-columns:90px 90px 130px 1fr 100px 110px 110px"><div>วันที่</div><div>ช่องทาง</div><div>order_no</div><div>สินค้า</div><div>ยอด</div><div>recon</div><div>IV</div></div>
+      <div class="prow" style="grid-template-columns:90px 90px 130px 1fr 100px 110px 110px" onclick="tl('t2')" >
+        <div class="tnum">24/06</div><div>Shopee</div><div class="mono">2406240SP010</div><div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Betra เซรั่ม 30ml ×2</div>
+        <div class="tnum">1,180.00</div><div><span class="chip c-ok">ตรง</span></div><div><span class="chip c-ok">2606000420</span></div>
+      </div>
+      <div id="t2" class="seg tl">
+        <div class="tlrow"><div class="tldot on">🛒</div><div><b style="font-size:13px">ขาย</b><div class="mini">24/06 · Shopee · 1,180.00 · shopee_2406.xlsx</div></div></div>
+        <div class="tlbar on"></div>
+        <div class="tlrow"><div class="tldot on">✓</div><div><b style="font-size:13px">ตรวจรายวัน</b><div class="mini">24/06 14:02 · ตรงกับหลังบ้าน (ยอด+SKU)</div></div></div>
+        <div class="tlbar on"></div>
+        <div class="tlrow"><div class="tldot on">📄</div><div><b style="font-size:13px">คีย์ IV</b><div class="mini">2606000420 · 24/06 · ยอดตรง · 723-5_2406.csv</div></div></div>
+        <div class="tlbar on"></div>
+        <div class="tlrow"><div class="tldot on">💰</div><div><b style="font-size:13px">รับชำระ (RE)</b><div class="mini">RE2606000088 · เช็ค SP2406240SP010 · net 1,127.10 · fee 52.90</div></div></div>
+        <div class="tlbar on"></div>
+        <div class="tlrow"><div class="tldot" style="background:#FEF3C7;color:#92400E;font-weight:800">±</div><div><b style="font-size:13px;color:#92400E">ปรับยอดย้อนหลัง (Adjustment)</b><div class="mini">Affiliate fee −15.00 · 26/06 · จากรายงาน platform → net เข้าจริง 1,112.10</div></div></div>
+        <div class="tlbar on"></div>
+        <div class="tlrow"><div class="tldot on">🏦</div><div><b style="font-size:13px">BQ → เงินเข้าแบงค์</b><div class="mini">BQ 2606250003 (1 BQ รวมหลายเช็ค) · ฝาก 25/06 · เข้า SCB 26/06 · ✓ ตรง STM</div></div></div>
+      </div>
+    </div>
+    <div class="mini" style="margin-top:10px">คลิกแถว = กาง timeline (อ่านจาก order_events จริง — มีเวลา + ไฟล์ที่มา + แท็กกลับ IV/RE/BQ)</div>
+  </div>
+
+  <!-- ============ MONTHLY SUMMARY ============ -->
+  <div id="sum" class="seg">
+    <div class="bar">
+      <select class="date"><option>มิถุนายน 2569</option></select>
+      <span class="mini">ณ วันที่</span><input class="date" type="date" value="2026-06-24">
+      <div style="flex:1"></div>
+      <button class="btn">📷 PNG</button><button class="btn">⬇ Excel</button>
+    </div>
+    <div class="kpis" style="grid-template-columns:repeat(4,1fr)">
+      <div class="kpi"><div class="lbl" style="color:var(--ink3)">ออเดอร์ในเดือน</div><div class="val tnum">1,842</div></div>
+      <div class="kpi"><div class="lbl" style="color:var(--ok)">คีย์ IV แล้ว</div><div class="val tnum" style="color:var(--ok)">1,693</div></div>
+      <div class="kpi"><div class="lbl" style="color:var(--warn)">รอคีย์ IV</div><div class="val tnum" style="color:var(--warn)">149</div></div>
+      <div class="kpi"><div class="lbl" style="color:var(--ink3)">ยอด IV รวม (บาท)</div><div class="val tnum" style="font-size:21px">2.41M</div></div>
+    </div>
+
+    <div class="panel" style="padding:18px 20px">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px">
+        <b style="font-size:14px">ยอดออเดอร์ต่อแพลตฟอร์ม (บาท) = คีย์ IV แล้ว + คงค้างคีย์ IV · มิ.ย. 2569 ถึง 24/06</b>
+        <span class="mini">หน่วย: บาท</span>
+      </div>
+      <div style="display:flex;align-items:flex-end;gap:34px;height:280px;padding:14px 10px 0;border-bottom:2px solid var(--line)">
+        <!-- แต่ละแท่ง = ยอดออเดอร์ (เต็มแท่ง) · ล่าง=คีย์ IV (เข้ม) · บน=คงค้างคีย์ IV (อำพัน) -->
+        <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%">
+          <div style="font-size:13px;font-weight:700;color:var(--ink)">1.15M</div>
+          <div class="mini" style="color:var(--warn);font-weight:600">คงค้าง 0.13M</div>
+          <div style="width:66%;background:#FDE68A;height:24px;border-radius:6px 6px 0 0"></div>
+          <div style="width:66%;background:var(--brand);height:188px;border-radius:0 0 6px 6px;display:flex;align-items:flex-end;justify-content:center;padding-bottom:6px"><span style="color:#fff;font-size:11px;font-weight:700">IV 1.02M</span></div>
+        </div>
+        <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%">
+          <div style="font-size:13px;font-weight:700;color:var(--ink)">0.79M</div>
+          <div class="mini" style="color:var(--warn);font-weight:600">คงค้าง 0.08M</div>
+          <div style="width:66%;background:#FDE68A;height:14px;border-radius:6px 6px 0 0"></div>
+          <div style="width:66%;background:#0ea5e9;height:127px;border-radius:0 0 6px 6px;display:flex;align-items:flex-end;justify-content:center;padding-bottom:6px"><span style="color:#fff;font-size:11px;font-weight:700">IV 0.71M</span></div>
+        </div>
+        <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%">
+          <div style="font-size:13px;font-weight:700;color:var(--ink)">0.58M</div>
+          <div class="mini" style="color:var(--warn);font-weight:600">คงค้าง 0.06M</div>
+          <div style="width:66%;background:#FDE68A;height:11px;border-radius:6px 6px 0 0"></div>
+          <div style="width:66%;background:#8B5CF6;height:93px;border-radius:0 0 6px 6px;display:flex;align-items:flex-end;justify-content:center;padding-bottom:6px"><span style="color:#fff;font-size:11px;font-weight:700">IV 0.52M</span></div>
+        </div>
+        <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%">
+          <div style="font-size:13px;font-weight:700;color:var(--ink)">0.18M</div>
+          <div class="mini" style="color:var(--warn);font-weight:600">คงค้าง 0.02M</div>
+          <div style="width:66%;background:#FDE68A;height:6px;border-radius:6px 6px 0 0"></div>
+          <div style="width:66%;background:#64748b;height:28px;border-radius:0 0 6px 6px;display:flex;align-items:flex-end;justify-content:center;padding-bottom:4px"><span style="color:#fff;font-size:10px;font-weight:700">0.16M</span></div>
+        </div>
+      </div>
+      <div style="display:flex;gap:34px;padding:8px 10px 0">
+        <div style="flex:1;text-align:center;font-size:12.5px;font-weight:600">Shopee</div>
+        <div style="flex:1;text-align:center;font-size:12.5px;font-weight:600">TikTok</div>
+        <div style="flex:1;text-align:center;font-size:12.5px;font-weight:600">Lazada</div>
+        <div style="flex:1;text-align:center;font-size:12.5px;font-weight:600">หน้าร้าน</div>
+      </div>
+      <div style="display:flex;gap:16px;margin-top:12px;font-size:11.5px;color:var(--ink2);align-items:center">
+        <span><span style="display:inline-block;width:11px;height:11px;background:var(--brand);border-radius:3px;vertical-align:middle"></span> คีย์ IV แล้ว (บาท)</span>
+        <span><span style="display:inline-block;width:11px;height:11px;background:#FDE68A;border-radius:3px;vertical-align:middle"></span> คงค้างคีย์ IV (บาท)</span>
+        <span class="mini">เต็มแท่ง = ยอดออเดอร์ · ตัวอย่าง Shopee: ออเดอร์ 1.15M = IV 1.02M + คงค้าง 0.13M</span>
+      </div>
+    </div>
+
+    <div class="panel" style="margin-top:14px">
+      <div class="phead" style="grid-template-columns:1.2fr 90px 130px 130px 130px 90px"><div>แพลตฟอร์ม</div><div>ออเดอร์(ใบ)</div><div>ยอดออเดอร์</div><div>คีย์ IV แล้ว</div><div>คงค้างคีย์ IV</div><div>ยกเลิก</div></div>
+      <div class="prow" style="grid-template-columns:1.2fr 90px 130px 130px 130px 90px"><div><b>Shopee</b></div><div class="tnum">812</div><div class="tnum">1,150,200</div><div class="tnum" style="color:var(--ok)">1,021,400</div><div class="tnum" style="color:var(--warn)">128,800</div><div class="tnum mini">9</div></div>
+      <div class="prow" style="grid-template-columns:1.2fr 90px 130px 130px 130px 90px"><div><b>TikTok</b></div><div class="tnum">541</div><div class="tnum">793,100</div><div class="tnum" style="color:var(--ok)">712,900</div><div class="tnum" style="color:var(--warn)">80,200</div><div class="tnum mini">6</div></div>
+      <div class="prow" style="grid-template-columns:1.2fr 90px 130px 130px 130px 90px"><div><b>Lazada</b></div><div class="tnum">372</div><div class="tnum">580,500</div><div class="tnum" style="color:var(--ok)">521,200</div><div class="tnum" style="color:var(--warn)">59,300</div><div class="tnum mini">4</div></div>
+      <div class="prow" style="grid-template-columns:1.2fr 90px 130px 130px 130px 90px"><div><b>หน้าร้าน (FB/LINE)</b></div><div class="tnum">117</div><div class="tnum">178,100</div><div class="tnum" style="color:var(--ok)">158,300</div><div class="tnum" style="color:var(--warn)">19,800</div><div class="tnum mini">1</div></div>
+      <div class="prow" style="grid-template-columns:1.2fr 90px 130px 130px 130px 90px;background:#F8FAFC;font-weight:700"><div>รวม</div><div class="tnum">1,842</div><div class="tnum">2,701,900</div><div class="tnum" style="color:var(--ok)">2,413,800</div><div class="tnum" style="color:var(--warn)">288,100</div><div class="tnum mini">20</div></div>
+    </div>
+  </div>
+
+</div>
+<script>
+  function seg(id){
+    document.querySelectorAll('.tabs .tab').forEach(b=>b.classList.remove('on'));
+    event.target.classList.add('on');
+    document.querySelectorAll('.wrap > .seg').forEach(s=>s.classList.remove('show'));
+    document.getElementById(id).classList.add('show');
+  }
+  function tl(id){ const e=document.getElementById(id); e.classList.toggle('show'); }
+  // static mockup: ผลค้นหาโชว์ค้างไว้เป็นตัวอย่าง · ของจริงจะ query Supabase แล้ว render การ์ด
+  function gsearch(v){ document.getElementById('gresult').style.display = v.trim()==='' ? 'none' : 'block'; }
+</script>
+</body>
+</html>

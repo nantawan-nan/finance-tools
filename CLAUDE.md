@@ -177,6 +177,16 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-06-24 — Order Pipeline redesign (Stage 1: schema) — ยุบ order master เดียว + recon ครบสาย
+- **เป้าหมาย:** ทะเบียนคำสั่งซื้อ = hub งานด้านรับทั้งสาย (ออเดอร์→ตรวจ BigSeller↔หลังบ้าน→คีย์ IV→รับชำระ→เงินเข้าแบงค์) เกาะออเดอร์เดียว timeline เดียว · export AutoKey ทุกสเตป
+- **ตัดสินใจ:** ยึด BigSeller `orders`/`order_items` เป็น **order master เดียว** (deprecate `order_ledger`) · รายงานหลังบ้าน Shopee/TikTok/Lazada = แหล่ง recon
+- **Cardinality (เจ้าของยืนยัน):** 1 Order = 1 IV = 1 RE เป๊ะ → flat columns บน `orders` · มีแค่ฝากเช็ค 1 BQ : หลายเช็ค → ใช้ `brec_mp_*` เดิม
+- **กฎ recon (strict 0):** เทียบ gross + ค่าส่ง + ส่วนลด + SKU×qty · order_no ตรงเป๊ะ · **gross BigSeller = `ราคาสินค้าเดิม` ?? `ราคา`** (คีย์มือ FACE/LINE/Dealer ใช้ `ราคา`) · หลังบ้าน gross: Shopee=`ราคาขายสุทธิ`, TikTok=`SKU Subtotal Before Discount`, Lazada=`unitPrice`×แถว · ค่าส่ง: Shopee=`ค่าจัดส่งที่ชำระโดยผู้ซื้อ`, TikTok=`Shipping Fee After Discount`, Lazada=`shippingFee`
+- **Schema** `supabase/orders_pipeline.sql` (Stage 1, deploy แล้ว · idempotent + EXCEPTION-wrapped · ตั้งชื่อ sort หลัง orders.sql): ขยาย `orders` (iv/re/bq/bank/recon/gross/source_type/approval cols) + `order_items` (returned_qty/refund/net_qty) + ตารางใหม่ `order_recon_runs`/`order_recon` (แช่ 2 ฝั่ง กู้คืนได้)/`import_column_map` (learned header map)/`shop_registry` (ร้าน→บริษัท)/`order_adjustments` (platform ปรับย้อนหลัง) + เพิ่ม col `order_events` (company/order_no)
+- **`orders`/`order_items` สร้างจากแอป (ไม่มี migration เดิม)** → ไฟล์นี้ใส่ `CREATE TABLE IF NOT EXISTS` baseline กัน clone ใหม่พัง
+- **แผนเต็ม + UI mockup + คอลัมน์จริงทุกช่อง:** `for-design/order-pipeline/` (PLAN.md, schema-draft.sql, channel-field-map.md, recon-mockup.html)
+- **Stage ถัดไป (ยังไม่ทำ):** order_events log + timeline · shop auto-split + แก้ `ORD_CH` (config เดิม sig "ร้านค้า BigSeller" ไม่ตรงไฟล์จริง "ร้านค้าเพลตฟอร์ม" → parse ไม่ได้) + header learned-mapping · Recon engine + แท็บตรวจรายวัน · IV validation + AR + status board + กราฟรายเดือน + global order search · export AutoKey (reuse `exkExport`)
+
 ### 2026-06-23 — Cash Flow Forecast (Staff) = รายงานสะอาดเหมือน snapshot (default) + ซ่อนของวิเคราะห์
 - **เจ้าของสั่ง:** หน้า Cash Flow พนักงานบนจอ ให้หน้าตา**เหมือนสแนปชอต** (รายงาน "ประมาณการรายรับ-รายจ่าย" ที่ส่ง LINE) เลย์เอาต์เดียวกันเป๊ะ
 - **ดึง HTML รายงานเป็นฟังก์ชันใช้ร่วม** — `cffStaffReportInner(co, dt, R)` (หัวแบรนด์ gradient + ตาราง pivot ธนาคาร เงินคงเหลือใช้ได้/ถึงกำหนด/หมวด/สุทธิ + ตารางรายละเอียดรายจ่าย) + `cffStaffComputeReport(d, dt)` (คำนวณ filtered/cats/bankDue/bankCat/opening/totalDue/netCash/periodLabel) · **ทั้ง `renderToolCashflowStaff` (หน้าจอ) และ `cffOpenSnapshotStaff` (modal export) เรียกตัวเดียวกัน** → เหมือนกันตลอด แก้ทีเดียว

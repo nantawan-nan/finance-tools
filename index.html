@@ -13332,7 +13332,17 @@ function ordDetectChannel(headers){
   return null;
 }
 function ordNum(v){ if(v==null||v==="")return 0; const n=Number(String(v).replace(/[,%\s]/g,"")); return isNaN(n)?0:n; }
-function ordISO(v){ if(!v) return null; const s=String(v).trim(); let m=s.match(/^(\d{4})-(\d{2})-(\d{2})/); if(m) return `${m[1]}-${m[2]}-${m[3]}`; return bmpThaiDate(s); }
+const ORD_EN_MONTH={jan:1,feb:2,mar:3,apr:4,may:5,jun:6,jul:7,aug:8,sep:9,oct:10,nov:11,dec:12};
+function ordISO(v){
+  if(!v) return null; const s=String(v).trim();
+  let m=s.match(/^(\d{4})-(\d{2})-(\d{2})/); if(m) return `${m[1]}-${m[2]}-${m[3]}`;
+  // อังกฤษ "18 Jun 2026"
+  let e=s.match(/^(\d{1,2})\s+([A-Za-z]{3})[A-Za-z]*\s+(\d{4})/);
+  if(e && ORD_EN_MONTH[e[2].toLowerCase()]){ let y=+e[3]; if(y>=2500)y-=543; return `${y}-${String(ORD_EN_MONTH[e[2].toLowerCase()]).padStart(2,'0')}-${String(+e[1]).padStart(2,'0')}`; }
+  // ไทย "24 มิ.ย. 2026/2569" ผ่าน bsParseDate (รองรับ พ.ศ.)
+  try{ const d=bsParseDate(s); if(d && /^\d{4}-\d{2}-\d{2}/.test(d)) return d.slice(0,10); }catch(err){}
+  return bmpThaiDate(s);
+}
 /* parse 1 ไฟล์รายงานขาย → คืน { channel, orders:[...] } */
 function ordParseSalesFile(rows){
   if(!rows.length) return null;
@@ -13429,7 +13439,7 @@ function ordSplitByCompany(orders, myCompany){
 async function ordIngestChannelOrders(co, parsed, srcLabel){
   const orders = parsed.orders || [];
   if(!orders.length) return { added:0, updated:0, total:0 };
-  const { data:existing } = await sb.from("order_ledger").select("id,order_id,status,iv_no")
+  const { data:existing } = await sb.from("order_ledger").select("id,order_id,status,order_date,order_total,channel_group")
     .eq("company_id", co).is("deleted_at", null);
   const byOid = new Map((existing||[]).filter(o=>o.order_id).map(o=>[o.order_id, o]));
   const inserts = [], updates = [];
@@ -13446,8 +13456,16 @@ async function ordIngestChannelOrders(co, parsed, srcLabel){
       returned_qty: o.returned_qty, is_returned: o.is_returned,
       order_src: srcLabel, order_ingested_at: now
     };
-    if(!ex) inserts.push(rec);
-    else updates.push({ id: ex.id, status:o.status, sale_status_raw:o.sale_status_raw, is_returned:o.is_returned, returned_qty:o.returned_qty, order_total:o.order_total });
+    if(!ex){ inserts.push(rec); continue; }
+    // อัปเดตเฉพาะที่เปลี่ยนจริง (กันยิง DB เปล่า ๆ → ช้า) · เติม order_date ถ้าเดิมว่าง
+    const fillDate = (!ex.order_date && o.order_date) ? o.order_date : (ex.order_date||null);
+    const fillGroup = (!ex.channel_group && o.channel_group) ? o.channel_group : null;
+    const changed = ex.status!==o.status || Number(ex.order_total||0)!==Number(o.order_total||0) || (!ex.order_date && o.order_date) || fillGroup;
+    if(changed){
+      const upd = { status:o.status, sale_status_raw:o.sale_status_raw, is_returned:o.is_returned, returned_qty:o.returned_qty, order_total:o.order_total, order_date:fillDate };
+      if(fillGroup){ upd.channel_group=o.channel_group; upd.channel=o.channel; }
+      updates.push({ id: ex.id, upd });
+    }
   }
   const CH=400; let insErr=null, savedN=0;
   for(let i=0;i<inserts.length;i+=CH){
@@ -13455,7 +13473,11 @@ async function ordIngestChannelOrders(co, parsed, srcLabel){
     if(error){ console.warn("ord ins",error); insErr=error; break; }
     savedN += inserts.slice(i,i+CH).length;
   }
-  for(const u of updates){ await sb.from("order_ledger").update({ status:u.status, sale_status_raw:u.sale_status_raw, is_returned:u.is_returned, returned_qty:u.returned_qty }).eq("id", u.id); }
+  // ★ batch ขนาน (กันช้าจากการ await ทีละแถว) — ครั้งละ 30
+  const UCH=30;
+  for(let i=0;i<updates.length;i+=UCH){
+    await Promise.all(updates.slice(i,i+UCH).map(u=> sb.from("order_ledger").update(u.upd).eq("id", u.id) ));
+  }
   return { added: savedN, updated: updates.length, total: orders.length, error: insErr };
 }
 

@@ -13686,9 +13686,26 @@ async function ordUploadFiles(){
       if(unkTotal) msg += `\n  • ยังไม่รู้บริษัท (รอระบุ ยังไม่นำเข้า): ${unkTotal}  ← ดูแผงเหลืองด้านบน`;
       const sum = mineTotal + otherTotal + unkTotal;
       msg += `\n  ─ รวมตรวจ: ${sum}${sum===totalParsed?" ✓ ครบ":" ⚠️ ไม่ครบ ("+totalParsed+")"}`;
+      const dbNow=(d.rows||[]).length;
+      msg += `\n\n📊 ${coName} ในระบบจริงตอนนี้ (active): ${dbNow} ออเดอร์ = ยอดในกระดานสถานะ`;
+      if(dbNow!==mineTotal) msg += `\n⚠️ ไม่เท่าไฟล์ (${mineTotal}) — มีของค้างจากอัปทดสอบก่อนหน้า\n→ กดปุ่ม "ล้างทะเบียน เริ่มใหม่" แล้วอัปใหม่รอบเดียว เลขจะตรงเป๊ะ`;
       alert(msg);
     }
   }catch(e){ alert("อัปไม่สำเร็จ: "+(e.message||e)); }
+  d.busy=false; renderToolOrders();
+}
+/* ล้างทะเบียนของบริษัทปัจจุบัน (hard delete) — เริ่มใหม่สะอาด ให้เลข reconcile */
+async function ordResetLedger(){
+  if(!brecCanWrite()){ alert("ไม่มีสิทธิ์"); return; }
+  const coName=(COMPANIES.find(c=>c.id===state.company)||{}).name||state.company;
+  if(!confirm(`ล้างทะเบียนคำสั่งซื้อทั้งหมดของ ${coName}?\n\nออเดอร์ที่นำเข้าของบริษัทนี้จะถูกลบทิ้ง (เพื่อเริ่มใหม่สะอาด ๆ) แล้วค่อยอัปไฟล์ BigSeller ใหม่รอบเดียว\n\n*ลบเฉพาะ ${coName} · อีกบริษัทไม่กระทบ*\n\nยืนยัน?`)) return;
+  const co=await fopCompanyId(); if(!co){ alert("หา company_id ไม่เจอ"); return; }
+  const d=ordGet(); d.busy=true; d.unknownShops=[]; renderToolOrders();
+  try{
+    const { error } = await sb.from("order_ledger").delete().eq("company_id", co);
+    if(error){ alert("ล้างไม่สำเร็จ: "+(error.message||JSON.stringify(error))); }
+    else { await ordLoad(); alert(`ล้างทะเบียน ${coName} เรียบร้อย (เหลือ ${(d.rows||[]).length}) · อัปไฟล์ BigSeller ใหม่ได้เลย — เลขจะตรงเป๊ะ`); }
+  }catch(e){ alert("ล้างไม่สำเร็จ: "+(e.message||e)); }
   d.busy=false; renderToolOrders();
 }
 async function ordLoad(){
@@ -13895,6 +13912,8 @@ async function renderToolOrders(){
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px">
       <button class="brec-btn primary" onclick="ordUploadFiles()" ${brecCanWrite()?'':'disabled'}><i data-lucide="upload"></i> อัปรายงานขาย BigSeller</button>
       <button class="brec-btn" onclick="ordExportNoIv()"><i data-lucide="download"></i> ส่งออกออเดอร์ยังไม่คีย์ IV</button>
+      <div style="flex:1"></div>
+      <button class="brec-btn" onclick="ordResetLedger()" ${brecCanWrite()?'':'disabled'} style="color:#dc2626;border-color:#fecaca"><i data-lucide="trash-2"></i> ล้างทะเบียน เริ่มใหม่</button>
     </div>
     ${ordUnknownPanel(d)}
     ${view==='search' ? ordRenderSearch(d) : `

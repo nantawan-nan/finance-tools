@@ -4785,7 +4785,7 @@ function edIsTransfer(t){
   return false;
 }
 /* helper: รายการเดือน (key "YYYY.MM") ที่อยู่ใน scope ที่เลือก — เรียงจากน้อย→มาก
-   monthFilter: "all" (ทุกปี) | "year:2025" (ทั้งปี) | "2025.01" (เดือนเดียว) */
+   monthFilter: "all" (ทุกปี) | "year:2025" (ทั้งปี) | "q:2025:2" (ไตรมาส) | "2025.01" (เดือนเดียว) */
 function edScopeMonthKeys(data, monthFilter){
   const keys = (data.months || []).map(m => m.key).sort();
   if(!monthFilter || monthFilter === "all") return keys;
@@ -4793,12 +4793,17 @@ function edScopeMonthKeys(data, monthFilter){
     const y = monthFilter.slice(5);
     return keys.filter(k => k.slice(0,4) === y);
   }
+  if(monthFilter.startsWith("q:")){
+    const [,y,q] = monthFilter.split(":"); const qn = Number(q);
+    return keys.filter(k => k.slice(0,4) === y && Math.ceil(Number(k.slice(5,7))/3) === qn);
+  }
   return keys.filter(k => k === monthFilter);
 }
 /* helper: ป้ายชื่อ scope ที่อ่านง่าย (ใช้ใน drill/หัวข้อ) */
 function edScopeLabel(monthFilter){
   if(!monthFilter || monthFilter === "all") return "รวมทุกเดือน";
   if(monthFilter.startsWith("year:")) return "ปี " + (Number(monthFilter.slice(5)) + 543);
+  if(monthFilter.startsWith("q:")){ const [,y,q] = monthFilter.split(":"); return "ไตรมาส " + q + "/" + (Number(y) + 543); }
   return edThaiMonth(monthFilter);
 }
 /* helper: ยอดเปิดต้น/ปิดปลายของ scope (รองรับ all/ปี/เดือน) — ต่อบัญชี: เปิด=เดือนแรกที่มีใน scope, ปิด=เดือนสุดท้าย */
@@ -4819,6 +4824,9 @@ function edTxsInScope(data, monthFilter, excludeTransfers){
   if(monthFilter && monthFilter.startsWith("year:")){
     const y = monthFilter.slice(5);
     txs = txs.filter(t => String(t.month).slice(0,4) === y);
+  } else if(monthFilter && monthFilter.startsWith("q:")){
+    const [,y,q] = monthFilter.split(":"); const qn = Number(q);
+    txs = txs.filter(t => String(t.month).slice(0,4) === y && Math.ceil(Number(String(t.month).slice(5,7))/3) === qn);
   } else if(monthFilter !== "all"){
     txs = txs.filter(t => t.month === monthFilter);
   }
@@ -5412,6 +5420,53 @@ function edDeleteYear(y){
 function edSetTab(tab){ edState().tab = tab; edSave(); edRenderDashboard(); }
 function edSetMonth(m){ edState().monthFilter = m; edSave(); edRenderDashboard(); }
 
+/* ปุ่มเลือกช่วงเวลา — กดเลือกปี (หรือรวมทุกปี) แล้วกดเลือกไตรมาส (แทน dropdown เดิม) */
+function edPeriodPicker(data, mf){
+  const years = [...new Set((data.months||[]).map(m => m.key.slice(0,4)))].sort();
+  if(!years.length) return "";
+  const multi = years.length > 1;
+
+  // ปีที่กำลังโฟกัส
+  let actYear = null;
+  if(mf && mf.startsWith("year:")) actYear = mf.slice(5);
+  else if(mf && mf.startsWith("q:")) actYear = mf.split(":")[1];
+  else if(mf && /^\d{4}\./.test(mf)) actYear = mf.slice(0,4);
+  if(!multi) actYear = years[0];   // ปีเดียว → โฟกัสปีนั้นเสมอ (โชว์ไตรมาสได้เลย)
+
+  const btn = (active, val, label, sub) => `<button onclick="edSetMonth('${val}')" style="padding:6px 13px;border-radius:8px;font-size:13px;font-weight:600;font-family:inherit;cursor:pointer;border:1px solid ${active?'var(--brand)':'#c3dafe'};background:${active?'var(--brand)':'#fff'};color:${active?'#fff':'#0f172a'};transition:.12s;line-height:1.2;text-align:center">${label}${sub?`<span style="display:block;font-size:9.5px;font-weight:500;opacity:.82">${sub}</span>`:''}</button>`;
+
+  // แถวปี
+  let yearBtns = "";
+  if(multi){
+    yearBtns += btn(mf==='all', 'all', `รวม ${years.length} ปี`);
+    yearBtns += years.map(y => btn(actYear===y, 'year:'+y, 'ปี '+(Number(y)+543))).join("");
+  } else {
+    yearBtns += btn(mf==='all', 'all', 'ทั้งปี '+(Number(years[0])+543));
+  }
+
+  // แถวไตรมาส (เมื่อเลือกปีแล้ว)
+  let qRow = "";
+  if(actYear){
+    const moy = (data.months||[]).filter(m => m.key.slice(0,4)===actYear).map(m => Number(m.key.slice(5,7)));
+    const wholeVal = multi ? 'year:'+actYear : 'all';
+    const QS = [[1,'Q1','ม.ค.–มี.ค.'],[2,'Q2','เม.ย.–มิ.ย.'],[3,'Q3','ก.ค.–ก.ย.'],[4,'Q4','ต.ค.–ธ.ค.']];
+    const has = q => moy.some(m => Math.ceil(m/3)===q);
+    qRow = `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:7px">
+      <span style="font-size:11.5px;color:var(--ink-3);font-weight:600">ไตรมาส ปี ${Number(actYear)+543}</span>
+      ${btn(mf===wholeVal, wholeVal, 'ทั้งปี')}
+      ${QS.filter(q => has(q[0])).map(q => btn(mf==='q:'+actYear+':'+q[0], 'q:'+actYear+':'+q[0], q[1], q[2])).join("")}
+    </div>`;
+  }
+
+  return `<div style="display:flex;flex-direction:column;gap:0;align-items:flex-start">
+    <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+      <span style="font-size:11.5px;color:var(--ink-3);font-weight:600;margin-right:2px">ช่วงเวลา</span>
+      ${yearBtns}
+    </div>
+    ${qRow}
+  </div>`;
+}
+
 /* ===== โหมดนำเสนอ (present mode) — เต็มจอ + ไฮไลต์ตามเมาส์ ===== */
 let _edPresentMove = null, _edPresentEl = null, _edPresentSbWasHidden = false;
 function edInjectPresentCSS(){
@@ -5555,6 +5610,9 @@ function edPeriodLabel(data, monthFilter){
   if(!data || !data.months.length) return "—";
   if(monthFilter && monthFilter.startsWith("year:")){
     return "ข้อมูลปี " + (Number(monthFilter.slice(5)) + 543);
+  }
+  if(monthFilter && monthFilter.startsWith("q:")){
+    const [,y,q] = monthFilter.split(":"); return "ข้อมูลไตรมาส " + q + " ปี " + (Number(y) + 543);
   }
   if(monthFilter !== "all"){
     return "ข้อมูลของเดือน " + edThaiMonth(monthFilter);
@@ -6099,23 +6157,6 @@ function edRenderDashboard(){
   // ทำลาย charts เก่าก่อน re-render
   Object.keys(_edCharts).forEach(edDestroyChart);
 
-  const edYears = [...new Set(data.months.map(m => m.key.slice(0,4)))].sort();
-  let monthOptions;
-  if(edYears.length > 1){
-    // หลายปี → จัดกลุ่มตามปี + มีตัวเลือก "ทั้งปี" ต่อปี + "ทุกปี" รวมทั้งหมด
-    monthOptions = `<option value="all" ${d.monthFilter==='all'?'selected':''}>ทุกปี (รวม ${data.months.length} เดือน)</option>`;
-    for(const y of edYears){
-      const ym = data.months.filter(m => m.key.slice(0,4) === y);
-      monthOptions += `<optgroup label="ปี ${Number(y)+543} (${y})">`;
-      monthOptions += `<option value="year:${y}" ${d.monthFilter==='year:'+y?'selected':''}>▸ ทั้งปี ${Number(y)+543} (${ym.length} เดือน)</option>`;
-      monthOptions += ym.map(m => `<option value="${m.key}" ${d.monthFilter===m.key?'selected':''}>${m.key}</option>`).join("");
-      monthOptions += `</optgroup>`;
-    }
-  } else {
-    monthOptions = `<option value="all" ${d.monthFilter==='all'?'selected':''}>รวมทั้งปี (${data.months.length} เดือน)</option>` +
-      data.months.map(m => `<option value="${m.key}" ${d.monthFilter===m.key?'selected':''}>${m.key}</option>`).join("");
-  }
-
   const tabs = [
     { id:"summary",  l:"Executive Summary" },
     { id:"activity", l:"Cash Flow by Activity" },
@@ -6155,8 +6196,7 @@ function edRenderDashboard(){
           </div>
         </div>
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-          <label style="font-size:12px;color:var(--ink-3);font-weight:600">ช่วงเวลา</label>
-          <select onchange="edSetMonth(this.value)" style="padding:7px 12px;border:1px solid #c3dafe;border-radius:8px;font-size:13px;background:#fff;font-family:inherit;color:#0f172a">${monthOptions}</select>
+          ${edPeriodPicker(data, d.monthFilter)}
           <select class="ed-hide-present" onchange="edState().pdfOrient=this.value" title="แนวกระดาษ PDF (งบกระแสเงินสด=แนวนอนเสมอ · ทรานแซกชัน=หลายหน้า)" style="padding:7px 10px;border:1px solid #c3dafe;border-radius:8px;font-size:13px;background:#fff;font-family:inherit;color:#0f172a">
             <option value="landscape" ${d.pdfOrient!=='portrait'?'selected':''}>📄 แนวนอน (หลายหน้า)</option>
             <option value="portrait" ${d.pdfOrient==='portrait'?'selected':''}>📐 แนวตั้ง (ย่อ 1 หน้า)</option>
@@ -6169,10 +6209,6 @@ function edRenderDashboard(){
         </div>
       </div>
       ${d.mergeMsg ? `<div class="ed-hide-present" style="background:#ecfdf5;color:#065f46;border:1px solid #a7f3d0;padding:9px 14px;border-radius:9px;margin:0 0 12px;font-size:13px;display:flex;justify-content:space-between;align-items:center;gap:10px"><span>✅ ${esc(d.mergeMsg)}</span><button onclick="edState().mergeMsg=null;edRenderDashboard()" style="background:none;border:none;color:#065f46;cursor:pointer;font-size:16px;line-height:1">✕</button></div>` : ""}
-      ${edYears.length ? `<div class="ed-hide-present" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 12px;font-size:12.5px;color:var(--ink-3)">
-        <span style="font-weight:600">📅 ข้อมูลที่มี:</span>
-        ${edYears.map(y => `<span style="display:inline-flex;align-items:center;gap:6px;background:#f1f5f9;border:1px solid #e2e8f0;border-radius:999px;padding:4px 6px 4px 12px"><b style="color:var(--ink-1)">ปี ${Number(y)+543}</b><span style="color:var(--ink-3)">(${data.months.filter(m=>m.key.slice(0,4)===y).length} ด.)</span><button onclick="edDeleteYear('${y}')" title="ลบข้อมูลปี ${Number(y)+543} (ปีอื่นยังอยู่)" style="background:#fee2e2;color:#b91c1c;border:none;border-radius:999px;width:20px;height:20px;cursor:pointer;font-size:13px;line-height:1;display:inline-flex;align-items:center;justify-content:center">✕</button></span>`).join("")}
-      </div>` : ""}
 
       <div class="ed-tabs">
         ${tabs.map(tb => `<button class="${d.tab===tb.id?'active':''}" onclick="edSetTab('${tb.id}')">${tb.l}</button>`).join("")}

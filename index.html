@@ -14392,6 +14392,321 @@ function ordRenderRecon(d){
     </div>` : `<div class="ord-empty">— ไม่มีรายการในหมวด "${esc(filtLabel)}" —</div>`}`;
 }
 
+/* ============================================================
+   IV Check — อัปรายงานขาย 723-5 → tag IV + validation + coverage
+   ============================================================ */
+/* analyze: เทียบ IVs (จาก 723-5) กับ order_ledger rows · classify เป็น 5 สถานะ
+   - new      : ออเดอร์มี · ยังไม่มี iv → จะ tag ได้
+   - matched  : ออเดอร์มี · iv ตรงเป๊ะ · ยอดตรง
+   - diff     : ออเดอร์มี · iv ตรง แต่ยอดต่าง (sale_amount ≠ iv.total)
+   - conflict : ออเดอร์มี · iv ที่จะ tag ไปทับ iv เดิม (หรือ iv_no ซ้ำกับออเดอร์อื่น)
+   - voided   : IV ขึ้นต้น * ใน 723-5 (ถูกยกเลิก) → เสนอ cancel
+   - orphan   : ไม่มีออเดอร์ที่ ref_order_id match (มี IV แต่ไม่รู้ออเดอร์ไหน)
+*/
+function ordIvAnalyze(salesData, rows){
+  const ivs = ((salesData && salesData.ivs) || []).filter(i => i && i.doc_type === "IV" && i.doc_no);
+  const byOrderId = new Map(), byIvNo = new Map();
+  for(const o of (rows||[])){
+    if(o.order_id) byOrderId.set(o.order_id, o);
+    if(o.iv_no)    byIvNo.set(o.iv_no, o);
+  }
+  const results = [];
+  const seenIv = new Set();
+  for(const iv of ivs){
+    if(seenIv.has(iv.doc_no)) continue;
+    seenIv.add(iv.doc_no);
+    const r = {
+      iv_no: iv.doc_no, doc_date: iv.doc_date || null,
+      customer: iv.customer || "", channel: iv.channel || "",
+      total: Number(iv.total)||0, ref_order_id: iv.ref_order_id || "",
+      voided: !!iv.voided,
+      status: null, orderRowId: null,
+      currentIv: null, currentTotal: null, currentStatus: null,
+      diffAmount: 0,
+    };
+    if(iv.voided){
+      const ord = byOrderId.get(iv.ref_order_id) || byIvNo.get(iv.doc_no);
+      if(ord){ r.orderRowId=ord.id; r.currentIv=ord.iv_no||null; r.currentTotal=Number(ord.sale_amount||ord.order_total||0); r.currentStatus=ord.status; }
+      r.status = "voided"; results.push(r); continue;
+    }
+    const ord = byOrderId.get(iv.ref_order_id);
+    if(!ord){
+      const ordByIv = byIvNo.get(iv.doc_no);
+      if(ordByIv){ r.orderRowId=ordByIv.id; r.currentIv=ordByIv.iv_no; r.currentTotal=Number(ordByIv.sale_amount||ordByIv.order_total||0); r.status="conflict"; r.diffAmount=+(r.total-(r.currentTotal||0)).toFixed(2); }
+      else r.status = "orphan";
+      results.push(r); continue;
+    }
+    r.orderRowId = ord.id;
+    r.currentTotal = Number(ord.sale_amount||ord.order_total||0);
+    r.currentIv = ord.iv_no || null;
+    r.currentStatus = ord.status;
+    if(!ord.iv_no){
+      // อาจมี iv_no นี้อยู่ในออเดอร์อื่น (race) — ถ้า taken ระบุ conflict
+      const ordByIv = byIvNo.get(iv.doc_no);
+      if(ordByIv && ordByIv.id !== ord.id){ r.status="conflict"; r.diffAmount=+(r.total - r.currentTotal).toFixed(2); results.push(r); continue; }
+      r.status = "new";
+      r.diffAmount = +(r.total - r.currentTotal).toFixed(2); // อาจต่างจาก order_total ของ BigSeller
+      results.push(r); continue;
+    }
+    if(ord.iv_no === iv.doc_no){
+      const diff = +((r.total) - r.currentTotal).toFixed(2);
+      r.diffAmount = diff;
+      r.status = Math.abs(diff) >= 0.01 ? "diff" : "matched";
+      results.push(r); continue;
+    }
+    // ord มี iv อื่นอยู่แล้ว — IV ใน 723-5 นี้จะทับ → conflict
+    r.status = "conflict"; r.diffAmount = +(r.total - r.currentTotal).toFixed(2);
+    results.push(r);
+  }
+  // coverage check
+  const ivDates = results.map(r=>r.doc_date).filter(Boolean).sort();
+  const dateFrom = ivDates[0] || null;
+  const dateTo   = ivDates[ivDates.length-1] || null;
+  const activeRows = (rows||[]).filter(o => o.status!=="cancelled" && o.order_date);
+  const ordDates = activeRows.map(o=>o.order_date).sort();
+  const orderFrom = ordDates[0] || null;
+  const orderTo   = ordDates[ordDates.length-1] || null;
+  const gapBefore = dateFrom ? activeRows.filter(o=>!o.iv_no && o.order_date < dateFrom).length : 0;
+  const gapAfter  = dateTo   ? activeRows.filter(o=>!o.iv_no && o.order_date > dateTo).length   : 0;
+  return { ivCount: results.length, dateFrom, dateTo, orderFrom, orderTo, gapBefore, gapAfter, results };
+}
+
+/* อัปไฟล์ 723-5 (1+ ไฟล์) → parse → analyze → เก็บใน state.ord[co].ivCheck */
+async function ordIvUpload(){
+  if(!brecCanWrite()){ alert("ไม่มีสิทธิ์อัปไฟล์"); return; }
+  const files = await new Promise(res=>{
+    const i=document.createElement("input"); i.type="file"; i.accept=".csv"; i.multiple=true;
+    i.onchange=()=>res([...i.files]); i.click();
+  });
+  if(!files || !files.length) return;
+  const d = ordGet(); d.view = "iv";
+  d.ivCheck = d.ivCheck || {}; d.ivCheck.busy = true; d.ivCheck.error = null;
+  renderToolOrders();
+  try{
+    if(!d.loaded) await ordLoad();
+    let mergedIvs = []; const fileNames = [];
+    for(const f of files){
+      const text = bmpDecodeCp874(await f.arrayBuffer());
+      const type = bmpDetectCsvType(text);
+      if(type !== "sales"){
+        d.ivCheck.error = `ไฟล์ "${f.name}" ไม่ใช่รายงานขาย 723-5 (detect = ${type}) — ขอแค่ไฟล์ "รายงานขาย 723-5" CSV`;
+        d.ivCheck.busy = false; renderToolOrders(); return;
+      }
+      const parsed = bmpParseSalesReport(text);
+      mergedIvs = mergedIvs.concat(parsed.ivs || []);
+      fileNames.push(f.name);
+    }
+    // dedupe by doc_no — ใช้ตัวล่าสุดเมื่อซ้ำ
+    const ivByNo = new Map();
+    for(const iv of mergedIvs){ if(iv && iv.doc_no) ivByNo.set(iv.doc_no, iv); }
+    const ivsArr = [...ivByNo.values()];
+    const analyze = ordIvAnalyze({ ivs: ivsArr }, d.rows || []);
+    d.ivCheck = {
+      busy: false, error: null,
+      fileNames, uploadedAt: new Date().toISOString(),
+      ivs: ivsArr,
+      ...analyze,
+      filter: "all",
+    };
+  }catch(e){
+    d.ivCheck = d.ivCheck || {}; d.ivCheck.busy = false;
+    d.ivCheck.error = "parse ไม่สำเร็จ: " + (e.message || e);
+  }
+  renderToolOrders();
+}
+
+function ordIvSetFilter(k){ const d=ordGet(); if(!d.ivCheck) return; d.ivCheck.filter=k; renderToolOrders(); }
+function ordIvClear(){ const d=ordGet(); d.ivCheck=null; renderToolOrders(); }
+
+/* apply: เขียน DB จากผล validate
+   - tagNew    : tag IV ลงออเดอร์ที่ status='new' (ยังไม่มี iv_no)
+   - cancelVoided : set order.status='cancelled' สำหรับแถว voided ที่ map ออเดอร์ได้
+   - fixDiff   : อัปเดต sale_amount ของออเดอร์ที่ status='diff' ให้ตรงกับ 723-5
+*/
+async function ordIvApply(mode){
+  const d = ordGet(); const ic = d.ivCheck; if(!ic || !ic.results) return;
+  if(!brecCanWrite()){ alert("ไม่มีสิทธิ์"); return; }
+  const co = state.company; const now = new Date().toISOString();
+  let label = "", picks = [];
+  if(mode === "tagNew"){
+    picks = ic.results.filter(r => r.status==="new" && r.orderRowId);
+    label = `จะ tag IV ใส่ ${picks.length} ออเดอร์ที่ยังไม่มี IV — ดำเนินการต่อ?`;
+  } else if(mode === "cancelVoided"){
+    picks = ic.results.filter(r => r.status==="voided" && r.orderRowId && r.currentStatus !== "cancelled");
+    label = `จะตั้งสถานะ "ยกเลิก" ให้ ${picks.length} ออเดอร์ที่ IV ใน 723-5 ขึ้นต้น * (voided) — ดำเนินการต่อ?`;
+  } else if(mode === "fixDiff"){
+    picks = ic.results.filter(r => r.status==="diff" && r.orderRowId);
+    label = `จะอัปเดต sale_amount ของ ${picks.length} ออเดอร์ให้ตรงกับยอดใน 723-5 — ดำเนินการต่อ?`;
+  }
+  if(!picks.length){ alert("ไม่มีรายการให้ดำเนินการ"); return; }
+  if(!confirm(label)) return;
+  let n = 0, failN = 0; const src = "ตรวจ IV (723-5)";
+  for(const r of picks){
+    const upd = { updated_at: now };
+    if(mode === "tagNew"){
+      upd.iv_no = r.iv_no; upd.iv_date = r.doc_date || null;
+      upd.sale_amount = r.total; upd.sale_keyed_at = now; upd.sale_src = src;
+    } else if(mode === "cancelVoided"){
+      upd.status = "cancelled"; upd.sale_src = src;
+    } else if(mode === "fixDiff"){
+      upd.sale_amount = r.total; upd.sale_keyed_at = now; upd.sale_src = src;
+    }
+    try{
+      const { error } = await sb.from("order_ledger").update(upd).eq("id", r.orderRowId);
+      if(error){ console.warn("ordIvApply", error); failN++; } else n++;
+    }catch(e){ console.warn("ordIvApply", e); failN++; }
+  }
+  alert(`✓ บันทึก ${n} รายการ${failN?` · ล้มเหลว ${failN}`:''} — กำลังโหลดข้อมูลใหม่`);
+  try{ await ordLoad(true); }catch(e){}
+  // วิเคราะห์ใหม่จาก rows ล่าสุด — กัน user งง
+  if(ic.ivs && ic.ivs.length){
+    const fresh = ordIvAnalyze({ ivs: ic.ivs }, d.rows || []);
+    d.ivCheck = { ...d.ivCheck, ...fresh };
+  }
+  renderToolOrders();
+}
+
+/* render: แท็บ "ตรวจ IV" */
+function ordRenderIv(d){
+  const fmt = ordFmtMoney;
+  const ic = d.ivCheck;
+  const upBtn = `<button class="ord-btn primary" onclick="ordIvUpload()" ${brecCanWrite()?'':'disabled'}><i data-lucide="upload"></i> อัปไฟล์รายงานขาย 723-5 (CSV)</button>`;
+  if(!ic){
+    return `<div class="ord-card" style="padding:36px 24px;text-align:center">
+      <div style="font:700 16px/1.3 inherit;margin-bottom:8px">🧾 ตรวจ IV — เทียบรายงานขาย 723-5 ↔ ทะเบียนคำสั่งซื้อ</div>
+      <div style="font:500 13px/1.7 inherit;color:var(--n-600);margin-bottom:20px;max-width:600px;margin-left:auto;margin-right:auto">อัปไฟล์ <b>"รายงานขาย 723-5"</b> (CSV จาก Express) → ระบบจะ:<br>
+        1. จับคู่ IV กับออเดอร์ผ่าน <code style="background:var(--n-100);padding:1px 6px;border-radius:4px;font:600 12px/1 monospace">ref_order_id</code><br>
+        2. แสดงว่าออเดอร์ไหน <b>คีย์ IV แล้ว / ยังไม่คีย์ / ยอดไม่ตรง / IV โดน void</b><br>
+        3. รู้ว่ารายงานครอบช่วงวันออเดอร์ครบไหม (coverage check)
+      </div>
+      ${upBtn}
+    </div>`;
+  }
+  if(ic.busy){
+    return `<div class="ord-empty"><i data-lucide="loader-2"></i><div class="ttl">กำลัง parse + วิเคราะห์ IV…</div></div>`;
+  }
+  if(ic.error){
+    return `<div class="ord-card" style="padding:20px 22px;border-color:var(--dg-100);background:var(--dg-50)">
+      <div style="font:700 14px/1.3 inherit;color:var(--dg-700);margin-bottom:6px">⚠ ${esc(ic.error)}</div>
+      <div style="margin-top:12px">${upBtn} <button class="ord-btn" onclick="ordIvClear()">ล้าง</button></div>
+    </div>`;
+  }
+  const res = ic.results || [];
+  const c = { new:0, matched:0, diff:0, conflict:0, voided:0, orphan:0 };
+  res.forEach(r => { c[r.status] = (c[r.status]||0)+1; });
+  const needReview = c.diff + c.conflict + c.orphan;
+  const sumTotal = res.reduce((a,r)=>a+(r.voided?0:r.total||0), 0);
+  const sumNew = res.filter(r=>r.status==="new").reduce((a,r)=>a+r.total, 0);
+  // KPI strip (5 ใบ — ใช้ inline grid override)
+  const filt = ic.filter || "all";
+  const kpiCls = { all:"k-brand col", new:"soft-blue", matched:"soft-green", warn:"soft-amber", risk:"soft-red" };
+  const k = (key, n, sum, lbl, sub)=> `<div class="ord-k ${kpiCls[key]||''} click" style="${filt===key?'outline:2px solid currentColor;outline-offset:-2px':''}" onclick="ordIvSetFilter('${key}')">
+    <div class="lbl">${lbl}</div>
+    <div class="v tnum">${n.toLocaleString("th-TH")}</div>
+    <div class="sub">${sub||''}</div>
+  </div>`;
+  const coverageWarn = (ic.gapBefore || ic.gapAfter) ? `
+    <div class="alert" style="display:flex;align-items:flex-start;gap:12px;padding:12px 16px;border:1px solid var(--wn-100);background:var(--wn-50);border-radius:12px;margin-bottom:14px">
+      <div style="width:32px;height:32px;border-radius:9px;background:var(--wn-100);color:var(--wn-700);display:grid;place-items:center;font-size:16px;flex:0 0 32px">⚠</div>
+      <div style="flex:1;font:500 13px/1.5 inherit">
+        <b style="color:var(--n-900)">รายงาน 723-5 อาจครอบช่วงวันไม่ครบ</b><br>
+        ${ic.gapBefore?`มีออเดอร์ <b>${ic.gapBefore}</b> รายการก่อน <b class="tnum">${ic.dateFrom}</b> ที่ยังไม่มี IV — รายงานเริ่มช้าไป<br>`:''}
+        ${ic.gapAfter ?`มีออเดอร์ <b>${ic.gapAfter}</b> รายการหลัง <b class="tnum">${ic.dateTo}</b> ที่ยังไม่มี IV — รายงานหยุดเร็วไป`:''}
+      </div>
+    </div>` : '';
+
+  // Filter logic
+  const inFilter = (r)=> filt==="all" ? true
+    : filt==="new"     ? r.status==="new"
+    : filt==="matched" ? r.status==="matched"
+    : filt==="warn"    ? r.status==="voided"
+    : filt==="risk"    ? (r.status==="diff"||r.status==="conflict"||r.status==="orphan")
+    : true;
+  const list = res.filter(inFilter).sort((a,b)=>{
+    const order = { conflict:1, diff:2, voided:3, orphan:4, new:5, matched:6 };
+    return (order[a.status]||9)-(order[b.status]||9) || ((a.doc_date||'')<(b.doc_date||'')?1:-1);
+  });
+  const filtLabel = { all:"ทั้งหมด", new:"ยังไม่ tag (จะคีย์)", matched:"ตรงแล้ว", warn:"Voided", risk:"ต้องตรวจ (diff/conflict/orphan)" }[filt] || filt;
+  const bdCls = (s)=> s==="matched"?"ok" : s==="new"?"info" : s==="diff"?"warn" : s==="conflict"?"danger" : s==="voided"?"warn" : s==="orphan"?"danger" : "mute";
+  const bdIc  = (s)=> s==="matched"?"✓" : s==="new"?"📝" : s==="diff"?"⚠" : s==="conflict"?"⛔" : s==="voided"?"🚫" : s==="orphan"?"❓" : "•";
+  const bdLab = (s)=> s==="matched"?"ตรงแล้ว" : s==="new"?"ยังไม่ tag" : s==="diff"?"ยอดไม่ตรง" : s==="conflict"?"IV ทับเลขเดิม" : s==="voided"?"Voided" : s==="orphan"?"ไม่มีออเดอร์ match" : s;
+
+  return `
+    <div class="ord-actions">
+      ${upBtn}
+      <button class="ord-btn" onclick="ordIvClear()"><i data-lucide="x"></i> ล้างผล</button>
+      <div style="flex:1"></div>
+      <span style="font:500 12px/1.4 inherit;color:var(--n-500)">
+        ไฟล์: <b style="color:var(--n-700)">${esc((ic.fileNames||[]).join(", "))}</b>
+        ${ic.dateFrom?` · ช่วง <span class="tnum">${esc(ic.dateFrom)}${ic.dateTo&&ic.dateTo!==ic.dateFrom?` ถึง ${esc(ic.dateTo)}`:''}</span>`:''}
+      </span>
+    </div>
+
+    ${coverageWarn}
+
+    <div class="ord-kpis" style="grid-template-columns:1.3fr 1fr 1fr 1fr 1fr">
+      ${k("all", ic.ivCount, sumTotal, "IV ใน 723-5", `${fmt(sumTotal)} บาท · ${(ic.fileNames||[]).length} ไฟล์`)}
+      ${k("new", c.new||0, sumNew, "Tag ใหม่ได้", c.new?fmt(sumNew)+" บาท · พร้อม tag":"ครบแล้ว")}
+      ${k("matched", c.matched||0, 0, "ตรงแล้ว", c.matched?"คีย์ตรง · ยอดตรง":"—")}
+      ${k("warn", c.voided||0, 0, "Voided", c.voided?"เสนอ cancel":"ไม่มี")}
+      ${k("risk", needReview, 0, "ต้องตรวจ", needReview?`diff ${c.diff||0} · conflict ${c.conflict||0} · orphan ${c.orphan||0}`:"ไม่มี")}
+    </div>
+
+    <div style="font:500 12px/1.4 inherit;color:var(--n-500);margin-bottom:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <span>👆 คลิกการ์ดเพื่อกรอง · กำลังดู: <b style="color:var(--n-900)">${esc(filtLabel)}</b> (${list.length.toLocaleString("th-TH")})</span>
+      <div style="flex:1"></div>
+      ${c.new?`<button class="ord-btn btn-sm" style="padding:5px 10px;font-size:12px" onclick="ordIvApply('tagNew')"><i data-lucide="tag"></i> Tag IV ที่ยังว่าง (${c.new})</button>`:''}
+      ${c.voided?`<button class="ord-btn btn-sm" style="padding:5px 10px;font-size:12px;color:var(--wn-700);border-color:var(--wn-100)" onclick="ordIvApply('cancelVoided')"><i data-lucide="ban"></i> Cancel ออเดอร์ที่ voided (${c.voided})</button>`:''}
+      ${c.diff?`<button class="ord-btn btn-sm" style="padding:5px 10px;font-size:12px" onclick="ordIvApply('fixDiff')"><i data-lucide="refresh-cw"></i> แก้ยอดตามรายงาน (${c.diff})</button>`:''}
+    </div>
+
+    ${list.length ? `<div class="ord-card">
+      <div style="max-height:60vh;overflow-y:auto">
+        <table class="ord-table">
+          <thead><tr>
+            <th style="width:90px">วันที่</th>
+            <th style="width:130px">เลขที่ IV</th>
+            <th style="width:160px">รหัสคำสั่งซื้อ</th>
+            <th>ลูกค้า / ช่องทาง</th>
+            <th class="right" style="width:120px">ยอดใน 723-5</th>
+            <th class="right" style="width:110px">ในทะเบียน</th>
+            <th style="width:160px">สถานะ</th>
+          </tr></thead>
+          <tbody>
+            ${list.slice(0,1000).map(r=>{
+              const cur = r.currentTotal!=null ? fmt(r.currentTotal) : '<span style="color:var(--n-400)">—</span>';
+              const diffTxt = r.status==="diff" || (r.status==="new" && Math.abs(r.diffAmount)>=0.01) || r.status==="conflict"
+                ? `<span class="tnum" style="color:var(--wn-700);font:600 11px/1 inherit">${r.diffAmount>0?'+':''}${fmt(r.diffAmount)}</span>` : '';
+              return `<tr>
+                <td class="tnum" style="font-size:12px">${r.doc_date||'—'}</td>
+                <td class="mono">${esc(r.iv_no)}</td>
+                <td class="mono" style="font-size:11px">${esc(r.ref_order_id||'—')}</td>
+                <td style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(r.customer)} / ${esc(r.channel)}">
+                  <div style="font:500 12.5px/1.3 inherit">${esc(r.customer||'—')}</div>
+                  <div style="font:500 11px/1.3 inherit;color:var(--n-500)">${esc(r.channel||'')}</div>
+                </td>
+                <td class="right tnum">${fmt(r.total)}</td>
+                <td class="right tnum" style="color:var(--n-600)">${cur}<br>${diffTxt}</td>
+                <td><span class="ord-bd ${bdCls(r.status)}">${bdIc(r.status)} ${bdLab(r.status)}</span></td>
+              </tr>`;
+            }).join("")}
+          </tbody>
+        </table>
+      </div>
+      ${list.length>1000?`<div style="padding:10px 16px;font:500 12px/1.4 inherit;color:var(--n-500);border-top:1px solid var(--n-100);background:var(--n-50)">แสดง 1,000 จาก ${list.length.toLocaleString("th-TH")}</div>`:''}
+    </div>` : `<div class="ord-empty">— ไม่มีรายการในหมวด "${esc(filtLabel)}" —</div>`}
+
+    <div style="margin-top:14px;font:500 12px/1.5 inherit;color:var(--n-500)">
+      📖 <b>การตีความสถานะ:</b>
+      <span class="ord-bd ok" style="margin:0 4px">✓ ตรงแล้ว</span> ออเดอร์มี IV ตรง + ยอดตรง ·
+      <span class="ord-bd info" style="margin:0 4px">📝 ยังไม่ tag</span> ออเดอร์มีในระบบ แต่ยังไม่มี IV — กดปุ่ม "Tag IV ที่ยังว่าง" ·
+      <span class="ord-bd warn" style="margin:0 4px">⚠ ยอดไม่ตรง</span> IV ตรง แต่ยอดต่าง ·
+      <span class="ord-bd danger" style="margin:0 4px">⛔ IV ทับเลขเดิม</span> ออเดอร์มี IV อื่นอยู่ ·
+      <span class="ord-bd warn" style="margin:0 4px">🚫 Voided</span> IV โดน void ใน Express ·
+      <span class="ord-bd danger" style="margin:0 4px">❓ ไม่มีออเดอร์ match</span> มี IV แต่หาออเดอร์ที่ ref ตรงไม่เจอ
+    </div>`;
+}
+
 /* ===== Order Ledger UI: design tokens scoped to .ord-page ===== */
 function ordInjectStyle(){
   if(document.getElementById("ord-redesign-css")) return;
@@ -14643,12 +14958,14 @@ async function renderToolOrders(){
       ${tabBtn('reg','📋 ทะเบียน', k.totN)}
       ${tabBtn('month','📊 สรุปรายเดือน')}
       ${tabBtn('recon','🔍 ตรวจรายวัน', k.onlyBe||null, k.onlyBe?'t-danger':'')}
+      ${tabBtn('iv','🧾 ตรวจ IV', (d.ivCheck&&d.ivCheck.results)?(d.ivCheck.results.filter(r=>r.status==='new'||r.status==='diff'||r.status==='conflict'||r.status==='voided'||r.status==='orphan').length||null):null, (d.ivCheck&&d.ivCheck.results)?'t-warn':'')}
     </div>
 
     ${d.busy ? `<div class="ord-empty"><i data-lucide="loader-2"></i><div class="ttl">กำลังประมวลผล…</div></div>`
       : view==='month' ? ordRenderMonth(d)
       : view==='reg'   ? ordRenderRegister(d)
       : view==='recon' ? ordRenderRecon(d)
+      : view==='iv'    ? ordRenderIv(d)
       : ordRenderBoard(d) }
     `}
   </div>`;

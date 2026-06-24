@@ -177,6 +177,20 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-06-24 — Orders: แท็บใหม่ "🧾 ตรวจ IV" (อัปรายงานขาย 723-5 → tag IV + validation + coverage)
+- **เป้าหมาย:** ให้รู้ว่า "IV เลขที่อะไรคือคำสั่งซื้ออะไร · คีย์ไปแล้วเท่าไหร่ · ออเดอร์ทั้งหมดมี IV กี่ตัว · สถานะถึงขั้นไหน" — แยกออกจาก Marketplace upload flow ที่ต้องอัป 3 ไฟล์พร้อมกัน
+- **`ordIvAnalyze(salesData, rows)`** — pure function · classify IV ใน 723-5 vs `order_ledger` เป็น 6 สถานะ: `new` (จะ tag), `matched` (iv ตรง+ยอดตรง), `diff` (iv ตรงแต่ยอดต่าง), `conflict` (IV ทับเลขเดิม หรือ ref ตรงแต่ ord มี iv อื่น), `voided` (ขึ้นต้น *), `orphan` (ref ไม่มีออเดอร์ match) · index ตาม order_id + iv_no (กัน iv ทับ) · coverage check (gapBefore/gapAfter — ออเดอร์ที่ก่อน/หลังช่วงรายงานที่ยังไม่มี iv)
+- **`ordIvUpload()`** — file picker รับหลายไฟล์ CSV → `bmpDecodeCp874` + `bmpDetectCsvType` (reject ถ้าไม่ใช่ "sales") → `bmpParseSalesReport` (reuse parser เดิม) → dedupe by `doc_no` → `ordIvAnalyze` → เก็บ `d.ivCheck` · auto switch view='iv'
+- **`ordIvApply(mode)`** — เขียน DB · 3 mode (confirm ก่อนทุกครั้ง):
+  - `tagNew` → update `iv_no`/`iv_date`/`sale_amount`/`sale_keyed_at`/`sale_src='ตรวจ IV (723-5)'` ลง order ที่ status='new'
+  - `cancelVoided` → set `status='cancelled'` ให้ order ที่ map กับ IV voided (เสนอยืนยันก่อนเสมอ ไม่ auto)
+  - `fixDiff` → update `sale_amount` ให้ตรงกับยอดใน 723-5
+  - หลังบันทึก `ordLoad(true)` + analyze ใหม่จาก rows ล่าสุด · alert จำนวนสำเร็จ/ล้มเหลว
+- **`ordRenderIv(d)`** — UI · empty state (อธิบาย 3 หน้าที่หลัก) + busy + error + เนื้อหา: KPI 5 ใบ override grid-template (`1.3fr 1fr 1fr 1fr 1fr`): ทั้งหมด (brand) · Tag ใหม่ได้ (info) · ตรงแล้ว (ok) · Voided (warn) · ต้องตรวจ (red) คลิกกรองได้ · coverage warning (พื้น amber) ถ้ามี gap · 3 batch action button (tagNew/cancelVoided/fixDiff) ในแถวเดียวกับ filter label · ตารางสถานะรายตัว (วันที่/IV/ref/ลูกค้า+ช่อง/ยอด 723-5/ยอดในทะเบียน+diff/badge) + legend อธิบาย 6 สถานะท้ายตาราง
+- **แท็บใหม่ใน `renderToolOrders`** — `🧾 ตรวจ IV` (5th tab) · count chip warn (เลขรายการที่ต้องดำเนินการ = new+diff+conflict+voided+orphan)
+- **กระทบหน้าอื่น = 0** — ใช้ `bmpParseSalesReport`/`bmpDecodeCp874`/`bmpDetectCsvType`/`ordLoad` ที่มีอยู่แล้ว · ไม่แตะ schema · CSS reuse `.ord-page` tokens
+- **gotcha:** ทำงานเฉพาะ csv 723-5 standalone — ถ้าอยากให้ผูกกับ Marketplace upload flow อัตโนมัติ ต้อง wire เพิ่มใน `bmpRunUpload`
+
 ### 2026-06-24 — Orders page UI redesign (Finance OS style) + design system mockups
 - **เป้าหมาย:** รื้อ UI หน้าทะเบียนคำสั่งซื้อ ให้ดู Modern Financial Console (อิงสไตล์ Water POG) · ยังไม่แตะ logic/data flow
 - **Design system (`for-design/finance-os/`)** — Brand Palette + Design Tokens + 5 mockup HTML (Dashboard / Work Queue / Detail / Data Table / Report PDF Preview) · ใช้เป็น reference เวลา redesign หน้าอื่น · เปิดดูที่ `/for-design/finance-os/index.html` · `data-co="benya|mbark"` สลับธีม teal ↔ navy ใน tokens เดียวกัน

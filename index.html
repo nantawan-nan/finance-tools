@@ -13431,10 +13431,54 @@ function ordSplitByCompany(orders, myCompany){
     const comp = ordShopCompany(o.shop);
     if(comp===myCompany){ mine.push(o); }
     else if(comp){ otherCount++; otherShops.set(o.shop||"(ไม่ระบุ)", comp); }
-    else { mine.push(o); const k=o.shop||"(ไม่ระบุ)"; unknownShops.set(k,(unknownShops.get(k)||0)+1); }
+    else {
+      mine.push(o);  // ยังไม่รู้บริษัท → นำเข้าบริษัทปัจจุบันไว้ก่อน (ไม่ตกหล่น)
+      const sh=String(o.shop||"").trim();
+      if(sh){  // เฉพาะร้านที่มีชื่อ — ร้านว่าง = คีย์มือ FACE/LINE ถือเป็นบริษัทปัจจุบัน ไม่ต้องเตือน
+        if(!unknownShops.has(sh)) unknownShops.set(sh,{n:0,ids:[]});
+        const u=unknownShops.get(sh); u.n++; if(o.order_id) u.ids.push(o.order_id);
+      }
+    }
   }
   return { mine, otherCount, otherShops, unknownShops };
 }
+/* แผงร้านที่ยังไม่รู้บริษัท — โชว์ออเดอร์ + ปุ่มระบุบริษัท */
+function ordUnknownPanel(d){
+  const list = d.unknownShops||[];
+  if(!list.length) return '';
+  const co=COMPANIES.find(c=>c.id===state.company)||{};
+  return `<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:12px;padding:14px 16px;margin-bottom:14px">
+    <div style="font-weight:700;color:#92400e;font-size:13.5px;margin-bottom:6px">⚠️ ร้านที่ระบบยังไม่รู้บริษัท ${list.length} ร้าน — นำเข้าเป็น ${esc(co.name||'')} ไปก่อน · โปรดระบุบริษัทให้ถูก</div>
+    ${list.map(u=>`<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:9px 0;border-top:1px solid #fef3c7">
+      <b style="font-family:monospace;font-size:13px">${esc(u.shop)}</b>
+      <span style="font-size:12px;color:#a16207">${u.n} ออเดอร์</span>
+      <span style="font-size:11px;color:#b45309">เช่น ${u.ids.slice(0,3).map(x=>esc(x)).join(", ")}${u.n>3?' …':''}</span>
+      <div style="flex:1"></div>
+      <span style="font-size:12px;color:#92400e">เป็นของ →</span>
+      ${COMPANIES.map(c=>`<button onclick="ordAssignShop('${encodeURIComponent(u.shop)}','${c.id}')" style="border:1px solid var(--brand,#0d9488);background:#fff;color:var(--brand,#0d9488);border-radius:8px;padding:5px 12px;font-size:12px;font-weight:600;cursor:pointer">${esc(c.name)}</button>`).join('')}
+      <button onclick="ordDismissUnknown('${encodeURIComponent(u.shop)}')" title="ปิด (คงไว้ที่บริษัทปัจจุบัน)" style="border:none;background:none;color:#a16207;cursor:pointer;font-size:14px">✕</button>
+    </div>`).join('')}
+  </div>`;
+}
+async function ordAssignShop(shopEnc, companyId){
+  const shop=decodeURIComponent(shopEnc);
+  try{ const map=bsLoadJSON(BS_LS_SHOPBRAND,{})||{}; map[shop]=Object.assign({},map[shop]||{},{company:companyId}); bsSaveJSON(BS_LS_SHOPBRAND,map); }catch(e){}
+  const d=ordGet();
+  const entry=(d.unknownShops||[]).find(u=>u.shop===shop);
+  const cName=(c)=>(COMPANIES.find(x=>x.id===c)||{}).name||c;
+  if(entry && companyId!==state.company){
+    // ออเดอร์พวกนี้ไม่ใช่บริษัทปัจจุบัน → soft-delete ออก แล้วไปอัปฝั่งบริษัทนั้น
+    const co=await fopCompanyId(); const ids=entry.ids||[];
+    for(let i=0;i<ids.length;i+=200){ await sb.from("order_ledger").update({deleted_at:new Date().toISOString(), status:'void'}).eq("company_id",co).in("order_id",ids.slice(i,i+200)); }
+    alert(`ตั้งร้าน "${shop}" = ${cName(companyId)} แล้ว\nลบ ${ids.length} ออเดอร์ออกจาก ${cName(state.company)} → สลับไป ${cName(companyId)} แล้วอัปไฟล์เดิมเพื่อนำเข้าฝั่งนั้น`);
+  } else {
+    alert(`ตั้งร้าน "${shop}" = ${cName(companyId)} แล้ว · ครั้งต่อไปแยกอัตโนมัติ`);
+  }
+  d.unknownShops=(d.unknownShops||[]).filter(u=>u.shop!==shop);
+  try{ await ordLoad(); }catch(e){}
+  renderToolOrders();
+}
+function ordDismissUnknown(shopEnc){ const shop=decodeURIComponent(shopEnc); const d=ordGet(); d.unknownShops=(d.unknownShops||[]).filter(u=>u.shop!==shop); renderToolOrders(); }
 /* upsert ออเดอร์จากช่องทาง (dedup by order_id) → คืน {added, updated, total} */
 async function ordIngestChannelOrders(co, parsed, srcLabel){
   const orders = parsed.orders || [];
@@ -13576,7 +13620,7 @@ async function ordUploadFiles(){
   const co = await fopCompanyId(); if(!co){ alert("หา company_id ไม่เจอ"); return; }
   const files = await new Promise(res=>{ const i=document.createElement("input"); i.type="file"; i.accept=".xlsx,.xls,.csv"; i.multiple=true; i.onchange=()=>res([...i.files]); i.click(); });
   if(!files||!files.length) return;
-  const d = ordGet(); d.busy=true; renderToolOrders();
+  const d = ordGet(); d.busy=true; d.unknownShops=[]; renderToolOrders();
   try{
     let totAdd=0, totUpd=0, perCh={}, firstErr=null;
     let otherTotal=0; const otherShopsAll=new Map(), unknownShopsAll=new Map();
@@ -13596,7 +13640,7 @@ async function ordUploadFiles(){
         const sp = ordSplitByCompany(parsed.orders, state.company);
         parsed.orders = sp.mine; otherTotal += sp.otherCount;
         sp.otherShops.forEach((c,s)=>otherShopsAll.set(s,c));
-        sp.unknownShops.forEach((n,s)=>unknownShopsAll.set(s,(unknownShopsAll.get(s)||0)+n));
+        sp.unknownShops.forEach((u,s)=>{ if(!unknownShopsAll.has(s)) unknownShopsAll.set(s,{n:0,ids:[]}); const a=unknownShopsAll.get(s); a.n+=u.n; u.ids.forEach(id=>a.ids.push(id)); });
       }
       const r = await ordIngestChannelOrders(co, parsed, file.name);
       totAdd+=r.added; totUpd+=r.updated;
@@ -13610,7 +13654,8 @@ async function ordUploadFiles(){
       const coName = (COMPANIES.find(c=>c.id===state.company)||{}).name || state.company;
       let msg = `อัปสำเร็จ (${coName})\nบันทึกใหม่ ${totAdd} · อัปเดต ${totUpd} ออเดอร์`;
       if(otherTotal) msg += `\n\n⏭️ ข้ามออเดอร์ของอีกบริษัท ${otherTotal} รายการ (ร้าน: ${[...otherShopsAll.keys()].slice(0,5).join(", ")}${otherShopsAll.size>5?"…":""})\n→ สลับบริษัทแล้วอัปไฟล์เดิมเพื่อนำเข้าฝั่งนั้น`;
-      if(unknownShopsAll.size) msg += `\n\n⚠️ ร้านที่ยังไม่รู้บริษัท — นำเข้าเป็น ${coName} ไปก่อน โปรดตรวจ:\n${[...unknownShopsAll.keys()].slice(0,8).join(", ")}`;
+      d.unknownShops = [...unknownShopsAll.entries()].map(([shop,u])=>({shop,n:u.n,ids:u.ids}));
+      if(d.unknownShops.length) msg += `\n\n⚠️ มีร้านที่ยังไม่รู้บริษัท ${d.unknownShops.length} ร้าน (นำเข้าเป็น ${coName} ไปก่อน)\n→ ดูแผงเหลืองด้านบนหน้าจอ กดระบุบริษัทได้เลย`;
       msg += `\n\nต่อช่องทาง: ${Object.entries(perCh).map(([k,v])=>k+"="+v).join(" · ")}`;
       alert(msg);
     }
@@ -13819,6 +13864,7 @@ async function renderToolOrders(){
       <button class="brec-btn primary" onclick="ordUploadFiles()" ${brecCanWrite()?'':'disabled'}><i data-lucide="upload"></i> อัปรายงานขาย BigSeller</button>
       <button class="brec-btn" onclick="ordExportNoIv()"><i data-lucide="download"></i> ส่งออกออเดอร์ยังไม่คีย์ IV</button>
     </div>
+    ${ordUnknownPanel(d)}
     ${view==='search' ? ordRenderSearch(d) : `
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px">
       ${tabBtn('board','สรุปสถานะงาน','🚦')}${tabBtn('reg','ทะเบียน','📋')}${tabBtn('month','สรุปรายเดือน','📊')}

@@ -14155,6 +14155,119 @@ function ordReconExport(){
   const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data), "ฝ่ายขายคีย์ไม่ครบ");
   XLSX.writeFile(wb, `ออเดอร์คีย์ไม่ครบ_${co.code}_${new Date().toISOString().slice(0,10)}.xlsx`);
 }
+/* ===== Sales Reconciliation Report — snapshot ล็อก + Excel/PDF + ประวัติ ===== */
+async function ordReconGenReports(){
+  const d=ordGet(); const rec=d.recon||{}; const res=rec.results||[];
+  if(!res.length){ alert("ยังไม่มีผลตรวจ — อัปไฟล์หลังบ้านเทียบก่อน"); return; }
+  if(!confirm("สร้าง 'ใบกระทบยอด' (snapshot ล็อก) จากผลตรวจปัจจุบัน?\n\nระบบจะแยกเป็น 1 ฉบับต่อแพลตฟอร์ม · เก็บข้อมูล ณ ตอนนี้ไว้เป็นหลักฐาน (ไม่เปลี่ยนแม้อัปไฟล์ใหม่)")) return;
+  const company=state.company;
+  const byPlat={}; res.forEach(r=>{ const p=r.channel||'other'; (byPlat[p]=byPlat[p]||[]).push(r); });
+  const made=[];
+  for(const plat of Object.keys(byPlat)){
+    const items=byPlat[plat];
+    const dates=items.map(r=>r.date).filter(Boolean).sort();
+    const dFrom=dates[0]||null, dTo=dates[dates.length-1]||null;
+    const s={ bs_count:0,bs_total:0,be_count:0,be_total:0,matched_count:0,matched_total:0,only_be_count:0,only_bs_count:0,diff_count:0,diff_total:0 };
+    const snap={matched:[],only_be:[],only_bs:[],diff:[]};
+    items.forEach(r=>{
+      const bsn=r.bs?+Number(ordReconNet(r.bs)).toFixed(2):null, ben=r.be?+Number(ordReconNet(r.be)).toFixed(2):null;
+      if(r.bs){ s.bs_count++; s.bs_total+=bsn||0; }
+      if(r.be){ s.be_count++; s.be_total+=ben||0; }
+      const it={order_no:r.order_no, date:r.date||'', bs_net:bsn, be_net:ben, diff:(bsn!=null&&ben!=null)?+(bsn-ben).toFixed(2):null, products:(r.bs&&r.bs.products)||(r.be&&r.be.products)||''};
+      if(r.status==='matched'){ s.matched_count++; s.matched_total+=bsn||0; snap.matched.push(it); }
+      else if(r.status==='only_be'){ s.only_be_count++; snap.only_be.push(it); }
+      else if(r.status==='only_bs'){ s.only_bs_count++; snap.only_bs.push(it); }
+      else if(r.status==='diff'){ s.diff_count++; s.diff_total+=Math.abs((bsn||0)-(ben||0)); snap.diff.push(it); }
+    });
+    ['bs_total','be_total','matched_total','diff_total'].forEach(k=>s[k]=+s[k].toFixed(2));
+    const platU=String(plat||'OTHER').toUpperCase(); const dstr=String(dTo||'').replace(/-/g,'');
+    let seq='001'; try{ const {count}=await sb.from("recon_reports").select("id",{count:'exact',head:true}).eq("company",company).eq("platform",plat); seq=String((count||0)+1).padStart(3,'0'); }catch(e){}
+    const report_no=`SRR-${platU}-${dstr}-${seq}`;
+    const row={ company, report_no, platform:plat, date_from:dFrom, date_to:dTo, status:'closed', version:1, summary:s, snapshot:snap, generated_by_name:(AUTH&&AUTH.email)||null };
+    const { data, error } = await sb.from("recon_reports").insert(row).select("*").single();
+    if(error){ console.warn("report insert",error); alert("สร้างรายงานไม่สำเร็จ: "+(error.message||JSON.stringify(error))); return; }
+    made.push(data);
+  }
+  d.recon.reports=null; d.recon.showHistory=true;
+  alert(`สร้างใบกระทบยอด ${made.length} ฉบับ:\n${made.map(r=>r.report_no).join('\n')}\n\nดูได้ที่ "ประวัติรายงาน"`);
+  renderToolOrders();
+}
+function ordReconReportExcel(rep){
+  const co=COMPANIES.find(c=>c.id===state.company)||{}; const s=rep.summary||{}, snap=rep.snapshot||{};
+  const unmatched=(s.only_be_count||0)+(s.only_bs_count||0)+(s.diff_count||0);
+  const wb=XLSX.utils.book_new();
+  const sumAoa=[
+    ['รายงานกระทบยอดข้อมูลขาย Big Seller ↔ Platform Back Office'],[],
+    ['Report No.', rep.report_no],['บริษัท', co.name||''],['Platform', rep.platform],
+    ['ช่วงวันที่ตรวจสอบ', `${rep.date_from||''} ถึง ${rep.date_to||''}`],
+    ['วันที่จัดทำ', String(rep.generated_at||'').slice(0,19).replace('T',' ')],
+    ['ผู้จัดทำ', rep.generated_by_name||''],['สถานะ', rep.status],[],
+    ['สรุปผลกระทบยอด','จำนวน Order','ยอดรวม (บาท)'],
+    ['Big Seller', s.bs_count, s.bs_total],
+    ['Platform Back Office', s.be_count, s.be_total],
+    ['ตรงกัน (Matched)', s.matched_count, s.matched_total],
+    ['BigSeller ขาด (พบหลังบ้าน ไม่พบ BS)', s.only_be_count, ''],
+    ['หลังบ้านขาด (พบ BS ไม่พบหลังบ้าน)', s.only_bs_count, ''],
+    ['ยอดไม่ตรง', s.diff_count, 'ส่วนต่าง '+s.diff_total],[],
+    ['ผลการตรวจสอบ', unmatched===0?'ตรงกันทั้งหมด (Reconciled)':'พบรายการต่าง '+unmatched+' รายการ'],[],[],
+    ['จัดทำโดย','____________________'],['ตรวจสอบโดย','____________________'],['อนุมัติโดย','____________________'],
+  ];
+  const ws1=XLSX.utils.aoa_to_sheet(sumAoa); ws1['!cols']=[{wch:42},{wch:18},{wch:18}];
+  XLSX.utils.book_append_sheet(wb, ws1, "Summary");
+  const cols=['No','Order ID','วันที่','ยอด BigSeller','ยอดหลังบ้าน','ส่วนต่าง','สินค้า'];
+  const det=(name,items)=>{ const aoa=[cols].concat((items||[]).map((it,i)=>[i+1,it.order_no,it.date,it.bs_net,it.be_net,it.diff,it.products])); const ws=XLSX.utils.aoa_to_sheet(aoa); ws['!cols']=[{wch:6},{wch:22},{wch:12},{wch:15},{wch:15},{wch:12},{wch:44}]; ws['!autofilter']={ref:`A1:G${aoa.length}`}; ws['!freeze']={ySplit:1}; XLSX.utils.book_append_sheet(wb,ws,name); };
+  det("Matched", snap.matched); det("Missing in BigSeller", snap.only_be); det("Missing in Platform", snap.only_bs); det("Amount Differences", snap.diff);
+  XLSX.writeFile(wb, `Sales_Reconciliation_${rep.platform}_${rep.date_from}_to_${rep.date_to}.xlsx`);
+}
+function ordReconReportPdf(rep){
+  const co=COMPANIES.find(c=>c.id===state.company)||{}; const s=rep.summary||{}, snap=rep.snapshot||{}; const fmt=ordFmtMoney;
+  const unmatched=(s.only_be_count||0)+(s.only_bs_count||0)+(s.diff_count||0);
+  const w=window.open('','_blank'); if(!w){ alert('เปิดหน้าต่างไม่ได้ (ปิด popup blocker)'); return; }
+  const tbl=(title,items)=>(items&&items.length)?`<h3>${title} (${items.length})</h3><table><thead><tr><th>No</th><th>Order ID</th><th>วันที่</th><th class="r">BigSeller</th><th class="r">หลังบ้าน</th><th class="r">ส่วนต่าง</th></tr></thead><tbody>${items.map((it,i)=>`<tr><td>${i+1}</td><td>${esc(it.order_no)}</td><td>${it.date||''}</td><td class="r">${it.bs_net!=null?fmt(it.bs_net):'—'}</td><td class="r">${it.be_net!=null?fmt(it.be_net):'—'}</td><td class="r">${it.diff!=null?fmt(it.diff):'—'}</td></tr>`).join('')}</tbody></table>`:'';
+  w.document.write(`<html><head><meta charset="utf-8"><title>${rep.report_no}</title>
+  <style>body{font-family:"IBM Plex Sans Thai","Tahoma",sans-serif;padding:28px;color:#1f2a44;font-size:13px}h1{font-size:19px;margin:0 0 4px}table{width:100%;border-collapse:collapse;margin:6px 0 18px;font-size:11.5px}th,td{border:1px solid #cbd5e1;padding:4px 7px}th{background:#f1f5f9}.r{text-align:right}.box{display:inline-block;border:1px solid #cbd5e1;border-radius:8px;padding:8px 14px;margin:3px}.head{border-bottom:2px solid #0d9488;padding-bottom:8px;margin-bottom:12px}.sig{margin-top:34px;display:flex;gap:50px}@media print{.np{display:none}}</style></head><body>
+    <div class="head"><h1>รายงานกระทบยอดข้อมูลขาย Big Seller ↔ Platform Back Office</h1>
+    <div><b>Report No.:</b> ${rep.report_no} &nbsp;·&nbsp; <b>บริษัท:</b> ${esc(co.name||'')} &nbsp;·&nbsp; <b>Platform:</b> ${rep.platform}</div>
+    <div><b>ช่วงวันที่ตรวจสอบ:</b> ${rep.date_from||''} ถึง ${rep.date_to||''} &nbsp;·&nbsp; <b>วันที่จัดทำ:</b> ${String(rep.generated_at||'').slice(0,19).replace('T',' ')} &nbsp;·&nbsp; <b>ผู้จัดทำ:</b> ${esc(rep.generated_by_name||'')}</div></div>
+    <div class="box">Big Seller: <b>${s.bs_count}</b> Order · ${fmt(s.bs_total)} บาท</div>
+    <div class="box">หลังบ้าน: <b>${s.be_count}</b> Order · ${fmt(s.be_total)} บาท</div>
+    <div class="box">ตรงกัน: <b>${s.matched_count}</b></div>
+    <div class="box">BigSeller ขาด: <b>${s.only_be_count}</b></div>
+    <div class="box">หลังบ้านขาด: <b>${s.only_bs_count}</b></div>
+    <div class="box">ยอดไม่ตรง: <b>${s.diff_count}</b> · ส่วนต่าง ${fmt(s.diff_total)}</div>
+    <h2 style="color:${unmatched===0?'#16a34a':'#dc2626'}">ผลการตรวจสอบ: ${unmatched===0?'ตรงกันทั้งหมด (Reconciled)':'พบรายการต่าง '+unmatched+' รายการ'}</h2>
+    ${tbl('รายการยอดไม่ตรง', snap.diff)}
+    ${tbl('Missing in BigSeller (พบหลังบ้าน · ขายไม่คีย์)', snap.only_be)}
+    ${tbl('Missing in Platform (พบ BigSeller · หลังบ้านไม่มี)', snap.only_bs)}
+    ${tbl('รายการที่ตรงกัน (Matched)', snap.matched)}
+    <div class="sig"><div>จัดทำโดย ........................</div><div>ตรวจสอบโดย ........................</div><div>อนุมัติโดย ........................</div></div>
+    <button class="np" style="margin-top:20px;padding:10px 20px;font-size:14px;cursor:pointer" onclick="window.print()">🖨️ พิมพ์ / บันทึกเป็น PDF</button>
+  </body></html>`);
+  w.document.close();
+}
+async function ordReconReportLoad(){ const d=ordGet(); try{ const { data } = await sb.from("recon_reports").select("*").eq("company",state.company).is("deleted_at",null).order("generated_at",{ascending:false}).limit(200); d.recon=d.recon||{}; d.recon.reports=data||[]; }catch(e){ console.warn("report load",e); d.recon.reports=[]; } }
+async function ordReconToggleHistory(){ const d=ordGet(); d.recon=d.recon||{}; d.recon.showHistory=!d.recon.showHistory; if(d.recon.showHistory && d.recon.reports==null){ await ordReconReportLoad(); } renderToolOrders(); }
+function ordReconReportHtml(rep){ window.__ordRep=window.__ordRep||{}; window.__ordRep[rep.report_no]=rep; }
+function ordReconReportExcelBy(no){ const d=ordGet(); const rep=(d.recon.reports||[]).find(r=>r.report_no===no); if(rep) ordReconReportExcel(rep); }
+function ordReconReportPdfBy(no){ const d=ordGet(); const rep=(d.recon.reports||[]).find(r=>r.report_no===no); if(rep) ordReconReportPdf(rep); }
+function ordReconHistoryHtml(d){
+  const reps=(d.recon&&d.recon.reports)||[];
+  const fmt=ordFmtMoney;
+  return `<div style="background:#fff;border:1px solid var(--line,#e2e8f0);border-radius:12px;overflow:hidden;margin-bottom:14px">
+    <div style="padding:11px 16px;background:#f8fafc;font-weight:700;font-size:13px;display:flex;align-items:center;gap:8px">📚 ประวัติรายงานกระทบยอด (${reps.length}) <div style="flex:1"></div><button onclick="ordReconToggleHistory()" style="border:none;background:none;cursor:pointer;color:var(--ink3,#94a3b8)">✕ ปิด</button></div>
+    ${reps.length? reps.map(r=>{ const s=r.summary||{}; const unm=(s.only_be_count||0)+(s.only_bs_count||0)+(s.diff_count||0);
+      return `<div style="display:flex;align-items:center;gap:12px;padding:11px 16px;border-top:1px solid #f1f5f9;font-size:12.5px;flex-wrap:wrap">
+        <span class="mono" style="font-family:monospace;font-weight:700">${esc(r.report_no)}</span>
+        <span style="color:var(--ink3,#94a3b8)">${r.date_from||''}–${r.date_to||''}</span>
+        <span style="font-size:11px;color:#16a34a">ตรง ${s.matched_count||0}</span>
+        <span style="font-size:11px;color:${unm?'#dc2626':'#94a3b8'}">ต่าง ${unm}</span>
+        <span style="font-size:11px;color:var(--ink3,#94a3b8)">${String(r.generated_at||'').slice(0,16).replace('T',' ')}</span>
+        <div style="flex:1"></div>
+        <button onclick="ordReconReportExcelBy('${esc(r.report_no)}')" style="border:1px solid var(--line,#e2e8f0);background:#fff;border-radius:7px;padding:4px 10px;font-size:11.5px;cursor:pointer">⬇ Excel</button>
+        <button onclick="ordReconReportPdfBy('${esc(r.report_no)}')" style="border:1px solid var(--line,#e2e8f0);background:#fff;border-radius:7px;padding:4px 10px;font-size:11.5px;cursor:pointer">📄 PDF</button>
+      </div>`; }).join('') : `<div style="padding:18px;text-align:center;color:var(--ink3,#94a3b8)">ยังไม่มีรายงาน — กด "สร้างใบกระทบยอด" เพื่อบันทึกหลักฐาน</div>`}
+  </div>`;
+}
 function ordReconToggle(oidEnc){ const oid=decodeURIComponent(oidEnc); const d=ordGet(); d.recon=d.recon||{}; if(!d.recon.expanded) d.recon.expanded=new Set(); if(d.recon.expanded.has(oid)) d.recon.expanded.delete(oid); else d.recon.expanded.add(oid); renderToolOrders(); }
 function ordReconFilter(f){ const d=ordGet(); d.recon=d.recon||{}; d.recon.filter=f; renderToolOrders(); }
 function ordReconRowDetail(r){
@@ -14232,10 +14345,13 @@ function ordRenderRecon(d){
   return `
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px">
       ${upBtn}
-      <button class="brec-btn" onclick="ordReconExport()"><i data-lucide="download"></i> ส่งออก "คีย์ไม่ครบ" ให้ฝ่ายขาย</button>
+      <button class="brec-btn" onclick="ordReconExport()"><i data-lucide="download"></i> ส่งออก "คีย์ไม่ครบ"</button>
+      <button class="brec-btn" onclick="ordReconGenReports()" style="border-color:var(--brand,#0d9488);color:var(--brand,#0d9488)"><i data-lucide="file-check-2"></i> สร้างใบกระทบยอด (ปิดรอบ)</button>
+      <button class="brec-btn" onclick="ordReconToggleHistory()"><i data-lucide="history"></i> ประวัติรายงาน</button>
       <div style="flex:1"></div>
       <span style="font-size:12px;color:var(--ink3,#94a3b8)">ขอบเขต: ${(rec.channels||[]).join(', ')||'—'} · ${rec.dFrom||''}${rec.dTo&&rec.dTo!==rec.dFrom?' ถึง '+rec.dTo:''}</span>
     </div>
+    ${rec.showHistory?ordReconHistoryHtml(d):''}
     ${ordReconCoverageHtml(d,res)}
     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:6px">
       ${card('all',res.length,'ตรวจทั้งหมด','#475569')}${card('matched',c.matched,'ตรงกัน ✓','#16a34a')}${card('only_be',c.only_be,'ขายคีย์ไม่ครบ','#dc2626')}${card('other',c.diff+c.only_bs,'ต้องตรวจอื่น ๆ','#d97706')}</div>

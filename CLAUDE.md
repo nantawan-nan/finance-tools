@@ -177,6 +177,33 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-06-24 — Orders ตรวจ IV: รื้อ flow เป็น checklist + เปรียบเทียบยอดสูตรเต็ม + UI ทางการ
+- **ปัญหาเดิม:** ปุ่ม "Tag IV ที่ยังว่าง (N)" tag ทั้งหมดทันทีไม่ confirm รายตัว · เคสที่ 723-5 ยอดต่างจาก order_total จะถูก overwrite sale_amount เงียบๆ · ไม่มีฟิลเตอร์/sort/checkbox · เคส 0/0 ที่ user ไม่เชื่อใจถูก mark "ตรงแล้ว" อัตโนมัติ
+- **สูตรเทียบยอดใหม่** (`ordIvAnalyze` — `orderCurrent(o)`): ถ้าออเดอร์มี `sale_amount` แล้ว → ใช้ตรง · ถ้ายังไม่ tag → **`order_total + shipping_fee`** (ไม่หักส่วนลด · platform ชดเชยให้ผู้ขาย IV ยังเต็มยอด) · เก็บ `currentBase`/`currentShip`/`currentDisc`/`currentFromSale` ในแต่ละ result ไว้โชว์ breakdown ในตาราง
+- **★ ห้ามใช้ `order_total - seller_discount`** — ก่อนหน้าเคยใส่ผิด ถูกผู้ใช้แก้ทันที (ในไฟล์ตัวอย่าง: order_total 500 + ลด 50 → IV 500 = ตรง · ถ้าหักลดจะกลายเป็น diff -50 ทั้งที่จริงตรง)
+- **แยก status `new` เป็น 3 buckets:**
+  - `new_match` ยอดตรง |diff|<0.01 — auto-tick · พร้อมบันทึก
+  - `new_zero` 723-5=0 **และ** BigSeller=0 — ไม่ tick · รอ user ตัดสินใจ (เคสที่ user ไม่เชื่อใจ)
+  - `new_diff` ยอดต่าง — ไม่ tick · รอ user รีวิว
+- **UI ใหม่ทั้งแท็บ (`ordRenderIv`):**
+  - KPI strip **6 ใบ** คลิกกรอง: ทั้งหมด · ยอดตรง · ยอด 0/0 · ยอดต่าง · ตรงแล้ว · ต้องตรวจ (รวม voided+diff+conflict+orphan)
+  - Filter chips **"แพลตฟอร์ม E-commerce"** (SHOPEE/TIKTOK/LAZADA/ออฟไลน์/อื่นๆ) นับจริงจาก `r.platform` (เก็บ `ordChannelGroup(channel,customer)` ใน analyze)
+  - Date range วันที่ IV from/to · search box ค้นหา IV/order_id/ลูกค้า
+  - คอลัมน์ **checkbox หน้าสุด** + master checkbox ติ๊กทุก visible-taggable · คลิกหัวคอลัมน์ sort ↑↓ (doc_date/iv_no/ref/customer/total/cur/diff/_status)
+  - คอลัมน์ **"ระบบ BigSeller"** (rename จาก "ในทะเบียน") โชว์ breakdown 2 บรรทัด: ยอดรวม + `380 + ส่ง 10` (transparent) · ถ้า `sale_amount` แล้ว → โชว์ "(sale_amount เดิม)"
+  - คอลัมน์ **"ส่วนต่าง"** แยก sort ได้ · "ตรง" สีเขียวสำหรับ new_match · "+50" สีเขียว / "-30" สีแดง สำหรับ diff
+  - คอลัมน์ **"ลูกค้า / แพลตฟอร์ม E-commerce"** (rename "ช่องทาง" → "แพลตฟอร์ม E-commerce" — **เฉพาะ heading/label** · ค่าจริง SHOPEE/TIKTOK/LAZADA คงเดิม)
+- **Action bar ใหม่:**
+  - "เลือกตามเงื่อนไข:" + ปุ่ม "เลือกยอดตรง / เลือกยอด 0/0 / เลือกยอดต่าง / สลับการเลือก / ยกเลิกการเลือก" (`ordIvCheckAuto('match'|'zero'|'diff'|'invert'|'none')`) — ทำกับแถวที่ filter ปัจจุบัน
+  - **"บันทึก Tag IV ที่เลือก (N)"** (`ordIvApply('tagSelected')`) confirm พร้อม breakdown: ยอดตรง X · ยอด 0/0 Y · ยอดต่าง Z + ตัวอย่าง 5 รายการแรก
+  - "ยกเลิกออเดอร์ที่ Voided" + "ปรับยอดให้ตรงรายงาน"
+  - **"ส่งออก Excel (N)"** (`ordIvExport`) — export filter ปัจจุบันเป็น xlsx 15 คอลัมน์ (วันที่ · IV · order_id · ลูกค้า · แพลตฟอร์ม · ยอด 723-5 · BigSeller breakdown 4 คอลัมน์ · ส่วนต่าง · IV เดิม · สถานะ)
+- **State (`d.ivCheck`):** `checked Set<iv_no>` (เก็บ iv_no ที่ติ๊ก) · `filter/platform/dateFrom/dateTo/q/sortKey/sortDir` · auto-init `checked` = new_match ทุกตัวตอน upload + reset เป็น new_match ใหม่หลัง apply (re-analyze)
+- **`ordIvFiltered(ic)` helper** — รวม filter+sort logic ใช้ทั้ง render/export/toggleAll · default sort = ตามความเร่งด่วน (conflict→diff→voided→orphan→new_diff→new_zero→new_match→matched)
+- **สำนวน UI ทางการ:** เลิกใช้ "ติ๊ก" → ใช้ "เลือก" ทั้งหมด ("ติ๊กไว้" → "เลือกไว้ N รายการ" · "ล้างติ๊ก" → "ยกเลิกการเลือก" · "Tag IV ที่ติ๊ก" → "บันทึก Tag IV ที่เลือก" · "Cancel voided" → "ยกเลิกออเดอร์ที่ Voided" · "แก้ยอด diff เดิม" → "ปรับยอดให้ตรงรายงาน")
+- **กระทบหน้าอื่น = 0** — เปลี่ยนชื่อ "ช่องทาง" → "แพลตฟอร์ม E-commerce" เฉพาะใน `ordRenderIv` · ไม่กระทบ ord*/bs*/exk*/armap* อื่น
+- **gotcha:** `ordIvApply` mode เก่า `tagNew` ถูกแทนด้วย `tagSelected` (ใช้ checked Set) · `fixDiff`/`cancelVoided` คงเดิม · ปุ่มเก่า "Tag IV ที่ยังว่าง (N)" ถูกถอด — ถ้า user คิดถึงพฤติกรรมเดิม (tag ทุก new ทันที) ให้กด "เลือกยอดตรง" + "เลือกยอด 0/0" + "เลือกยอดต่าง" แล้วบันทึก
+
 ### 2026-06-24 — Bank Recon Phase B: Import Batch + History
 - **เป้าหมาย:** ทุกครั้งที่อัปไฟล์ (Express XML / Statement) → สร้าง **Import Batch** ที่อ่านชัด · เก็บสถิติเต็ม · ดูประวัติย้อนหลังได้
 - **`supabase/bankrec-phase-b-batch-history.sql`** (deploy แล้ว · idempotent):

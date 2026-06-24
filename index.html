@@ -14627,11 +14627,11 @@ function ordIvAnalyze(salesData, rows){
   }
   // currentTotal สูตรเปรียบเทียบกับ 723-5:
   //   ถ้าออเดอร์มี sale_amount (เคยคีย์/tag) → ใช้ sale_amount ตรงๆ
-  //   ถ้ายัง → ใช้ order_total + shipping_fee - seller_discount (สูตรเต็มเทียบกับยอดใน IV)
+  //   ถ้ายัง → ใช้ order_total + shipping_fee (ไม่หักส่วนลด — platform ชดเชยให้ผู้ขาย IV ยังเต็มยอด)
   const orderCurrent = (o)=>{
     if(o.sale_amount!=null && Number(o.sale_amount)!==0) return { total:Number(o.sale_amount), base:null, ship:null, disc:null, fromSale:true };
     const base = Number(o.order_total||0), ship = Number(o.shipping_fee||0), disc = Number(o.seller_discount||0);
-    return { total:+(base+ship-disc).toFixed(2), base, ship, disc, fromSale:false };
+    return { total:+(base+ship).toFixed(2), base, ship, disc, fromSale:false };
   };
   const results = [];
   const seenIv = new Set();
@@ -14851,16 +14851,16 @@ async function ordIvApply(mode){
   if(mode === "tagSelected"){
     const set = ic.checked || new Set();
     picks = ic.results.filter(r => set.has(r.iv_no) && r.orderRowId && (r.status==="new_match"||r.status==="new_zero"||r.status==="new_diff"));
-    if(!picks.length){ alert("ยังไม่ได้ติ๊กรายการที่จะ tag"); return; }
+    if(!picks.length){ alert("ยังไม่ได้เลือกรายการที่จะบันทึก"); return; }
     const nMatch = picks.filter(r=>r.status==="new_match").length;
     const nZero  = picks.filter(r=>r.status==="new_zero").length;
     const nDiff  = picks.filter(r=>r.status==="new_diff").length;
     const sample = picks.filter(r=>r.status==="new_diff").slice(0,5).map(r=>`  • ${r.iv_no} (723-5: ${r.total.toLocaleString("th-TH")} ↔ BigSeller: ${(r.currentTotal||0).toLocaleString("th-TH")} · Δ ${r.diffAmount>0?'+':''}${r.diffAmount.toLocaleString("th-TH")})`).join("\n");
-    label = `จะ tag IV ใส่ ${picks.length} ออเดอร์ที่ติ๊กไว้:\n`
+    label = `ยืนยันบันทึก Tag IV ให้ ${picks.length} รายการที่เลือกไว้:\n`
           + `  • ยอดตรง: ${nMatch}\n`
           + `  • ยอด 0/0: ${nZero}\n`
-          + `  • ยอดต่าง: ${nDiff}${nDiff?' (จะทับ sale_amount ด้วยยอด 723-5)':''}\n`
-          + (sample ? `\nตัวอย่างยอดต่าง:\n${sample}${nDiff>5?`\n  • ... และอีก ${nDiff-5} รายการ`:''}\n` : "")
+          + `  • ยอดต่าง: ${nDiff}${nDiff?' (จะทับยอด sale_amount ด้วยยอดจาก 723-5)':''}\n`
+          + (sample ? `\nตัวอย่างรายการยอดต่าง:\n${sample}${nDiff>5?`\n  • ... และอีก ${nDiff-5} รายการ`:''}\n` : "")
           + `\nดำเนินการต่อ?`;
   } else if(mode === "cancelVoided"){
     picks = ic.results.filter(r => r.status==="voided" && r.orderRowId && r.currentStatus !== "cancelled");
@@ -14925,15 +14925,17 @@ function ordRenderIv(d){
     </div>`;
   }
   const res = ic.results || [];
-  const c = { new:0, matched:0, diff:0, conflict:0, voided:0, orphan:0 };
+  const c = { new_match:0, new_zero:0, new_diff:0, matched:0, diff:0, conflict:0, voided:0, orphan:0 };
   res.forEach(r => { c[r.status] = (c[r.status]||0)+1; });
-  const needReview = c.diff + c.conflict + c.orphan;
+  const needReview = (c.diff||0) + (c.conflict||0) + (c.orphan||0);
   const sumTotal = res.reduce((a,r)=>a+(r.voided?0:r.total||0), 0);
-  const sumNew = res.filter(r=>r.status==="new").reduce((a,r)=>a+r.total, 0);
-  // KPI strip (5 ใบ — ใช้ inline grid override)
+  const sumMatch = res.filter(r=>r.status==="new_match").reduce((a,r)=>a+r.total, 0);
+  const sumZero  = res.filter(r=>r.status==="new_zero").reduce((a,r)=>a+r.total, 0);
+  const sumDiff  = res.filter(r=>r.status==="new_diff").reduce((a,r)=>a+r.total, 0);
+  // KPI strip
   const filt = ic.filter || "all";
-  const kpiCls = { all:"k-brand col", new:"soft-blue", matched:"soft-green", warn:"soft-amber", risk:"soft-red" };
-  const k = (key, n, sum, lbl, sub)=> `<div class="ord-k ${kpiCls[key]||''} click" style="${filt===key?'outline:2px solid currentColor;outline-offset:-2px':''}" onclick="ordIvSetFilter('${key}')">
+  const kpiCls = { all:"k-brand col", new_match:"soft-green", new_zero:"soft-amber", new_diff:"soft-amber", matched:"soft-green", warn:"soft-amber", risk:"soft-red" };
+  const k = (key, n, lbl, sub)=> `<div class="ord-k ${kpiCls[key]||''} click" style="${filt===key?'outline:2px solid currentColor;outline-offset:-2px':''}" onclick="ordIvSetFilter('${key}')">
     <div class="lbl">${lbl}</div>
     <div class="v tnum">${n.toLocaleString("th-TH")}</div>
     <div class="sub">${sub||''}</div>
@@ -14948,25 +14950,35 @@ function ordRenderIv(d){
       </div>
     </div>` : '';
 
-  // Filter logic
-  const inFilter = (r)=> filt==="all" ? true
-    : filt==="new"     ? r.status==="new"
-    : filt==="matched" ? r.status==="matched"
-    : filt==="warn"    ? r.status==="voided"
-    : filt==="risk"    ? (r.status==="diff"||r.status==="conflict"||r.status==="orphan")
-    : true;
-  const list = res.filter(inFilter).sort((a,b)=>{
-    const order = { conflict:1, diff:2, voided:3, orphan:4, new:5, matched:6 };
-    return (order[a.status]||9)-(order[b.status]||9) || ((a.doc_date||'')<(b.doc_date||'')?1:-1);
-  });
-  const filtLabel = { all:"ทั้งหมด", new:"ยังไม่ tag (จะคีย์)", matched:"ตรงแล้ว", warn:"Voided", risk:"ต้องตรวจ (diff/conflict/orphan)" }[filt] || filt;
-  const bdCls = (s)=> s==="matched"?"ok" : s==="new"?"info" : s==="diff"?"warn" : s==="conflict"?"danger" : s==="voided"?"warn" : s==="orphan"?"danger" : "mute";
-  const bdIc  = (s)=> s==="matched"?"✓" : s==="new"?"📝" : s==="diff"?"⚠" : s==="conflict"?"⛔" : s==="voided"?"🚫" : s==="orphan"?"❓" : "•";
-  const bdLab = (s)=> s==="matched"?"ตรงแล้ว" : s==="new"?"ยังไม่ tag" : s==="diff"?"ยอดไม่ตรง" : s==="conflict"?"IV ทับเลขเดิม" : s==="voided"?"Voided" : s==="orphan"?"ไม่มีออเดอร์ match" : s;
+  const list = ordIvFiltered(ic);
+  const filtLabel = { all:"ทั้งหมด", new_match:"ยอดตรง · พร้อม tag", new_zero:"ยอด 0/0 · รอตัดสินใจ", new_diff:"ยอดต่าง · รอตัดสินใจ", matched:"ตรงแล้ว", warn:"Voided", risk:"ต้องตรวจ (diff/conflict/orphan)" }[filt] || filt;
+  const bdCls = (s)=> s==="matched"?"ok" : s==="new_match"?"ok" : s==="new_zero"?"warn" : s==="new_diff"?"warn" : s==="diff"?"warn" : s==="conflict"?"danger" : s==="voided"?"warn" : s==="orphan"?"danger" : "mute";
+  const bdIc  = (s)=> s==="matched"?"✓" : s==="new_match"?"🏷️" : s==="new_zero"?"⊘" : s==="new_diff"?"⚠" : s==="diff"?"⚠" : s==="conflict"?"⛔" : s==="voided"?"🚫" : s==="orphan"?"❓" : "•";
+  const bdLab = (s)=> s==="matched"?"ตรงแล้ว" : s==="new_match"?"ยอดตรง · รอ tag" : s==="new_zero"?"ยอด 0/0" : s==="new_diff"?"ยอดต่าง" : s==="diff"?"ยอดไม่ตรง" : s==="conflict"?"IV ทับเลขเดิม" : s==="voided"?"Voided" : s==="orphan"?"ไม่มีออเดอร์ match" : s;
+
+  // นับ platform จริงจาก results (เก็บ chip ที่มี data จริง)
+  const pCount = { shopee:0, tiktok:0, lazada:0, offline:0, other:0 };
+  res.forEach(r => { if(r.platform) pCount[r.platform] = (pCount[r.platform]||0)+1; });
+  const pf = ic.platform || "";
+  const pfChip = (k, lab)=> pCount[k] ? `<button class="ord-btn btn-sm" style="padding:4px 10px;font-size:12px;${pf===k?'background:var(--brand,#0d9488);color:#fff;border-color:var(--brand,#0d9488)':''}" onclick="ordIvSetPlatform('${k}')">${lab} (${pCount[k]})</button>` : '';
+
+  // นับติ๊ก
+  const checked = ic.checked || new Set();
+  const visibleTaggable = list.filter(r => r.orderRowId && (r.status==="new_match"||r.status==="new_zero"||r.status==="new_diff"));
+  const visCheckedN = visibleTaggable.filter(r=>checked.has(r.iv_no)).length;
+  const allVisChecked = visibleTaggable.length>0 && visCheckedN===visibleTaggable.length;
+  const someVisChecked = visCheckedN>0 && !allVisChecked;
+  const totalCheckedN = res.filter(r=>checked.has(r.iv_no) && r.orderRowId).length;
+
+  // header sort
+  const sk = ic.sortKey || "_status", sd = ic.sortDir || "asc";
+  const arrow = (key)=> sk===key ? (sd==="asc"?" ↑":" ↓") : "";
+  const sortH = (key, lab, w, align)=> `<th style="${w?`width:${w};`:''}cursor:pointer;user-select:none${align?`;text-align:${align}`:''}" onclick="ordIvSetSort('${key}')">${lab}${arrow(key)}</th>`;
 
   return `
     <div class="ord-actions">
       ${upBtn}
+      <button class="ord-btn" onclick="ordIvExport()"><i data-lucide="download"></i> ส่งออก Excel (${list.length})</button>
       <button class="ord-btn" onclick="ordIvClear()"><i data-lucide="x"></i> ล้างผล</button>
       <div style="flex:1"></div>
       <span style="font:500 12px/1.4 inherit;color:var(--n-500)">
@@ -14977,40 +14989,88 @@ function ordRenderIv(d){
 
     ${coverageWarn}
 
-    <div class="ord-kpis" style="grid-template-columns:1.3fr 1fr 1fr 1fr 1fr">
-      ${k("all", ic.ivCount, sumTotal, "IV ใน 723-5", `${fmt(sumTotal)} บาท · ${(ic.fileNames||[]).length} ไฟล์`)}
-      ${k("new", c.new||0, sumNew, "Tag ใหม่ได้", c.new?fmt(sumNew)+" บาท · พร้อม tag":"ครบแล้ว")}
-      ${k("matched", c.matched||0, 0, "ตรงแล้ว", c.matched?"คีย์ตรง · ยอดตรง":"—")}
-      ${k("warn", c.voided||0, 0, "Voided", c.voided?"เสนอ cancel":"ไม่มี")}
-      ${k("risk", needReview, 0, "ต้องตรวจ", needReview?`diff ${c.diff||0} · conflict ${c.conflict||0} · orphan ${c.orphan||0}`:"ไม่มี")}
+    <div class="ord-kpis" style="grid-template-columns:1.2fr 1fr 1fr 1fr 1fr 1fr">
+      ${k("all", ic.ivCount, "IV ใน 723-5", `${fmt(sumTotal)} บาท · ${(ic.fileNames||[]).length} ไฟล์`)}
+      ${k("new_match", c.new_match||0, "ยอดตรง · พร้อมบันทึก", c.new_match?`${fmt(sumMatch)} บาท · เลือกไว้แล้ว`:"ไม่มี")}
+      ${k("new_zero", c.new_zero||0, "ยอด 0/0", c.new_zero?"รอ user ตัดสินใจ":"ไม่มี")}
+      ${k("new_diff", c.new_diff||0, "ยอดต่าง", c.new_diff?`${fmt(sumDiff)} บาท · รอตัดสินใจ`:"ไม่มี")}
+      ${k("matched", c.matched||0, "ตรงแล้ว (tag เดิม)", c.matched?"คีย์ตรง · ยอดตรง":"—")}
+      ${k("risk", needReview + (c.voided||0), "ต้องตรวจ", (needReview||c.voided)?`diff ${c.diff||0} · conflict ${c.conflict||0} · orphan ${c.orphan||0} · voided ${c.voided||0}`:"ไม่มี")}
+    </div>
+
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
+      <span style="font:600 11px/1 inherit;color:var(--n-500);text-transform:uppercase;letter-spacing:.06em">แพลตฟอร์ม E-commerce:</span>
+      <button class="ord-btn btn-sm" style="padding:4px 10px;font-size:12px;${!pf?'background:var(--brand,#0d9488);color:#fff;border-color:var(--brand,#0d9488)':''}" onclick="ordIvSetPlatform('')">ทั้งหมด</button>
+      ${pfChip("shopee","SHOPEE")}
+      ${pfChip("tiktok","TIKTOK")}
+      ${pfChip("lazada","LAZADA")}
+      ${pfChip("offline","ออฟไลน์")}
+      ${pfChip("other","อื่นๆ")}
+      <div style="flex:1"></div>
+      <span style="font:600 11px/1 inherit;color:var(--n-500)">วันที่ IV:</span>
+      <input type="date" value="${esc(ic.dateFrom||'')}" onchange="ordIvSetDate('dateFrom', this.value)" style="padding:4px 8px;font:500 12px/1.2 inherit;border:1px solid var(--n-200);border-radius:7px">
+      <span style="color:var(--n-400)">–</span>
+      <input type="date" value="${esc(ic.dateTo||'')}" onchange="ordIvSetDate('dateTo', this.value)" style="padding:4px 8px;font:500 12px/1.2 inherit;border:1px solid var(--n-200);border-radius:7px">
+    </div>
+
+    <div class="ord-search" style="margin-bottom:10px">
+      <span class="ic">🔍</span>
+      <input id="ordIvSearch" type="text" placeholder="ค้นหา: เลข IV / รหัสคำสั่งซื้อ / ลูกค้า / channel ..." value="${esc(ic.q||'')}" oninput="ordIvSetSearch(this.value)">
     </div>
 
     <div style="font:500 12px/1.4 inherit;color:var(--n-500);margin-bottom:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-      <span>👆 คลิกการ์ดเพื่อกรอง · กำลังดู: <b style="color:var(--n-900)">${esc(filtLabel)}</b> (${list.length.toLocaleString("th-TH")})</span>
+      <span>กำลังดู: <b style="color:var(--n-900)">${esc(filtLabel)}</b> (${list.length.toLocaleString("th-TH")} รายการ)${totalCheckedN?` · <b style="color:var(--brand,#0d9488)">เลือกไว้ ${totalCheckedN.toLocaleString("th-TH")} รายการ</b>`:''}</span>
       <div style="flex:1"></div>
-      ${c.new?`<button class="ord-btn btn-sm" style="padding:5px 10px;font-size:12px" onclick="ordIvApply('tagNew')"><i data-lucide="tag"></i> Tag IV ที่ยังว่าง (${c.new})</button>`:''}
-      ${c.voided?`<button class="ord-btn btn-sm" style="padding:5px 10px;font-size:12px;color:var(--wn-700);border-color:var(--wn-100)" onclick="ordIvApply('cancelVoided')"><i data-lucide="ban"></i> Cancel ออเดอร์ที่ voided (${c.voided})</button>`:''}
-      ${c.diff?`<button class="ord-btn btn-sm" style="padding:5px 10px;font-size:12px" onclick="ordIvApply('fixDiff')"><i data-lucide="refresh-cw"></i> แก้ยอดตามรายงาน (${c.diff})</button>`:''}
+      <span style="font:600 11px/1 inherit;color:var(--n-500);text-transform:uppercase;letter-spacing:.04em">เลือกตามเงื่อนไข:</span>
+      <button class="ord-btn btn-sm" style="padding:4px 10px;font-size:11.5px" onclick="ordIvCheckAuto('match')">เลือกยอดตรง</button>
+      <button class="ord-btn btn-sm" style="padding:4px 10px;font-size:11.5px" onclick="ordIvCheckAuto('zero')">เลือกยอด 0/0</button>
+      <button class="ord-btn btn-sm" style="padding:4px 10px;font-size:11.5px" onclick="ordIvCheckAuto('diff')">เลือกยอดต่าง</button>
+      <button class="ord-btn btn-sm" style="padding:4px 10px;font-size:11.5px" onclick="ordIvCheckAuto('invert')">สลับการเลือก</button>
+      <button class="ord-btn btn-sm" style="padding:4px 10px;font-size:11.5px" onclick="ordIvCheckAuto('none')">ยกเลิกการเลือก</button>
+      <span style="width:8px"></span>
+      <button class="ord-btn primary btn-sm" style="padding:5px 12px;font-size:12.5px" onclick="ordIvApply('tagSelected')" ${totalCheckedN?'':'disabled'}><i data-lucide="tag"></i> บันทึก Tag IV ที่เลือก (${totalCheckedN.toLocaleString("th-TH")})</button>
+      ${c.voided?`<button class="ord-btn btn-sm" style="padding:5px 10px;font-size:12px;color:var(--wn-700);border-color:var(--wn-100)" onclick="ordIvApply('cancelVoided')"><i data-lucide="ban"></i> ยกเลิกออเดอร์ที่ Voided (${c.voided})</button>`:''}
+      ${c.diff?`<button class="ord-btn btn-sm" style="padding:5px 10px;font-size:12px" onclick="ordIvApply('fixDiff')"><i data-lucide="refresh-cw"></i> ปรับยอดให้ตรงรายงาน (${c.diff})</button>`:''}
     </div>
 
     ${list.length ? `<div class="ord-card">
       <div style="max-height:60vh;overflow-y:auto">
         <table class="ord-table">
           <thead><tr>
-            <th style="width:90px">วันที่</th>
-            <th style="width:130px">เลขที่ IV</th>
-            <th style="width:160px">รหัสคำสั่งซื้อ</th>
-            <th>ลูกค้า / ช่องทาง</th>
-            <th class="right" style="width:120px">ยอดใน 723-5</th>
-            <th class="right" style="width:110px">ในทะเบียน</th>
-            <th style="width:160px">สถานะ</th>
+            <th style="width:38px;text-align:center"><input type="checkbox" ${allVisChecked?'checked':''} ${someVisChecked?'data-indeterminate="1"':''} onclick="ordIvToggleAllVisible()" title="เลือก/ยกเลิกทั้งหมดที่อยู่ในตัวกรอง (เฉพาะรายการที่บันทึกได้)"></th>
+            ${sortH('doc_date','วันที่','90px')}
+            ${sortH('iv_no','เลขที่ IV','130px')}
+            ${sortH('ref','รหัสคำสั่งซื้อ','160px')}
+            ${sortH('customer','ลูกค้า / แพลตฟอร์ม E-commerce','')}
+            ${sortH('total','ยอดใน 723-5','120px','right')}
+            ${sortH('cur','ระบบ BigSeller','170px','right')}
+            ${sortH('diff','ส่วนต่าง','100px','right')}
+            ${sortH('_status','สถานะ','170px')}
           </tr></thead>
           <tbody>
             ${list.slice(0,1000).map(r=>{
-              const cur = r.currentTotal!=null ? fmt(r.currentTotal) : '<span style="color:var(--n-400)">—</span>';
-              const diffTxt = r.status==="diff" || (r.status==="new" && Math.abs(r.diffAmount)>=0.01) || r.status==="conflict"
-                ? `<span class="tnum" style="color:var(--wn-700);font:600 11px/1 inherit">${r.diffAmount>0?'+':''}${fmt(r.diffAmount)}</span>` : '';
-              return `<tr>
+              const isCheckable = r.orderRowId && (r.status==="new_match"||r.status==="new_zero"||r.status==="new_diff");
+              const isChecked = isCheckable && checked.has(r.iv_no);
+              // breakdown ของ BigSeller current
+              let curHtml;
+              if(r.currentTotal==null){ curHtml = '<span style="color:var(--n-400)">—</span>'; }
+              else if(r.currentFromSale){
+                curHtml = `<div class="tnum" style="font:600 13px/1.2 inherit">${fmt(r.currentTotal)}</div>
+                           <div style="font:500 10.5px/1.2 inherit;color:var(--n-500)">(sale_amount เดิม)</div>`;
+              } else {
+                const bd = `${fmt(r.currentBase||0)} + ส่ง ${fmt(r.currentShip||0)}`;
+                curHtml = `<div class="tnum" style="font:600 13px/1.2 inherit">${fmt(r.currentTotal)}</div>
+                           <div style="font:500 10.5px/1.3 inherit;color:var(--n-500)" title="order_total + shipping_fee">${bd}</div>`;
+              }
+              const showDiff = (r.status==="new_diff"||r.status==="diff"||r.status==="conflict") && Math.abs(r.diffAmount)>=0.01;
+              const diffHtml = showDiff
+                ? `<span class="tnum" style="color:${r.diffAmount>0?'var(--ok-700)':'var(--dg-700)'};font:700 12.5px/1 inherit">${r.diffAmount>0?'+':''}${fmt(r.diffAmount)}</span>`
+                : (r.status==="new_match" ? '<span style="color:var(--ok-700);font:600 11px/1 inherit">ตรง</span>' : '<span style="color:var(--n-400)">—</span>');
+              const cbCell = isCheckable
+                ? `<input type="checkbox" ${isChecked?'checked':''} onclick="ordIvToggle('${esc(r.iv_no)}')">`
+                : '<span style="color:var(--n-300);font-size:10px">—</span>';
+              return `<tr style="${isChecked?'background:color-mix(in srgb,var(--brand,#0d9488) 6%,transparent)':''}">
+                <td style="text-align:center">${cbCell}</td>
                 <td class="tnum" style="font-size:12px">${r.doc_date||'—'}</td>
                 <td class="mono">${esc(r.iv_no)}</td>
                 <td class="mono" style="font-size:11px">${esc(r.ref_order_id||'—')}</td>
@@ -15018,25 +15078,27 @@ function ordRenderIv(d){
                   <div style="font:500 12.5px/1.3 inherit">${esc(r.customer||'—')}</div>
                   <div style="font:500 11px/1.3 inherit;color:var(--n-500)">${esc(r.channel||'')}</div>
                 </td>
-                <td class="right tnum">${fmt(r.total)}</td>
-                <td class="right tnum" style="color:var(--n-600)">${cur}<br>${diffTxt}</td>
+                <td class="right tnum" style="font:600 13px/1.2 inherit">${fmt(r.total)}</td>
+                <td class="right" style="color:var(--n-600)">${curHtml}</td>
+                <td class="right">${diffHtml}</td>
                 <td><span class="ord-bd ${bdCls(r.status)}">${bdIc(r.status)} ${bdLab(r.status)}</span></td>
               </tr>`;
             }).join("")}
           </tbody>
         </table>
       </div>
-      ${list.length>1000?`<div style="padding:10px 16px;font:500 12px/1.4 inherit;color:var(--n-500);border-top:1px solid var(--n-100);background:var(--n-50)">แสดง 1,000 จาก ${list.length.toLocaleString("th-TH")}</div>`:''}
+      ${list.length>1000?`<div style="padding:10px 16px;font:500 12px/1.4 inherit;color:var(--n-500);border-top:1px solid var(--n-100);background:var(--n-50)">แสดง 1,000 จาก ${list.length.toLocaleString("th-TH")} — กรองให้แคบลงเพื่อดูครบ</div>`:''}
     </div>` : `<div class="ord-empty">— ไม่มีรายการในหมวด "${esc(filtLabel)}" —</div>`}
 
     <div style="margin-top:14px;font:500 12px/1.5 inherit;color:var(--n-500)">
       📖 <b>การตีความสถานะ:</b>
-      <span class="ord-bd ok" style="margin:0 4px">✓ ตรงแล้ว</span> ออเดอร์มี IV ตรง + ยอดตรง ·
-      <span class="ord-bd info" style="margin:0 4px">📝 ยังไม่ tag</span> ออเดอร์มีในระบบ แต่ยังไม่มี IV — กดปุ่ม "Tag IV ที่ยังว่าง" ·
-      <span class="ord-bd warn" style="margin:0 4px">⚠ ยอดไม่ตรง</span> IV ตรง แต่ยอดต่าง ·
+      <span class="ord-bd ok" style="margin:0 4px">🏷️ ยอดตรง · รอบันทึก</span> 723-5 ตรง <code style="background:var(--n-100);padding:1px 5px;border-radius:4px">order_total + ค่าส่ง</code> (เลือกไว้แล้ว · พร้อมบันทึก) ·
+      <span class="ord-bd warn" style="margin:0 4px">⊘ ยอด 0/0</span> 723-5 = 0 และ BigSeller = 0 (รอ user ตรวจ) ·
+      <span class="ord-bd warn" style="margin:0 4px">⚠ ยอดต่าง</span> ยอดไม่ตรง (Tag จะทับ sale_amount ด้วยยอด 723-5) ·
+      <span class="ord-bd ok" style="margin:0 4px">✓ ตรงแล้ว</span> มี IV + ยอดตรงอยู่แล้ว ·
+      <span class="ord-bd warn" style="margin:0 4px">🚫 Voided</span> IV โดน void ·
       <span class="ord-bd danger" style="margin:0 4px">⛔ IV ทับเลขเดิม</span> ออเดอร์มี IV อื่นอยู่ ·
-      <span class="ord-bd warn" style="margin:0 4px">🚫 Voided</span> IV โดน void ใน Express ·
-      <span class="ord-bd danger" style="margin:0 4px">❓ ไม่มีออเดอร์ match</span> มี IV แต่หาออเดอร์ที่ ref ตรงไม่เจอ
+      <span class="ord-bd danger" style="margin:0 4px">❓ ไม่มีออเดอร์ match</span> หาออเดอร์ไม่เจอ
     </div>`;
 }
 

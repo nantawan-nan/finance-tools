@@ -13456,10 +13456,19 @@ function ordOrderCompany(o, skuSets){
   }
   return null;
 }
+/* รายการที่ไม่ใช่ออเดอร์ขายจริง (ใบปะหน้า/LABEL ยอด 0) — ดึงติดมาจาก BigSeller */
+function ordIsLabelOrder(o){
+  const prod=String(o.products||"");
+  const sku=String(o.sku_list||"");
+  if(/ใบปะหน้า|สร้างใบปะหน้า|cover\s*sheet/i.test(prod)) return true;
+  if(/\bLABEL\d*\b/i.test(sku) && Number(o.order_total||0)===0) return true;
+  return false;
+}
 function ordSplitByCompany(orders, myCompany, skuSets){
   skuSets = skuSets || ordCompanySkuSets();
-  const mine=[]; const otherByCompany=new Map(); const unknownShops=new Map();
+  const mine=[]; const otherByCompany=new Map(); const unknownShops=new Map(); let labelCount=0;
   for(const o of orders){
+    if(ordIsLabelOrder(o)){ labelCount++; continue; }   // ข้าม ไม่ใช่ออเดอร์ขาย
     const comp = ordOrderCompany(o, skuSets);
     if(comp===myCompany){ mine.push(o); }
     else if(comp){ otherByCompany.set(comp,(otherByCompany.get(comp)||0)+1); }
@@ -13470,7 +13479,7 @@ function ordSplitByCompany(orders, myCompany, skuSets){
       const u=unknownShops.get(sh); u.n++; if(o.order_id) u.ids.push(o.order_id); u.orders.push(o);
     }
   }
-  return { mine, otherByCompany, unknownShops };
+  return { mine, otherByCompany, unknownShops, labelCount };
 }
 /* แผงออเดอร์ที่ยังไม่รู้บริษัท — รายตัว (โชว์ SKU/สินค้า/ยอด) + เลือกบริษัทรายออเดอร์ */
 function ordUnknownPanel(d){
@@ -13480,8 +13489,9 @@ function ordUnknownPanel(d){
   if(!items.length) return '';
   const fmt=ordFmtMoney;
   const skuName=(o)=>{ let it=o.items; if(typeof it==='string'){try{it=JSON.parse(it);}catch(e){it=null;}} if(it&&it.length) return it.map(x=>`${x.sku||''}${(x.qty>1)?'×'+x.qty:''}`).join(', '); return o.sku_list||'—'; };
-  const GR='grid-template-columns:140px 76px 1fr 140px 84px 128px';
-  const btns=(oid)=>COMPANIES.map(c=>`<button onclick="ordAssignOrder('${encodeURIComponent(oid)}','${c.id}')" style="border:1px solid var(--brand,#0d9488);background:#fff;color:var(--brand,#0d9488);border-radius:7px;padding:4px 9px;font-size:11px;font-weight:600;cursor:pointer">${esc(c.name)}</button>`).join('');
+  const GR='grid-template-columns:140px 76px 1fr 130px 80px 168px';
+  const btns=(oid)=>COMPANIES.map(c=>`<button onclick="ordAssignOrder('${encodeURIComponent(oid)}','${c.id}')" style="border:1px solid var(--brand,#0d9488);background:#fff;color:var(--brand,#0d9488);border-radius:7px;padding:4px 9px;font-size:11px;font-weight:600;cursor:pointer">${esc(c.name)}</button>`).join('')
+    +`<button onclick="ordRemoveUnknownOrder('${encodeURIComponent(oid)}')" title="ลบ (ไม่ใช่ออเดอร์ขาย)" style="border:1px solid #fecaca;background:#fff;color:#dc2626;border-radius:7px;padding:4px 7px;font-size:11px;cursor:pointer">ลบ</button>`;
   return `<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:12px;overflow:hidden;margin-bottom:14px">
     <div style="padding:12px 16px">
       <div style="font-weight:700;color:#92400e;font-size:13.5px">⚠️ ${items.length} ออเดอร์ระบุบริษัทไม่ได้ — <u>ยังไม่นำเข้า</u> (กันเบิ้ล) · เลือกบริษัทรายตัวได้</div>
@@ -13520,6 +13530,13 @@ async function ordAssignShop(shopEnc, companyId){
   renderToolOrders();
 }
 function ordDismissUnknown(shopEnc){ const shop=decodeURIComponent(shopEnc); const d=ordGet(); d.unknownShops=(d.unknownShops||[]).filter(u=>u.shop!==shop); renderToolOrders(); }
+/* ลบออเดอร์ออกจากรายการรอ (ไม่นำเข้า ไม่ลบจาก DB เพราะยังไม่เคยนำเข้า) */
+function ordRemoveUnknownOrder(oidEnc){
+  const oid=decodeURIComponent(oidEnc); const d=ordGet();
+  (d.unknownShops||[]).forEach(u=>{ u.orders=(u.orders||[]).filter(x=>x.order_id!==oid); u.ids=(u.ids||[]).filter(x=>x!==oid); u.n=(u.orders||[]).length; });
+  d.unknownShops=(d.unknownShops||[]).filter(u=>(u.orders||[]).length>0);
+  renderToolOrders();
+}
 async function ordCompanyUuid(cid){
   const code = cid==="mbark" ? "MBARC" : "BENYA";
   const { data } = await sb.from("companies").select("id").eq("code", code).limit(1);
@@ -13699,7 +13716,7 @@ async function ordUploadFiles(){
   const d = ordGet(); d.busy=true; d.unknownShops=[]; renderToolOrders();
   try{
     let totAdd=0, totUpd=0, perCh={}, failTotal=0, firstErrMsg=null;
-    let totalParsed=0, mineTotal=0; const otherByCompanyAll=new Map(), unknownShopsAll=new Map();
+    let totalParsed=0, mineTotal=0, labelTotal=0; const otherByCompanyAll=new Map(), unknownShopsAll=new Map();
     const skuSets = ordCompanySkuSets();
     for(const file of files){
       let rows;
@@ -13716,7 +13733,7 @@ async function ordUploadFiles(){
       // ★ แยกบริษัทจากเนื้อหา (ชื่อร้าน+SKU) — เฉพาะไฟล์ BigSeller · ระบุไม่ได้ = ไม่นำเข้า (กันเบิ้ล) เก็บรอระบุ
       if(parsed.channel==="bigseller"){
         const sp = ordSplitByCompany(parsed.orders, state.company, skuSets);
-        parsed.orders = sp.mine;
+        parsed.orders = sp.mine; labelTotal += (sp.labelCount||0);
         sp.otherByCompany.forEach((n,c)=>otherByCompanyAll.set(c,(otherByCompanyAll.get(c)||0)+n));
         sp.unknownShops.forEach((u,s)=>{ if(!unknownShopsAll.has(s)) unknownShopsAll.set(s,{n:0,ids:[],orders:[]}); const a=unknownShopsAll.get(s); a.n+=u.n; u.ids.forEach(id=>a.ids.push(id)); u.orders.forEach(o=>a.orders.push(o)); });
       }
@@ -13738,7 +13755,8 @@ async function ordUploadFiles(){
       msg += `\n  • ${coName} (นำเข้า): ${mineTotal}  [ใหม่ ${totAdd} · อัปเดต ${totUpd}]`;
       [...otherByCompanyAll.entries()].forEach(([c,n])=>{ msg += `\n  • ${(COMPANIES.find(x=>x.id===c)||{}).name||c} (ข้าม — ไปอัปฝั่งนั้น): ${n}`; });
       if(unkTotal) msg += `\n  • ยังไม่รู้บริษัท (รอระบุ ยังไม่นำเข้า): ${unkTotal}  ← ดูแผงเหลืองด้านบน`;
-      const sum = mineTotal + otherTotal + unkTotal;
+      if(labelTotal) msg += `\n  • ใบปะหน้า/ไม่ใช่ออเดอร์ขาย (ข้าม): ${labelTotal}`;
+      const sum = mineTotal + otherTotal + unkTotal + labelTotal;
       msg += `\n  ─ รวมตรวจ: ${sum}${sum===totalParsed?" ✓ ครบ":" ⚠️ ไม่ครบ ("+totalParsed+")"}`;
       const dbNow=(dbCount!=null?dbCount:(d.rows||[]).length);
       msg += `\n\n📊 ${coName} ในระบบจริง (active): ${dbNow} ออเดอร์`;

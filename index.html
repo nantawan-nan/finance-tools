@@ -12145,6 +12145,63 @@ async function brecUpload(kind){
 
 /* ล้างแถวซ้ำที่เกิดจากอัป STM/Express หลายครั้ง (ก่อนมี dedup ระดับแถว)
    — เก็บไว้ 1 แถวต่อลายเซ็น · ถ้าแถวไหนถูกจับคู่ไว้แล้วจะเก็บอันนั้นไว้เสมอ (ไม่ทำให้ match พัง) */
+/* ★ ล้างข้อมูลของเดือนที่ดูอยู่ทั้งหมด — soft-delete Express + Bank + Matches
+   ใช้กรณีอัปไฟล์ผิด/อยากเริ่มอัปใหม่ตั้งแต่ต้น
+   2-step confirm: alert บอกจำนวน → prompt พิมพ์ "ลบ" ยืนยัน */
+async function brecClearPeriod(){
+  if(!brecCanWrite()){ alert("ไม่มีสิทธิ์"); return; }
+  const d = brecGet();
+  const co = d.companyId || await fopCompanyId();
+  if(!co){ alert("หา company_id ไม่เจอ"); return; }
+  if(!d.accountId){ alert("เลือกบัญชีก่อน"); return; }
+  const acct = d.accounts.find(a=>a.id===d.accountId);
+  const { from, to } = brecComputePeriod(d);
+  const periodLbl = d.period.mode === "month" ? d.period.month : `${from} ถึง ${to}`;
+  const siblingIds = await brecSiblingAccountIds(d, co, d.accountId);
+
+  // นับจำนวนก่อนลบ
+  const [exC, bkC, mC] = await Promise.all([
+    sb.from("brec_express_rows").select("id",{count:'exact',head:true}).eq("company_id",co).in("bank_account_id",siblingIds).is("deleted_at",null).gte("txn_date",from).lte("txn_date",to),
+    sb.from("brec_bank_rows").select("id",{count:'exact',head:true}).eq("company_id",co).in("bank_account_id",siblingIds).is("deleted_at",null).gte("txn_date",from).lte("txn_date",to),
+    sb.from("brec_matches").select("id",{count:'exact',head:true}).eq("company_id",co).in("bank_account_id",siblingIds).is("deleted_at",null).gte("txn_date",from).lte("txn_date",to)
+  ]);
+  const nEx = exC.count||0, nBk = bkC.count||0, nM = mC.count||0;
+  if(nEx + nBk + nM === 0){ alert(`ไม่มีข้อมูลของ ${periodLbl} ในบัญชีนี้`); return; }
+
+  const ok1 = confirm(
+    `🗑 ล้างข้อมูลของ "${periodLbl}"\n`+
+    `บัญชี: ${acct?(acct.bank_code+' '+acct.account_no):'(ปัจจุบัน)'}\n\n`+
+    `จะ soft-delete:\n`+
+    `• Express ${nEx} แถว\n`+
+    `• Bank ${nBk} แถว\n`+
+    `• Matches ${nM} คู่\n\n`+
+    `ต้องอัปไฟล์ใหม่หลังลบ — ดำเนินการต่อ?`
+  );
+  if(!ok1) return;
+  const word = prompt(`พิมพ์คำว่า "ลบ" (ไม่มีเครื่องหมายคำพูด) เพื่อยืนยัน`, "");
+  if(word !== "ลบ"){ alert("ยกเลิก — ไม่พิมพ์ตรงคำว่า 'ลบ'"); return; }
+
+  d.busy = true; brecRefresh();
+  try{
+    const now = new Date().toISOString();
+    // soft-delete ทั้ง 3 ตาราง (matches ก่อน → ป้องกัน FK orphan ใน application logic)
+    await sb.from("brec_matches").update({deleted_at:now,updated_at:now})
+      .eq("company_id",co).in("bank_account_id",siblingIds).is("deleted_at",null)
+      .gte("txn_date",from).lte("txn_date",to);
+    await sb.from("brec_express_rows").update({deleted_at:now,updated_at:now})
+      .eq("company_id",co).in("bank_account_id",siblingIds).is("deleted_at",null)
+      .gte("txn_date",from).lte("txn_date",to);
+    await sb.from("brec_bank_rows").update({deleted_at:now,updated_at:now})
+      .eq("company_id",co).in("bank_account_id",siblingIds).is("deleted_at",null)
+      .gte("txn_date",from).lte("txn_date",to);
+    await brecLoad();
+    alert(`✓ ล้างเรียบร้อย\n• Express ${nEx} แถว\n• Bank ${nBk} แถว\n• Matches ${nM} คู่\n\nอัปไฟล์ Express + Statement ใหม่ได้เลย`);
+  }catch(e){
+    alert("ล้างไม่สำเร็จ: " + (e.message||e));
+  }
+  d.busy = false; brecRefresh();
+}
+
 async function brecDedupExisting(){
   if(!brecCanWrite()){ alert("ไม่มีสิทธิ์"); return; }
   const d = brecGet();
@@ -12863,6 +12920,7 @@ async function renderToolBankRec(){
         <button class="brec-btn" onclick="brecExportXlsx()" ${noAcct?'disabled':''}><i data-lucide="download"></i> Export</button>
         <button class="brec-btn" onclick="brecOpenHistory()" title="ดูประวัติการอัปไฟล์ทั้งหมด"><i data-lucide="history"></i> ประวัติ</button>
         <button class="brec-btn" onclick="brecDedupExisting()" ${brecCanWrite()&&!noAcct?'':'disabled'} title="ลบแถวซ้ำที่เกิดจากอัป STM/Express หลายครั้ง — เก็บแถวที่จับคู่ไว้เสมอ"><i data-lucide="copy-minus"></i> ล้างแถวซ้ำ</button>
+        <button class="brec-btn" onclick="brecClearPeriod()" ${brecCanWrite()&&!noAcct?'':'disabled'} style="color:#b91c1c;border-color:#fecaca" title="ลบ Express + Bank + Matches ของเดือนนี้ทั้งหมด (2-step confirm)"><i data-lucide="trash-2"></i> ล้างเดือนนี้</button>
         <button class="brec-btn" onclick="brecMergeDupAccounts()" ${brecCanWrite()?'':'disabled'} title="รวมบัญชีที่ซ้ำกัน (เลขเดียวกัน ต่างแค่รูปแบบ) ให้เหลือบัญชีเดียว"><i data-lucide="git-merge"></i> รวมบัญชีซ้ำ</button>
         <button class="brec-btn" onclick="bmpOpenUpload()" ${brecCanWrite()?'':'disabled'} style="background:#fef3c7;border-color:#fde68a;color:#92400e"><i data-lucide="shopping-bag"></i> Marketplace (3 ไฟล์)</button>
       </div>

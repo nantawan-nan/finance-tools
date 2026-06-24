@@ -14022,7 +14022,8 @@ function ordReconDiffs(bs, be){
   const diffs=[]; const ne=(a,b)=>Math.abs(Number(a||0)-Number(b||0))>=0.01;
   const bg=ordGrossVal(bs), eg=ordGrossVal(be); if(ne(bg,eg)) diffs.push({f:'ยอดขาย(gross)',bs:bg,be:eg});
   if(ne(bs.shipping_fee,be.shipping_fee)) diffs.push({f:'ค่าส่ง',bs:Number(bs.shipping_fee||0),be:Number(be.shipping_fee||0)});
-  if(ne(bs.seller_discount,be.seller_discount)) diffs.push({f:'ส่วนลด',bs:Number(bs.seller_discount||0),be:Number(be.seller_discount||0)});
+  // ส่วนลดบางช่อง (Lazada) ติดลบ → เทียบค่าสัมบูรณ์
+  if(ne(Math.abs(Number(bs.seller_discount||0)),Math.abs(Number(be.seller_discount||0)))) diffs.push({f:'ส่วนลด',bs:Number(bs.seller_discount||0),be:Number(be.seller_discount||0)});
   const bsig=ordSkuSig(bs), esig=ordSkuSig(be); if(bsig!==esig) diffs.push({f:'SKU/จำนวน',bs:bsig||'—',be:esig||'—',txt:true});
   return diffs;
 }
@@ -14077,8 +14078,32 @@ function ordReconExport(){
   const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data), "ฝ่ายขายคีย์ไม่ครบ");
   XLSX.writeFile(wb, `ออเดอร์คีย์ไม่ครบ_${co.code}_${new Date().toISOString().slice(0,10)}.xlsx`);
 }
+function ordReconToggle(oidEnc){ const oid=decodeURIComponent(oidEnc); const d=ordGet(); d.recon=d.recon||{}; if(!d.recon.expanded) d.recon.expanded=new Set(); if(d.recon.expanded.has(oid)) d.recon.expanded.delete(oid); else d.recon.expanded.add(oid); renderToolOrders(); }
+function ordReconRowDetail(r){
+  const fmt=ordFmtMoney; const bs=r.bs, be=r.be;
+  const line=(l,a,b,diff)=>`<div style="display:grid;grid-template-columns:150px 1fr 1fr;gap:8px;font-size:12.5px;padding:6px 0;border-top:1px solid #f1f5f9;align-items:center">
+    <div style="color:#64748b">${l}</div>
+    <div style="${diff?'color:#dc2626;font-weight:600':''}">${a}</div>
+    <div style="${diff?'color:#dc2626;font-weight:600':''}">${b}</div></div>`;
+  const dif=(x,y)=>String(x)!==String(y);
+  const g1=bs?fmt(ordGrossVal(bs)):'—', g2=be?fmt(ordGrossVal(be)):'—';
+  const s1=bs?fmt(bs.shipping_fee):'—', s2=be?fmt(be.shipping_fee):'—';
+  const d1=bs?fmt(bs.seller_discount):'—', d2=be?fmt(be.seller_discount):'—';
+  const k1=bs?(ordSkuSig(bs)||'—'):'—', k2=be?(ordSkuSig(be)||'—'):'—';
+  return `<div style="padding:12px 16px;background:#fafbfc;border-top:1px dashed #e2e8f0">
+    <div style="display:grid;grid-template-columns:150px 1fr 1fr;gap:8px;font-size:11px;font-weight:700;color:#475569;text-transform:uppercase;padding-bottom:2px"><div></div><div>BigSeller</div><div>หลังบ้าน</div></div>
+    ${line('ยอดขาย (gross)',g1,g2,dif(g1,g2))}
+    ${line('ค่าส่ง',s1,s2,dif(s1,s2))}
+    ${line('ส่วนลด',d1,d2,dif(Math.abs(Number(bs&&bs.seller_discount||0)),Math.abs(Number(be&&be.seller_discount||0))))}
+    ${line('SKU×จำนวน',esc(k1),esc(k2),dif(k1,k2))}
+    ${line('สินค้า',esc((bs&&bs.products)||'—'),esc((be&&be.products)||'—'),false)}
+    ${r.status==='only_be'?`<div style="font-size:12px;color:#dc2626;margin-top:8px">⚠️ หลังบ้านมีออเดอร์นี้ แต่ BigSeller ยังไม่มี — ฝ่ายขายต้องคีย์เพิ่ม</div>`:''}
+    ${r.status==='only_bs'?`<div style="font-size:12px;color:#0ea5e9;margin-top:8px">ℹ️ BigSeller มี แต่หลังบ้านไม่มี — อาจยกเลิก/คนละช่วงวัน</div>`:''}
+  </div>`;
+}
 function ordRenderRecon(d){
   const fmt=ordFmtMoney; const rec=d.recon||{};
+  if(rec && !rec.expanded) rec.expanded=new Set();
   if(rec.busy) return `<div class="brec-empty"><i data-lucide="loader-2"></i><div class="ttl">กำลังเทียบ…</div></div>`;
   const upBtn=`<button class="brec-btn primary" onclick="ordReconUpload()" ${brecCanWrite()?'':'disabled'}><i data-lucide="upload"></i> อัปไฟล์หลังบ้าน (Shopee/TikTok/Lazada) แล้วเทียบ</button>`;
   if(!rec.results){
@@ -14106,12 +14131,15 @@ function ordRenderRecon(d){
     ${probs.length? `<div style="background:#fff;border:1px solid var(--line,#e2e8f0);border-radius:12px;overflow:hidden">
       <div style="display:grid;${GR};gap:8px;padding:10px 14px;background:#f8fafc;font-size:11px;font-weight:700;color:var(--ink2,#475569);text-transform:uppercase"><div>วันที่</div><div>ช่องทาง</div><div>เลขออเดอร์</div><div>ปัญหา / ผลต่าง</div></div>
       <div style="max-height:60vh;overflow-y:auto">
-        ${probs.slice(0,800).map(r=>{ const m=meta[r.status]||{l:r.status,col:'#475569'}; const detail=r.status==='diff'?(r.diffs||[]).map(df=>`<span style="margin-right:10px"><b>${df.f}:</b> ${df.txt?esc(df.bs):fmt(df.bs)} <span style="color:#94a3b8">vs</span> ${df.txt?esc(df.be):fmt(df.be)}</span>`).join(''):(r.status==='only_be'?`ยอด ${fmt(ordGrossVal(r.be||{}))} · ${esc((r.be&&r.be.products)||'')}`:`ยอด ${fmt(ordGrossVal(r.bs||{}))} · ${esc((r.bs&&r.bs.products)||'')}`);
-          return `<div style="display:grid;${GR};gap:8px;padding:10px 14px;border-top:1px solid #f1f5f9;font-size:12px;align-items:center;border-left:4px solid ${m.col}">
-            <div class="tnum">${r.date||'—'}</div>
-            <div style="font-size:11px">${esc(r.channel||'')}</div>
-            <div style="font-family:monospace;font-size:11px">${esc(r.order_no||'')}</div>
-            <div><span style="font-size:10.5px;font-weight:700;color:${m.col}">${m.l}</span> <span style="color:var(--ink2,#475569)">· ${detail}</span></div>
+        ${probs.slice(0,800).map(r=>{ const m=meta[r.status]||{l:r.status,col:'#475569'}; const exp=rec.expanded&&rec.expanded.has(r.order_no); const detail=r.status==='diff'?(r.diffs||[]).map(df=>`<span style="margin-right:10px"><b>${df.f}:</b> ${df.txt?esc(df.bs):fmt(df.bs)} <span style="color:#94a3b8">vs</span> ${df.txt?esc(df.be):fmt(df.be)}</span>`).join(''):(r.status==='only_be'?`ยอด ${fmt(ordGrossVal(r.be||{}))} · ${esc((r.be&&r.be.products)||'')}`:`ยอด ${fmt(ordGrossVal(r.bs||{}))} · ${esc((r.bs&&r.bs.products)||'')}`);
+          return `<div style="border-top:1px solid #f1f5f9;border-left:4px solid ${m.col}">
+            <div onclick="ordReconToggle('${encodeURIComponent(r.order_no)}')" style="display:grid;${GR};gap:8px;padding:10px 14px;font-size:12px;align-items:center;cursor:pointer;${exp?'background:#f8fafc':''}">
+              <div class="tnum">${r.date||'—'}</div>
+              <div style="font-size:11px">${esc(r.channel||'')}</div>
+              <div style="font-family:monospace;font-size:11px">${esc(r.order_no||'')} <span style="color:#cbd5e1">${exp?'▾':'▸'}</span></div>
+              <div><span style="font-size:10.5px;font-weight:700;color:${m.col}">${m.l}</span> <span style="color:var(--ink2,#475569)">· ${detail}</span></div>
+            </div>
+            ${exp?ordReconRowDetail(r):''}
           </div>`; }).join('')}
       </div>
       ${probs.length>800?`<div style="padding:8px 14px;font-size:12px;color:var(--ink3,#94a3b8)">แสดง 800 จาก ${probs.length}</div>`:''}

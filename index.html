@@ -14013,10 +14013,12 @@ function ordGrossVal(o){
   if(it&&it.length) return +it.reduce((s,x)=>s+(Number(x.price)||0)*(Number(x.qty)||0),0).toFixed(2);
   return Number(o.gross_total||o.order_total||0);
 }
+/* normalize SKU ก่อนเทียบ — ข้อยกเว้น: STR ⟷ SBR เป็นรหัสเดียวกัน (Betra · backend ลง STR, คีย์มือเป็น SBR) */
+function ordNormSku(s){ return String(s||'').trim().toUpperCase().replace(/^STR/,'SBR'); }
 function ordSkuSig(o){
   let it=o.items; if(typeof it==='string'){ try{it=JSON.parse(it);}catch(e){it=null;} }
-  if(it&&it.length) return it.map(x=>`${String(x.sku||'').toUpperCase()}×${Number(x.qty)||0}`).sort().join('|');
-  return String(o.sku_list||'').split(',').map(s=>s.trim().toUpperCase()).filter(Boolean).sort().join('|');
+  if(it&&it.length) return it.map(x=>`${ordNormSku(x.sku)}×${Number(x.qty)||0}`).sort().join('|');
+  return String(o.sku_list||'').split(',').map(s=>ordNormSku(s)).filter(Boolean).sort().join('|');
 }
 function ordReconNet(o){ return +Number(o.order_total||0).toFixed(2); }
 function ordReconDiffs(bs, be){

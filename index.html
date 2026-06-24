@@ -13463,10 +13463,14 @@ function ordOrderCompany(o, skuSets){
   }
   return null;
 }
-/* รายการที่ไม่ใช่ออเดอร์ขายจริง (ใบปะหน้า/LABEL ยอด 0) — ดึงติดมาจาก BigSeller */
+/* รายการที่ไม่ใช่ออเดอร์ขายจริง (ใบปะหน้า/LABEL ยอด0 · แถวคำอธิบาย/เทมเพลตจากไฟล์) */
 function ordIsLabelOrder(o){
   const prod=String(o.products||"");
   const sku=String(o.sku_list||"");
+  const oid=String(o.order_id||"");
+  // แถว header/คำอธิบายที่หลุดมาเป็นข้อมูล (เช่น TikTok "Platform unique order ID.")
+  if(/platform\s*unique\s*order\s*id|^order\s*id$/i.test(oid)) return true;
+  if(/platform\s*product\s*name/i.test(prod)) return true;
   if(/ใบปะหน้า|สร้างใบปะหน้า|cover\s*sheet/i.test(prod)) return true;
   if(/\bLABEL\d*\b/i.test(sku) && Number(o.order_total||0)===0) return true;
   return false;
@@ -14062,7 +14066,7 @@ async function ordReconUpload(){
       const parsed=ordParseSalesFile(rows);
       if(!parsed){ perCh[file.name]="ไม่รู้จักฟอร์แมต"; continue; }
       if(parsed.channel==="bigseller"){ perCh[file.name]="ข้าม (เป็นไฟล์ BigSeller ไม่ใช่หลังบ้าน)"; continue; }
-      backend=backend.concat((parsed.orders||[]).filter(o=>o.status!=='cancelled'));
+      backend=backend.concat((parsed.orders||[]).filter(o=>o.status!=='cancelled' && !ordIsLabelOrder(o)));
       perCh[parsed.channel]=(perCh[parsed.channel]||0)+(parsed.orders||[]).length;
     }
     if(!backend.length){ alert("ไม่พบออเดอร์หลังบ้าน — ต้องเป็นไฟล์ Shopee / TikTok / Lazada"); d.recon.busy=false; renderToolOrders(); return; }
@@ -14072,27 +14076,24 @@ async function ordReconUpload(){
   }catch(e){ alert("ตรวจไม่สำเร็จ: "+(e.message||e)); d.recon.busy=false; }
   renderToolOrders();
 }
-/* บันทึกผลตรวจล่าสุดลง DB (เก็บอันล่าสุดอันเดียวต่อบริษัท) → กู้คืนได้หลัง refresh/ออกหน้า */
+/* บันทึกผลตรวจ — ★ สะสมต่อ order_no (อัปช่อง/วันใหม่ ไม่ลบของช่อง/วันอื่น) → Reconciliation Log จริง */
 async function ordReconSave(rec){
   const company=state.company;
-  const c={matched:0,only_be:0,only_bs:0,diff:0}; (rec.results||[]).forEach(r=>{ if(c[r.status]!=null)c[r.status]++; });
-  try{ await sb.from("order_recon").delete().eq("company", company); }catch(e){}
-  try{ await sb.from("order_recon_runs").delete().eq("company", company); }catch(e){}
-  const { data:run, error:rErr } = await sb.from("order_recon_runs").insert({ company, channels:rec.channels||[], sale_date_from:rec.dFrom||null, sale_date_to:rec.dTo||null, n_total:(rec.results||[]).length, n_matched:c.matched, n_needs_review:c.diff+c.only_be+c.only_bs, n_only_be:c.only_be, n_only_bs:c.only_bs, n_amount_diff:c.diff }).select("id").single();
-  if(rErr || !run){ console.warn("recon run insert", rErr); return; }
-  const rows=(rec.results||[]).map(r=>({ company, run_id:run.id, sale_date:r.date||null, channel:r.channel||null, order_no:r.order_no, status:r.status, diff_detail:r.diffs||null, bs_raw:r.bs||null, be_raw:r.be||null }));
-  for(let i=0;i<rows.length;i+=200){ const {error}=await sb.from("order_recon").insert(rows.slice(i,i+200)); if(error){ console.warn("recon rows insert", error); break; } }
+  const orderNos=(rec.results||[]).map(r=>r.order_no).filter(Boolean);
+  // อัปเดตเฉพาะ order ที่อยู่ในรอบนี้ — ลบของเก่าเฉพาะเลขเหล่านี้ แล้วใส่ใหม่ (ของช่อง/วันอื่นคงไว้)
+  for(let i=0;i<orderNos.length;i+=150){ try{ await sb.from("order_recon").delete().eq("company",company).in("order_no",orderNos.slice(i,i+150)); }catch(e){ console.warn("recon del",e); } }
+  const rows=(rec.results||[]).map(r=>({ company, sale_date:r.date||null, channel:r.channel||null, order_no:r.order_no, status:r.status, diff_detail:r.diffs||null, bs_raw:r.bs||null, be_raw:r.be||null }));
+  for(let i=0;i<rows.length;i+=200){ const {error}=await sb.from("order_recon").insert(rows.slice(i,i+200)); if(error){ console.warn("recon insert", error); break; } }
 }
-/* โหลดผลตรวจล่าสุดจาก DB → d.recon */
+/* โหลดผลตรวจทั้งหมดของบริษัท (สะสมทุกรอบ) → d.recon */
 async function ordReconLoad(){
   const d=ordGet(); const company=state.company;
-  const { data:runs } = await sb.from("order_recon_runs").select("*").eq("company", company).order("run_at",{ascending:false}).limit(1);
-  if(!runs || !runs.length) return;
-  const run=runs[0];
   let rows=[], from=0; const sz=1000;
-  while(true){ const { data, error } = await sb.from("order_recon").select("*").eq("run_id", run.id).range(from, from+sz-1); if(error||!data||!data.length) break; rows=rows.concat(data); if(data.length<sz) break; from+=sz; }
+  while(true){ const { data, error } = await sb.from("order_recon").select("*").eq("company", company).is("deleted_at",null).range(from, from+sz-1); if(error||!data||!data.length) break; rows=rows.concat(data); if(data.length<sz) break; from+=sz; }
+  if(!rows.length){ return; }
   const results=rows.map(x=>({ order_no:x.order_no, channel:x.channel, date:x.sale_date, status:x.status, diffs:x.diff_detail||[], bs:x.bs_raw, be:x.be_raw }));
-  d.recon=d.recon||{}; Object.assign(d.recon, { results, channels:run.channels||[], dFrom:run.sale_date_from, dTo:run.sale_date_to });
+  const chans=[...new Set(results.map(r=>r.channel).filter(Boolean))];
+  d.recon=d.recon||{}; Object.assign(d.recon, { results, channels:chans });
   if(!d.recon.expanded) d.recon.expanded=new Set();
 }
 function ordReconExport(){
@@ -14130,6 +14131,32 @@ function ordReconRowDetail(r){
     ${r.status==='only_bs'?`<div style="font-size:12px;color:#0ea5e9;margin-top:8px">ℹ️ BigSeller มี แต่หลังบ้านไม่มี — อาจยกเลิก/คนละช่วงวัน</div>`:''}
   </div>`;
 }
+/* สรุป coverage ต่อแพลตฟอร์ม: BigSeller ถึงวันไหน · หลังบ้านถึงวันไหน · ตรวจแล้ว/ขาด/ไม่ตรง */
+function ordReconCoverage(d, res){
+  const all=['shopee','tiktok','lazada','offline'];
+  const lbl={shopee:'Shopee',tiktok:'TikTok',lazada:'Lazada',offline:'หน้าร้าน'};
+  const bsMax={}, beMax={}, cnt={};
+  all.forEach(ch=>{ bsMax[ch]=''; beMax[ch]=''; cnt[ch]={matched:0,only_be:0,only_bs:0,diff:0}; });
+  (d.rows||[]).forEach(o=>{ if(o.status==='cancelled')return; const ch=o.channel_group; if(cnt[ch]&&o.order_date&&o.order_date>bsMax[ch]) bsMax[ch]=o.order_date; });
+  (res||[]).forEach(r=>{ const ch=r.channel; if(!cnt[ch])return; if(cnt[ch][r.status]!=null)cnt[ch][r.status]++; if(r.be&&r.date&&r.date>beMax[ch]) beMax[ch]=r.date; });
+  const chans=all.filter(ch=> bsMax[ch]||beMax[ch]||Object.values(cnt[ch]).some(v=>v>0));
+  return { chans:chans.length?chans:['shopee','tiktok','lazada'], lbl, bsMax, beMax, cnt };
+}
+function ordReconCoverageHtml(d,res){
+  const cov=ordReconCoverage(d,res); const ch=cov.chans;
+  const gc=`grid-template-columns:200px repeat(${ch.length},minmax(86px,1fr))`;
+  const hrow=`<div style="display:grid;${gc};gap:8px;padding:9px 14px;background:#f8fafc;font-size:11px;font-weight:700;color:var(--ink2,#475569);text-transform:uppercase"><div>สถานะข้อมูล</div>${ch.map(c=>`<div style="text-align:right">${cov.lbl[c]}</div>`).join('')}</div>`;
+  const drow=(l,vals,col)=>`<div style="display:grid;${gc};gap:8px;padding:9px 14px;border-top:1px solid #f1f5f9;font-size:12.5px;align-items:center"><div style="color:#64748b">${l}</div>${vals.map(v=>`<div class="tnum" style="text-align:right;${col?`color:${col};font-weight:600`:''}">${v}</div>`).join('')}</div>`;
+  return `<div style="background:#fff;border:1px solid var(--line,#e2e8f0);border-radius:12px;overflow:hidden;margin-bottom:14px">
+    ${hrow}
+    ${drow('BigSeller ถึงวันที่', ch.map(c=>cov.bsMax[c]||'—'))}
+    ${drow('หลังบ้านถึงวันที่', ch.map(c=>cov.beMax[c]||'—'))}
+    ${drow('ตรวจแล้ว (ตรง)', ch.map(c=>cov.cnt[c].matched), '#16a34a')}
+    ${drow('BigSeller ขาด (ขายไม่คีย์)', ch.map(c=>cov.cnt[c].only_be), '#dc2626')}
+    ${drow('หลังบ้านขาด', ch.map(c=>cov.cnt[c].only_bs), '#0ea5e9')}
+    ${drow('ยอดไม่ตรง', ch.map(c=>cov.cnt[c].diff), '#d97706')}
+  </div>`;
+}
 function ordRenderRecon(d){
   const fmt=ordFmtMoney; const rec=d.recon||{};
   if(rec && !rec.expanded) rec.expanded=new Set();
@@ -14159,6 +14186,7 @@ function ordRenderRecon(d){
       <div style="flex:1"></div>
       <span style="font-size:12px;color:var(--ink3,#94a3b8)">ขอบเขต: ${(rec.channels||[]).join(', ')||'—'} · ${rec.dFrom||''}${rec.dTo&&rec.dTo!==rec.dFrom?' ถึง '+rec.dTo:''}</span>
     </div>
+    ${ordReconCoverageHtml(d,res)}
     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:6px">
       ${card('all',res.length,'ตรวจทั้งหมด','#475569')}${card('matched',c.matched,'ตรงกัน ✓','#16a34a')}${card('only_be',c.only_be,'ขายคีย์ไม่ครบ','#dc2626')}${card('other',c.diff+c.only_bs,'ต้องตรวจอื่น ๆ','#d97706')}</div>
     <div style="font-size:11.5px;color:var(--ink3,#94a3b8);margin-bottom:12px">👆 คลิกการ์ดเพื่อกรองตาราง · กำลังดู: <b>${esc(filtLabel)}</b> (${list.length})</div>

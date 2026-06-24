@@ -4,6 +4,8 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Finance Tools — เครื่องมือคลีนข้อมูล</title>
+<link rel="icon" id="appFavicon" href="logos/benya-icon.png" />
+<link rel="apple-touch-icon" id="appFaviconApple" href="logos/benya-icon.png" />
 <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
@@ -618,6 +620,13 @@ function applyCompanyTheme(id){
   set("--brand", th&&th.brand); set("--brand-dark", th&&th.brandDark); set("--brand-soft", th&&th.brandSoft); set("--brand-rgb", th&&th.brandRgb);
   set("--in", th&&th.in); set("--in-soft", th&&th.inSoft); set("--in-ink", th&&th.inInk);
   set("--out", th&&th.out); set("--out-soft", th&&th.outSoft); set("--out-ink", th&&th.outInk);
+  // หัวแท็บเบราว์เซอร์ (favicon + title) = โลโก้/ชื่อบริษัทปัจจุบัน
+  const co = COMPANIES.find(c=>c.id===id);
+  if(co){
+    const setIc=(elId)=>{ let el=document.getElementById(elId); if(!el){ el=document.createElement("link"); el.id=elId; el.rel=elId==="appFaviconApple"?"apple-touch-icon":"icon"; document.head.appendChild(el); } if(co.logo) el.href=co.logo; };
+    setIc("appFavicon"); setIc("appFaviconApple");
+    document.title = (co.name||co.short||co.code||"Finance Tools") + " — Finance Tools";
+  }
 }
 
 /* sheetHints:
@@ -6343,19 +6352,15 @@ function edRenderSummary(){
       ${acts.map(actCard).join("")}
     </div>
 
-    <div style="display:grid;grid-template-columns:2fr 1fr;gap:12px;margin-bottom:16px">
+    <div style="margin-bottom:16px">
       <div class="card" style="margin-bottom:0">
-        <h3 style="font-size:18px">กระแสเงินสดรายเดือน <span style="font-weight:400;color:#94a3b8;font-size:13.5px">Monthly Cash Flow · รวมทุกบัญชี</span></h3>
-        <div style="position:relative;height:280px"><canvas id="edChartMonthly"></canvas></div>
-      </div>
-      <div class="card" style="margin-bottom:0">
-        <h3 style="font-size:18px">สัดส่วน รับ vs จ่าย <span style="font-weight:400;color:#94a3b8;font-size:13.5px">Receipts vs Payments</span></h3>
-        <div style="position:relative;height:280px"><canvas id="edChartIO"></canvas></div>
+        <h3 style="font-size:20px">กระแสเงินสดรายเดือน <span style="font-weight:400;color:#94a3b8;font-size:14px">Monthly Cash Flow · รวมทุกบัญชี</span></h3>
+        <div style="position:relative;height:460px"><canvas id="edChartMonthly"></canvas></div>
       </div>
     </div>
 
     <div class="card">
-      <h3 style="font-size:18px">Top 5 หมวด รายรับ / รายจ่าย <span style="font-weight:400;color:#94a3b8;font-size:13.5px">Top 5 Categories</span></h3>
+      <h3 style="font-size:18px">Top 10 หมวด รายรับ / รายจ่าย <span style="font-weight:400;color:#94a3b8;font-size:13.5px">Top 10 Categories · หักลบรับ-จ่ายในหมวดเดียวกันแล้ว</span></h3>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px">
         ${edTopList(A.byCat,"in")}
         ${edTopList(A.byCat,"out")}
@@ -6396,14 +6401,15 @@ function edRenderSummary(){
     },
     plugins:[edBarLabelPlugin]
   });
-  edMakeChart("edChartIO", {
-    type:"doughnut",
-    data:{ labels:["เงินรับ","เงินจ่าย"], datasets:[{ data:[A.totalIn, A.totalOut], backgroundColor:[ED_COLORS.in, ED_COLORS.out] }] },
-    options:{ responsive:true, maintainAspectRatio:false, plugins:{ legend:{position:"bottom"}, tooltip:{ callbacks:{ label:c=>c.label+": "+edFmt(c.parsed) } } } }
-  });
 }
 function edTopList(byCat, dir){
-  const arr = Object.entries(byCat).map(([k,v])=>({k, v:v[dir]})).filter(x=>x.v>0).sort((a,b)=>b.v-a.v).slice(0,5);
+  // หักลบรับ-จ่ายในหมวดเดียวกันก่อน (net) → หมวด net บวก = รายรับ · net ลบ = รายจ่าย
+  // กันยอดรับเล็กๆ ในหมวดจ่าย (เช่น refund) ไปโผล่ฝั่งรายรับ
+  const arr = Object.entries(byCat).map(([k,v])=>{
+    const net = (v.in||0) - (v.out||0);
+    return {k, net, v:Math.abs(net)};
+  }).filter(x => dir==="in" ? x.net > 0.005 : x.net < -0.005)
+    .sort((a,b)=>b.v-a.v).slice(0,10);
   const total = arr.reduce((s,x)=>s+x.v,0);
   const color = dir==="in" ? ED_COLORS.in : ED_COLORS.out;
   const title = dir==="in" ? "หมวดรายรับ" : "หมวดรายจ่าย";
@@ -6538,6 +6544,14 @@ function edRenderFinKpis(A, data, monthFilter){
           evalBench(adRatio, 30, 20, "lo"),
           "ค่าโฆษณา / รายรับดำเนินงาน",
           "ไม่เกิน 20%")}
+      </div>
+      <div style="margin-top:13px;padding-top:11px;border-top:1px dashed #e2e8f0;font-size:11px;color:#94a3b8;line-height:1.65">
+        <b style="color:#64748b">ที่มาของเกณฑ์มาตรฐาน:</b> ค่าอ้างอิงเป็น “rule of thumb” ทั่วไปจากการวิเคราะห์อัตราส่วนทางการเงิน (financial ratio analysis) ซึ่งแตกต่างกันตามอุตสาหกรรม — ใช้เป็นแนวเทียบเบื้องต้น ไม่ใช่เกณฑ์ตายตัว:
+        <br>• <b>อัตรากำไรเงินสด / Net Margin</b> ≥ 5–10% — เกณฑ์อัตรากำไรสุทธิทั่วไป
+        &nbsp;•&nbsp; <b>Operating Cash Flow Ratio</b> ≥ 1.0 (100%) = กระแสเงินสดจากการดำเนินงานครอบคลุมภาระระยะสั้น
+        &nbsp;•&nbsp; <b>Cash Burn</b> ควรต่ำกว่ารายรับเฉลี่ยต่อเดือน
+        <br>• <b>Op Expense Ratio</b> ≤ 80% &nbsp;•&nbsp; <b>สัดส่วนค่าใช้จ่ายพนักงาน</b> ≤ 30% ของรายได้ &nbsp;•&nbsp; <b>สัดส่วนค่าโฆษณา</b> ≤ 20% (แนวทางบริหารต้นทุน SME)
+        <br><span style="color:#b0bcc9">แหล่งอ้างอิงทั่วไป: Investopedia — Financial Ratios / Operating Cash Flow Ratio · หลักการบัญชีบริหารและการวิเคราะห์งบการเงิน. ปรับเกณฑ์ได้ตามนโยบายของบริษัท</span>
       </div>
     </div>`;
 }

@@ -6426,47 +6426,15 @@ function edRenderSummary(){
       </div>
     </div>
 
-    <div style="margin-bottom:16px">
-      <div class="card" style="margin-bottom:0">
-        <h3 style="font-size:20px">กระแสเงินสดรายเดือน <span style="font-weight:400;color:#94a3b8;font-size:14px">Monthly Cash Flow · รวมทุกบัญชี</span></h3>
-        <div style="position:relative;height:460px"><canvas id="edChartMonthly"></canvas></div>
-      </div>
-    </div>
-
     ${edRenderFinKpis(A, d.data, d.monthFilter)}
   `;
 
   edAnimNums(document.getElementById("edContent"));   // ★ ตัวเลขวิ่ง count-up
 
-  // monthly line+bar — ★ ตัด transfers ออก · ถ้าเลือกปี → โชว์เฉพาะเดือนของปีนั้น
+  // เดือนใน scope (ใช้กับกราฟแยกกิจกรรม) · ถ้าเลือกปี → เฉพาะเดือนของปีนั้น
   let months = edState().data.months.map(m=>m.key);
   const _mf = edState().monthFilter;
   if(_mf && _mf.startsWith("year:")){ const _y=_mf.slice(5); months = months.filter(k=>k.slice(0,4)===_y); }
-  const inData  = months.map(m => edTxsInScope(edState().data, m, true).reduce((s,t)=>s+t.in,0));
-  const outData = months.map(m => edTxsInScope(edState().data, m, true).reduce((s,t)=>s+t.out,0));
-  const netData = inData.map((v,i)=>v-outData[i]);
-
-  edMakeChart("edChartMonthly", {
-    type:"bar",
-    data:{ labels:months, datasets:[
-      { label:"เงินรับ",   data:inData,  backgroundColor:ED_COLORS.in,  borderRadius:6, order:2 },
-      { label:"เงินจ่าย",  data:outData, backgroundColor:ED_COLORS.out, borderRadius:6, order:2 },
-      { label:"สุทธิ", type:"bar", data:netData, backgroundColor:"#8B5CF6", borderRadius:6, order:2 }
-    ]},
-    options:{
-      responsive:true, maintainAspectRatio:false,
-      layout:{ padding:{ top:18 } },   // เผื่อที่ป้ายตัวเลขบนหัวแท่ง
-      plugins:{ legend:{ position:"bottom" }, tooltip:{ callbacks:{ label:c=>c.dataset.label+": "+edFmt(c.parsed.y) } }, title:{ display:false } },
-      scales:{ y:{ ticks:{ callback:v=>edFmtCompact(v) } } },
-      onClick: (e, els) => {
-        if(els && els.length){
-          const i = els[0].index;
-          edSetMonth(months[i]); edSetTab("explorer");
-        }
-      }
-    },
-    plugins:[edBarLabelPlugin]
-  });
 
   // ── กระแสเงินสดรายเดือน แยกตามกิจกรรม (ย้ายมาจากแท็บ Activity เดิม) ──
   const _actCol = { operating:ED_COLORS.out, investing:"#8B5CF6", financing:ED_COLORS.in };

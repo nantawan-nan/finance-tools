@@ -15525,8 +15525,11 @@ function ordRenderRecon(d){
 */
 function ordIvAnalyze(salesData, rows){
   const ivs = ((salesData && salesData.ivs) || []).filter(i => i && i.doc_type === "IV" && i.doc_no);
+  // ★ ไม่นับออเดอร์ที่ยกเลิก — ให้ตรงกับ main view "คีย์ IV แล้ว"
+  //   ถ้าออเดอร์ยกเลิกแล้วมี IV ใน Express → คือเคสที่ต้องให้บัญชี void IV (orphan ดีกว่า matched)
+  const activeRows = (rows||[]).filter(o => o.status !== 'cancelled');
   const byOrderId = new Map(), byIvNo = new Map();
-  for(const o of (rows||[])){
+  for(const o of activeRows){
     if(o.order_id) byOrderId.set(o.order_id, o);
     if(o.iv_no)    byIvNo.set(o.iv_no, o);
   }
@@ -15538,7 +15541,7 @@ function ordIvAnalyze(salesData, rows){
     if(!ref || !/^\d+$/.test(ref) || ref.length < 10) return null;  // กัน ref สั้นเกิน
     const targetLen = ref.length + 1;
     let found = null, ambiguous = false;
-    for(const o of (rows||[])){
+    for(const o of activeRows){
       const oid = String(o.order_id||"");
       if(oid.length !== targetLen) continue;
       // ลองตัดทีละ pos ใน oid — ถ้าตัดแล้วเหลือเท่ากับ ref = match
@@ -15649,12 +15652,12 @@ function ordIvAnalyze(salesData, rows){
   const ivDates = results.map(r=>r.doc_date).filter(Boolean).sort();
   const dateFrom = ivDates[0] || null;
   const dateTo   = ivDates[ivDates.length-1] || null;
-  const activeRows = (rows||[]).filter(o => o.status!=="cancelled" && o.order_date);
-  const ordDates = activeRows.map(o=>o.order_date).sort();
+  const dateRows = activeRows.filter(o => o.order_date);
+  const ordDates = dateRows.map(o=>o.order_date).sort();
   const orderFrom = ordDates[0] || null;
   const orderTo   = ordDates[ordDates.length-1] || null;
-  const gapBefore = dateFrom ? activeRows.filter(o=>!o.iv_no && o.order_date < dateFrom).length : 0;
-  const gapAfter  = dateTo   ? activeRows.filter(o=>!o.iv_no && o.order_date > dateTo).length   : 0;
+  const gapBefore = dateFrom ? dateRows.filter(o=>!o.iv_no && o.order_date < dateFrom).length : 0;
+  const gapAfter  = dateTo   ? dateRows.filter(o=>!o.iv_no && o.order_date > dateTo).length   : 0;
   return { ivCount: results.length, dateFrom, dateTo, orderFrom, orderTo, gapBefore, gapAfter, results };
 }
 

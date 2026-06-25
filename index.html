@@ -8,7 +8,7 @@
 <title>Finance Tools — เครื่องมือคลีนข้อมูล</title>
 <link rel="icon" id="appFavicon" href="logos/benya-icon.png" />
 <link rel="apple-touch-icon" id="appFaviconApple" href="logos/benya-icon.png" />
-<script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-treemap@2.3.0/dist/chartjs-chart-treemap.min.js"></script>
@@ -14595,15 +14595,26 @@ async function ordReconGenReports(dateSet){
   const dFrom=dates[0]||null, dTo=dates[dates.length-1]||null;
   const uniqDates=Array.from(new Set(dates)).sort();
   const s={ bs_count:0,bs_total:0,be_count:0,be_total:0, matched_count:0,matched_total:0, only_be_count:0,only_be_total:0, only_bs_count:0,only_bs_total:0, diff_count:0,diff_total:0, dates:uniqDates, per_platform:{} };
-  const snap={matched:[],only_be:[],only_bs:[],diff:[]};
+  const snap={matched:[],only_be:[],only_bs:[],diff:[],bs_raw:[],be_raw:[]};
+  const rawOf=(o,plat,date,recon_status)=>({
+    order_no: o.order_id || o.order_no || '',
+    channel: plat, date: o.order_date || date || '',
+    total: +Number(o.order_total||0).toFixed(2),
+    shipping: +Number(o.shipping_fee||0).toFixed(2),
+    discount: +Number(o.seller_discount||0).toFixed(2),
+    gross: +Number(ordGrossVal(o)||0).toFixed(2),
+    sku: ordSkuSig(o) || '',
+    products: o.products || '',
+    recon_status
+  });
   res.forEach(r=>{
     const plat=r.channel||'other';
     if(!s.per_platform[plat]) s.per_platform[plat]={matched:0,only_be:0,only_bs:0,diff:0,matched_total:0,diff_total:0,only_be_total:0,only_bs_total:0,bs_count:0,bs_total:0,be_count:0,be_total:0};
     const pp=s.per_platform[plat];
     const bsn=r.bs?+Number(ordReconNet(r.bs)).toFixed(2):null;
     const ben=r.be?+Number(ordReconNet(r.be)).toFixed(2):null;
-    if(r.bs){ s.bs_count++; s.bs_total+=bsn||0; pp.bs_count++; pp.bs_total+=bsn||0; }
-    if(r.be){ s.be_count++; s.be_total+=ben||0; pp.be_count++; pp.be_total+=ben||0; }
+    if(r.bs){ s.bs_count++; s.bs_total+=bsn||0; pp.bs_count++; pp.bs_total+=bsn||0; snap.bs_raw.push(rawOf(r.bs,plat,r.date,r.status)); }
+    if(r.be){ s.be_count++; s.be_total+=ben||0; pp.be_count++; pp.be_total+=ben||0; snap.be_raw.push(rawOf(r.be,plat,r.date,r.status)); }
     const it={order_no:r.order_no, date:r.date||'', channel:plat, bs_net:bsn, be_net:ben, diff:(bsn!=null&&ben!=null)?+(bsn-ben).toFixed(2):null, products:(r.bs&&r.bs.products)||(r.be&&r.be.products)||''};
     if(r.status==='matched'){ s.matched_count++; s.matched_total+=bsn||0; pp.matched++; pp.matched_total+=bsn||0; snap.matched.push(it); }
     else if(r.status==='only_be'){ s.only_be_count++; s.only_be_total+=ben||0; pp.only_be++; pp.only_be_total+=ben||0; snap.only_be.push(it); }
@@ -14617,8 +14628,9 @@ async function ordReconGenReports(dateSet){
   });
   ['bs_total','be_total','matched_total','diff_total','only_be_total','only_bs_total'].forEach(k=>s[k]=+(s[k]||0).toFixed(2));
   Object.values(s.per_platform).forEach(pp=>['matched_total','diff_total','only_be_total','only_bs_total','bs_total','be_total'].forEach(k=>pp[k]=+(pp[k]||0).toFixed(2)));
-  // sort snap items: by channel → date → order_no
-  ['matched','only_be','only_bs','diff'].forEach(k=> snap[k].sort((a,b)=> (a.channel||'').localeCompare(b.channel||'') || (a.date||'').localeCompare(b.date||'') || (a.order_no||'').localeCompare(b.order_no||'')));
+  // sort: by channel → date → order_no
+  const cmpR=(a,b)=> (a.channel||'').localeCompare(b.channel||'') || (a.date||'').localeCompare(b.date||'') || (a.order_no||'').localeCompare(b.order_no||'');
+  ['matched','only_be','only_bs','diff','bs_raw','be_raw'].forEach(k=> snap[k].sort(cmpR));
   const dstr=String(dTo||'').replace(/-/g,'');
   let seq='001'; try{ const {count}=await sb.from("recon_reports").select("id",{count:'exact',head:true}).eq("company",company).eq("platform","multi"); seq=String((count||0)+1).padStart(3,'0'); }catch(e){}
   const report_no=`SRR-RECON-${dstr}-${seq}`;
@@ -14798,83 +14810,173 @@ function ordReconCalendarHtml(d){
     </div>
   </div>`;
 }
-/* Excel — multi-sheet, รวมทุกแพลตฟอร์ม 1 ไฟล์, มี Platform + เหตุผล */
+/* Excel — multi-sheet พร้อมสี · 2 sheets ดิบ (BigSeller/หลังบ้าน) + สรุป + matched/diff/missing */
 function ordReconReportExcel(rep){
   const co=COMPANIES.find(c=>c.id===state.company)||{};
   const s=rep.summary||{}, snap=rep.snapshot||{};
   const platN={shopee:'Shopee',tiktok:'TikTok',lazada:'Lazada',offline:'หน้าร้าน',other:'อื่นๆ'};
+  const platHex={shopee:'EE4D2D',tiktok:'1A1A1A',lazada:'0033AB',offline:'475569',other:'94A3B8'};
   const platOrder=['shopee','tiktok','lazada','offline','other'];
   const unmatched=(s.only_be_count||0)+(s.only_bs_count||0)+(s.diff_count||0);
   const fmtR=(it)=> (it.reasons||[]).map(rs=> rs.txt ? `${rs.field}: ${rs.bs} ≠ ${rs.be}` : `${rs.field} (BS ${Number(rs.bs||0).toLocaleString('th-TH',{minimumFractionDigits:2,maximumFractionDigits:2})} ≠ หลังบ้าน ${Number(rs.be||0).toLocaleString('th-TH',{minimumFractionDigits:2,maximumFractionDigits:2})})`).join(' · ');
   const wb=XLSX.utils.book_new();
+  // Brand color (hex w/o #) จาก co.gradient[0] หรือ default teal
+  const brandHex=(co.gradient&&co.gradient[0]||'#0d9488').replace('#','').toUpperCase();
+  // Style presets
+  const fontH={name:'IBM Plex Sans Thai',sz:14,bold:true,color:{rgb:'FFFFFF'}};
+  const fontTitle={name:'IBM Plex Sans Thai',sz:18,bold:true,color:{rgb:'FFFFFF'}};
+  const fontSubH={name:'IBM Plex Sans Thai',sz:11,bold:true,color:{rgb:'FFFFFF'}};
+  const fontMeta={name:'IBM Plex Sans Thai',sz:10.5,color:{rgb:'475569'}};
+  const fontMetaB={name:'IBM Plex Sans Thai',sz:11,bold:true,color:{rgb:'1E293B'}};
+  const fontBody={name:'IBM Plex Sans Thai',sz:10.5,color:{rgb:'1E293B'}};
+  const fontNum={name:'IBM Plex Sans Thai',sz:10.5,color:{rgb:'1E293B'}};
+  const borderThin=()=>({top:{style:'thin',color:{rgb:'E2E8F0'}},bottom:{style:'thin',color:{rgb:'E2E8F0'}},left:{style:'thin',color:{rgb:'E2E8F0'}},right:{style:'thin',color:{rgb:'E2E8F0'}}});
+  const fill=(rgb)=>({patternType:'solid',fgColor:{rgb}});
+  const align=(h,v)=>({horizontal:h||'left',vertical:v||'center',wrapText:true});
+  const cellTitle=(v,bg,sz)=>({v,t:'s',s:{font:{...fontTitle,sz:sz||18},fill:fill(bg||brandHex),alignment:align('left','center')}});
+  const cellHead=(v,bg)=>({v,t:'s',s:{font:{...fontH,sz:11},fill:fill(bg||brandHex),alignment:align('center','center'),border:borderThin()}});
+  const cellSec=(v,bg)=>({v,t:'s',s:{font:{...fontSubH,sz:12},fill:fill(bg||'334155'),alignment:align('left','center')}});
+  const cellMetaL=(v)=>({v,t:'s',s:{font:fontMeta,fill:fill('F8FAFC'),alignment:align('left','center'),border:borderThin()}});
+  const cellMetaV=(v)=>({v,t:'s',s:{font:fontMetaB,alignment:align('left','center'),border:borderThin()}});
+  const cellTxt=(v,bg)=>({v:v==null?'':v,t:'s',s:{font:fontBody,fill:bg?fill(bg):undefined,alignment:align('left','center'),border:borderThin()}});
+  const cellNum=(v,bg,bold,col)=>({v:v==null?'':Number(v),t:'n',z:'#,##0.00',s:{font:{...fontNum,bold:!!bold,color:col?{rgb:col}:{rgb:'1E293B'}},fill:bg?fill(bg):undefined,alignment:align('right','center'),border:borderThin()}});
+  const cellInt=(v,bg,bold,col)=>({v:Number(v||0),t:'n',z:'#,##0',s:{font:{...fontNum,bold:!!bold,color:col?{rgb:col}:{rgb:'1E293B'}},fill:bg?fill(bg):undefined,alignment:align('center','center'),border:borderThin()}});
+  const cellPlat=(ch)=>({v:platN[ch]||ch||'',t:'s',s:{font:{name:'IBM Plex Sans Thai',sz:10,bold:true,color:{rgb:'FFFFFF'}},fill:fill(platHex[ch]||'94A3B8'),alignment:align('center','center'),border:borderThin()}});
+  const cellBadge=(v,bg,col)=>({v,t:'s',s:{font:{name:'IBM Plex Sans Thai',sz:10,bold:true,color:{rgb:col||'FFFFFF'}},fill:fill(bg),alignment:align('center','center'),border:borderThin()}});
 
-  // === Sheet 1: Summary ===
+  // === Helper: build sheet from cells AOA ===
+  const buildSheet=(cells, cols, freeze, autofilter, merges, rowHeights)=>{
+    const ws=XLSX.utils.aoa_to_sheet(cells.map(row=>row.map(c=>c&&typeof c==='object'?c.v:c)));
+    // Apply styles cell-by-cell
+    cells.forEach((row,r)=>row.forEach((c,ci)=>{
+      if(c && typeof c==='object'){
+        const addr=XLSX.utils.encode_cell({r,c:ci});
+        if(!ws[addr]) ws[addr]={v:c.v,t:c.t||'s'};
+        ws[addr].s=c.s;
+        if(c.t) ws[addr].t=c.t;
+        if(c.z) ws[addr].z=c.z;
+      }
+    }));
+    if(cols) ws['!cols']=cols;
+    if(freeze) ws['!freeze']=freeze;
+    if(autofilter) ws['!autofilter']=autofilter;
+    if(merges) ws['!merges']=merges;
+    if(rowHeights) ws['!rows']=rowHeights;
+    return ws;
+  };
+  const statusBadge=(st)=>{
+    if(st==='matched') return cellBadge('ตรง','16A34A');
+    if(st==='diff') return cellBadge('ยอดต่าง','DC2626');
+    if(st==='only_be') return cellBadge('ขายไม่คีย์','D97706');
+    if(st==='only_bs') return cellBadge('หลังบ้านขาด','0EA5E9');
+    return cellTxt(st||'');
+  };
+
+  // === Sheet 1: สรุป ===
   const platsWith = platOrder.filter(p=> s.per_platform && s.per_platform[p]);
-  const sumAoa=[
-    ['ใบกระทบยอดข้อมูลขาย Big Seller ↔ Platform Back Office'],[],
-    ['Report No.', rep.report_no, '', 'วันที่จัดทำ', String(rep.generated_at||'').slice(0,19).replace('T',' ')],
-    ['บริษัท', co.name||'', '', 'ผู้จัดทำ', rep.generated_by_name||''],
-    ['ช่วงตรวจสอบ', `${rep.date_from||''} ถึง ${rep.date_to||''}`, '', 'จำนวนวัน', (s.dates||[]).length],
-    ['สถานะ', rep.status==='closed'?'ปิดงวด':rep.status],[],
-    ['═══ สรุปรวมทุกแพลตฟอร์ม ═══'],
-    ['หมวด','จำนวน Order','ยอดรวม (บาท)'],
-    ['Big Seller (ทั้งหมด)', s.bs_count||0, s.bs_total||0],
-    ['Platform Back Office (ทั้งหมด)', s.be_count||0, s.be_total||0],
-    ['✓ ตรงกัน (Matched)', s.matched_count||0, s.matched_total||0],
-    ['⚠ BigSeller ขาด (พบหลังบ้าน · ขายไม่คีย์)', s.only_be_count||0, s.only_be_total||0],
-    ['ℹ หลังบ้านขาด (พบ BS · หลังบ้านไม่มี)', s.only_bs_count||0, s.only_bs_total||0],
-    ['✗ ยอดไม่ตรง', s.diff_count||0, 'ส่วนต่างรวม '+(s.diff_total||0).toLocaleString('th-TH',{minimumFractionDigits:2,maximumFractionDigits:2})],[],
-    ['ผลการตรวจสอบ', unmatched===0?'✓ ตรงกันทั้งหมด (Reconciled)':'⚠ พบรายการต่าง '+unmatched+' รายการ'],[],
+  const rows = [
+    [cellTitle('ใบกระทบยอดข้อมูลขาย — BigSeller ↔ Platform Back Office')],
+    [],
+    [cellMetaL('Report No.'), cellMetaV(rep.report_no), null, cellMetaL('วันที่จัดทำ'), cellMetaV(String(rep.generated_at||'').slice(0,19).replace('T',' '))],
+    [cellMetaL('บริษัท'), cellMetaV(co.name||''), null, cellMetaL('ผู้จัดทำ'), cellMetaV(rep.generated_by_name||'')],
+    [cellMetaL('ช่วงตรวจสอบ'), cellMetaV(`${rep.date_from||''} ถึง ${rep.date_to||''}`), null, cellMetaL('จำนวนวัน'), cellMetaV(String((s.dates||[]).length))],
+    [],
+    [cellSec('  ผลการตรวจสอบ', unmatched===0?'16A34A':'DC2626')],
+    [cellTxt(unmatched===0?'✓ ตรงกันทั้งหมด (Reconciled)':'⚠ พบรายการต่าง '+unmatched+' รายการ', unmatched===0?'F0FDF4':'FEF2F2')],
+    [],
+    [cellSec('  สรุปรวมทุกแพลตฟอร์ม')],
+    [cellHead('หมวด'),cellHead('จำนวน Order'),cellHead('ยอดรวม (บาท)')],
+    [cellTxt('Big Seller (ทั้งหมด)'),cellInt(s.bs_count||0),cellNum(s.bs_total||0)],
+    [cellTxt('Platform Back Office (ทั้งหมด)'),cellInt(s.be_count||0),cellNum(s.be_total||0)],
+    [cellTxt('✓ ตรงกัน (Matched)','F0FDF4'),cellInt(s.matched_count||0,'F0FDF4',true,'16A34A'),cellNum(s.matched_total||0,'F0FDF4',true,'16A34A')],
+    [cellTxt('⚠ BigSeller ขาด (พบหลังบ้าน · ขายไม่คีย์)','FFFBEB'),cellInt(s.only_be_count||0,'FFFBEB',true,'D97706'),cellNum(s.only_be_total||0,'FFFBEB')],
+    [cellTxt('ℹ หลังบ้านขาด','EFF6FF'),cellInt(s.only_bs_count||0,'EFF6FF',true,'0EA5E9'),cellNum(s.only_bs_total||0,'EFF6FF')],
+    [cellTxt('✗ ยอดไม่ตรง','FEF2F2'),cellInt(s.diff_count||0,'FEF2F2',true,'DC2626'),cellNum(s.diff_total||0,'FEF2F2',true,'DC2626')],
   ];
   if(platsWith.length){
-    sumAoa.push(['═══ แตกตามแพลตฟอร์ม ═══']);
-    sumAoa.push(['Platform','ตรง','ขายไม่คีย์','หลังบ้านขาด','ยอดไม่ตรง','ส่วนต่างรวม','ยอด BigSeller','ยอดหลังบ้าน']);
-    platsWith.forEach(p=>{ const pp=s.per_platform[p]; sumAoa.push([platN[p]||p, pp.matched||0, pp.only_be||0, pp.only_bs||0, pp.diff||0, pp.diff_total||0, pp.bs_total||0, pp.be_total||0]); });
-    sumAoa.push([]);
+    rows.push([]);
+    rows.push([cellSec('  แตกตามแพลตฟอร์ม')]);
+    rows.push([cellHead('Platform'),cellHead('ตรง'),cellHead('ขายไม่คีย์'),cellHead('หลังบ้านขาด'),cellHead('ยอดไม่ตรง'),cellHead('ส่วนต่างรวม'),cellHead('ยอด BigSeller'),cellHead('ยอดหลังบ้าน')]);
+    platsWith.forEach(p=>{
+      const pp=s.per_platform[p];
+      rows.push([cellPlat(p),cellInt(pp.matched||0,null,false,'16A34A'),cellInt(pp.only_be||0,null,false,'D97706'),cellInt(pp.only_bs||0,null,false,'0EA5E9'),cellInt(pp.diff||0,null,false,'DC2626'),cellNum(pp.diff_total||0,null,false,'DC2626'),cellNum(pp.bs_total||0),cellNum(pp.be_total||0)]);
+    });
   }
-  sumAoa.push([],['จัดทำโดย','____________________','','ตรวจสอบโดย','____________________','','อนุมัติโดย','____________________']);
-  const ws1=XLSX.utils.aoa_to_sheet(sumAoa);
-  ws1['!cols']=[{wch:38},{wch:18},{wch:16},{wch:16},{wch:14},{wch:20},{wch:18},{wch:18}];
-  ws1['!merges']=[{s:{r:0,c:0},e:{r:0,c:7}}];
+  rows.push([],[],[cellMetaL('จัดทำโดย'),cellMetaL('____________________'),null,cellMetaL('ตรวจสอบโดย'),cellMetaL('____________________'),null,cellMetaL('อนุมัติโดย'),cellMetaL('____________________')]);
+  const ws1=buildSheet(rows, [{wch:42},{wch:18},{wch:16},{wch:16},{wch:14},{wch:20},{wch:18},{wch:18}], null, null, [{s:{r:0,c:0},e:{r:0,c:7}}], [{hpt:32},null,null,null,null,null,{hpt:22},{hpt:22}]);
   XLSX.utils.book_append_sheet(wb, ws1, "สรุป");
 
   // === Helpers for detail sheets ===
-  const sheetDet=(name, items, cols, mapRow)=>{
-    const aoa=[cols].concat((items||[]).map((it,i)=> mapRow(it,i)));
-    const ws=XLSX.utils.aoa_to_sheet(aoa);
-    ws['!freeze']={ySplit:1};
-    ws['!autofilter']={ref:`A1:${String.fromCharCode(64+cols.length)}${aoa.length}`};
-    return ws;
+  const makeDetailSheet=(name,headers,items,mapper,cols,bgRow)=>{
+    if(!(items||[]).length) return;
+    const rows=[headers.map(h=>cellHead(h))];
+    items.forEach((it,i)=>{
+      const r=mapper(it,i);
+      const bg = bgRow ? bgRow(it,i) : null;
+      // Apply bg to all cells if bgRow returns color
+      if(bg){ r.forEach(c=>{ if(c&&typeof c==='object'&&c.s) c.s.fill=fill(bg); }); }
+      rows.push(r);
+    });
+    const ws=buildSheet(rows, cols, {ySplit:1}, {ref:`A1:${XLSX.utils.encode_col(headers.length-1)}${rows.length}`}, null, [{hpt:24}]);
+    XLSX.utils.book_append_sheet(wb, ws, name);
   };
 
-  // Sheet: ยอดไม่ตรง (สำคัญที่สุด — มาก่อน)
-  if((snap.diff||[]).length){
-    const cols=['No','Platform','Order ID','วันที่','ยอด BigSeller','ยอดหลังบ้าน','ส่วนต่าง','เหตุผล','สินค้า'];
-    const ws=sheetDet("⚠ ยอดไม่ตรง", snap.diff, cols, (it,i)=>[i+1,platN[it.channel]||it.channel||'',it.order_no,it.date,it.bs_net,it.be_net,it.diff,fmtR(it),it.products]);
-    ws['!cols']=[{wch:5},{wch:11},{wch:22},{wch:11},{wch:14},{wch:14},{wch:11},{wch:46},{wch:42}];
-    XLSX.utils.book_append_sheet(wb, ws, "ยอดไม่ตรง");
+  // === Sheet 2: BigSeller ดิบ ===
+  if((snap.bs_raw||[]).length){
+    makeDetailSheet("BigSeller (ดิบ)",
+      ['No','Platform','Order ID','วันที่','ยอดสุทธิ','ยอดก่อนหัก (Gross)','ส่วนลด','ค่าส่ง','SKU × จำนวน','สินค้า','สถานะกระทบยอด'],
+      snap.bs_raw,
+      (it,i)=>[cellInt(i+1),cellPlat(it.channel),cellTxt(it.order_no),cellTxt(it.date),cellNum(it.total),cellNum(it.gross),cellNum(it.discount),cellNum(it.shipping),cellTxt(it.sku),cellTxt(it.products),statusBadge(it.recon_status)],
+      [{wch:5},{wch:11},{wch:22},{wch:11},{wch:13},{wch:15},{wch:11},{wch:11},{wch:24},{wch:42},{wch:14}]
+    );
   }
-  // Sheet: BigSeller ขาด
-  if((snap.only_be||[]).length){
-    const cols=['No','Platform','Order ID','วันที่','ยอดหลังบ้าน','สินค้า'];
-    const ws=sheetDet("⚠ BigSeller ขาด", snap.only_be, cols, (it,i)=>[i+1,platN[it.channel]||it.channel||'',it.order_no,it.date,it.be_net,it.products]);
-    ws['!cols']=[{wch:5},{wch:11},{wch:22},{wch:11},{wch:14},{wch:46}];
-    XLSX.utils.book_append_sheet(wb, ws, "BigSeller ขาด");
+
+  // === Sheet 3: หลังบ้าน ดิบ ===
+  if((snap.be_raw||[]).length){
+    makeDetailSheet("หลังบ้าน (ดิบ)",
+      ['No','Platform','Order ID','วันที่','ยอดสุทธิ','ยอดก่อนหัก (Gross)','ส่วนลด','ค่าส่ง','SKU × จำนวน','สินค้า','สถานะกระทบยอด'],
+      snap.be_raw,
+      (it,i)=>[cellInt(i+1),cellPlat(it.channel),cellTxt(it.order_no),cellTxt(it.date),cellNum(it.total),cellNum(it.gross),cellNum(it.discount),cellNum(it.shipping),cellTxt(it.sku),cellTxt(it.products),statusBadge(it.recon_status)],
+      [{wch:5},{wch:11},{wch:22},{wch:11},{wch:13},{wch:15},{wch:11},{wch:11},{wch:24},{wch:42},{wch:14}]
+    );
   }
-  // Sheet: หลังบ้านขาด
-  if((snap.only_bs||[]).length){
-    const cols=['No','Platform','Order ID','วันที่','ยอด BigSeller','สินค้า'];
-    const ws=sheetDet("ℹ หลังบ้านขาด", snap.only_bs, cols, (it,i)=>[i+1,platN[it.channel]||it.channel||'',it.order_no,it.date,it.bs_net,it.products]);
-    ws['!cols']=[{wch:5},{wch:11},{wch:22},{wch:11},{wch:14},{wch:46}];
-    XLSX.utils.book_append_sheet(wb, ws, "หลังบ้านขาด");
-  }
-  // Sheet: ตรงกัน (matched — full list)
-  if((snap.matched||[]).length){
-    const cols=['No','Platform','Order ID','วันที่','ยอด BigSeller','ยอดหลังบ้าน','สินค้า'];
-    const ws=sheetDet("✓ ตรงกัน", snap.matched, cols, (it,i)=>[i+1,platN[it.channel]||it.channel||'',it.order_no,it.date,it.bs_net,it.be_net,it.products]);
-    ws['!cols']=[{wch:5},{wch:11},{wch:22},{wch:11},{wch:14},{wch:14},{wch:46}];
-    XLSX.utils.book_append_sheet(wb, ws, "ตรงกัน");
-  }
+
+  // === Sheet 4: ยอดไม่ตรง ===
+  makeDetailSheet("⚠ ยอดไม่ตรง",
+    ['No','Platform','Order ID','วันที่','ยอด BigSeller','ยอดหลังบ้าน','ส่วนต่าง','เหตุผล','สินค้า'],
+    snap.diff||[],
+    (it,i)=>[cellInt(i+1),cellPlat(it.channel),cellTxt(it.order_no),cellTxt(it.date),cellNum(it.bs_net),cellNum(it.be_net),cellNum(it.diff,null,true,'DC2626'),cellTxt(fmtR(it)),cellTxt(it.products)],
+    [{wch:5},{wch:11},{wch:22},{wch:11},{wch:14},{wch:14},{wch:11},{wch:50},{wch:42}],
+    ()=>'FEF2F2'
+  );
+
+  // === Sheet 5: BigSeller ขาด ===
+  makeDetailSheet("⚠ BigSeller ขาด",
+    ['No','Platform','Order ID','วันที่','ยอดหลังบ้าน','สินค้า'],
+    snap.only_be||[],
+    (it,i)=>[cellInt(i+1),cellPlat(it.channel),cellTxt(it.order_no),cellTxt(it.date),cellNum(it.be_net,null,true,'D97706'),cellTxt(it.products)],
+    [{wch:5},{wch:11},{wch:22},{wch:11},{wch:14},{wch:46}],
+    ()=>'FFFBEB'
+  );
+
+  // === Sheet 6: หลังบ้านขาด ===
+  makeDetailSheet("ℹ หลังบ้านขาด",
+    ['No','Platform','Order ID','วันที่','ยอด BigSeller','สินค้า'],
+    snap.only_bs||[],
+    (it,i)=>[cellInt(i+1),cellPlat(it.channel),cellTxt(it.order_no),cellTxt(it.date),cellNum(it.bs_net,null,true,'0EA5E9'),cellTxt(it.products)],
+    [{wch:5},{wch:11},{wch:22},{wch:11},{wch:14},{wch:46}],
+    ()=>'EFF6FF'
+  );
+
+  // === Sheet 7: ตรงกัน ===
+  makeDetailSheet("✓ ตรงกัน",
+    ['No','Platform','Order ID','วันที่','ยอด BigSeller','ยอดหลังบ้าน','สินค้า'],
+    snap.matched||[],
+    (it,i)=>[cellInt(i+1),cellPlat(it.channel),cellTxt(it.order_no),cellTxt(it.date),cellNum(it.bs_net),cellNum(it.be_net),cellTxt(it.products)],
+    [{wch:5},{wch:11},{wch:22},{wch:11},{wch:14},{wch:14},{wch:46}],
+    ()=>'F0FDF4'
+  );
+
   XLSX.writeFile(wb, `ใบกระทบยอด_${(co.short||co.id||rep.platform||'').toUpperCase()}_${rep.date_from||''}_ถึง_${rep.date_to||''}_${rep.report_no}.xlsx`);
 }
 /* PDF — เปิดหน้าต่างใหม่ HTML สวย พร้อม brand color, logo, per-platform summary, diff reasons */
@@ -14912,6 +15014,18 @@ function ordReconReportPdf(rep){
       </div></div>`;
   }).join('');
 
+  const statusPill=(st)=>{
+    if(st==='matched') return '<span class="pill ok">ตรง</span>';
+    if(st==='diff') return '<span class="pill dg">ยอดต่าง</span>';
+    if(st==='only_be') return '<span class="pill wn">ขายไม่คีย์</span>';
+    if(st==='only_bs') return '<span class="pill info">หลังบ้านขาด</span>';
+    return `<span class="pill mu">${esc(st||'')}</span>`;
+  };
+  const tblRaw=(title,cls,items,src)=> (items&&items.length) ? `
+    <h3 class="sec-title ${cls}">${title} (${items.length} รายการ จาก${src==='bs'?' BigSeller':' Platform Back Office'})</h3>
+    <table class="dtl"><thead><tr><th style="width:30px">#</th><th style="width:78px">Platform</th><th style="width:160px">Order ID</th><th style="width:80px">วันที่</th><th class="r" style="width:80px">ยอดสุทธิ</th><th class="r" style="width:80px">Gross</th><th class="r" style="width:70px">ส่วนลด</th><th class="r" style="width:70px">ค่าส่ง</th><th style="width:130px">SKU × จำนวน</th><th>สินค้า</th><th style="width:92px">สถานะ</th></tr></thead>
+    <tbody>${items.map((it,i)=>`<tr><td>${i+1}</td><td>${platBadge(it.channel)}</td><td class="mono">${esc(it.order_no)}</td><td>${it.date||''}</td><td class="r"><b>${fmt(it.total||0)}</b></td><td class="r">${fmt(it.gross||0)}</td><td class="r">${fmt(it.discount||0)}</td><td class="r">${fmt(it.shipping||0)}</td><td class="mono" style="font-size:10px">${esc(it.sku||'—')}</td><td>${esc(it.products||'')}</td><td>${statusPill(it.recon_status)}</td></tr>`).join('')}</tbody></table>` : '';
+
   const tblDiff = (snap.diff||[]).length ? `
     <h3 class="sec-title dg">⚠ รายการยอดไม่ตรง (${snap.diff.length})</h3>
     <table class="dtl"><thead><tr><th style="width:30px">#</th><th style="width:78px">Platform</th><th style="width:160px">Order ID</th><th style="width:80px">วันที่</th><th class="r" style="width:80px">BigSeller</th><th class="r" style="width:80px">หลังบ้าน</th><th class="r" style="width:70px">ส่วนต่าง</th><th>เหตุผล</th></tr></thead>
@@ -14939,14 +15053,14 @@ function ordReconReportPdf(rep){
     *{box-sizing:border-box}
     body{font-family:"IBM Plex Sans Thai","Tahoma",sans-serif;margin:0;padding:0;color:#1f2a44;font-size:12.5px;background:#f1f5f9}
     .page{max-width:1120px;margin:0 auto;background:#fff;padding:0 0 32px;box-shadow:0 4px 20px rgba(15,23,42,.08)}
-    .hero{background:${grad};color:#fff;padding:24px 32px;position:relative;overflow:hidden}
-    .hero::before{content:"";position:absolute;right:-50px;top:-60px;width:240px;height:240px;background:radial-gradient(circle,rgba(255,255,255,.18) 0%,transparent 70%)}
-    .hero-row{display:flex;align-items:center;gap:18px;position:relative}
-    .hero-logo{width:64px;height:64px;flex:0 0 64px;border-radius:14px;background:rgba(255,255,255,.15) center/56% no-repeat;border:1px solid rgba(255,255,255,.25);background-image:${co.logo?`url("${esc(co.logo)}")`:'none'}}
+    .hero{background:${grad};color:#fff;padding:32px 40px;position:relative;overflow:hidden}
+    .hero::before{content:"";position:absolute;right:-60px;top:-80px;width:280px;height:280px;background:radial-gradient(circle,rgba(255,255,255,.18) 0%,transparent 70%)}
+    .hero-row{display:flex;align-items:center;gap:22px;position:relative}
+    .hero-logo{width:72px;height:72px;flex:0 0 72px;border-radius:16px;background:rgba(255,255,255,.06) center/62% no-repeat;border:1px solid rgba(255,255,255,.14);background-image:${co.logo?`url("${esc(co.logo)}")`:'none'};mix-blend-mode:luminosity;opacity:.92}
     .hero-text{flex:1;min-width:0}
-    .hero-eyebrow{font:600 11px/1 inherit;opacity:.85;letter-spacing:.16em;text-transform:uppercase;margin-bottom:5px}
-    .hero h1{font:700 22px/1.2 inherit;margin:0;letter-spacing:-.01em}
-    .hero-sub{font:500 12.5px/1.5 inherit;opacity:.88;margin-top:4px}
+    .hero-eyebrow{font:700 13px/1 inherit;opacity:.9;letter-spacing:.18em;text-transform:uppercase;margin-bottom:8px}
+    .hero h1{font:800 32px/1.15 inherit;margin:0;letter-spacing:-.015em}
+    .hero-sub{font:500 15px/1.5 inherit;opacity:.9;margin-top:7px}
     .meta{padding:16px 32px;background:#fafbfc;border-bottom:1px solid #e2e8f0;display:grid;grid-template-columns:repeat(4,1fr);gap:8px 24px;font-size:11.5px}
     .meta div{display:flex;flex-direction:column;gap:2px}
     .meta .lbl{color:#64748b;font:600 10.5px/1.2 inherit;letter-spacing:.04em;text-transform:uppercase}
@@ -14988,6 +15102,10 @@ function ordReconReportPdf(rep){
     table.dtl .reason .be{color:#ea580c;font-weight:700}
     table.dtl .dg{color:#dc2626}
     .pl{display:inline-block;color:#fff;padding:2px 7px;border-radius:4px;font:700 10px/1.3 inherit;letter-spacing:.04em}
+    .pill{display:inline-block;color:#fff;padding:2px 8px;border-radius:999px;font:700 9.5px/1.3 inherit;letter-spacing:.03em}
+    .pill.ok{background:#16a34a} .pill.dg{background:#dc2626} .pill.wn{background:#d97706} .pill.info{background:#0ea5e9} .pill.mu{background:#94a3b8}
+    .sec-title.brand{background:#f0fdfa;color:#0d9488;border-left:4px solid #0d9488}
+    .sec-title.gray{background:#f8fafc;color:#475569;border-left:4px solid #94a3b8}
     .sig{margin-top:30px;padding-top:18px;border-top:1px dashed #cbd5e1;display:flex;justify-content:space-around;gap:30px;font:500 12px/1.5 inherit;color:#64748b}
     .sig div{text-align:center;flex:1}
     .sig div .who{font:600 11.5px/1.3 inherit;color:#475569;margin-bottom:4px}
@@ -15034,6 +15152,8 @@ function ordReconReportPdf(rep){
         </div>
       </div>
       ${platCards?`<div class="platform-grid">${platCards}</div>`:''}
+      ${tblRaw('📥 ข้อมูลดิบ — BigSeller','brand',snap.bs_raw,'bs')}
+      ${tblRaw('📤 ข้อมูลดิบ — Platform Back Office (หลังบ้าน)','gray',snap.be_raw,'be')}
       ${tblDiff}
       ${tblOnlyBe}
       ${tblOnlyBs}

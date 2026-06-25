@@ -14818,6 +14818,20 @@ async function ordIvUpload(){
 
 function ordIvSetFilter(k){ const d=ordGet(); if(!d.ivCheck) return; d.ivCheck.filter=k; renderToolOrders(); }
 function ordIvClear(){ const d=ordGet(); d.ivCheck=null; renderToolOrders(); }
+/* ★ วิเคราะห์ใหม่ — ใช้ IVs ที่ cache ไว้ + order data ล่าสุด (เผื่อ logic ordIvAnalyze เปลี่ยน) */
+async function ordIvReanalyze(){
+  const d = ordGet();
+  if(!d.ivCheck || !d.ivCheck.ivs || !d.ivCheck.ivs.length){ alert("ยังไม่มีไฟล์ 723-5 — กดอัปไฟล์ก่อน"); return; }
+  d.ivCheck.busy = true; renderToolOrders();
+  try{
+    if(!d.loaded) await ordLoad();
+    const fresh = ordIvAnalyze({ ivs: d.ivCheck.ivs }, d.rows || []);
+    const newChecked = new Set();
+    (fresh.results||[]).forEach(r => { if(r.status==="new_match" && r.orderRowId) newChecked.add(r.iv_no); });
+    d.ivCheck = { ...d.ivCheck, ...fresh, checked: newChecked, busy: false };
+  }catch(e){ d.ivCheck.busy = false; d.ivCheck.error = "วิเคราะห์ไม่สำเร็จ: " + (e.message||e); }
+  renderToolOrders();
+}
 function ordIvSetPlatform(p){ const d=ordGet(); if(!d.ivCheck) return; d.ivCheck.platform=(d.ivCheck.platform===p?"":p); renderToolOrders(); }
 function ordIvSetDate(k, v){ const d=ordGet(); if(!d.ivCheck) return; d.ivCheck[k]=v||""; renderToolOrders(); }
 function ordIvSetSearch(v){ const d=ordGet(); if(!d.ivCheck) return; d.ivCheck.q=(v||"").trim().toLowerCase(); const el=document.getElementById("ordIvSearch"); renderToolOrders(); setTimeout(()=>{ const e=document.getElementById("ordIvSearch"); if(e){ e.focus(); e.setSelectionRange(e.value.length,e.value.length); } },0); }
@@ -15043,6 +15057,7 @@ function ordRenderIv(d){
   return `
     <div class="ord-actions">
       ${upBtn}
+      <button class="ord-btn" onclick="ordIvReanalyze()" title="วิเคราะห์ใหม่ด้วยข้อมูล order ปัจจุบัน (ไม่ต้องอัปไฟล์)"><i data-lucide="refresh-cw"></i> วิเคราะห์ใหม่</button>
       <button class="ord-btn" onclick="ordIvExport()"><i data-lucide="download"></i> ส่งออก Excel (${list.length})</button>
       <button class="ord-btn" onclick="ordIvClear()"><i data-lucide="x"></i> ล้างผล</button>
       <div style="flex:1"></div>

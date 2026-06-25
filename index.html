@@ -14698,9 +14698,12 @@ function ordIvAnalyze(salesData, rows){
       // ใช้ ordGrossVal ที่มีอยู่ — เก็บใน items jsonb แทน gross_total (column ไม่มีใน DB)
       const gross = (typeof ordGrossVal === "function") ? ordGrossVal(o) : Number(o.order_total||0);
       const disc = Number(o.seller_discount||0);
+      const ship = Number(o.shipping_fee||0);
       if(gross > 0){
-        const expected = +(gross - disc).toFixed(2);
-        return { total: expected, base: gross, ship: 0, disc, fromSale: false };
+        // IV expected = (gross − disc) + ship · เพราะ Express ออก IV รวมค่าส่ง (ลูกค้าจ่ายเต็มจำนวน)
+        // ตัวอย่าง Shopee: 780−306+38 = 512 = ที่ลูกค้าจ่ายจริงและ Shopee จะออก IV
+        const expected = +(gross - disc + ship).toFixed(2);
+        return { total: expected, base: gross, ship, disc, fromSale: false };
       }
       // ไม่มี items → fallback ลง logic เดิม
     }

@@ -14525,10 +14525,16 @@ function ordReconExport(){
   XLSX.writeFile(wb, `ออเดอร์คีย์ไม่ครบ_${co.code}_${new Date().toISOString().slice(0,10)}.xlsx`);
 }
 /* ===== Sales Reconciliation Report — snapshot ล็อก + Excel/PDF + ประวัติ ===== */
-async function ordReconGenReports(){
-  const d=ordGet(); const rec=d.recon||{}; const res=rec.results||[];
+async function ordReconGenReports(dateSet){
+  const d=ordGet(); const rec=d.recon||{}; let res=rec.results||[];
   if(!res.length){ alert("ยังไม่มีผลตรวจ — อัปไฟล์หลังบ้านเทียบก่อน"); return; }
-  if(!confirm("สร้าง 'ใบกระทบยอด' (snapshot ล็อก) จากผลตรวจปัจจุบัน?\n\nระบบจะแยกเป็น 1 ฉบับต่อแพลตฟอร์ม · เก็บข้อมูล ณ ตอนนี้ไว้เป็นหลักฐาน (ไม่เปลี่ยนแม้อัปไฟล์ใหม่)")) return;
+  if(dateSet && dateSet.size){
+    res = res.filter(r=> r.date && dateSet.has(r.date));
+    if(!res.length){ alert("ไม่มีรายการในวันที่เลือก"); return; }
+    if(!confirm(`สร้าง 'ใบกระทบยอด' จากวันที่เลือก ${dateSet.size} วัน (${res.length} ออเดอร์)?\n\nระบบจะแยกเป็น 1 ฉบับต่อแพลตฟอร์ม · เก็บ snapshot ไว้เป็นหลักฐาน`)) return;
+  } else {
+    if(!confirm("สร้าง 'ใบกระทบยอด' (snapshot ล็อก) จากผลตรวจปัจจุบัน?\n\nระบบจะแยกเป็น 1 ฉบับต่อแพลตฟอร์ม · เก็บข้อมูล ณ ตอนนี้ไว้เป็นหลักฐาน (ไม่เปลี่ยนแม้อัปไฟล์ใหม่)")) return;
+  }
   const company=state.company;
   const byPlat={}; res.forEach(r=>{ const p=r.channel||'other'; (byPlat[p]=byPlat[p]||[]).push(r); });
   const made=[];
@@ -14536,7 +14542,8 @@ async function ordReconGenReports(){
     const items=byPlat[plat];
     const dates=items.map(r=>r.date).filter(Boolean).sort();
     const dFrom=dates[0]||null, dTo=dates[dates.length-1]||null;
-    const s={ bs_count:0,bs_total:0,be_count:0,be_total:0,matched_count:0,matched_total:0,only_be_count:0,only_bs_count:0,diff_count:0,diff_total:0 };
+    const uniqDates=Array.from(new Set(dates)).sort();
+    const s={ bs_count:0,bs_total:0,be_count:0,be_total:0,matched_count:0,matched_total:0,only_be_count:0,only_bs_count:0,diff_count:0,diff_total:0, dates:uniqDates };
     const snap={matched:[],only_be:[],only_bs:[],diff:[]};
     items.forEach(r=>{
       const bsn=r.bs?+Number(ordReconNet(r.bs)).toFixed(2):null, ben=r.be?+Number(ordReconNet(r.be)).toFixed(2):null;
@@ -14560,6 +14567,173 @@ async function ordReconGenReports(){
   d.recon.reports=null; d.recon.showHistory=true;
   alert(`สร้างใบกระทบยอด ${made.length} ฉบับ:\n${made.map(r=>r.report_no).join('\n')}\n\nดูได้ที่ "ประวัติรายงาน"`);
   renderToolOrders();
+}
+/* ===== Calendar: เลือกวันที่ปิดรอบ (1 หรือหลายวันต่อครั้ง) ===== */
+function ordReconCalDateMap(d){
+  const m={}; const res=(d.recon&&d.recon.results)||[];
+  res.forEach(r=>{
+    const dt=r.date||''; if(!dt) return;
+    const ch=r.channel||'other';
+    if(!m[dt]) m[dt]={};
+    if(!m[dt][ch]) m[dt][ch]={matched:0,only_be:0,only_bs:0,diff:0,total:0};
+    m[dt][ch][r.status]=(m[dt][ch][r.status]||0)+1;
+    m[dt][ch].total++;
+  });
+  return m;
+}
+function ordReconCoveredMap(reports){
+  const m={};
+  (reports||[]).forEach(r=>{
+    if(!r.platform || r.deleted_at) return;
+    let dates=(r.summary&&Array.isArray(r.summary.dates))?r.summary.dates:null;
+    if(!dates && r.date_from && r.date_to){
+      dates=[]; const a=new Date(r.date_from+'T00:00:00'), b=new Date(r.date_to+'T00:00:00');
+      for(let t=new Date(a); t<=b; t.setDate(t.getDate()+1)){
+        dates.push(t.toISOString().slice(0,10));
+      }
+    }
+    (dates||[]).forEach(ds=>{ if(!m[ds]) m[ds]={}; m[ds][r.platform]=r.report_no; });
+  });
+  return m;
+}
+async function ordReconOpenCalendar(){
+  const d=ordGet(); const rec=d.recon||{};
+  if(!rec.results || !rec.results.length){ alert("ยังไม่มีผลตรวจ — อัปไฟล์หลังบ้านเทียบก่อน"); return; }
+  if(!rec.reports) await ordReconReportLoad();
+  d.recon=d.recon||{};
+  const dates=Object.keys(ordReconCalDateMap(d)).sort();
+  const defMonth = dates.length ? dates[dates.length-1].slice(0,7) : new Date().toISOString().slice(0,7);
+  d.recon.cal = { open:true, month:(d.recon.cal&&d.recon.cal.month)||defMonth, selected:(d.recon.cal&&d.recon.cal.selected)||new Set() };
+  renderToolOrders();
+}
+function ordReconCalClose(){ const d=ordGet(); if(d.recon&&d.recon.cal) d.recon.cal.open=false; renderToolOrders(); }
+function ordReconCalNav(delta){
+  const d=ordGet(); if(!d.recon||!d.recon.cal) return;
+  const [y,m]=d.recon.cal.month.split('-').map(Number);
+  const nd=new Date(y,m-1+delta,1);
+  d.recon.cal.month=`${nd.getFullYear()}-${String(nd.getMonth()+1).padStart(2,'0')}`;
+  renderToolOrders();
+}
+function ordReconCalToggle(date){
+  const d=ordGet(); if(!d.recon||!d.recon.cal) return;
+  const sel=d.recon.cal.selected;
+  if(sel.has(date)) sel.delete(date); else sel.add(date);
+  renderToolOrders();
+}
+function ordReconCalQuickSelect(mode){
+  const d=ordGet(); if(!d.recon||!d.recon.cal) return;
+  const sel=d.recon.cal.selected;
+  if(mode==='clear'){ sel.clear(); renderToolOrders(); return; }
+  const dmap=ordReconCalDateMap(d);
+  const covered=ordReconCoveredMap(d.recon.reports||[]);
+  Object.entries(dmap).forEach(([date,perCh])=>{
+    if(date.slice(0,7)!==d.recon.cal.month) return;
+    const plats=Object.keys(perCh);
+    const allCov = plats.length>0 && plats.every(ch=> covered[date] && covered[date][ch]);
+    if(allCov) return;
+    let mt=0,tot=0; Object.values(perCh).forEach(c=>{ mt+=c.matched; tot+=c.total; });
+    const allMatched = mt===tot;
+    if(mode==='ready' && allMatched) sel.add(date);
+    else if(mode==='all') sel.add(date);
+  });
+  renderToolOrders();
+}
+async function ordReconCalConfirm(){
+  const d=ordGet(); if(!d.recon||!d.recon.cal) return;
+  const sel=new Set(d.recon.cal.selected);
+  if(!sel.size){ alert("เลือกวันที่อย่างน้อย 1 วันก่อน"); return; }
+  d.recon.cal.open=false;
+  d.recon.cal.selected = new Set();
+  await ordReconGenReports(sel);
+}
+function ordReconCalendarHtml(d){
+  const cal=d.recon.cal; const month=cal.month;
+  const [y,m]=month.split('-').map(Number);
+  const first=new Date(y,m-1,1); const last=new Date(y,m,0);
+  const startDow=(first.getDay()+6)%7;  // Mon=0..Sun=6
+  const days=last.getDate();
+  const dmap=ordReconCalDateMap(d);
+  const covered=ordReconCoveredMap(d.recon.reports||[]);
+  const platShort={shopee:'SH',tiktok:'TT',lazada:'LZ',offline:'OF'};
+  const dayCells=[];
+  for(let i=0;i<startDow;i++) dayCells.push(`<div></div>`);
+  for(let dn=1; dn<=days; dn++){
+    const ds=`${month}-${String(dn).padStart(2,'0')}`;
+    const perCh = dmap[ds]||{};
+    const plats = Object.keys(perCh);
+    const isSel = cal.selected.has(ds);
+    let mt=0,iss=0,tot=0;
+    Object.values(perCh).forEach(c=>{ mt+=c.matched; iss+=c.only_be+c.only_bs+c.diff; tot+=c.total; });
+    const allCov = plats.length>0 && plats.every(ch=> covered[ds] && covered[ds][ch]);
+    const empty = tot===0;
+    const allMatched = !empty && mt===tot;
+    let bg='#fafbfc', border='1px solid #f1f5f9', cursor='default', click='', badge='';
+    if(empty){
+      bg='#fafbfc'; border='1px dashed #e2e8f0';
+    } else if(allCov){
+      bg='#eff6ff'; border='1px solid #93c5fd';
+      badge=`<div style="position:absolute;top:4px;right:6px;color:#2563eb;font-size:11px">🔒</div>`;
+    } else if(allMatched){
+      bg='#f0fdf4'; border='1px solid #86efac'; cursor='pointer'; click=`onclick="ordReconCalToggle('${ds}')"`;
+      badge=`<div style="position:absolute;top:4px;right:6px;color:#16a34a;font-size:12px;font-weight:700">✓</div>`;
+    } else {
+      bg='#fffbeb'; border='1px solid #fcd34d'; cursor='pointer'; click=`onclick="ordReconCalToggle('${ds}')"`;
+      badge=`<div style="position:absolute;top:4px;right:6px;color:#d97706;font-size:11px">⚠</div>`;
+    }
+    if(isSel){
+      border='2px solid var(--brand,#0d9488)';
+      bg = (allMatched?'#dcfce7':'#fef3c7');
+    }
+    const platsBadges = plats.length ? `<div style="display:flex;gap:3px;flex-wrap:wrap;margin-top:4px">${plats.map(ch=>{
+      const c=perCh[ch]; const cov=covered[ds]&&covered[ds][ch];
+      const ok=c.matched===c.total;
+      const col = cov?'#94a3b8':(ok?'#16a34a':'#d97706');
+      const title = `${ch}: ตรง ${c.matched}/${c.total}${cov?' · ปิดแล้ว '+cov:''}`;
+      return `<span title="${esc(title)}" style="background:${col};color:#fff;border-radius:4px;padding:1px 5px;font:600 9.5px/1.3 inherit;white-space:nowrap">${platShort[ch]||ch.slice(0,2).toUpperCase()} ${c.total}</span>`;
+    }).join('')}</div>` : '';
+    const totLine = !empty ? `<div style="font:500 10.5px/1.3 inherit;color:${iss?'#b45309':'#16a34a'};margin-top:2px">ตรง ${mt}${iss?` · ปัญหา ${iss}`:''}</div>` : '';
+    dayCells.push(`<div ${click} style="position:relative;background:${bg};border:${border};border-radius:8px;padding:6px 7px;min-height:82px;display:flex;flex-direction:column;cursor:${cursor}">
+      <div style="font:700 13px/1 inherit;color:#1e293b">${dn}</div>
+      ${totLine}
+      ${platsBadges}
+      ${badge}
+    </div>`);
+  }
+  const dows=['จ','อ','พ','พฤ','ศ','ส','อา'];
+  const monthLabel=new Date(y,m-1,1).toLocaleDateString('th-TH',{month:'long',year:'numeric'});
+  const selCount=cal.selected.size;
+  let selTot=0; cal.selected.forEach(ds=>{ const per=dmap[ds]||{}; Object.values(per).forEach(c=>selTot+=c.total); });
+  return `<div onclick="event.stopPropagation()" style="background:#fff;border-radius:14px;max-width:820px;width:96%;max-height:92vh;overflow:auto;box-shadow:0 24px 70px -10px rgba(0,0,0,.35);font-family:'IBM Plex Sans Thai','IBM Plex Sans',sans-serif">
+    <div style="padding:18px 22px;border-bottom:1px solid #e2e8f0;display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+      <div style="flex:1">
+        <div style="font:700 16px/1.3 inherit;color:#1e293b">📅 เลือกวันที่ปิดรอบ</div>
+        <div style="font:500 12px/1.5 inherit;color:#64748b;margin-top:3px">คลิกวันที่จะปิด — เลือกได้หลายวัน · <span style="color:#16a34a;font-weight:700">✓</span> = ตรงทั้งหมด พร้อมปิด · <span style="color:#d97706;font-weight:700">⚠</span> = มีออเดอร์ต้องตรวจ · <span style="color:#2563eb;font-weight:700">🔒</span> = ปิดรอบไปแล้ว</div>
+      </div>
+      <button onclick="ordReconCalClose()" style="border:none;background:none;cursor:pointer;color:#94a3b8;font-size:22px;padding:0 4px">✕</button>
+    </div>
+    <div style="padding:12px 22px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:#f8fafc;border-bottom:1px solid #e2e8f0">
+      <button class="ord-btn" onclick="ordReconCalNav(-1)" style="padding:5px 10px"><i data-lucide="chevron-left"></i></button>
+      <div style="font:700 14px/1 inherit;min-width:150px;text-align:center;color:#1e293b">${monthLabel}</div>
+      <button class="ord-btn" onclick="ordReconCalNav(1)" style="padding:5px 10px"><i data-lucide="chevron-right"></i></button>
+      <div style="flex:1"></div>
+      <button class="ord-btn" onclick="ordReconCalQuickSelect('ready')" style="padding:5px 10px;font-size:12px">เลือกวันที่ตรงทั้งหมด</button>
+      <button class="ord-btn" onclick="ordReconCalQuickSelect('clear')" style="padding:5px 10px;font-size:12px">ล้างที่เลือก</button>
+    </div>
+    <div style="padding:14px 18px">
+      <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:5px;margin-bottom:6px">
+        ${dows.map(x=>`<div style="text-align:center;font:700 11px/1.4 inherit;color:#64748b;padding:4px 0">${x}</div>`).join('')}
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:5px">
+        ${dayCells.join('')}
+      </div>
+    </div>
+    <div style="padding:14px 22px;border-top:1px solid #e2e8f0;display:flex;align-items:center;gap:12px;background:#f8fafc;flex-wrap:wrap">
+      <div style="font:500 12.5px/1.5 inherit;color:#475569">เลือกแล้ว <b style="color:var(--brand,#0d9488);font-size:14px">${selCount}</b> วัน${selTot?` · ${selTot} ออเดอร์`:''}</div>
+      <div style="flex:1"></div>
+      <button class="ord-btn" onclick="ordReconCalClose()">ยกเลิก</button>
+      <button class="ord-btn primary" onclick="ordReconCalConfirm()" ${selCount===0?'disabled style="opacity:.45;cursor:not-allowed"':''}><i data-lucide="file-check-2"></i> สร้างใบกระทบยอด (${selCount})</button>
+    </div>
+  </div>`;
 }
 function ordReconReportExcel(rep){
   const co=COMPANIES.find(c=>c.id===state.company)||{}; const s=rep.summary||{}, snap=rep.snapshot||{};
@@ -14716,7 +14890,7 @@ function ordRenderRecon(d){
     <div class="ord-actions">
       ${upBtn}
       <button class="ord-btn" onclick="ordReconExport()"><i data-lucide="download"></i> ส่งออก "คีย์ไม่ครบ"</button>
-      <button class="ord-btn" onclick="ordReconGenReports()" style="color:var(--brand,#0d9488);border-color:color-mix(in srgb,var(--brand,#0d9488) 30%,#fff)"><i data-lucide="file-check-2"></i> สร้างใบกระทบยอด (ปิดรอบ)</button>
+      <button class="ord-btn" onclick="ordReconOpenCalendar()" style="color:var(--brand,#0d9488);border-color:color-mix(in srgb,var(--brand,#0d9488) 30%,#fff)"><i data-lucide="calendar-check"></i> สร้างใบกระทบยอด (เลือกวัน)</button>
       <button class="ord-btn" onclick="ordReconToggleHistory()"><i data-lucide="history"></i> ประวัติรายงาน</button>
       <div style="flex:1"></div>
       <span style="font:500 12px/1.4 inherit;color:var(--n-500)">ขอบเขต: ${(rec.channels||[]).join(', ')||'—'} · ${rec.dFrom||''}${rec.dTo&&rec.dTo!==rec.dFrom?' ถึง '+rec.dTo:''}</span>
@@ -14747,7 +14921,8 @@ function ordRenderRecon(d){
         </table>
       </div>
       ${list.length>800?`<div style="padding:10px 16px;font:500 12px/1.4 inherit;color:var(--n-500);border-top:1px solid var(--n-100);background:var(--n-50)">แสดง 800 จาก ${list.length.toLocaleString("th-TH")}</div>`:''}
-    </div>` : `<div class="ord-empty">— ไม่มีรายการในหมวด "${esc(filtLabel)}" —</div>`}`;
+    </div>` : `<div class="ord-empty">— ไม่มีรายการในหมวด "${esc(filtLabel)}" —</div>`}
+    ${(rec.cal&&rec.cal.open) ? `<div onclick="ordReconCalClose()" style="position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px">${ordReconCalendarHtml(d)}</div>` : ''}`;
 }
 
 /* ============================================================

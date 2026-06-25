@@ -14301,7 +14301,7 @@ function ordBoardGo(k){ const d=ordGet();
 }
 function ordFmtMoney(n){ return Number(n||0).toLocaleString("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2}); }
 
-/* แท็บ สรุปสถานะงาน (funnel) */
+/* แท็บ สรุปสถานะงาน — Hero + Stacked bar + Card grid + Recon embed */
 function ordRenderBoard(d){
   const fmt=ordFmtMoney;
   const all=(d.rows||[]);
@@ -14310,22 +14310,77 @@ function ordRenderBoard(d){
   const cancel={n:0,sum:0};
   all.forEach(o=>{ const k=ordStatusOf(o,rmap); if(k==='cancelled'){ cancel.n++; cancel.sum+=Number(o.order_total||0); } else if(agg[k]){ agg[k].n++; agg[k].sum+=Number(o.order_total||0); } });
   const onlyBe={n:0,sum:0}; ((d.recon&&d.recon.results)||[]).forEach(r=>{ if(r.status==='only_be'){ onlyBe.n++; onlyBe.sum+=Number(ordReconNet(r.be||{}))||0; } });
-  const tot={ n:all.length, sum:all.reduce((a,o)=>a+Number(o.order_total||0),0) };
-  const row=(k,l,ic,n,sum)=>`<div class="ord-fn s-${k}" onclick="ordBoardGo('${k}')">
-      <div class="ic-w">${ic}</div>
-      <div class="lbl">${esc(l)}</div>
-      <div class="n">${n.toLocaleString("th-TH")}</div>
-      <div class="sum">${fmt(sum)}</div>
-      <div class="chev">›</div>
+  const totN=all.length; const totSum=all.reduce((a,o)=>a+Number(o.order_total||0),0);
+  const activeN=totN-cancel.n; const activeSum=totSum-cancel.sum;
+  const segs = ORD_STATUS.map(s=>({k:s.k,l:s.l,c:s.c,ic:s.ic,n:agg[s.k].n,sum:agg[s.k].sum})).filter(x=>x.n>0);
+
+  const barHtml = segs.map(s=>{
+    const pct = activeN ? (s.n/activeN*100) : 0;
+    return `<div title="${esc(s.l)} · ${s.n.toLocaleString('th-TH')} (${pct.toFixed(1)}%)" onclick="ordBoardGo('${s.k}')" class="ord-bar-seg" style="background:${s.c};width:${pct}%"></div>`;
+  }).join('');
+
+  const card=(k,l,ic,c,n,sum,isCancel)=>{
+    const pct = totN ? (n/totN*100) : 0;
+    return `<div class="ord-stcard${isCancel?' cancel':''}" onclick="ordBoardGo('${k}')" style="--c:${c}">
+      <div class="ord-stcard-top">
+        <div class="ic">${ic}</div>
+        <div class="lbl">${esc(l)}</div>
+      </div>
+      <div class="ord-stcard-mid">
+        <div class="n">${n.toLocaleString('th-TH')}</div>
+        <div class="pct">${pct.toFixed(1)}%</div>
+      </div>
+      <div class="bar"><div style="width:${pct}%;background:${c}"></div></div>
+      <div class="sum">${fmt(sum)} บาท</div>
     </div>`;
-  return `<div class="ord-card">
-    <div class="ord-fn-head"><div></div><div>สถานะปัจจุบัน</div><div class="right">จำนวน</div><div class="right">ยอดเงิน (บาท)</div><div></div></div>
-    ${ORD_STATUS.map(s=>row(s.k,s.l,s.ic,agg[s.k].n,agg[s.k].sum)).join('')}
-    ${onlyBe.n?row('only_be','หลังบ้านมี · BigSeller ขาด (ขายไม่คีย์)','📥',onlyBe.n,onlyBe.sum):''}
-    ${cancel.n?row('cancelled','ยกเลิก','🚫',cancel.n,cancel.sum):''}
-    <div class="ord-fn-total"><div></div><div>รวมทุกบรรทัด (รวมยกเลิก)</div><div class="n">${tot.n.toLocaleString("th-TH")}</div><div class="sum">${fmt(tot.sum)}</div><div></div></div>
-  </div>
-  <div style="margin-top:10px;font:500 12px/1.5 inherit;color:var(--n-500)">💡 คลิกแถวเพื่อดูออเดอร์ในสถานะนั้น · "รอเทียบยอดขาย / ยอดไม่ตรง / BigSeller ขาด" มาจากหน้าตรวจรายวัน (อัปไฟล์หลังบ้านเทียบ)</div>`;
+  };
+
+  const cardHtml = ORD_STATUS.filter(s=>agg[s.k].n>0).map(s=>card(s.k,s.l,s.ic,s.c,agg[s.k].n,agg[s.k].sum,false)).join('');
+  const cancelCard = cancel.n ? card('cancelled','ยกเลิก','🚫','#94a3b8',cancel.n,cancel.sum,true) : '';
+
+  const co=COMPANIES.find(c=>c.id===state.company)||{};
+  const heroGrad = co.gradient ? `linear-gradient(135deg,${co.gradient[0]},${co.gradient[1]})` : 'linear-gradient(135deg,var(--brand,#0d9488),color-mix(in srgb,var(--brand,#0d9488) 65%,#000))';
+
+  return `
+    <!-- Hero: ยอดรวม + แตก active/cancel -->
+    <div class="ord-totals" style="background:${heroGrad}">
+      <div class="ord-totals-main">
+        <div class="ord-totals-label">ออเดอร์ทั้งหมด</div>
+        <div class="ord-totals-n">${totN.toLocaleString('th-TH')}</div>
+        <div class="ord-totals-sub">${fmt(totSum)} บาท</div>
+      </div>
+      <div class="ord-totals-split">
+        <div class="ord-totals-line"><span class="dot" style="background:#fff"></span>ใช้งาน <b>${activeN.toLocaleString('th-TH')}</b><span class="mu">· ${fmt(activeSum)} บาท</span></div>
+        <div class="ord-totals-line"><span class="dot" style="background:rgba(255,255,255,.45)"></span>ยกเลิก <b>${cancel.n.toLocaleString('th-TH')}</b><span class="mu">· ${fmt(cancel.sum)} บาท</span></div>
+        <div class="ord-totals-eq"><span class="dot" style="background:transparent;border:1px dashed rgba(255,255,255,.55)"></span>${activeN.toLocaleString('th-TH')} + ${cancel.n.toLocaleString('th-TH')} = <b>${totN.toLocaleString('th-TH')}</b></div>
+      </div>
+    </div>
+
+    <!-- Stacked bar -->
+    <div class="ord-card" style="padding:14px 18px;margin-top:12px">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:9px;flex-wrap:wrap">
+        <div style="font:700 13px/1.3 inherit;color:var(--n-900)">สัดส่วนสถานะ <span style="font-weight:500;color:var(--n-500);font-size:11.5px">(จากออเดอร์ใช้งาน ${activeN.toLocaleString('th-TH')})</span></div>
+        <div style="font:500 11.5px/1.3 inherit;color:var(--n-500)">▸ คลิกแถบหรือการ์ดเพื่อกรอง</div>
+      </div>
+      <div class="ord-bar">${barHtml||'<div style="width:100%;background:var(--n-100)"></div>'}</div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px 16px;margin-top:11px;font:500 11.5px/1.5 inherit;color:var(--n-700)">
+        ${segs.map(s=>`<div style="display:inline-flex;align-items:center;gap:6px;cursor:pointer" onclick="ordBoardGo('${s.k}')"><span style="width:10px;height:10px;background:${s.c};border-radius:3px"></span>${esc(s.l)} <b style="color:var(--n-900)">${s.n.toLocaleString('th-TH')}</b></div>`).join('')}
+        ${cancel.n?`<div style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;opacity:.75" onclick="ordBoardGo('cancelled')"><span style="width:10px;height:10px;background:#94a3b8;border-radius:3px"></span>ยกเลิก <b style="color:var(--n-900)">${cancel.n.toLocaleString('th-TH')}</b></div>`:''}
+      </div>
+    </div>
+
+    <!-- Cards Grid -->
+    <div class="ord-stgrid">${cardHtml}${cancelCard}</div>
+
+    <!-- Recon embed -->
+    <div style="margin-top:26px;padding-top:18px;border-top:2px solid var(--n-100)">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap">
+        <div style="font:700 16px/1.3 inherit;color:var(--n-900)"><i data-lucide="scan-search" style="width:18px;height:18px;display:inline-block;vertical-align:-3px;color:var(--brand,#0d9488)"></i> ตรวจรายวัน — BigSeller ↔ หลังบ้าน</div>
+        <div style="font:500 12px/1.4 inherit;color:var(--n-500)">อัปไฟล์หลังบ้านเทียบยอดต่อวัน · ปิดรอบเป็นใบกระทบยอด</div>
+      </div>
+      ${ordRenderRecon(d)}
+    </div>
+  `;
 }
 
 /* แท็บ สรุปรายเดือน — กราฟแท่งต่อแพลตฟอร์ม */
@@ -14531,41 +14586,51 @@ async function ordReconGenReports(dateSet){
   if(dateSet && dateSet.size){
     res = res.filter(r=> r.date && dateSet.has(r.date));
     if(!res.length){ alert("ไม่มีรายการในวันที่เลือก"); return; }
-    if(!confirm(`สร้าง 'ใบกระทบยอด' จากวันที่เลือก ${dateSet.size} วัน (${res.length} ออเดอร์)?\n\nระบบจะแยกเป็น 1 ฉบับต่อแพลตฟอร์ม · เก็บ snapshot ไว้เป็นหลักฐาน`)) return;
+    if(!confirm(`สร้าง 'ใบกระทบยอด' จาก ${dateSet.size} วันที่เลือก (${res.length} ออเดอร์, ทุกแพลตฟอร์มรวมไฟล์เดียว)?\n\nพิมพ์ซ้ำได้ตลอด — แนะนำเก็บไฟล์ Excel/PDF ลง Drive เอง`)) return;
   } else {
-    if(!confirm("สร้าง 'ใบกระทบยอด' (snapshot ล็อก) จากผลตรวจปัจจุบัน?\n\nระบบจะแยกเป็น 1 ฉบับต่อแพลตฟอร์ม · เก็บข้อมูล ณ ตอนนี้ไว้เป็นหลักฐาน (ไม่เปลี่ยนแม้อัปไฟล์ใหม่)")) return;
+    if(!confirm("สร้าง 'ใบกระทบยอด' จากผลตรวจปัจจุบัน (ทุกแพลตฟอร์มรวมไฟล์เดียว)?\n\nพิมพ์ซ้ำได้ตลอด")) return;
   }
   const company=state.company;
-  const byPlat={}; res.forEach(r=>{ const p=r.channel||'other'; (byPlat[p]=byPlat[p]||[]).push(r); });
-  const made=[];
-  for(const plat of Object.keys(byPlat)){
-    const items=byPlat[plat];
-    const dates=items.map(r=>r.date).filter(Boolean).sort();
-    const dFrom=dates[0]||null, dTo=dates[dates.length-1]||null;
-    const uniqDates=Array.from(new Set(dates)).sort();
-    const s={ bs_count:0,bs_total:0,be_count:0,be_total:0,matched_count:0,matched_total:0,only_be_count:0,only_bs_count:0,diff_count:0,diff_total:0, dates:uniqDates };
-    const snap={matched:[],only_be:[],only_bs:[],diff:[]};
-    items.forEach(r=>{
-      const bsn=r.bs?+Number(ordReconNet(r.bs)).toFixed(2):null, ben=r.be?+Number(ordReconNet(r.be)).toFixed(2):null;
-      if(r.bs){ s.bs_count++; s.bs_total+=bsn||0; }
-      if(r.be){ s.be_count++; s.be_total+=ben||0; }
-      const it={order_no:r.order_no, date:r.date||'', bs_net:bsn, be_net:ben, diff:(bsn!=null&&ben!=null)?+(bsn-ben).toFixed(2):null, products:(r.bs&&r.bs.products)||(r.be&&r.be.products)||''};
-      if(r.status==='matched'){ s.matched_count++; s.matched_total+=bsn||0; snap.matched.push(it); }
-      else if(r.status==='only_be'){ s.only_be_count++; snap.only_be.push(it); }
-      else if(r.status==='only_bs'){ s.only_bs_count++; snap.only_bs.push(it); }
-      else if(r.status==='diff'){ s.diff_count++; s.diff_total+=Math.abs((bsn||0)-(ben||0)); snap.diff.push(it); }
-    });
-    ['bs_total','be_total','matched_total','diff_total'].forEach(k=>s[k]=+s[k].toFixed(2));
-    const platU=String(plat||'OTHER').toUpperCase(); const dstr=String(dTo||'').replace(/-/g,'');
-    let seq='001'; try{ const {count}=await sb.from("recon_reports").select("id",{count:'exact',head:true}).eq("company",company).eq("platform",plat); seq=String((count||0)+1).padStart(3,'0'); }catch(e){}
-    const report_no=`SRR-${platU}-${dstr}-${seq}`;
-    const row={ company, report_no, platform:plat, date_from:dFrom, date_to:dTo, status:'closed', version:1, summary:s, snapshot:snap, generated_by_name:(AUTH&&AUTH.email)||null };
-    const { data, error } = await sb.from("recon_reports").insert(row).select("*").single();
-    if(error){ console.warn("report insert",error); alert("สร้างรายงานไม่สำเร็จ: "+(error.message||JSON.stringify(error))); return; }
-    made.push(data);
-  }
-  d.recon.reports=null; d.recon.showHistory=true;
-  alert(`สร้างใบกระทบยอด ${made.length} ฉบับ:\n${made.map(r=>r.report_no).join('\n')}\n\nดูได้ที่ "ประวัติรายงาน"`);
+  const dates=res.map(r=>r.date).filter(Boolean).sort();
+  const dFrom=dates[0]||null, dTo=dates[dates.length-1]||null;
+  const uniqDates=Array.from(new Set(dates)).sort();
+  const s={ bs_count:0,bs_total:0,be_count:0,be_total:0, matched_count:0,matched_total:0, only_be_count:0,only_be_total:0, only_bs_count:0,only_bs_total:0, diff_count:0,diff_total:0, dates:uniqDates, per_platform:{} };
+  const snap={matched:[],only_be:[],only_bs:[],diff:[]};
+  res.forEach(r=>{
+    const plat=r.channel||'other';
+    if(!s.per_platform[plat]) s.per_platform[plat]={matched:0,only_be:0,only_bs:0,diff:0,matched_total:0,diff_total:0,only_be_total:0,only_bs_total:0,bs_count:0,bs_total:0,be_count:0,be_total:0};
+    const pp=s.per_platform[plat];
+    const bsn=r.bs?+Number(ordReconNet(r.bs)).toFixed(2):null;
+    const ben=r.be?+Number(ordReconNet(r.be)).toFixed(2):null;
+    if(r.bs){ s.bs_count++; s.bs_total+=bsn||0; pp.bs_count++; pp.bs_total+=bsn||0; }
+    if(r.be){ s.be_count++; s.be_total+=ben||0; pp.be_count++; pp.be_total+=ben||0; }
+    const it={order_no:r.order_no, date:r.date||'', channel:plat, bs_net:bsn, be_net:ben, diff:(bsn!=null&&ben!=null)?+(bsn-ben).toFixed(2):null, products:(r.bs&&r.bs.products)||(r.be&&r.be.products)||''};
+    if(r.status==='matched'){ s.matched_count++; s.matched_total+=bsn||0; pp.matched++; pp.matched_total+=bsn||0; snap.matched.push(it); }
+    else if(r.status==='only_be'){ s.only_be_count++; s.only_be_total+=ben||0; pp.only_be++; pp.only_be_total+=ben||0; snap.only_be.push(it); }
+    else if(r.status==='only_bs'){ s.only_bs_count++; s.only_bs_total+=bsn||0; pp.only_bs++; pp.only_bs_total+=bsn||0; snap.only_bs.push(it); }
+    else if(r.status==='diff'){
+      const dval=Math.abs((bsn||0)-(ben||0));
+      s.diff_count++; s.diff_total+=dval; pp.diff++; pp.diff_total+=dval;
+      it.reasons=(r.diffs||[]).map(df=>({field:df.f, bs:df.bs, be:df.be, txt:!!df.txt}));
+      snap.diff.push(it);
+    }
+  });
+  ['bs_total','be_total','matched_total','diff_total','only_be_total','only_bs_total'].forEach(k=>s[k]=+(s[k]||0).toFixed(2));
+  Object.values(s.per_platform).forEach(pp=>['matched_total','diff_total','only_be_total','only_bs_total','bs_total','be_total'].forEach(k=>pp[k]=+(pp[k]||0).toFixed(2)));
+  // sort snap items: by channel → date → order_no
+  ['matched','only_be','only_bs','diff'].forEach(k=> snap[k].sort((a,b)=> (a.channel||'').localeCompare(b.channel||'') || (a.date||'').localeCompare(b.date||'') || (a.order_no||'').localeCompare(b.order_no||'')));
+  const dstr=String(dTo||'').replace(/-/g,'');
+  let seq='001'; try{ const {count}=await sb.from("recon_reports").select("id",{count:'exact',head:true}).eq("company",company).eq("platform","multi"); seq=String((count||0)+1).padStart(3,'0'); }catch(e){}
+  const report_no=`SRR-RECON-${dstr}-${seq}`;
+  const row={ company, report_no, platform:"multi", date_from:dFrom, date_to:dTo, status:'closed', version:1, summary:s, snapshot:snap, generated_by_name:(AUTH&&AUTH.email)||null };
+  const { data, error } = await sb.from("recon_reports").insert(row).select("*").single();
+  if(error){ console.warn("report insert",error); alert("สร้างรายงานไม่สำเร็จ: "+(error.message||JSON.stringify(error))); return; }
+  d.recon.reports=null;
+  // ★ พิมพ์ซ้ำได้ตลอด — ส่งออกทันที 2 ไฟล์ (Excel + PDF) ให้ user เก็บลง Drive เอง
+  try{ ordReconReportExcel(data); }catch(e){ console.warn("excel",e); }
+  try{ ordReconReportPdf(data); }catch(e){ console.warn("pdf",e); }
+  d.recon.showHistory=true;
+  alert(`สร้าง ${report_no} — ส่งออกแล้ว 1 ไฟล์ Excel + 1 หน้า PDF · พิมพ์ซ้ำได้ที่ "ประวัติรายงาน"`);
   renderToolOrders();
 }
 /* ===== Calendar: เลือกวันที่ปิดรอบ (1 หรือหลายวันต่อครั้ง) ===== */
@@ -14628,9 +14693,6 @@ function ordReconCalQuickSelect(mode){
   const covered=ordReconCoveredMap(d.recon.reports||[]);
   Object.entries(dmap).forEach(([date,perCh])=>{
     if(date.slice(0,7)!==d.recon.cal.month) return;
-    const plats=Object.keys(perCh);
-    const allCov = plats.length>0 && plats.every(ch=> covered[date] && covered[date][ch]);
-    if(allCov) return;
     let mt=0,tot=0; Object.values(perCh).forEach(c=>{ mt+=c.matched; tot+=c.total; });
     const allMatched = mt===tot;
     if(mode==='ready' && allMatched) sel.add(date);
@@ -14670,15 +14732,16 @@ function ordReconCalendarHtml(d){
     let bg='#fafbfc', border='1px solid #f1f5f9', cursor='default', click='', badge='';
     if(empty){
       bg='#fafbfc'; border='1px dashed #e2e8f0';
-    } else if(allCov){
-      bg='#eff6ff'; border='1px solid #93c5fd';
-      badge=`<div style="position:absolute;top:4px;right:6px;color:#2563eb;font-size:11px">🔒</div>`;
     } else if(allMatched){
       bg='#f0fdf4'; border='1px solid #86efac'; cursor='pointer'; click=`onclick="ordReconCalToggle('${ds}')"`;
       badge=`<div style="position:absolute;top:4px;right:6px;color:#16a34a;font-size:12px;font-weight:700">✓</div>`;
     } else {
       bg='#fffbeb'; border='1px solid #fcd34d'; cursor='pointer'; click=`onclick="ordReconCalToggle('${ds}')"`;
       badge=`<div style="position:absolute;top:4px;right:6px;color:#d97706;font-size:11px">⚠</div>`;
+    }
+    // เคย export ไปแล้ว → marker เล็กๆ มุมซ้ายบน (ไม่ block · พิมพ์ซ้ำได้)
+    if(allCov && !empty){
+      badge += `<div title="เคยสร้างใบกระทบยอดไปแล้ว — พิมพ์ซ้ำได้" style="position:absolute;top:4px;left:6px;color:#2563eb;font-size:9px;font-weight:600">📄</div>`;
     }
     if(isSel){
       border='2px solid var(--brand,#0d9488)';
@@ -14707,7 +14770,7 @@ function ordReconCalendarHtml(d){
     <div style="padding:18px 22px;border-bottom:1px solid #e2e8f0;display:flex;align-items:center;gap:14px;flex-wrap:wrap">
       <div style="flex:1">
         <div style="font:700 16px/1.3 inherit;color:#1e293b">📅 เลือกวันที่ปิดรอบ</div>
-        <div style="font:500 12px/1.5 inherit;color:#64748b;margin-top:3px">คลิกวันที่จะปิด — เลือกได้หลายวัน · <span style="color:#16a34a;font-weight:700">✓</span> = ตรงทั้งหมด พร้อมปิด · <span style="color:#d97706;font-weight:700">⚠</span> = มีออเดอร์ต้องตรวจ · <span style="color:#2563eb;font-weight:700">🔒</span> = ปิดรอบไปแล้ว</div>
+        <div style="font:500 12px/1.5 inherit;color:#64748b;margin-top:3px">คลิกวันที่จะพิมพ์ — เลือกได้หลายวัน · <span style="color:#16a34a;font-weight:700">✓</span> = ตรงทั้งหมด · <span style="color:#d97706;font-weight:700">⚠</span> = มีออเดอร์ต้องตรวจ · <span style="color:#2563eb;font-weight:700">📄</span> = เคยพิมพ์แล้ว (พิมพ์ซ้ำได้)</div>
       </div>
       <button onclick="ordReconCalClose()" style="border:none;background:none;cursor:pointer;color:#94a3b8;font-size:22px;padding:0 4px">✕</button>
     </div>
@@ -14735,57 +14798,253 @@ function ordReconCalendarHtml(d){
     </div>
   </div>`;
 }
+/* Excel — multi-sheet, รวมทุกแพลตฟอร์ม 1 ไฟล์, มี Platform + เหตุผล */
 function ordReconReportExcel(rep){
-  const co=COMPANIES.find(c=>c.id===state.company)||{}; const s=rep.summary||{}, snap=rep.snapshot||{};
+  const co=COMPANIES.find(c=>c.id===state.company)||{};
+  const s=rep.summary||{}, snap=rep.snapshot||{};
+  const platN={shopee:'Shopee',tiktok:'TikTok',lazada:'Lazada',offline:'หน้าร้าน',other:'อื่นๆ'};
+  const platOrder=['shopee','tiktok','lazada','offline','other'];
   const unmatched=(s.only_be_count||0)+(s.only_bs_count||0)+(s.diff_count||0);
+  const fmtR=(it)=> (it.reasons||[]).map(rs=> rs.txt ? `${rs.field}: ${rs.bs} ≠ ${rs.be}` : `${rs.field} (BS ${Number(rs.bs||0).toLocaleString('th-TH',{minimumFractionDigits:2,maximumFractionDigits:2})} ≠ หลังบ้าน ${Number(rs.be||0).toLocaleString('th-TH',{minimumFractionDigits:2,maximumFractionDigits:2})})`).join(' · ');
   const wb=XLSX.utils.book_new();
+
+  // === Sheet 1: Summary ===
+  const platsWith = platOrder.filter(p=> s.per_platform && s.per_platform[p]);
   const sumAoa=[
-    ['รายงานกระทบยอดข้อมูลขาย Big Seller ↔ Platform Back Office'],[],
-    ['Report No.', rep.report_no],['บริษัท', co.name||''],['Platform', rep.platform],
-    ['ช่วงวันที่ตรวจสอบ', `${rep.date_from||''} ถึง ${rep.date_to||''}`],
-    ['วันที่จัดทำ', String(rep.generated_at||'').slice(0,19).replace('T',' ')],
-    ['ผู้จัดทำ', rep.generated_by_name||''],['สถานะ', rep.status],[],
-    ['สรุปผลกระทบยอด','จำนวน Order','ยอดรวม (บาท)'],
-    ['Big Seller', s.bs_count, s.bs_total],
-    ['Platform Back Office', s.be_count, s.be_total],
-    ['ตรงกัน (Matched)', s.matched_count, s.matched_total],
-    ['BigSeller ขาด (พบหลังบ้าน ไม่พบ BS)', s.only_be_count, ''],
-    ['หลังบ้านขาด (พบ BS ไม่พบหลังบ้าน)', s.only_bs_count, ''],
-    ['ยอดไม่ตรง', s.diff_count, 'ส่วนต่าง '+s.diff_total],[],
-    ['ผลการตรวจสอบ', unmatched===0?'ตรงกันทั้งหมด (Reconciled)':'พบรายการต่าง '+unmatched+' รายการ'],[],[],
-    ['จัดทำโดย','____________________'],['ตรวจสอบโดย','____________________'],['อนุมัติโดย','____________________'],
+    ['ใบกระทบยอดข้อมูลขาย Big Seller ↔ Platform Back Office'],[],
+    ['Report No.', rep.report_no, '', 'วันที่จัดทำ', String(rep.generated_at||'').slice(0,19).replace('T',' ')],
+    ['บริษัท', co.name||'', '', 'ผู้จัดทำ', rep.generated_by_name||''],
+    ['ช่วงตรวจสอบ', `${rep.date_from||''} ถึง ${rep.date_to||''}`, '', 'จำนวนวัน', (s.dates||[]).length],
+    ['สถานะ', rep.status==='closed'?'ปิดงวด':rep.status],[],
+    ['═══ สรุปรวมทุกแพลตฟอร์ม ═══'],
+    ['หมวด','จำนวน Order','ยอดรวม (บาท)'],
+    ['Big Seller (ทั้งหมด)', s.bs_count||0, s.bs_total||0],
+    ['Platform Back Office (ทั้งหมด)', s.be_count||0, s.be_total||0],
+    ['✓ ตรงกัน (Matched)', s.matched_count||0, s.matched_total||0],
+    ['⚠ BigSeller ขาด (พบหลังบ้าน · ขายไม่คีย์)', s.only_be_count||0, s.only_be_total||0],
+    ['ℹ หลังบ้านขาด (พบ BS · หลังบ้านไม่มี)', s.only_bs_count||0, s.only_bs_total||0],
+    ['✗ ยอดไม่ตรง', s.diff_count||0, 'ส่วนต่างรวม '+(s.diff_total||0).toLocaleString('th-TH',{minimumFractionDigits:2,maximumFractionDigits:2})],[],
+    ['ผลการตรวจสอบ', unmatched===0?'✓ ตรงกันทั้งหมด (Reconciled)':'⚠ พบรายการต่าง '+unmatched+' รายการ'],[],
   ];
-  const ws1=XLSX.utils.aoa_to_sheet(sumAoa); ws1['!cols']=[{wch:42},{wch:18},{wch:18}];
-  XLSX.utils.book_append_sheet(wb, ws1, "Summary");
-  const cols=['No','Order ID','วันที่','ยอด BigSeller','ยอดหลังบ้าน','ส่วนต่าง','สินค้า'];
-  const det=(name,items)=>{ const aoa=[cols].concat((items||[]).map((it,i)=>[i+1,it.order_no,it.date,it.bs_net,it.be_net,it.diff,it.products])); const ws=XLSX.utils.aoa_to_sheet(aoa); ws['!cols']=[{wch:6},{wch:22},{wch:12},{wch:15},{wch:15},{wch:12},{wch:44}]; ws['!autofilter']={ref:`A1:G${aoa.length}`}; ws['!freeze']={ySplit:1}; XLSX.utils.book_append_sheet(wb,ws,name); };
-  det("Matched", snap.matched); det("Missing in BigSeller", snap.only_be); det("Missing in Platform", snap.only_bs); det("Amount Differences", snap.diff);
-  XLSX.writeFile(wb, `Sales_Reconciliation_${rep.platform}_${rep.date_from}_to_${rep.date_to}.xlsx`);
+  if(platsWith.length){
+    sumAoa.push(['═══ แตกตามแพลตฟอร์ม ═══']);
+    sumAoa.push(['Platform','ตรง','ขายไม่คีย์','หลังบ้านขาด','ยอดไม่ตรง','ส่วนต่างรวม','ยอด BigSeller','ยอดหลังบ้าน']);
+    platsWith.forEach(p=>{ const pp=s.per_platform[p]; sumAoa.push([platN[p]||p, pp.matched||0, pp.only_be||0, pp.only_bs||0, pp.diff||0, pp.diff_total||0, pp.bs_total||0, pp.be_total||0]); });
+    sumAoa.push([]);
+  }
+  sumAoa.push([],['จัดทำโดย','____________________','','ตรวจสอบโดย','____________________','','อนุมัติโดย','____________________']);
+  const ws1=XLSX.utils.aoa_to_sheet(sumAoa);
+  ws1['!cols']=[{wch:38},{wch:18},{wch:16},{wch:16},{wch:14},{wch:20},{wch:18},{wch:18}];
+  ws1['!merges']=[{s:{r:0,c:0},e:{r:0,c:7}}];
+  XLSX.utils.book_append_sheet(wb, ws1, "สรุป");
+
+  // === Helpers for detail sheets ===
+  const sheetDet=(name, items, cols, mapRow)=>{
+    const aoa=[cols].concat((items||[]).map((it,i)=> mapRow(it,i)));
+    const ws=XLSX.utils.aoa_to_sheet(aoa);
+    ws['!freeze']={ySplit:1};
+    ws['!autofilter']={ref:`A1:${String.fromCharCode(64+cols.length)}${aoa.length}`};
+    return ws;
+  };
+
+  // Sheet: ยอดไม่ตรง (สำคัญที่สุด — มาก่อน)
+  if((snap.diff||[]).length){
+    const cols=['No','Platform','Order ID','วันที่','ยอด BigSeller','ยอดหลังบ้าน','ส่วนต่าง','เหตุผล','สินค้า'];
+    const ws=sheetDet("⚠ ยอดไม่ตรง", snap.diff, cols, (it,i)=>[i+1,platN[it.channel]||it.channel||'',it.order_no,it.date,it.bs_net,it.be_net,it.diff,fmtR(it),it.products]);
+    ws['!cols']=[{wch:5},{wch:11},{wch:22},{wch:11},{wch:14},{wch:14},{wch:11},{wch:46},{wch:42}];
+    XLSX.utils.book_append_sheet(wb, ws, "ยอดไม่ตรง");
+  }
+  // Sheet: BigSeller ขาด
+  if((snap.only_be||[]).length){
+    const cols=['No','Platform','Order ID','วันที่','ยอดหลังบ้าน','สินค้า'];
+    const ws=sheetDet("⚠ BigSeller ขาด", snap.only_be, cols, (it,i)=>[i+1,platN[it.channel]||it.channel||'',it.order_no,it.date,it.be_net,it.products]);
+    ws['!cols']=[{wch:5},{wch:11},{wch:22},{wch:11},{wch:14},{wch:46}];
+    XLSX.utils.book_append_sheet(wb, ws, "BigSeller ขาด");
+  }
+  // Sheet: หลังบ้านขาด
+  if((snap.only_bs||[]).length){
+    const cols=['No','Platform','Order ID','วันที่','ยอด BigSeller','สินค้า'];
+    const ws=sheetDet("ℹ หลังบ้านขาด", snap.only_bs, cols, (it,i)=>[i+1,platN[it.channel]||it.channel||'',it.order_no,it.date,it.bs_net,it.products]);
+    ws['!cols']=[{wch:5},{wch:11},{wch:22},{wch:11},{wch:14},{wch:46}];
+    XLSX.utils.book_append_sheet(wb, ws, "หลังบ้านขาด");
+  }
+  // Sheet: ตรงกัน (matched — full list)
+  if((snap.matched||[]).length){
+    const cols=['No','Platform','Order ID','วันที่','ยอด BigSeller','ยอดหลังบ้าน','สินค้า'];
+    const ws=sheetDet("✓ ตรงกัน", snap.matched, cols, (it,i)=>[i+1,platN[it.channel]||it.channel||'',it.order_no,it.date,it.bs_net,it.be_net,it.products]);
+    ws['!cols']=[{wch:5},{wch:11},{wch:22},{wch:11},{wch:14},{wch:14},{wch:46}];
+    XLSX.utils.book_append_sheet(wb, ws, "ตรงกัน");
+  }
+  XLSX.writeFile(wb, `ใบกระทบยอด_${(co.short||co.id||rep.platform||'').toUpperCase()}_${rep.date_from||''}_ถึง_${rep.date_to||''}_${rep.report_no}.xlsx`);
 }
+/* PDF — เปิดหน้าต่างใหม่ HTML สวย พร้อม brand color, logo, per-platform summary, diff reasons */
 function ordReconReportPdf(rep){
-  const co=COMPANIES.find(c=>c.id===state.company)||{}; const s=rep.summary||{}, snap=rep.snapshot||{}; const fmt=ordFmtMoney;
+  const co=COMPANIES.find(c=>c.id===state.company)||{};
+  const s=rep.summary||{}, snap=rep.snapshot||{};
+  const fmt=ordFmtMoney;
+  const platN={shopee:'Shopee',tiktok:'TikTok',lazada:'Lazada',offline:'หน้าร้าน',other:'อื่นๆ'};
+  const platCol={shopee:'#ee4d2d',tiktok:'#000',lazada:'#0033ab',offline:'#475569',other:'#94a3b8'};
+  const platOrder=['shopee','tiktok','lazada','offline','other'];
   const unmatched=(s.only_be_count||0)+(s.only_bs_count||0)+(s.diff_count||0);
+  const grad=co.gradient?`linear-gradient(135deg,${co.gradient[0]},${co.gradient[1]})`:`linear-gradient(135deg,#0d9488,#14b8a6)`;
+  const brand=co.color||'#0d9488';
+  const fmtReason=(it)=> (it.reasons||[]).map(rs=>{
+    if(rs.txt) return `<b>${esc(rs.field)}</b>: <span class="bs">${esc(rs.bs)}</span> ≠ <span class="be">${esc(rs.be)}</span>`;
+    return `<b>${esc(rs.field)}</b>: BS ${fmt(rs.bs)} ≠ หลังบ้าน ${fmt(rs.be)}`;
+  }).join(' · ') || '—';
+  const platBadge=(ch)=> `<span class="pl" style="background:${platCol[ch]||'#94a3b8'}">${platN[ch]||ch||'—'}</span>`;
+
   const w=window.open('','_blank'); if(!w){ alert('เปิดหน้าต่างไม่ได้ (ปิด popup blocker)'); return; }
-  const tbl=(title,items)=>(items&&items.length)?`<h3>${title} (${items.length})</h3><table><thead><tr><th>No</th><th>Order ID</th><th>วันที่</th><th class="r">BigSeller</th><th class="r">หลังบ้าน</th><th class="r">ส่วนต่าง</th></tr></thead><tbody>${items.map((it,i)=>`<tr><td>${i+1}</td><td>${esc(it.order_no)}</td><td>${it.date||''}</td><td class="r">${it.bs_net!=null?fmt(it.bs_net):'—'}</td><td class="r">${it.be_net!=null?fmt(it.be_net):'—'}</td><td class="r">${it.diff!=null?fmt(it.diff):'—'}</td></tr>`).join('')}</tbody></table>`:'';
-  w.document.write(`<html><head><meta charset="utf-8"><title>${rep.report_no}</title>
-  <style>body{font-family:"IBM Plex Sans Thai","Tahoma",sans-serif;padding:28px;color:#1f2a44;font-size:13px}h1{font-size:19px;margin:0 0 4px}table{width:100%;border-collapse:collapse;margin:6px 0 18px;font-size:11.5px}th,td{border:1px solid #cbd5e1;padding:4px 7px}th{background:#f1f5f9}.r{text-align:right}.box{display:inline-block;border:1px solid #cbd5e1;border-radius:8px;padding:8px 14px;margin:3px}.head{border-bottom:2px solid #0d9488;padding-bottom:8px;margin-bottom:12px}.sig{margin-top:34px;display:flex;gap:50px}@media print{.np{display:none}}</style></head><body>
-    <div class="head"><h1>รายงานกระทบยอดข้อมูลขาย Big Seller ↔ Platform Back Office</h1>
-    <div><b>Report No.:</b> ${rep.report_no} &nbsp;·&nbsp; <b>บริษัท:</b> ${esc(co.name||'')} &nbsp;·&nbsp; <b>Platform:</b> ${rep.platform}</div>
-    <div><b>ช่วงวันที่ตรวจสอบ:</b> ${rep.date_from||''} ถึง ${rep.date_to||''} &nbsp;·&nbsp; <b>วันที่จัดทำ:</b> ${String(rep.generated_at||'').slice(0,19).replace('T',' ')} &nbsp;·&nbsp; <b>ผู้จัดทำ:</b> ${esc(rep.generated_by_name||'')}</div></div>
-    <div class="box">Big Seller: <b>${s.bs_count}</b> Order · ${fmt(s.bs_total)} บาท</div>
-    <div class="box">หลังบ้าน: <b>${s.be_count}</b> Order · ${fmt(s.be_total)} บาท</div>
-    <div class="box">ตรงกัน: <b>${s.matched_count}</b></div>
-    <div class="box">BigSeller ขาด: <b>${s.only_be_count}</b></div>
-    <div class="box">หลังบ้านขาด: <b>${s.only_bs_count}</b></div>
-    <div class="box">ยอดไม่ตรง: <b>${s.diff_count}</b> · ส่วนต่าง ${fmt(s.diff_total)}</div>
-    <h2 style="color:${unmatched===0?'#16a34a':'#dc2626'}">ผลการตรวจสอบ: ${unmatched===0?'ตรงกันทั้งหมด (Reconciled)':'พบรายการต่าง '+unmatched+' รายการ'}</h2>
-    ${tbl('รายการยอดไม่ตรง', snap.diff)}
-    ${tbl('Missing in BigSeller (พบหลังบ้าน · ขายไม่คีย์)', snap.only_be)}
-    ${tbl('Missing in Platform (พบ BigSeller · หลังบ้านไม่มี)', snap.only_bs)}
-    ${tbl('รายการที่ตรงกัน (Matched)', snap.matched)}
-    <div class="sig"><div>จัดทำโดย ........................</div><div>ตรวจสอบโดย ........................</div><div>อนุมัติโดย ........................</div></div>
-    <button class="np" style="margin-top:20px;padding:10px 20px;font-size:14px;cursor:pointer" onclick="window.print()">🖨️ พิมพ์ / บันทึกเป็น PDF</button>
-  </body></html>`);
+
+  const platsWith=platOrder.filter(p=> s.per_platform && s.per_platform[p]);
+  const platCards = platsWith.map(p=>{
+    const pp=s.per_platform[p]; const um=(pp.only_be||0)+(pp.only_bs||0)+(pp.diff||0);
+    const c=platCol[p]||'#94a3b8';
+    return `<div class="pcard"><div class="pcard-head" style="background:${c}">${platN[p]||p}</div>
+      <div class="pcard-body">
+        <div class="r"><span>ตรง</span><b class="ok">${pp.matched||0}</b></div>
+        <div class="r"><span>ขายไม่คีย์</span><b class="${pp.only_be?'wn':'mu'}">${pp.only_be||0}</b></div>
+        <div class="r"><span>หลังบ้านขาด</span><b class="${pp.only_bs?'info':'mu'}">${pp.only_bs||0}</b></div>
+        <div class="r"><span>ยอดไม่ตรง</span><b class="${pp.diff?'dg':'mu'}">${pp.diff||0}</b></div>
+        <div class="r tot"><span>ยอด BigSeller</span><b>${fmt(pp.bs_total||0)}</b></div>
+        <div class="r"><span>ยอดหลังบ้าน</span><b>${fmt(pp.be_total||0)}</b></div>
+        ${um?`<div class="r warn">⚠ ต้องตรวจ ${um}</div>`:`<div class="r okmsg">✓ ตรงครบ</div>`}
+      </div></div>`;
+  }).join('');
+
+  const tblDiff = (snap.diff||[]).length ? `
+    <h3 class="sec-title dg">⚠ รายการยอดไม่ตรง (${snap.diff.length})</h3>
+    <table class="dtl"><thead><tr><th style="width:30px">#</th><th style="width:78px">Platform</th><th style="width:160px">Order ID</th><th style="width:80px">วันที่</th><th class="r" style="width:80px">BigSeller</th><th class="r" style="width:80px">หลังบ้าน</th><th class="r" style="width:70px">ส่วนต่าง</th><th>เหตุผล</th></tr></thead>
+    <tbody>${snap.diff.map((it,i)=>`<tr><td>${i+1}</td><td>${platBadge(it.channel)}</td><td class="mono">${esc(it.order_no)}</td><td>${it.date||''}</td><td class="r">${it.bs_net!=null?fmt(it.bs_net):'—'}</td><td class="r">${it.be_net!=null?fmt(it.be_net):'—'}</td><td class="r dg"><b>${it.diff!=null?(it.diff>0?'+':'')+fmt(it.diff):'—'}</b></td><td class="reason">${fmtReason(it)}</td></tr>`).join('')}</tbody></table>` : '';
+
+  const tblOnlyBe = (snap.only_be||[]).length ? `
+    <h3 class="sec-title wn">⚠ BigSeller ขาด — พบหลังบ้าน · ขายไม่คีย์ (${snap.only_be.length})</h3>
+    <table class="dtl"><thead><tr><th style="width:30px">#</th><th style="width:78px">Platform</th><th style="width:160px">Order ID</th><th style="width:80px">วันที่</th><th class="r" style="width:100px">ยอดหลังบ้าน</th><th>สินค้า</th></tr></thead>
+    <tbody>${snap.only_be.map((it,i)=>`<tr><td>${i+1}</td><td>${platBadge(it.channel)}</td><td class="mono">${esc(it.order_no)}</td><td>${it.date||''}</td><td class="r">${it.be_net!=null?fmt(it.be_net):'—'}</td><td>${esc(it.products||'')}</td></tr>`).join('')}</tbody></table>` : '';
+
+  const tblOnlyBs = (snap.only_bs||[]).length ? `
+    <h3 class="sec-title info">ℹ หลังบ้านขาด — พบ BigSeller · หลังบ้านไม่มี (${snap.only_bs.length})</h3>
+    <table class="dtl"><thead><tr><th style="width:30px">#</th><th style="width:78px">Platform</th><th style="width:160px">Order ID</th><th style="width:80px">วันที่</th><th class="r" style="width:100px">ยอด BigSeller</th><th>สินค้า</th></tr></thead>
+    <tbody>${snap.only_bs.map((it,i)=>`<tr><td>${i+1}</td><td>${platBadge(it.channel)}</td><td class="mono">${esc(it.order_no)}</td><td>${it.date||''}</td><td class="r">${it.bs_net!=null?fmt(it.bs_net):'—'}</td><td>${esc(it.products||'')}</td></tr>`).join('')}</tbody></table>` : '';
+
+  const tblMatch = (snap.matched||[]).length ? `
+    <h3 class="sec-title ok">✓ รายการตรงกัน (${snap.matched.length})</h3>
+    <table class="dtl"><thead><tr><th style="width:30px">#</th><th style="width:78px">Platform</th><th style="width:160px">Order ID</th><th style="width:80px">วันที่</th><th class="r" style="width:90px">ยอด</th><th>สินค้า</th></tr></thead>
+    <tbody>${snap.matched.map((it,i)=>`<tr><td>${i+1}</td><td>${platBadge(it.channel)}</td><td class="mono">${esc(it.order_no)}</td><td>${it.date||''}</td><td class="r">${fmt(it.bs_net)}</td><td>${esc(it.products||'')}</td></tr>`).join('')}</tbody></table>` : '';
+
+  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${esc(rep.report_no)}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700;800&display=swap">
+  <style>
+    *{box-sizing:border-box}
+    body{font-family:"IBM Plex Sans Thai","Tahoma",sans-serif;margin:0;padding:0;color:#1f2a44;font-size:12.5px;background:#f1f5f9}
+    .page{max-width:1120px;margin:0 auto;background:#fff;padding:0 0 32px;box-shadow:0 4px 20px rgba(15,23,42,.08)}
+    .hero{background:${grad};color:#fff;padding:24px 32px;position:relative;overflow:hidden}
+    .hero::before{content:"";position:absolute;right:-50px;top:-60px;width:240px;height:240px;background:radial-gradient(circle,rgba(255,255,255,.18) 0%,transparent 70%)}
+    .hero-row{display:flex;align-items:center;gap:18px;position:relative}
+    .hero-logo{width:64px;height:64px;flex:0 0 64px;border-radius:14px;background:rgba(255,255,255,.15) center/56% no-repeat;border:1px solid rgba(255,255,255,.25);background-image:${co.logo?`url("${esc(co.logo)}")`:'none'}}
+    .hero-text{flex:1;min-width:0}
+    .hero-eyebrow{font:600 11px/1 inherit;opacity:.85;letter-spacing:.16em;text-transform:uppercase;margin-bottom:5px}
+    .hero h1{font:700 22px/1.2 inherit;margin:0;letter-spacing:-.01em}
+    .hero-sub{font:500 12.5px/1.5 inherit;opacity:.88;margin-top:4px}
+    .meta{padding:16px 32px;background:#fafbfc;border-bottom:1px solid #e2e8f0;display:grid;grid-template-columns:repeat(4,1fr);gap:8px 24px;font-size:11.5px}
+    .meta div{display:flex;flex-direction:column;gap:2px}
+    .meta .lbl{color:#64748b;font:600 10.5px/1.2 inherit;letter-spacing:.04em;text-transform:uppercase}
+    .meta .val{color:#1e293b;font:600 13px/1.3 inherit}
+    .content{padding:20px 32px}
+    .summary-card{background:linear-gradient(135deg,#f8fafc,#fff);border:1px solid #e2e8f0;border-radius:12px;padding:18px 22px;margin-bottom:18px}
+    .verdict{font:700 18px/1.3 inherit;display:flex;align-items:center;gap:10px}
+    .verdict.ok{color:#16a34a}
+    .verdict.bad{color:#dc2626}
+    .totals-row{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-top:14px;font-size:11px}
+    .stat{background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:10px 12px;text-align:center}
+    .stat .lb{color:#64748b;font:500 10.5px/1.3 inherit}
+    .stat .vl{font:700 20px/1.1 inherit;color:#1e293b;margin-top:4px;letter-spacing:-.5px}
+    .stat .am{color:#475569;font:500 10.5px/1.3 inherit;margin-top:3px}
+    .stat.ok .vl{color:#16a34a} .stat.wn .vl{color:#d97706} .stat.dg .vl{color:#dc2626} .stat.info .vl{color:#0ea5e9}
+    .platform-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:20px}
+    .pcard{border:1px solid #e2e8f0;border-radius:10px;overflow:hidden;background:#fff}
+    .pcard-head{color:#fff;font:700 13px/1 inherit;padding:9px 13px;letter-spacing:.04em}
+    .pcard-body{padding:10px 13px}
+    .pcard-body .r{display:flex;justify-content:space-between;align-items:center;padding:3px 0;font:500 11.5px/1.4 inherit;color:#475569}
+    .pcard-body .r b{font:700 12.5px/1 inherit;color:#1e293b;font-variant-numeric:tabular-nums}
+    .pcard-body .r.tot{border-top:1px dashed #e2e8f0;margin-top:5px;padding-top:7px}
+    .pcard-body .r.warn{color:#dc2626;font-weight:700;margin-top:6px}
+    .pcard-body .r.okmsg{color:#16a34a;font-weight:700;margin-top:6px}
+    .pcard-body b.ok{color:#16a34a} .pcard-body b.wn{color:#d97706} .pcard-body b.dg{color:#dc2626} .pcard-body b.info{color:#0ea5e9} .pcard-body b.mu{color:#94a3b8}
+    .sec-title{font:700 14px/1.3 inherit;margin:20px 0 8px;padding:8px 12px;border-radius:8px;display:flex;align-items:center;gap:8px}
+    .sec-title.dg{background:#fef2f2;color:#dc2626;border-left:4px solid #dc2626}
+    .sec-title.wn{background:#fffbeb;color:#d97706;border-left:4px solid #d97706}
+    .sec-title.info{background:#eff6ff;color:#0ea5e9;border-left:4px solid #0ea5e9}
+    .sec-title.ok{background:#f0fdf4;color:#16a34a;border-left:4px solid #16a34a}
+    table.dtl{width:100%;border-collapse:collapse;font-size:11px;margin-bottom:6px}
+    table.dtl th{background:#f8fafc;color:#475569;font:700 10.5px/1.3 inherit;padding:7px 8px;border-bottom:2px solid #cbd5e1;text-align:left;text-transform:uppercase;letter-spacing:.03em}
+    table.dtl td{padding:6px 8px;border-bottom:1px solid #f1f5f9;vertical-align:top}
+    table.dtl tr:nth-child(even) td{background:#fafbfc}
+    table.dtl .r{text-align:right;font-variant-numeric:tabular-nums}
+    table.dtl .mono{font-family:"SF Mono",Menlo,monospace;font-size:10.5px;color:#0f172a}
+    table.dtl .reason{color:#475569;font-size:10.5px;line-height:1.5}
+    table.dtl .reason .bs{color:#0d9488;font-weight:700}
+    table.dtl .reason .be{color:#ea580c;font-weight:700}
+    table.dtl .dg{color:#dc2626}
+    .pl{display:inline-block;color:#fff;padding:2px 7px;border-radius:4px;font:700 10px/1.3 inherit;letter-spacing:.04em}
+    .sig{margin-top:30px;padding-top:18px;border-top:1px dashed #cbd5e1;display:flex;justify-content:space-around;gap:30px;font:500 12px/1.5 inherit;color:#64748b}
+    .sig div{text-align:center;flex:1}
+    .sig div .who{font:600 11.5px/1.3 inherit;color:#475569;margin-bottom:4px}
+    .sig .line{border-bottom:1px solid #94a3b8;height:24px;margin-bottom:5px}
+    .toolbar{position:fixed;top:14px;right:14px;display:flex;gap:8px;z-index:99}
+    .toolbar button{font:600 13px/1 "IBM Plex Sans Thai",sans-serif;padding:10px 16px;border-radius:8px;cursor:pointer;border:0;color:#fff;background:${brand};box-shadow:0 4px 14px rgba(15,23,42,.18)}
+    .toolbar button.alt{background:#fff;color:#475569;border:1px solid #cbd5e1}
+    @media print{
+      body{background:#fff} .page{box-shadow:none;max-width:none}
+      .toolbar{display:none}
+      .pcard,.stat,.sec-title{break-inside:avoid}
+      table.dtl{break-inside:auto} table.dtl tr{break-inside:avoid}
+      thead{display:table-header-group}
+    }
+  </style></head><body>
+  <div class="toolbar"><button onclick="window.print()">🖨️ พิมพ์ / บันทึก PDF</button><button class="alt" onclick="window.close()">ปิด</button></div>
+  <div class="page">
+    <div class="hero">
+      <div class="hero-row">
+        <div class="hero-logo"></div>
+        <div class="hero-text">
+          <div class="hero-eyebrow">${esc(co.brand||co.code||'')} · Sales Reconciliation Report</div>
+          <h1>ใบกระทบยอดข้อมูลขาย — BigSeller ↔ Platform</h1>
+          <div class="hero-sub">${esc(co.fullName||co.name||'')}</div>
+        </div>
+      </div>
+    </div>
+    <div class="meta">
+      <div><div class="lbl">Report No.</div><div class="val">${esc(rep.report_no)}</div></div>
+      <div><div class="lbl">ช่วงตรวจสอบ</div><div class="val">${rep.date_from||''} ถึง ${rep.date_to||''}</div></div>
+      <div><div class="lbl">วันที่จัดทำ</div><div class="val">${String(rep.generated_at||'').slice(0,16).replace('T',' ')}</div></div>
+      <div><div class="lbl">ผู้จัดทำ</div><div class="val">${esc(rep.generated_by_name||'-')}</div></div>
+    </div>
+    <div class="content">
+      <div class="summary-card">
+        <div class="verdict ${unmatched===0?'ok':'bad'}">${unmatched===0?'✓ ตรงกันทั้งหมด':'⚠ พบรายการต่าง '+unmatched+' รายการ'}</div>
+        <div class="totals-row">
+          <div class="stat"><div class="lb">Big Seller</div><div class="vl">${s.bs_count||0}</div><div class="am">${fmt(s.bs_total||0)} ฿</div></div>
+          <div class="stat"><div class="lb">หลังบ้าน</div><div class="vl">${s.be_count||0}</div><div class="am">${fmt(s.be_total||0)} ฿</div></div>
+          <div class="stat ok"><div class="lb">ตรงกัน</div><div class="vl">${s.matched_count||0}</div><div class="am">${fmt(s.matched_total||0)} ฿</div></div>
+          <div class="stat wn"><div class="lb">BS ขาด</div><div class="vl">${s.only_be_count||0}</div><div class="am">${fmt(s.only_be_total||0)} ฿</div></div>
+          <div class="stat info"><div class="lb">หลังบ้านขาด</div><div class="vl">${s.only_bs_count||0}</div><div class="am">${fmt(s.only_bs_total||0)} ฿</div></div>
+          <div class="stat dg"><div class="lb">ยอดต่าง</div><div class="vl">${s.diff_count||0}</div><div class="am">ส่วนต่าง ${fmt(s.diff_total||0)} ฿</div></div>
+        </div>
+      </div>
+      ${platCards?`<div class="platform-grid">${platCards}</div>`:''}
+      ${tblDiff}
+      ${tblOnlyBe}
+      ${tblOnlyBs}
+      ${tblMatch}
+      <div class="sig">
+        <div><div class="who">จัดทำโดย</div><div class="line"></div><div>${esc(rep.generated_by_name||'')}</div></div>
+        <div><div class="who">ตรวจสอบโดย</div><div class="line"></div><div>____________________</div></div>
+        <div><div class="who">อนุมัติโดย</div><div class="line"></div><div>____________________</div></div>
+      </div>
+    </div>
+  </div></body></html>`);
   w.document.close();
 }
 async function ordReconReportLoad(){ const d=ordGet(); try{ const { data } = await sb.from("recon_reports").select("*").eq("company",state.company).is("deleted_at",null).order("generated_at",{ascending:false}).limit(200); d.recon=d.recon||{}; d.recon.reports=data||[]; }catch(e){ console.warn("report load",e); d.recon.reports=[]; } }
@@ -15745,6 +16004,39 @@ function ordInjectStyle(){
   .ord-k.soft-green .v,.ord-k.soft-green .lbl{color:var(--ok-700)}
   .ord-k.click{cursor:pointer;transition:transform .15s,box-shadow .15s}
   .ord-k.click:hover{transform:translateY(-1px);box-shadow:0 8px 20px rgba(15,23,42,.08)}
+  /* Board totals hero + stacked bar + status cards */
+  .ord-totals{display:grid;grid-template-columns:1fr 1fr;gap:0;color:#fff;border-radius:14px;overflow:hidden;box-shadow:0 4px 18px -8px rgba(15,23,42,.18)}
+  .ord-totals-main{padding:22px 26px;display:flex;flex-direction:column;justify-content:center}
+  .ord-totals-label{font:600 11px/1.2 inherit;opacity:.82;letter-spacing:.6px;text-transform:uppercase}
+  .ord-totals-n{font:800 44px/1 inherit;margin-top:6px;letter-spacing:-1.5px}
+  .ord-totals-sub{font:600 15px/1.3 inherit;opacity:.92;margin-top:5px}
+  .ord-totals-split{padding:22px 26px;background:rgba(0,0,0,.16);display:flex;flex-direction:column;gap:8px;justify-content:center;font:500 13.5px/1.5 inherit}
+  .ord-totals-line{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .ord-totals-line b{font-weight:800;font-size:15px}
+  .ord-totals-line .mu{opacity:.78;font-size:12.5px;margin-left:4px}
+  .ord-totals-eq{margin-top:4px;padding-top:8px;border-top:1px dashed rgba(255,255,255,.28);font:600 12.5px/1.4 inherit;opacity:.95;display:flex;align-items:center;gap:8px}
+  .ord-totals-eq b{font-weight:800;font-size:14px}
+  .ord-totals .dot{display:inline-block;width:10px;height:10px;border-radius:3px;flex-shrink:0}
+  @media (max-width:640px){
+    .ord-totals{grid-template-columns:1fr}
+    .ord-totals-n{font-size:36px}
+  }
+  .ord-bar{display:flex;width:100%;height:36px;border-radius:8px;overflow:hidden;background:var(--n-100);border:1px solid var(--n-200)}
+  .ord-bar-seg{transition:opacity .15s,filter .15s;cursor:pointer;min-width:2px}
+  .ord-bar-seg:hover{filter:brightness(1.08) saturate(1.1)}
+  .ord-stgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;margin-top:12px}
+  .ord-stcard{background:#fff;border:1px solid var(--n-200);border-left:4px solid var(--c,#94a3b8);border-radius:10px;padding:14px 14px 12px;cursor:pointer;transition:transform .12s,box-shadow .12s;display:flex;flex-direction:column;gap:8px}
+  .ord-stcard:hover{transform:translateY(-1px);box-shadow:0 8px 20px -10px rgba(15,23,42,.18)}
+  .ord-stcard-top{display:flex;align-items:center;gap:9px}
+  .ord-stcard .ic{font-size:20px;line-height:1;flex-shrink:0}
+  .ord-stcard .lbl{font:600 12.5px/1.4 inherit;color:var(--n-700);flex:1}
+  .ord-stcard-mid{display:flex;align-items:baseline;gap:8px}
+  .ord-stcard .n{font:800 28px/1 inherit;color:var(--n-900);letter-spacing:-.8px}
+  .ord-stcard .pct{font:700 12.5px/1 inherit;color:var(--c,#475569);padding:3px 8px;border-radius:999px;background:color-mix(in srgb,var(--c,#475569) 12%,transparent)}
+  .ord-stcard .bar{height:5px;background:var(--n-100);border-radius:3px;overflow:hidden}
+  .ord-stcard .bar > div{height:100%;border-radius:3px;transition:width .3s}
+  .ord-stcard .sum{font:500 11.5px/1.3 inherit;color:var(--n-500)}
+  .ord-stcard.cancel{opacity:.78}
   /* Tabs (Finance OS) */
   .ord-tabs{display:flex;gap:2px;border-bottom:1px solid var(--n-200);margin-bottom:14px;overflow-x:auto;background:#fff;border-radius:10px 10px 0 0;padding:0 6px}
   .ord-tab{font:600 13.5px/1 "IBM Plex Sans Thai",sans-serif;color:var(--n-600);padding:12px 14px;border:0;background:transparent;border-bottom:2px solid transparent;cursor:pointer;white-space:nowrap;display:inline-flex;align-items:center;gap:6px;margin-bottom:-1px;transition:color .12s}
@@ -15922,10 +16214,9 @@ async function renderToolOrders(){
     ${view==='search' ? ordRenderSearch(d) : `
     <!-- Tabs -->
     <div class="ord-tabs">
-      ${tabBtn('board','🚦 สรุปสถานะงาน')}
+      ${tabBtn('board','🚦 สรุปสถานะงาน', k.onlyBe||null, k.onlyBe?'t-danger':'')}
       ${tabBtn('reg','📋 ทะเบียน', k.totN)}
       ${tabBtn('month','📊 สรุปรายเดือน')}
-      ${tabBtn('recon','🔍 ตรวจรายวัน', k.onlyBe||null, k.onlyBe?'t-danger':'')}
       ${tabBtn('iv','🧾 ตรวจ IV', (d.ivCheck&&d.ivCheck.results)?(d.ivCheck.results.filter(r=>r.status==='new'||r.status==='diff'||r.status==='conflict'||r.status==='voided'||r.status==='orphan').length||null):null, (d.ivCheck&&d.ivCheck.results)?'t-warn':'')}
     </div>
 

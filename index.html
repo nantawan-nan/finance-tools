@@ -13794,7 +13794,7 @@ const ORD_CH = {
   shopee:    { sig:["หมายเลขคำสั่งซื้อ","สถานะการสั่งซื้อ"], order:"หมายเลขคำสั่งซื้อ", status:"สถานะการสั่งซื้อ", date:"วันที่ทำการสั่งซื้อ", product:"ชื่อสินค้า", sku:"เลขอ้างอิง SKU (SKU Reference No.)", qty:"จำนวน", ret:"จำนวนที่ส่งคืน", gross:"ราคาขายสุทธิ", net:"ราคาขายสุทธิ", ship:"ค่าจัดส่งที่ชำระโดยผู้ซื้อ", disc:"โค้ดส่วนลดชำระโดยผู้ขาย", cancelKw:"ยกเลิก", group:"shopee" },
   tiktok:    { sig:["Order ID","Order Status"], order:"Order ID", status:"Order Status", date:"Created Time", product:"Product Name", sku:"Seller SKU", qty:"Quantity", ret:"Sku Quantity of return", gross:"SKU Subtotal Before Discount", net:"SKU Subtotal After Discount", ship:"Shipping Fee After Discount", disc:"SKU Seller Discount", cancelKw:"ยกเลิก|Cancel", group:"tiktok" },
   lazada:    { sig:["orderNumber","sellerSku"], order:"orderNumber", status:"status", date:"createTime", product:"itemName", sku:"sellerSku", qty:null, ret:null, gross:"unitPrice", net:"unitPrice", ship:"shippingFee", disc:"sellerDiscountTotal", refund:"refundAmount", cancelKw:"cancel", group:"lazada" },
-  bigseller: { sig:["หมายเลขคำสั่งซื้อ","ร้านค้าเพลตฟอร์ม"], order:"หมายเลขคำสั่งซื้อ", status:"สถานะคำสั่งซื้อ", platform:"แพลตฟอร์ม", shop:"ร้านค้าเพลตฟอร์ม", date:"เวลาสั่งซื้อ", product:"ชื่อสินค้า", sku:"SKU Merchant", qty:"จำนวน", gross:"ราคาสินค้าเดิม", net:"ราคา", ship:"ค่าจัดส่ง", disc:"ส่วนลดผู้ขาย", cancel:"เวลายกเลิก", cancelKw:"ยกเลิก", group:"bigseller", perUnitPrice:true, discBillLevel:true }
+  bigseller: { sig:["หมายเลขคำสั่งซื้อ","ร้านค้าเพลตฟอร์ม"], order:"หมายเลขคำสั่งซื้อ", status:"สถานะคำสั่งซื้อ", platform:"แพลตฟอร์ม", shop:"ร้านค้าเพลตฟอร์ม", date:"เวลาสั่งซื้อ", product:"ชื่อสินค้า", sku:"SKU Merchant", qty:"จำนวน", gross:"ราคาสินค้าเดิม", net:"ราคา", ship:"ค่าจัดส่ง", disc:"ส่วนลดผู้ขาย", voucher:"Voucher ของร้านค้า", cancel:"เวลายกเลิก", cancelKw:"ยกเลิก", group:"bigseller", perUnitPrice:true, discBillLevel:true }
 };
 function ordDetectChannel(headers){
   const H = headers.map(h=>String(h||"").trim());
@@ -13825,13 +13825,13 @@ function ordParseSalesFile(rows){
   const idx = (name)=> name ? headers.indexOf(name) : -1;
   const ci = { order:idx(cfg.order), status:idx(cfg.status), date:idx(cfg.date), product:idx(cfg.product),
     sku:idx(cfg.sku), qty:idx(cfg.qty), ret:idx(cfg.ret), gross:idx(cfg.gross), net:idx(cfg.net),
-    ship:idx(cfg.ship), disc:idx(cfg.disc), refund:idx(cfg.refund), platform:idx(cfg.platform),
+    ship:idx(cfg.ship), disc:idx(cfg.disc), voucher:idx(cfg.voucher), refund:idx(cfg.refund), platform:idx(cfg.platform),
     shop:idx(cfg.shop), cancel:idx(cfg.cancel) };
   const groups = new Map();
   for(let r=1;r<rows.length;r++){
     const row = rows[r]; if(!row) continue;
     const oid = String(row[ci.order]||"").trim(); if(!oid) continue;
-    if(!groups.has(oid)) groups.set(oid, { order_id:oid, status:"", date:null, products:new Set(), skus:new Set(), itemMap:new Map(), qty:0, ret:0, gross:0, net:0, ship:0, disc:0, refund:0, platform:"", shop:"", cancelTime:"" });
+    if(!groups.has(oid)) groups.set(oid, { order_id:oid, status:"", date:null, products:new Set(), skus:new Set(), itemMap:new Map(), qty:0, ret:0, gross:0, net:0, ship:0, disc:0, voucher:0, refund:0, platform:"", shop:"", cancelTime:"" });
     const g = groups.get(oid);
     if(ci.status>=0 && !g.status) g.status = String(row[ci.status]||"").trim();
     if(ci.date>=0 && !g.date) g.date = ordISO(row[ci.date]);
@@ -13859,6 +13859,11 @@ function ordParseSalesFile(rows){
       //   หลังบ้าน (SP/TT/LZ): per-line → sum
       if(cfg.discBillLevel) g.disc = Math.max(g.disc, ordNum(row[ci.disc]));
       else                  g.disc += ordNum(row[ci.disc]);
+    }
+    // ★ BigSeller format ใหม่: "Voucher ของร้านค้า" แยกคอลัมน์ — ผู้ขายแบกค่าใช้จ่ายด้วย → รวมเข้า seller_discount
+    if(ci.voucher>=0){
+      if(cfg.discBillLevel) g.voucher = Math.max(g.voucher, ordNum(row[ci.voucher]));
+      else                  g.voucher += ordNum(row[ci.voucher]);
     }
     if(ci.refund>=0) g.refund += ordNum(row[ci.refund]);
     if(ci.platform>=0 && !g.platform) g.platform = String(row[ci.platform]||"").trim();
@@ -13889,7 +13894,8 @@ function ordParseSalesFile(rows){
       order_total: net || gross,        // ยอดแสดง = net (ถ้าไม่มีใช้ gross)
       gross_total: gross,
       shipping_fee: +g.ship.toFixed(2),
-      seller_discount: +g.disc.toFixed(2),
+      seller_discount: +((g.disc||0) + (g.voucher||0)).toFixed(2),  // ส่วนลดผู้ขาย + Voucher ของร้านค้า (BigSeller format ใหม่)
+      seller_voucher: +(g.voucher||0).toFixed(2),
       returned_qty: g.ret,
       is_returned: returned
     };

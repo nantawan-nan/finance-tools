@@ -14519,10 +14519,13 @@ function ordRenderIvSystem(d){
   // platform chips
   const platChip=(v,l)=>`<button class="ord-chip ${cfg.platform===v?'on':''}" onclick="ordIvSysSet('platform','${v}')">${l}</button>`;
   return `
+    <div style="font:500 12px/1.5 inherit;color:var(--n-500);margin:0 0 10px;padding:8px 12px;background:#f8fafc;border-left:3px solid var(--brand,#0d9488);border-radius:6px">
+      📌 แท็บนี้ตอบ <b>"คีย์ IV เข้าระบบหรือยัง"</b> เท่านั้น — <u>ไม่ได้บอกว่ายอดตรงไหม</u> · ดูยอดตรง/ไม่ตรง ที่แท็บ "สรุปสถานะงาน" หรือ "ตรวจ IV (อัปไฟล์)"
+    </div>
     <div class="ord-kpis" style="grid-template-columns:1.2fr 1fr 1fr">
-      ${k('ทั้งหมดในระบบ', all.length, sumTagged+sumUnt, 'brand', cfg.filter==='all', 'all', 'รวม Tag '+tagged.length+' · ยังไม่ Tag '+untagged.length)}
-      ${k('✓ Tag แล้ว (มี IV)', tagged.length, sumTagged, 'green', cfg.filter==='tagged', 'tagged')}
-      ${k('⚠ ยังไม่ Tag (ไม่มี IV)', untagged.length, sumUnt, 'red', cfg.filter==='untagged', 'untagged')}
+      ${k('ออเดอร์ในระบบ (BigSeller)', all.length, sumTagged+sumUnt, 'brand', cfg.filter==='all', 'all', 'คีย์แล้ว '+tagged.length+' · ยังไม่คีย์ '+untagged.length)}
+      ${k('✓ คีย์ IV แล้ว', tagged.length, sumTagged, 'green', cfg.filter==='tagged', 'tagged')}
+      ${k('⚠ ยังไม่ได้คีย์ IV', untagged.length, sumUnt, 'red', cfg.filter==='untagged', 'untagged')}
     </div>
     <div style="margin:14px 0 10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
       <div class="ord-chips" style="margin:0">
@@ -14544,14 +14547,14 @@ function ordRenderIvSystem(d){
             <th style="width:130px">เลข IV</th>
             <th>สินค้า</th>
             <th class="right" style="width:110px">ยอด (บาท)</th>
-            <th style="width:130px">สถานะ Tag</th>
+            <th style="width:140px">สถานะคีย์ IV</th>
           </tr></thead>
           <tbody>
           ${rows.slice(0,1000).map(o=>{
             const p=o.channel_group||'other'; const pm=platMeta[p]||{l:p,c:'#94a3b8'};
             const tag = o.iv_no
-              ? `<span class="ord-bd ok">✓ Tag แล้ว</span>`
-              : `<span class="ord-bd warn">⚠ ยังไม่ Tag</span>`;
+              ? `<span class="ord-bd ok">✓ คีย์แล้ว</span>`
+              : `<span class="ord-bd warn">⚠ ยังไม่คีย์</span>`;
             return `<tr onclick="ordToggleRow('${o.id}')" style="cursor:pointer">
               <td class="tnum" style="font-size:12px">${o.order_date||'—'}</td>
               <td><span style="display:inline-block;background:${pm.c};color:#fff;font:700 9.5px/1.3 inherit;padding:2px 7px;border-radius:4px;letter-spacing:.04em">${pm.l}</span></td>
@@ -16024,12 +16027,47 @@ function ordRenderIv(d){
 
     ${coverageWarn}
 
+    ${(()=>{
+      const activeOrders = (d.rows||[]).filter(o=>o.status!=='cancelled').length;
+      const orderIvCounts={}; res.forEach(r=>{ if(r.status==='orphan'||r.status==='voided') return; if(!r.orderRowId) return; orderIvCounts[r.orderRowId]=(orderIvCounts[r.orderRowId]||0)+1; });
+      const dupIvCount = Object.values(orderIvCounts).reduce((s,n)=>s+(n>1?n-1:0),0);
+      const ordersWithDup = Object.values(orderIvCounts).filter(n=>n>1).length;
+      const ivNonVoid = ic.ivCount - (c.voided||0);
+      const diff = ic.ivCount - activeOrders;
+      const explained = (c.orphan||0) + dupIvCount + (c.voided||0);
+      const unexplained = Math.max(0, diff - explained);
+      if(diff===0) return `<div class="ord-card" style="padding:12px 16px;margin-bottom:14px;border-left:4px solid #16a34a;display:flex;align-items:center;gap:14px;background:#f0fdf4">
+        <span style="font:700 14px/1.3 inherit;color:#16a34a">✓ ตรงพอดี</span>
+        <span style="font:500 12.5px/1.4 inherit;color:var(--n-700)">IV ในไฟล์ <b>${ic.ivCount}</b> = ออเดอร์ในระบบ <b>${activeOrders}</b></span>
+      </div>`;
+      const isOver = diff>0;
+      const sign = isOver?'เกิน':'ขาด';
+      const accent = isOver?'#dc2626':'#d97706';
+      const bg = isOver?'#fef2f2':'#fffbeb';
+      return `<div class="ord-card" style="padding:14px 18px;margin-bottom:14px;border-left:4px solid ${accent};background:${bg}">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:14px">
+          <div>
+            <div style="font:700 13.5px/1.3 inherit;color:var(--n-900);margin-bottom:4px">📊 เทียบจำนวน — IV ในไฟล์ vs ออเดอร์ในระบบ (BigSeller)</div>
+            <div style="font:500 12.5px/1.6 inherit;color:var(--n-700)">
+              IV ในไฟล์ 141.RWT <b style="color:var(--n-900)">${ic.ivCount.toLocaleString('th-TH')}</b> ใบ · ออเดอร์ active ในระบบ <b style="color:var(--n-900)">${activeOrders.toLocaleString('th-TH')}</b> ออเดอร์
+            </div>
+          </div>
+          <div style="text-align:right">
+            <div style="font:800 18px/1.2 inherit;color:${accent}">${isOver?'⚠':'ℹ'} ในไฟล์${sign} ${Math.abs(diff).toLocaleString('th-TH')} ใบ</div>
+            ${isOver?`<div style="font:500 11.5px/1.5 inherit;color:var(--n-600);margin-top:5px">
+              ${c.orphan?`<span style="cursor:pointer;text-decoration:underline" onclick="ordIvSetFilter('risk')">orphan ${c.orphan}</span>`:''}${(c.orphan&&(dupIvCount||c.voided||unexplained))?' · ':''}${dupIvCount?`<b style="color:#dc2626">IV ซ้ำต่อออเดอร์ ${dupIvCount}</b> (จาก ${ordersWithDup} ออเดอร์)`:''}${(dupIvCount&&(c.voided||unexplained))?' · ':''}${c.voided?`voided ${c.voided}`:''}${(c.voided&&unexplained)?' · ':''}${unexplained?`อื่นๆ ${unexplained}`:''}
+            </div>`:`<div style="font:500 11.5px/1.5 inherit;color:var(--n-600);margin-top:5px">ออเดอร์ในระบบที่ไม่อยู่ในไฟล์ 141.RWT</div>`}
+          </div>
+        </div>
+      </div>`;
+    })()}
+
     <div class="ord-kpis" style="grid-template-columns:1.2fr 1fr 1fr 1fr 1fr 1fr">
       ${k("all", ic.ivCount, "IV ใน 723-5", `${fmt(sumTotal)} บาท · ${(ic.fileNames||[]).length} ไฟล์`)}
       ${k("new_match", c.new_match||0, "ยอดตรง · พร้อมบันทึก", c.new_match?`${fmt(sumMatch)} บาท · เลือกไว้แล้ว`:"ไม่มี")}
       ${k("new_zero", c.new_zero||0, "ยอด 0/0", c.new_zero?"รอ user ตัดสินใจ":"ไม่มี")}
       ${k("new_diff", c.new_diff||0, "ยอดต่าง", c.new_diff?`${fmt(sumDiff)} บาท · รอตัดสินใจ`:"ไม่มี")}
-      ${k("matched", c.matched||0, "ตรงแล้ว (tag เดิม)", c.matched?"คีย์ตรง · ยอดตรง":"—")}
+      ${k("matched", c.matched||0, "✓ ตรงแล้ว (เคยคีย์ + ยอดตรง)", c.matched?"คีย์ตรง · ยอดในไฟล์ตรงกับระบบ":"—")}
       ${k("risk", needReview + (c.voided||0), "ต้องตรวจ", (needReview||c.voided)?`diff ${c.diff||0} · conflict ${c.conflict||0} · orphan ${c.orphan||0} · voided ${c.voided||0}`:"ไม่มี")}
     </div>
 

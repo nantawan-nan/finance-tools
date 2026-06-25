@@ -245,6 +245,26 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 - **gotcha:** หลัง deploy migration แล้ว ถ้า DB ของลูกค้าเก่ามี duplicate ที่ stable key ตรงกัน → DO $$ block soft-delete อันที่ unmatch หรือใหม่กว่า (เก็บ matched + oldest) · ดังนั้นข้อมูลเก่าจะถูก dedup ครั้งเดียวอัตโนมัติ ก่อน unique index จะถูกสร้าง
 - **Phase ถัดไป (Phase B-F):** Import Batch History · Audit Trail · Removed-from-Source detection · UI overhaul (Action-oriented) · Period Close + Version · Snapshot Excel/PDF Report
 
+### 2026-06-25 — Orders ตรวจ IV: รองรับ 141.RWT (ขายเงินเชื่อ) + smart diagnostics + detail panel
+- **เป้าหมาย:** 723-5 มีแค่ยอดรวม ตรวจ diff ได้แต่ไม่รู้สาเหตุ — เปลี่ยนมาใช้ 141.RWT (รายงานขายเงินเชื่อ Express) ที่มี **line items + bill discount + VAT breakdown** ตรวจได้ลึกถึงสาเหตุ
+- **`bmpParseExpressRwt141(text)`** — parser ใหม่สำหรับ 141.RWT (cp874 CSV, 16 columns):
+  - Header row: `[ref, "", iv_no, date, customer, "", flag, "", "", bill_disc, "", goods_ex_vat, vat, total, due_date, so_no, cash_yn]`
+  - Detail row (col 0 ว่าง + col 6 = line_no): `sku, name, qty, unit, unit_price, line_disc, line_amount`
+  - คืน `{ivs:[{ doc_no, doc_date, total, ref_order_id, customer, channel (SHOPEE/TIKTOK/LAZADA/F), bill_disc, goods_ex_vat, vat, so_no, cash_yn, lines:[{sku,qty,unit_price,line_disc,line_amount}] }]}`
+  - ผ่าน 899 IVs ในไฟล์ทดสอบจริง
+- **`bmpDetectCsvType`** — เพิ่ม return type `"sales_rwt141"` (sig: `รายละเอียด...ราคาต่อหน่วย...จำนวนเงิน` ใน 4000 ตัวอักษรแรก)
+- **`ordIvUpload`** — รับทั้ง 2 format · auto-detect ต่อไฟล์ · เก็บ `d.ivCheck.format = "sales"|"sales_rwt141"|"mixed"` · ต่อท้ายชื่อไฟล์ด้วย "(141.RWT)" ถ้า detect ได้
+- **`ordIvAnalyze`** — ส่ง iv-source fields ผ่านเข้า result: `r.ivLines`, `r.ivBillDisc`, `r.ivGoodsExVat`, `r.ivVat`, `r.ivSoNo`, `r.ivCashYn` (null ถ้า 723-5)
+- **`ordIvDetailPanel` ส่วน Express row — รื้อใหม่:**
+  - ถ้า `hasIvLines` (141.RWT): แสดง header (เลข IV · วันที่ · SO · เก็บเงิน Y/N) + แต่ละ line item (` ↳ บรรทัด N | sku | qty | unit_price | line_disc | net | — | net `) + แถวหักส่วนลดบิลรวม (ถ้ามี) + แถวรวมทั้งสิ้น IV
+  - ถ้า 723-5: แสดงแค่ "ยอดรวม IV · 723-5 มีเฉพาะยอดรวม ไม่แยกบรรทัด · ใช้ 141.RWT แทนเพื่อเห็นบรรทัด"
+- **Smart diagnostics (Phase D)** — เพิ่ม `smartTip` ในกล่อง verdict (พื้นเหลือง):
+  - **ส่วนลดทับซ้อน:** ถ้า IV ใส่ทั้ง line discount + bill discount (ทั้งคู่ > 0) → tip บอกผลรวมส่วนลดเกินจริง + แนะนำให้ลบบิลรวมออก + แก้ line discount = `bs.seller_discount`
+  - **ส่วนลดไม่ครบ/เกิน:** ถ้ารวมส่วนลด IV ≠ `bs.seller_discount` → tip บอกต่างเท่าไหร่ + แนะนำให้แก้
+  - **SKU ไม่ตรง:** เทียบ ivLines.sku (กรอง SH/SP1 = shipping ออก) vs bs.sku → tip บอกที่ขาด/เกิน
+- **กระทบหน้าอื่น = 0** — parser/analyze/render ทั้งหมดอยู่ใต้ ord_iv* · 723-5 เก่ายังใช้ได้ (backward compat) · ผู้ใช้สลับใช้ format ใดก็ได้
+- **gotcha:** Phase A parser ของ 723-5 (`bmpParseSalesReport`) ยังต้องเก็บไว้ — บางคนอาจยังมีไฟล์ 723-5 เก่า · `ordIvUpload` auto-detect แล้วเรียก parser ที่เหมาะสม
+
 ### 2026-06-24 — Orders: แท็บใหม่ "🧾 ตรวจ IV" (อัปรายงานขาย 723-5 → tag IV + validation + coverage)
 - **เป้าหมาย:** ให้รู้ว่า "IV เลขที่อะไรคือคำสั่งซื้ออะไร · คีย์ไปแล้วเท่าไหร่ · ออเดอร์ทั้งหมดมี IV กี่ตัว · สถานะถึงขั้นไหน" — แยกออกจาก Marketplace upload flow ที่ต้องอัป 3 ไฟล์พร้อมกัน
 - **`ordIvAnalyze(salesData, rows)`** — pure function · classify IV ใน 723-5 vs `order_ledger` เป็น 6 สถานะ: `new` (จะ tag), `matched` (iv ตรง+ยอดตรง), `diff` (iv ตรงแต่ยอดต่าง), `conflict` (IV ทับเลขเดิม หรือ ref ตรงแต่ ord มี iv อื่น), `voided` (ขึ้นต้น *), `orphan` (ref ไม่มีออเดอร์ match) · index ตาม order_id + iv_no (กัน iv ทับ) · coverage check (gapBefore/gapAfter — ออเดอร์ที่ก่อน/หลังช่วงรายงานที่ยังไม่มี iv)

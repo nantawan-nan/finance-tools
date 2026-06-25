@@ -10670,7 +10670,7 @@ function cffStaffReportInner(co, dt, R, opts){
           <tbody>
             ${cats.map(([cat,info]) => {
               const open = isOpen(cat);
-              const catHead = `<tr style="background:var(--brand)${interactive?';cursor:pointer':''}" ${interactive?`onclick="cffToggleCat(${JSON.stringify(cat).replace(/"/g,'&quot;')})"`:''}><td style="padding:9px 12px;font-weight:800;color:#fff;font-size:13px" colspan="2">${interactive?`<span style="display:inline-block;width:15px;color:#fff;font-size:11px">${open?'▾':'▸'}</span>`:''}${esc(cat)} <span style="font-weight:700;color:#fff;background:rgba(255,255,255,.22);border-radius:999px;padding:0 8px;font-size:10.5px;margin-left:5px">${info.items.length}</span></td><td style="padding:9px 12px;text-align:right;font-weight:800;color:#fff;font-size:13px">${nf(info.total)}</td></tr>`;
+              const catHead = `<tr style="background:#f8fafc;border-bottom:2px solid var(--brand)${interactive?';cursor:pointer':''}" ${interactive?`onclick="cffToggleCat(${JSON.stringify(cat).replace(/"/g,'&quot;')})"`:''}><td style="padding:9px 12px;font-weight:800;color:var(--brand-dark);font-size:13px" colspan="2">${interactive?`<span style="display:inline-block;width:15px;color:var(--brand);font-size:11px">${open?'▾':'▸'}</span>`:''}${esc(cat)} <span style="font-weight:700;color:#fff;background:var(--brand);border-radius:999px;padding:0 8px;font-size:10.5px;margin-left:5px">${info.items.length}</span></td><td style="padding:9px 12px;text-align:right;font-weight:800;color:var(--brand-dark);font-size:13px">${nf(info.total)}</td></tr>`;
               if(!open) return catHead;
               // ★ ชั้นที่ 2: กลุ่มตามเวนเดอร์ (default ย่อ — เห็นแค่ชื่อ+ยอดรวม)
               const venMap = {};
@@ -12987,6 +12987,8 @@ function bmpDetectCsvType(text){
   const head = String(text||"").slice(0, 4000);
   if(/รายงานเช็ครับ|วันที่นำฝาก[\s\S]{0,200}เลขที่เช็ค[\s\S]{0,200}ใบนำฝาก/.test(head)) return "cheque";
   if(/รายงานการรับชำระหนี้|เลขที่ใบเสร็จ[\s\S]{0,200}ยอดตามใบกำกับ/.test(head)) return "receipt";
+  // 141.RWT — รายงานขายเงินเชื่อ (มี รายละเอียด/ราคาต่อหน่วย + IV header แยกบรรทัด — มี line items)
+  if(/รายละเอียด[\s\S]{0,200}ราคาต่อหน่วย[\s\S]{0,200}จำนวนเงิน/.test(head)) return "sales_rwt141";
   if(/วิเคราะห์ยอดขาย|แยกตามเขตการขาย/.test(head)) return "sales";
   return "unknown";
 }
@@ -13273,6 +13275,88 @@ function bmpParseSalesReport(text){
     }
     const iv = parseIvRow(line);
     if(iv){ iv.customer = curCustomer; iv.channel = curChannel; ivs.push(iv); }
+  }
+  return { ivs };
+}
+
+/* ============================================================
+   PARSER 2.6 — Express รายงาน 141.RWT "ขายเงินเชื่อ" (cp874)
+   เห็นมากกว่า 723-5 — มี line items + line discount + bill discount + VAT breakdown
+   โครงสร้าง CSV (16 col):
+   Header row: [order_ref, "", iv_no, date, customer, "", "1", "", "", bill_disc, "", goods_ex_vat, vat, total, due_date, so_no, cash_yn]
+   Detail row: [empty x6, line_no, sku, product_name, qty, unit, unit_price, line_disc, line_amount, ...]
+   ============================================================ */
+function bmpParseExpressRwt141(text){
+  const rows = bmpParseCsvText(text);
+  const ivs = [];
+  const num = v => {
+    const s = String(v==null?"":v).trim().replace(/,/g, "");
+    if(!s) return 0;
+    const n = Number(s); return isNaN(n) ? 0 : n;
+  };
+  let currentIv = null;
+
+  const isHeader = (r) => {
+    // header: col 2 มี IV/SR/CN + 10 digits
+    const c2 = String(r[2]||"").trim();
+    if(!/^(?:IV|SR|CN)\d{10}$/.test(c2)) return false;
+    // col 3 ต้องเป็นวันที่ (dd/mm/yy or dd/mm/yyyy)
+    const c3 = String(r[3]||"").trim();
+    if(!/^\d{1,2}\/\d{1,2}\/\d{2,4}$/.test(c3)) return false;
+    return true;
+  };
+  const isDetail = (r) => {
+    // detail: col 0 ว่าง + col 6 เป็นเลขบรรทัด + col 7 มี SKU
+    if(String(r[0]||"").trim() !== "") return false;
+    const c6 = String(r[6]||"").trim();
+    if(!/^\d+$/.test(c6)) return false;
+    const c7 = String(r[7]||"").trim();
+    return !!c7;
+  };
+
+  for(const r of rows){
+    if(!r || r.length < 4) continue;
+    if(isHeader(r)){
+      const c0 = String(r[0]||"").trim();
+      const docNo = String(r[2]||"").trim();
+      const dateStr = String(r[3]||"").trim();
+      const customer = String(r[4]||"").trim();
+      const voided = /^\*/.test(c0) || /^\*/.test(docNo);
+      // channel จาก customer "ลูกค้าทั่วไป-SHOPEE/TIKTOK/LAZADA/F"
+      let channel = "";
+      const cm = customer.match(/-(SHOPEE|TIKTOK|LAZADA|F)\b/i);
+      if(cm) channel = cm[1].toUpperCase();
+      currentIv = {
+        doc_type: docNo.slice(0,2),
+        doc_no: docNo.replace(/^\*\s*/, ""),
+        doc_date_be: dateStr,
+        doc_date: bmpThaiDate(dateStr),
+        ref_order_id: c0.replace(/^\*\s*/, "").trim(),
+        customer, channel, voided,
+        bill_disc: num(r[9]),
+        goods_ex_vat: num(r[11]),
+        vat: num(r[12]),
+        total: num(r[13]),
+        due_date: bmpThaiDate(String(r[14]||"")),
+        so_no: String(r[15]||"").trim(),
+        cash_yn: String(r[16]||"").trim(),
+        lines: []
+      };
+      ivs.push(currentIv);
+      continue;
+    }
+    if(currentIv && isDetail(r)){
+      currentIv.lines.push({
+        line_no: parseInt(String(r[6]||"0"), 10),
+        sku: String(r[7]||"").trim(),
+        name: String(r[8]||"").trim(),
+        qty: num(r[9]),
+        unit: String(r[10]||"").trim(),
+        unit_price: num(r[11]),
+        line_disc: num(r[12]),
+        line_amount: num(r[13])
+      });
+    }
   }
   return { ivs };
 }
@@ -14724,6 +14808,13 @@ function ordIvAnalyze(salesData, rows){
       currentIv: null, currentTotal: null, currentStatus: null,
       currentBase: null, currentShip: null, currentDisc: null, currentFromSale: false,
       diffAmount: 0, platform: null,
+      // ★ 141.RWT only — line items + bill discount + VAT breakdown (ถ้า parser ใส่มา)
+      ivLines: Array.isArray(iv.lines) ? iv.lines : null,
+      ivBillDisc: (iv.bill_disc != null) ? Number(iv.bill_disc) : null,
+      ivGoodsExVat: (iv.goods_ex_vat != null) ? Number(iv.goods_ex_vat) : null,
+      ivVat: (iv.vat != null) ? Number(iv.vat) : null,
+      ivSoNo: iv.so_no || null,
+      ivCashYn: iv.cash_yn || null,
     };
     if(iv.voided){
       const ord = byOrderId.get(iv.ref_order_id) || byIvNo.get(iv.doc_no);
@@ -14792,17 +14883,20 @@ async function ordIvUpload(){
   renderToolOrders();
   try{
     if(!d.loaded) await ordLoad();
-    let mergedIvs = []; const fileNames = [];
+    let mergedIvs = []; const fileNames = []; let detectedFormat = null;
     for(const f of files){
       const text = bmpDecodeCp874(await f.arrayBuffer());
       const type = bmpDetectCsvType(text);
-      if(type !== "sales"){
-        d.ivCheck.error = `ไฟล์ "${f.name}" ไม่ใช่รายงานขาย 723-5 (detect = ${type}) — ขอแค่ไฟล์ "รายงานขาย 723-5" CSV`;
+      // รับ 2 format: "sales" (723-5) และ "sales_rwt141" (รายงานขายเงินเชื่อ — มี line items)
+      if(type !== "sales" && type !== "sales_rwt141"){
+        d.ivCheck.error = `ไฟล์ "${f.name}" ไม่ใช่รายงานขายของ Express (detect = ${type}) — รับเฉพาะรายงานขาย 723-5 หรือ 141.RWT (ขายเงินเชื่อ)`;
         d.ivCheck.busy = false; renderToolOrders(); return;
       }
-      const parsed = bmpParseSalesReport(text);
+      const parsed = (type === "sales_rwt141") ? bmpParseExpressRwt141(text) : bmpParseSalesReport(text);
       mergedIvs = mergedIvs.concat(parsed.ivs || []);
-      fileNames.push(f.name);
+      fileNames.push(f.name + (type==="sales_rwt141" ? " (141.RWT)" : ""));
+      if(!detectedFormat) detectedFormat = type;
+      else if(detectedFormat !== type) detectedFormat = "mixed";
     }
     // dedupe by doc_no — ใช้ตัวล่าสุดเมื่อซ้ำ
     const ivByNo = new Map();
@@ -14815,6 +14909,7 @@ async function ordIvUpload(){
     d.ivCheck = {
       busy: false, error: null,
       fileNames, uploadedAt: new Date().toISOString(),
+      format: detectedFormat,   // "sales" | "sales_rwt141" | "mixed"
       ivs: ivsArr,
       ...analyze,
       filter: "all", platform: "", dateFrom: "", dateTo: "", q: "",
@@ -14871,6 +14966,33 @@ function ordIvDetailPanel(r, d){
   const compareWith = re ? re.total : bsExpected;   // ใช้ Platform เป็นหลัก ถ้ามี, ไม่งั้น BigSeller
   const ivMatch = compareWith!=null ? !ne(iv.total, compareWith) : null;
 
+  // ★ Smart diagnostics สำหรับ 141.RWT — ระบุที่มาของ diff
+  const hasIvLines = Array.isArray(r.ivLines) && r.ivLines.length > 0;
+  let smartTip = null;
+  if(hasIvLines && bs && compareWith != null && !ivMatch){
+    const ivLineDiscSum = +r.ivLines.reduce((s,ln)=>s+(Number(ln.line_disc)||0),0).toFixed(2);
+    const ivBillDisc = Number(r.ivBillDisc||0);
+    const ivTotalDisc = +(ivLineDiscSum + ivBillDisc).toFixed(2);
+    const bsDisc = Number(bs.disc||0);
+    // หาก IV ใส่ส่วนลดทั้ง 2 ที่ (line + bill) → น่าจะใส่ผิดที่
+    if(ivLineDiscSum > 0 && ivBillDisc > 0){
+      const expectedIfBillOnly = +(compareWith).toFixed(2);
+      smartTip = `🔍 <b>วิเคราะห์:</b> IV ใส่ส่วนลดที่ <b>2 ที่</b> — line ${fmt(ivLineDiscSum)} + บิล ${fmt(ivBillDisc)} = รวม ${fmt(ivTotalDisc)} (BigSeller มีแค่ส่วนลด ${fmt(bsDisc)})<br>👉 <b>วิธีแก้:</b> ลบส่วนลดบิลรวม ${fmt(ivBillDisc)} ออก + แก้ line discount จาก ${fmt(ivLineDiscSum)} → ${fmt(bsDisc)} เพื่อให้ IV = ${fmt(expectedIfBillOnly)} ตรง BigSeller`;
+    } else if(ivTotalDisc !== bsDisc){
+      const fixedDisc = bsDisc;
+      smartTip = `🔍 <b>วิเคราะห์:</b> ส่วนลดใน IV (${fmt(ivTotalDisc)}) ต่างจาก BigSeller (${fmt(bsDisc)}) อยู่ ${fmt(Math.abs(ivTotalDisc-bsDisc))} บาท<br>👉 <b>วิธีแก้:</b> ปรับส่วนลดใน IV ให้ตรง ${fmt(fixedDisc)} บาท`;
+    }
+    // SKU/qty mismatch check
+    if(bs.sku && r.ivLines.length){
+      const ivSkus = r.ivLines.filter(ln=>!/^(SH|SP1)\d/.test(ln.sku||'')).map(ln=>ln.sku||'').filter(Boolean);
+      const bsSkus = String(bs.sku).split(',').map(s=>s.trim()).filter(Boolean);
+      const skuDiff = bsSkus.filter(s=>!ivSkus.includes(s)).concat(ivSkus.filter(s=>!bsSkus.includes(s)));
+      if(skuDiff.length){
+        smartTip = (smartTip?smartTip+'<br>':'') + `⚠ <b>SKU ไม่ตรง:</b> IV มี [${ivSkus.join(', ')}] · BigSeller มี [${bsSkus.join(', ')}]`;
+      }
+    }
+  }
+
   // build comparison table
   const th = (lbl, w, align)=> `<th style="${w?`width:${w};`:''}padding:7px 10px;background:var(--n-50);font:600 10.5px/1 inherit;color:var(--n-500);text-transform:uppercase;letter-spacing:.04em;text-align:${align||'left'};border-bottom:1px solid var(--n-200)">${lbl}</th>`;
   const td = (val, align, bold)=> `<td style="padding:8px 10px;font:${bold?'700':'500'} 12.5px/1.3 inherit;${align?'text-align:'+align:''};border-bottom:1px solid var(--n-100);font-variant-numeric:tabular-nums">${val}</td>`;
@@ -14891,11 +15013,47 @@ function ordIvDetailPanel(r, d){
     </tr>`;
   };
 
-  // IV row — เลข total อย่างเดียว
-  const ivRow = `<tr>${labelTd('ตาม IV (Express 723-5)','var(--in-700)')}
-    <td colspan="6" style="padding:8px 10px;font:500 12px/1.3 inherit;color:var(--n-500);border-bottom:1px solid var(--n-100)">${esc(r.iv_no)} · ${esc(r.doc_date||'—')} · <i>723-5 มีเฉพาะยอดรวม ไม่แยกบรรทัด</i></td>
-    ${td(fmt(iv.total),'right',true)}
-  </tr>`;
+  // IV row — ถ้ามี ivLines (141.RWT) แสดง breakdown ครบ ไม่งั้นแสดงแค่ total (723-5)
+  let ivRow;
+  if(hasIvLines){
+    const ivLabel = 'ตาม IV (Express 141.RWT)';
+    // header row of IV section
+    ivRow = `<tr>${labelTd(ivLabel,'var(--in-700)')}
+      <td colspan="7" style="padding:6px 10px;font:500 11.5px/1.3 inherit;color:var(--n-600);border-bottom:1px solid var(--n-100);background:color-mix(in srgb,var(--in-50,#eff6ff) 50%,#fff)">${esc(r.iv_no)} · ${esc(r.doc_date||'—')}${r.ivSoNo?` · SO ${esc(r.ivSoNo)}`:''}${r.ivCashYn?` · เก็บเงิน: ${esc(r.ivCashYn)}`:''}</td>
+    </tr>`;
+    // each line item
+    for(const ln of r.ivLines){
+      const netLine = +(Number(ln.line_amount)||0).toFixed(2);
+      ivRow += `<tr style="background:color-mix(in srgb,var(--in-50,#eff6ff) 35%,#fff)">
+        <td style="padding:6px 10px;font:500 11px/1.3 inherit;color:var(--n-500);border-bottom:1px solid var(--n-100)">  ↳ บรรทัด ${ln.line_no||''}</td>
+        ${td(esc(ln.sku||'—'),'left')}
+        ${td(ln.qty,'right')}
+        ${td(fmt(ln.unit_price),'right')}
+        ${td(ln.line_disc?fmt(ln.line_disc):'<span style="color:var(--n-300)">—</span>','right')}
+        ${td(fmt(netLine),'right')}
+        ${td('<span style="color:var(--n-300)">—</span>','right')}
+        ${td(fmt(netLine),'right')}
+      </tr>`;
+    }
+    // bill discount + total row
+    const linesSum = +r.ivLines.reduce((s,ln)=>s+(Number(ln.line_amount)||0),0).toFixed(2);
+    if(r.ivBillDisc && r.ivBillDisc > 0){
+      ivRow += `<tr style="background:color-mix(in srgb,var(--in-50,#eff6ff) 25%,#fff)">
+        <td colspan="7" style="padding:6px 10px;font:600 12px/1.3 inherit;color:var(--wn-700);border-bottom:1px solid var(--n-100);text-align:right">หักส่วนลดบิลรวม:</td>
+        ${td('<span style="color:var(--wn-700)">−'+fmt(r.ivBillDisc)+'</span>','right',true)}
+      </tr>`;
+    }
+    ivRow += `<tr style="background:var(--in-50,#eff6ff)">
+      <td colspan="7" style="padding:8px 10px;font:700 12.5px/1.3 inherit;color:var(--in-700);border-bottom:1px solid var(--n-100);text-align:right">รวมทั้งสิ้น IV (รวม VAT):</td>
+      ${td('<b style="color:var(--in-700)">'+fmt(iv.total)+'</b>','right',true)}
+    </tr>`;
+  } else {
+    // 723-5 → แค่ยอดรวม
+    ivRow = `<tr>${labelTd('ตาม IV (Express 723-5)','var(--in-700)')}
+      <td colspan="6" style="padding:8px 10px;font:500 12px/1.3 inherit;color:var(--n-500);border-bottom:1px solid var(--n-100)">${esc(r.iv_no)} · ${esc(r.doc_date||'—')} · <i>723-5 มีเฉพาะยอดรวม ไม่แยกบรรทัด · ใช้ 141.RWT แทนเพื่อเห็นบรรทัด</i></td>
+      ${td(fmt(iv.total),'right',true)}
+    </tr>`;
+  }
 
   // verdict box
   const v = [];
@@ -14932,6 +15090,7 @@ function ordIvDetailPanel(r, d){
     <div style="display:flex;flex-direction:column;gap:6px;padding:10px 12px;background:var(--n-50);border:1px solid var(--n-200);border-radius:8px">
       <div style="font:600 11px/1 inherit;color:var(--n-500);text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px">📊 สรุปผลตรวจ</div>
       ${v.join('')}
+      ${smartTip ? `<div style="margin-top:6px;padding:10px 12px;background:var(--wn-50);border:1px solid var(--wn-100);border-radius:8px;color:var(--n-900);font:500 12.5px/1.6 inherit">${smartTip}</div>` : ''}
     </div>
   </div>`;
 }

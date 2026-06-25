@@ -13331,7 +13331,7 @@ function bmpParseExpressRwt141(text){
         doc_no: docNo.replace(/^\*\s*/, ""),
         doc_date_be: dateStr,
         doc_date: bmpThaiDate(dateStr),
-        ref_order_id: c0.replace(/^\*\s*/, "").trim(),
+        ref_order_id: c0.replace(/^\*/, "").replace(/\s+/g, ""),  // strip ทุก space — Express CSV แทรก space กลาง ID (เช่น "58429730864054 775" → "58429730864054775")
         customer, channel, voided,
         bill_disc: num(r[9]),
         goods_ex_vat: num(r[11]),

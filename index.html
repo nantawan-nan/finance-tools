@@ -14959,24 +14959,34 @@ async function ordIvApply(mode){
   }
   if(!picks.length){ alert("ไม่มีรายการให้ดำเนินการ"); return; }
   if(!confirm(label)) return;
+  // ★ แสดง busy indicator ก่อนรัน → UI ไม่ "นิ่ง"
+  ic.busy = true; ic.busyMsg = `กำลังบันทึก 0 / ${picks.length} รายการ…`; renderToolOrders();
   let n = 0, failN = 0; const src = "ตรวจ IV (723-5)";
-  for(const r of picks){
-    const upd = { updated_at: now };
-    if(mode === "tagSelected"){
-      upd.iv_no = r.iv_no; upd.iv_date = r.doc_date || null;
-      upd.sale_amount = r.total; upd.sale_keyed_at = now; upd.sale_src = src;
-    } else if(mode === "cancelVoided"){
-      upd.status = "cancelled"; upd.sale_src = src;
-    } else if(mode === "fixDiff"){
-      upd.sale_amount = r.total; upd.sale_keyed_at = now; upd.sale_src = src;
-    }
-    try{
-      const { error } = await sb.from("order_ledger").update(upd).eq("id", r.orderRowId);
-      if(error){ console.warn("ordIvApply", error); failN++; } else n++;
-    }catch(e){ console.warn("ordIvApply", e); failN++; }
+  // ★ ทำเป็น chunk batch แทน sequential — เร็วขึ้น 10×
+  const CHUNK = 20;
+  for(let i=0; i<picks.length; i+=CHUNK){
+    const slice = picks.slice(i, i+CHUNK);
+    await Promise.all(slice.map(async r => {
+      const upd = { updated_at: now };
+      if(mode === "tagSelected"){
+        upd.iv_no = r.iv_no; upd.iv_date = r.doc_date || null;
+        upd.sale_amount = r.total; upd.sale_keyed_at = now; upd.sale_src = src;
+      } else if(mode === "cancelVoided"){
+        upd.status = "cancelled"; upd.sale_src = src;
+      } else if(mode === "fixDiff"){
+        upd.sale_amount = r.total; upd.sale_keyed_at = now; upd.sale_src = src;
+      }
+      try{
+        const { error } = await sb.from("order_ledger").update(upd).eq("id", r.orderRowId);
+        if(error){ console.warn("ordIvApply", error); failN++; } else n++;
+      }catch(e){ console.warn("ordIvApply", e); failN++; }
+    }));
+    // update progress message — ให้ user เห็นว่ายังไม่ค้าง
+    ic.busyMsg = `กำลังบันทึก ${Math.min(i+CHUNK, picks.length)} / ${picks.length} รายการ…`;
+    if(i+CHUNK < picks.length) renderToolOrders();
   }
-  alert(`✓ บันทึก ${n} รายการ${failN?` · ล้มเหลว ${failN}`:''} — กำลังโหลดข้อมูลใหม่`);
-  try{ await ordLoad(true); }catch(e){}
+  ic.busyMsg = "กำลังโหลดข้อมูลออเดอร์ใหม่…"; renderToolOrders();
+  try{ await ordLoad(); }catch(e){ console.warn("ordIvApply ordLoad", e); }
   // วิเคราะห์ใหม่จาก rows ล่าสุด — รีเซ็ต checked เป็น new_match ปัจจุบัน
   if(ic.ivs && ic.ivs.length){
     const fresh = ordIvAnalyze({ ivs: ic.ivs }, d.rows || []);
@@ -14984,7 +14994,16 @@ async function ordIvApply(mode){
     (fresh.results||[]).forEach(r => { if(r.status==="new_match" && r.orderRowId) newChecked.add(r.iv_no); });
     d.ivCheck = { ...d.ivCheck, ...fresh, checked: newChecked };
   }
+  // เก็บ flash message ไว้แสดงในหน้า (แทน alert ที่ browser อาจ block)
+  d.ivCheck.busy = false;
+  d.ivCheck.busyMsg = null;
+  d.ivCheck.flash = `✓ บันทึกสำเร็จ ${n} รายการ${failN?` · ล้มเหลว ${failN}`:''}`;
+  d.ivCheck.flashAt = Date.now();
   renderToolOrders();
+  // auto-clear flash หลัง 5 วินาที (silent — ไม่ alert)
+  setTimeout(()=>{
+    const dd = ordGet(); if(dd.ivCheck && dd.ivCheck.flashAt && Date.now()-dd.ivCheck.flashAt >= 4900){ dd.ivCheck.flash = null; dd.ivCheck.flashAt = null; renderToolOrders(); }
+  }, 5000);
 }
 
 /* render: แท็บ "ตรวจ IV" */
@@ -15004,7 +15023,7 @@ function ordRenderIv(d){
     </div>`;
   }
   if(ic.busy){
-    return `<div class="ord-empty"><i data-lucide="loader-2"></i><div class="ttl">กำลัง parse + วิเคราะห์ IV…</div></div>`;
+    return `<div class="ord-empty"><i data-lucide="loader-2"></i><div class="ttl">${esc(ic.busyMsg || "กำลัง parse + วิเคราะห์ IV…")}</div></div>`;
   }
   if(ic.error){
     return `<div class="ord-card" style="padding:20px 22px;border-color:var(--dg-100);background:var(--dg-50)">
@@ -15064,6 +15083,7 @@ function ordRenderIv(d){
   const sortH = (key, lab, w, align)=> `<th style="${w?`width:${w};`:''}cursor:pointer;user-select:none${align?`;text-align:${align}`:''}" onclick="ordIvSetSort('${key}')">${lab}${arrow(key)}</th>`;
 
   return `
+    ${ic.flash ? `<div style="padding:11px 16px;border-radius:10px;background:var(--ok-50);border:1px solid var(--ok-100);color:var(--ok-700);font:600 13px/1.4 inherit;margin-bottom:12px;display:flex;align-items:center;gap:8px"><i data-lucide="check-circle" style="width:16px;height:16px"></i> ${esc(ic.flash)}</div>` : ''}
     <div class="ord-actions">
       ${upBtn}
       <button class="ord-btn" onclick="ordIvReanalyze()" title="วิเคราะห์ใหม่ด้วยข้อมูล order ปัจจุบัน (ไม่ต้องอัปไฟล์)"><i data-lucide="refresh-cw"></i> วิเคราะห์ใหม่</button>

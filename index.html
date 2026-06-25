@@ -13331,7 +13331,8 @@ function bmpParseExpressRwt141(text){
         doc_no: docNo.replace(/^\*\s*/, ""),
         doc_date_be: dateStr,
         doc_date: bmpThaiDate(dateStr),
-        ref_order_id: c0.replace(/^\*/, "").replace(/\s+/g, ""),  // strip ทุก space — Express CSV แทรก space กลาง ID (เช่น "58429730864054 775" → "58429730864054775")
+        ref_order_id: c0.replace(/^\*/, "").replace(/\s+/g, ""),  // strip ทุก space — Express CSV แทรก space กลาง ID
+        ref_order_id_raw: c0.replace(/^\*/, ""),  // เก็บไว้รูปแบบเดิม (อาจมี space ถ้า Express ตัด digit) — ใช้ smart match
         customer, channel, voided,
         bill_disc: num(r[9]),
         goods_ex_vat: num(r[11]),
@@ -14767,6 +14768,24 @@ function ordIvAnalyze(salesData, rows){
     if(o.order_id) byOrderId.set(o.order_id, o);
     if(o.iv_no)    byIvNo.set(o.iv_no, o);
   }
+  // ★ Smart match สำหรับ TT order_id ที่ Express ตัด 1 digit (CSV 17 หลัก vs DB 18 หลัก)
+  //   pattern: prefix 14 chars + space + suffix 3 chars (รวม 17 หลังตัด space)
+  //   → หา order ใน DB ที่ขึ้นต้น = prefix และลงท้าย = suffix และยาว = 18
+  function smartLookup(ref, rawRef){
+    if(byOrderId.has(ref)) return byOrderId.get(ref);
+    // ต้องเป็น TT pattern: ref clean = 17 digits, raw มี space กลาง
+    if(!ref || !rawRef || !/\s/.test(rawRef) || ref.length !== 17 || !/^\d+$/.test(ref)) return null;
+    const prefix = ref.slice(0, 14), suffix = ref.slice(-3);
+    let found = null, ambiguous = false;
+    for(const o of (rows||[])){
+      const oid = String(o.order_id||"");
+      if(oid.length === 18 && oid.startsWith(prefix) && oid.endsWith(suffix)){
+        if(found){ ambiguous = true; break; }
+        found = o;
+      }
+    }
+    return ambiguous ? null : found;
+  }
   // currentTotal สูตรเปรียบเทียบกับ 723-5:
   //   ถ้าออเดอร์มี sale_amount (เคยคีย์/tag) → ใช้ sale_amount ตรงๆ
   //   ถ้ายัง → ใช้ order_total + shipping_fee (ไม่หักส่วนลด — platform ชดเชยให้ผู้ขาย IV ยังเต็มยอด)
@@ -14817,12 +14836,12 @@ function ordIvAnalyze(salesData, rows){
       ivCashYn: iv.cash_yn || null,
     };
     if(iv.voided){
-      const ord = byOrderId.get(iv.ref_order_id) || byIvNo.get(iv.doc_no);
+      const ord = smartLookup(iv.ref_order_id, iv.ref_order_id_raw) || byIvNo.get(iv.doc_no);
       if(ord){ const cc=orderCurrent(ord); r.orderRowId=ord.id; r.currentIv=ord.iv_no||null; r.currentTotal=cc.total; r.currentBase=cc.base; r.currentShip=cc.ship; r.currentDisc=cc.disc; r.currentFromSale=cc.fromSale; r.currentStatus=ord.status; r.platform=ordChannelGroup(ord.channel||iv.channel, ord.products||iv.customer); }
       else { r.platform = ordChannelGroup(iv.channel, iv.customer); }
       r.status = "voided"; results.push(r); continue;
     }
-    const ord = byOrderId.get(iv.ref_order_id);
+    const ord = smartLookup(iv.ref_order_id, iv.ref_order_id_raw);
     if(!ord){
       const ordByIv = byIvNo.get(iv.doc_no);
       if(ordByIv){ const cc=orderCurrent(ordByIv); r.orderRowId=ordByIv.id; r.currentIv=ordByIv.iv_no; r.currentTotal=cc.total; r.currentBase=cc.base; r.currentShip=cc.ship; r.currentDisc=cc.disc; r.currentFromSale=cc.fromSale; r.status="conflict"; r.diffAmount=+(r.total-(r.currentTotal||0)).toFixed(2); r.platform=ordChannelGroup(ordByIv.channel||iv.channel, ordByIv.products||iv.customer); }
@@ -14831,6 +14850,8 @@ function ordIvAnalyze(salesData, rows){
     }
     const cc = orderCurrent(ord);
     r.orderRowId = ord.id;
+    // ★ ถ้า smart match เจอ order_id เต็ม → ใช้ของจริงแทน ref ที่ Express ตัด digit
+    if(ord.order_id && ord.order_id !== iv.ref_order_id) r.ref_order_id = ord.order_id;
     r.currentTotal = cc.total; r.currentBase = cc.base; r.currentShip = cc.ship; r.currentDisc = cc.disc; r.currentFromSale = cc.fromSale;
     r.currentIv = ord.iv_no || null;
     r.currentStatus = ord.status;

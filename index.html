@@ -14372,6 +14372,15 @@ function ordRenderBoard(d){
     <!-- Cards Grid -->
     <div class="ord-stgrid">${cardHtml}${cancelCard}</div>
 
+    <!-- Monthly chart embed -->
+    <div style="margin-top:26px;padding-top:18px;border-top:2px solid var(--n-100)">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap">
+        <div style="font:700 16px/1.3 inherit;color:var(--n-900)"><i data-lucide="bar-chart-3" style="width:18px;height:18px;display:inline-block;vertical-align:-3px;color:var(--brand,#0d9488)"></i> สรุปรายเดือนต่อแพลตฟอร์ม</div>
+        <div style="font:500 12px/1.4 inherit;color:var(--n-500)">แท่งโปร่ง = ทั้งหมด · แท่งทึบ = คีย์ IV แล้ว · หน่วย: บาท</div>
+      </div>
+      ${ordRenderMonth(d)}
+    </div>
+
     <!-- Recon embed -->
     <div style="margin-top:26px;padding-top:18px;border-top:2px solid var(--n-100)">
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap">
@@ -14536,6 +14545,13 @@ function ordRenderIvSystem(d){
       <label style="font:500 12px/1.4 inherit;color:var(--n-600)">วันที่ <input type="date" value="${cfg.dateFrom||''}" onchange="ordIvSysSet('dateFrom',this.value)" style="font:500 12px/1 inherit;padding:5px 7px;border:1px solid var(--n-200);border-radius:6px;margin:0 4px"> ถึง <input type="date" value="${cfg.dateTo||''}" onchange="ordIvSysSet('dateTo',this.value)" style="font:500 12px/1 inherit;padding:5px 7px;border:1px solid var(--n-200);border-radius:6px;margin:0 4px"></label>
       <input type="search" placeholder="ค้นหา IV / Order ID / สินค้า" value="${esc(cfg.q||'')}" oninput="ordIvSysSet('q',this.value)" style="flex:1;min-width:200px;padding:6px 10px;border:1px solid var(--n-200);border-radius:7px;font:500 12px/1.4 inherit">
     </div>
+    ${cfg.filter==='untagged' ? `<div style="margin-bottom:12px;padding:11px 16px;background:linear-gradient(135deg,#fef3c7,#fff7ed);border:1px solid #fcd34d;border-left:4px solid #d97706;border-radius:10px;display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+      <div style="flex:1">
+        <div style="font:700 13px/1.3 inherit;color:#92400e">📤 ดึงไปคีย์ใน Express (AutoKey CSV)</div>
+        <div style="font:500 11.5px/1.5 inherit;color:#78350f;margin-top:3px">รายการที่ยังไม่ได้คีย์ IV — กดปุ่มเพื่อไปหน้า "ส่งออกคีย์ AutoKey" ที่มี filter+CSV พร้อมใช้ใน Express</div>
+      </div>
+      <button class="ord-btn primary" onclick="setTool('exportkey')" style="background:#d97706;color:#fff;border:0"><i data-lucide="key-round"></i> ไปหน้า "ส่งออกคีย์ AutoKey" →</button>
+    </div>` : ''}
     <div style="font:500 12px/1.4 inherit;color:var(--n-500);margin-bottom:10px">▸ คลิกการ์ดเพื่อสลับมุมมอง · กำลังดู <b style="color:var(--n-900)">${rows.length.toLocaleString('th-TH')}</b> รายการ · ยอดรวม <b style="color:var(--n-900)">${fmt(sumRows)}</b> บาท</div>
     <div class="ord-card">
       <div style="max-height:62vh;overflow-y:auto">
@@ -16432,7 +16448,7 @@ async function renderToolOrders(){
     <div class="ord-kpis">
       <div class="ord-k k-brand col">
         <span class="ico">📦</span>
-        <div class="lbl">ออเดอร์ใน Pipeline</div>
+        <div class="lbl">คำสั่งซื้อจากระบบ Big Seller</div>
         <div class="v tnum">${k.totN.toLocaleString("th-TH")}</div>
         <div class="sub">${fmt(k.totSum)} บาท${k.cancelN?` · ยกเลิก ${k.cancelN}`:''}</div>
       </div>
@@ -16456,20 +16472,18 @@ async function renderToolOrders(){
     ${view==='search' ? ordRenderSearch(d) : `
     <!-- Tabs -->
     <div class="ord-tabs">
-      ${tabBtn('board','🚦 สรุปสถานะงาน', k.onlyBe||null, k.onlyBe?'t-danger':'')}
-      ${tabBtn('reg','📋 ทะเบียน', k.totN)}
-      ${tabBtn('month','📊 สรุปรายเดือน')}
-      ${tabBtn('ivsys','📑 IV ในระบบ', (()=>{const n=(d.rows||[]).filter(o=>o.status!=='cancelled'&&!o.iv_no).length;return n||null;})(), 't-warn')}
-      ${tabBtn('iv','🧾 ตรวจ IV (อัปไฟล์)', (d.ivCheck&&d.ivCheck.results)?(d.ivCheck.results.filter(r=>r.status==='new'||r.status==='diff'||r.status==='conflict'||r.status==='voided'||r.status==='orphan').length||null):null, (d.ivCheck&&d.ivCheck.results)?'t-warn':'')}
+      ${tabBtn('board','🚦 สรุปสถานะ', k.onlyBe||null, k.onlyBe?'t-danger':'')}
+      ${tabBtn('reg','📋 คำสั่งซื้อจากระบบ Big Seller', k.totN)}
+      ${tabBtn('ivsys','📑 IV จาก EXPRESS', (()=>{const n=(d.rows||[]).filter(o=>o.status!=='cancelled'&&!o.iv_no).length;return n||null;})(), 't-warn')}
+      ${tabBtn('iv','🧾 คัดกรองและนำเข้า IV', (d.ivCheck&&d.ivCheck.results)?(d.ivCheck.results.filter(r=>r.status==='new'||r.status==='diff'||r.status==='conflict'||r.status==='voided'||r.status==='orphan').length||null):null, (d.ivCheck&&d.ivCheck.results)?'t-warn':'')}
     </div>
 
     ${d.busy ? `<div class="ord-empty"><i data-lucide="loader-2"></i><div class="ttl">กำลังประมวลผล…</div></div>`
-      : view==='month' ? ordRenderMonth(d)
       : view==='reg'   ? ordRenderRegister(d)
       : view==='recon' ? ordRenderRecon(d)
       : view==='iv'    ? ordRenderIv(d)
       : view==='ivsys' ? ordRenderIvSystem(d)
-      : ordRenderBoard(d) }
+      : (view==='month'?ordRenderBoard(d):ordRenderBoard(d)) }
     `}
   </div>`;
   if(window.lucide&&window.lucide.createIcons){ try{ window.lucide.createIcons(); }catch(e){} }

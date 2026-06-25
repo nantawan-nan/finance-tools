@@ -3144,8 +3144,9 @@ function exkGet(){
 async function exkLoad(){
   const company = state.company;
   const d = exkGet();
-  // ดึง orders ทั้งหมดของบริษัทนี้ (paginate 1000)
-  let orders = [], from = 0, sz = 1000;
+  const sz = 1000;
+  // ===== 1) ดึงจากตาราง orders (legacy BigSeller import) =====
+  let orders = [], from = 0;
   while(true){
     const { data, error } = await sb.from("orders").select("*")
       .eq("company", company).order("sale_date",{ascending:false}).range(from, from+sz-1);
@@ -3155,9 +3156,61 @@ async function exkLoad(){
     if(data.length < sz) break;
     from += sz;
   }
+  d._fromOrders = orders.length;
+  // ===== 2) ดึงจากตาราง order_ledger (newer pipeline) — merge เข้าด้วย =====
+  let ledgerCount = 0;
+  try{
+    const companyId = await fopCompanyId();
+    if(companyId){
+      let ledgerRows = []; from = 0;
+      while(true){
+        const { data, error } = await sb.from("order_ledger")
+          .select("order_id,iv_no,channel,channel_group,customer,status,order_date,products,order_total,shipping_fee,seller_discount,items")
+          .eq("company_id", companyId).is("deleted_at", null)
+          .order("order_date",{ascending:false}).range(from, from+sz-1);
+        if(error) throw error;
+        if(!data || !data.length) break;
+        ledgerRows = ledgerRows.concat(data);
+        if(data.length < sz) break;
+        from += sz;
+      }
+      // dedup by order_no — `orders` ชนะถ้าซ้ำ (ฟิลด์ครบกว่า)
+      const seen = new Set(orders.map(o=>o.order_no));
+      const co = COMPANIES.find(c=>c.id===company)||{};
+      const brandFromCo = (co.short||(company==='mbark'?'MB':'BY')).toUpperCase();
+      const platMap = { shopee:'SHOPEE', tiktok:'TIKTOK', lazada:'LAZADA', offline:'OFFLINE', other:'OTHER' };
+      for(const lr of ledgerRows){
+        if(!lr.order_id || seen.has(lr.order_id)) continue;
+        seen.add(lr.order_id);
+        let lrItems = lr.items;
+        if(typeof lrItems === 'string'){ try{ lrItems = JSON.parse(lrItems); }catch(e){ lrItems = []; } }
+        if(!Array.isArray(lrItems)) lrItems = [];
+        orders.push({
+          order_no: lr.order_id, sale_date: lr.order_date,
+          platform: platMap[lr.channel_group] || (lr.channel_group||lr.channel||'').toUpperCase(),
+          brand: brandFromCo,
+          shop_name: lr.customer || '',
+          cust_code: '',
+          iv_no: lr.iv_no,
+          status: lr.status==='cancelled' ? 'cancelled' : 'pending',
+          _src: 'ledger',
+          _items: lrItems.map((it,i,arr)=>({
+            order_no: lr.order_id,
+            sku: it.sku||'',
+            qty: Number(it.qty)||0,
+            price: Number(it.price)||0,
+            ship: i === arr.length-1 ? Number(lr.shipping_fee||0) : 0,
+            discount: i === 0 ? Number(lr.seller_discount||0) : 0,
+          }))
+        });
+        ledgerCount++;
+      }
+    }
+  }catch(e){ console.warn('exkLoad: order_ledger merge failed', e); }
+  d._fromLedger = ledgerCount;
   d.orders = orders;
-  // ดึง items ของออเดอร์ที่ status='pending' พอเพราะตัวอื่นไม่ต้องคีย์
-  const orderNos = orders.filter(o=>o.status==="pending").map(o=>o.order_no);
+  // ===== 3) ดึง items จาก order_items table สำหรับ orders ที่มาจาก legacy table =====
+  const orderNos = orders.filter(o=>o.status==="pending" && !o._items).map(o=>o.order_no);
   d.items = [];
   for(let i=0;i<orderNos.length;i+=500){
     const slice = orderNos.slice(i, i+500);
@@ -3165,6 +3218,10 @@ async function exkLoad(){
       .eq("company", company).in("order_no", slice);
     if(error) throw error;
     d.items = d.items.concat(data||[]);
+  }
+  // เพิ่ม inline items จาก order_ledger
+  for(const o of orders){
+    if(o._items && o.status==="pending") d.items = d.items.concat(o._items);
   }
 }
 
@@ -3215,6 +3272,9 @@ async function renderToolExportKey(){
       <div class="sub">${t.long}</div>
     </div>
 
+    ${(d._fromOrders!=null||d._fromLedger!=null) ? `<div style="margin-bottom:14px;padding:10px 14px;background:#eff6ff;border:1px solid #93c5fd;border-left:4px solid #2563eb;border-radius:10px;font:500 12.5px/1.5 inherit;color:#1e40af">
+      📥 รวมข้อมูลจาก <b>2 แหล่ง</b> — orders (BigSeller import เดิม): <b>${(d._fromOrders||0).toLocaleString('th-TH')}</b> ใบ · order_ledger (ทะเบียนคำสั่งซื้อใหม่): <b>${(d._fromLedger||0).toLocaleString('th-TH')}</b> ใบ (ไม่นับซ้ำ) · รวม <b>${(d.orders||[]).length.toLocaleString('th-TH')}</b> ใบ
+    </div>` : ''}
     <div class="card">
       <h3>1 · กรองออเดอร์</h3>
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;margin-top:8px">

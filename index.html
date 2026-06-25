@@ -3333,18 +3333,21 @@ async function renderToolExportKey(){
           <th>วันที่ขาย</th><th>เลขออเดอร์</th><th>ช่องทาง</th><th>แบรนด์</th><th>ร้านค้า</th>
           <th>รหัสลูกค้า</th><th>IV</th><th>สถานะ</th>
         </tr></thead>
-        <tbody>${rows.slice(0,500).map(o=>`
-          <tr style="background:${d.selected[o.order_no]?'#eff6ff':''}">
+        <tbody>${rows.slice(0,500).map(o=>{
+          const isManual = /^(FB|OD)/i.test(o.order_no||"");
+          const platDisp = o.platform ? esc(o.platform) : (isManual ? '<b style="color:#8b5cf6">FACE</b>' : "");
+          const custDisp = o.cust_code ? esc(o.cust_code) : (isManual ? '<b style="color:#8b5cf6">FACE</b>' : "");
+          return `<tr style="background:${d.selected[o.order_no]?'#eff6ff':''}">
             <td><input type="checkbox" ${d.selected[o.order_no]?'checked':''} onchange="exkToggleRow('${esc(o.order_no)}')"></td>
             <td>${esc(o.sale_date||"")}</td>
             <td>${esc(o.order_no)}</td>
-            <td>${esc(o.platform||"")}</td>
+            <td>${platDisp}</td>
             <td>${esc(o.brand||"")}</td>
             <td>${esc(o.shop_name||"")}</td>
-            <td>${esc(o.cust_code||"")}</td>
+            <td>${custDisp}</td>
             <td>${o.iv_no?`<b>${esc(o.iv_no)}</b>`:`<span style="color:#94a3b8">—</span>`}</td>
             <td><span style="font-size:11px;padding:2px 8px;border-radius:999px;background:${o.status==="cancelled"?"#fee2e2":o.iv_no?"#dcfce7":"#fef3c7"};color:${o.status==="cancelled"?"#991b1b":o.iv_no?"#15803d":"#92400e"}">${esc(o.status==="cancelled"?"ยกเลิก":o.iv_no?"คีย์แล้ว":"ยังไม่คีย์")}</span></td>
-          </tr>`).join("")}</tbody>
+          </tr>`}).join("")}</tbody>
       </table></div>
       ${rows.length>500?`<div class="hint" style="margin-top:6px">แสดง 500 แถวแรก · ใช้ฟิลเตอร์ลดจำนวน</div>`:""}
       `}
@@ -13775,7 +13778,7 @@ const ORD_CH = {
   shopee:    { sig:["หมายเลขคำสั่งซื้อ","สถานะการสั่งซื้อ"], order:"หมายเลขคำสั่งซื้อ", status:"สถานะการสั่งซื้อ", date:"วันที่ทำการสั่งซื้อ", product:"ชื่อสินค้า", sku:"เลขอ้างอิง SKU (SKU Reference No.)", qty:"จำนวน", ret:"จำนวนที่ส่งคืน", gross:"ราคาขายสุทธิ", net:"ราคาขายสุทธิ", ship:"ค่าจัดส่งที่ชำระโดยผู้ซื้อ", disc:"โค้ดส่วนลดชำระโดยผู้ขาย", cancelKw:"ยกเลิก", group:"shopee" },
   tiktok:    { sig:["Order ID","Order Status"], order:"Order ID", status:"Order Status", date:"Created Time", product:"Product Name", sku:"Seller SKU", qty:"Quantity", ret:"Sku Quantity of return", gross:"SKU Subtotal Before Discount", net:"SKU Subtotal After Discount", ship:"Shipping Fee After Discount", disc:"SKU Seller Discount", cancelKw:"ยกเลิก|Cancel", group:"tiktok" },
   lazada:    { sig:["orderNumber","sellerSku"], order:"orderNumber", status:"status", date:"createTime", product:"itemName", sku:"sellerSku", qty:null, ret:null, gross:"unitPrice", net:"unitPrice", ship:"shippingFee", disc:"sellerDiscountTotal", refund:"refundAmount", cancelKw:"cancel", group:"lazada" },
-  bigseller: { sig:["หมายเลขคำสั่งซื้อ","ร้านค้าเพลตฟอร์ม"], order:"หมายเลขคำสั่งซื้อ", status:"สถานะคำสั่งซื้อ", platform:"แพลตฟอร์ม", shop:"ร้านค้าเพลตฟอร์ม", date:"เวลาสั่งซื้อ", product:"ชื่อสินค้า", sku:"SKU Merchant", qty:"จำนวน", gross:"ราคาสินค้าเดิม", net:"ราคา", ship:"ค่าจัดส่ง", disc:"ส่วนลดผู้ขาย", cancel:"เวลายกเลิก", cancelKw:"ยกเลิก", group:"bigseller", perUnitPrice:true }
+  bigseller: { sig:["หมายเลขคำสั่งซื้อ","ร้านค้าเพลตฟอร์ม"], order:"หมายเลขคำสั่งซื้อ", status:"สถานะคำสั่งซื้อ", platform:"แพลตฟอร์ม", shop:"ร้านค้าเพลตฟอร์ม", date:"เวลาสั่งซื้อ", product:"ชื่อสินค้า", sku:"SKU Merchant", qty:"จำนวน", gross:"ราคาสินค้าเดิม", net:"ราคา", ship:"ค่าจัดส่ง", disc:"ส่วนลดผู้ขาย", cancel:"เวลายกเลิก", cancelKw:"ยกเลิก", group:"bigseller", perUnitPrice:true, discBillLevel:true }
 };
 function ordDetectChannel(headers){
   const H = headers.map(h=>String(h||"").trim());
@@ -13835,7 +13838,12 @@ function ordParseSalesFile(rows){
     if(ci.gross>=0) g.gross += ordNum(row[ci.gross]) * mul;
     if(ci.net>=0)   g.net   += ordNum(row[ci.net])   * mul;
     if(ci.ship>=0) g.ship = Math.max(g.ship, ordNum(row[ci.ship]));  // order-level (ซ้ำทุกแถว)
-    if(ci.disc>=0) g.disc += ordNum(row[ci.disc]);
+    if(ci.disc>=0){
+      // ★ BigSeller: discount เป็น bill-level ใส่ซ้ำทุกแถว → Math.max (ไม่งั้นจะ × จำนวนแถว)
+      //   หลังบ้าน (SP/TT/LZ): per-line → sum
+      if(cfg.discBillLevel) g.disc = Math.max(g.disc, ordNum(row[ci.disc]));
+      else                  g.disc += ordNum(row[ci.disc]);
+    }
     if(ci.refund>=0) g.refund += ordNum(row[ci.refund]);
     if(ci.platform>=0 && !g.platform) g.platform = String(row[ci.platform]||"").trim();
     if(ci.shop>=0 && !g.shop) g.shop = String(row[ci.shop]||"").trim();

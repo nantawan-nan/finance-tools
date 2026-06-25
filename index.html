@@ -14688,14 +14688,23 @@ function ordIvAnalyze(salesData, rows){
   //   ถ้ายัง → ใช้ order_total + shipping_fee (ไม่หักส่วนลด — platform ชดเชยให้ผู้ขาย IV ยังเต็มยอด)
   const orderCurrent = (o)=>{
     if(o.sale_amount!=null && Number(o.sale_amount)!==0) return { total:Number(o.sale_amount), base:null, ship:null, disc:null, fromSale:true };
-    // ★ กฎ: marketplace (SP/TT/LZ) → ใช้ "ราคาสินค้าเดิม" (gross_total) เพราะ 723-5 คีย์ราคา gross
+    // ★ กฎ recon: marketplace (SP/TT/LZ) → IV expected = "ราคาสินค้าเดิม" − "ส่วนลดผู้ขาย"
+    //   (Express ออก IV เฉพาะส่วนที่ผู้ขายเรียกเก็บจริง = หลังหัก seller_discount แต่ไม่หัก platform discount)
     //   manual/offline → ใช้ order_total + shipping (คีย์ราคา net + ค่าส่งแยก)
     const ch = String(o.channel_group||'').toLowerCase();
     const isMarket = ch==='shopee'||ch==='tiktok'||ch==='lazada';
-    const useGross = isMarket && Number(o.gross_total||0)>0;
-    const base = useGross ? Number(o.gross_total) : Number(o.order_total||0);
-    const ship = useGross ? 0 : Number(o.shipping_fee||0);  // gross_total ครอบราคาสินค้าแล้ว ไม่บวก ship อีก
-    const disc = Number(o.seller_discount||0);
+    if(isMarket){
+      // gross = Σ items.price × qty (= ราคาสินค้าเดิม)
+      // ใช้ ordGrossVal ที่มีอยู่ — เก็บใน items jsonb แทน gross_total (column ไม่มีใน DB)
+      const gross = (typeof ordGrossVal === "function") ? ordGrossVal(o) : Number(o.order_total||0);
+      const disc = Number(o.seller_discount||0);
+      if(gross > 0){
+        const expected = +(gross - disc).toFixed(2);
+        return { total: expected, base: gross, ship: 0, disc, fromSale: false };
+      }
+      // ไม่มี items → fallback ลง logic เดิม
+    }
+    const base = Number(o.order_total||0), ship = Number(o.shipping_fee||0), disc = Number(o.seller_discount||0);
     return { total:+(base+ship).toFixed(2), base, ship, disc, fromSale:false };
   };
   const results = [];

@@ -15508,18 +15508,23 @@ function ordIvAnalyze(salesData, rows){
     if(o.order_id) byOrderId.set(o.order_id, o);
     if(o.iv_no)    byIvNo.set(o.iv_no, o);
   }
-  // ★ Smart match สำหรับ TT order_id ที่ Express ตัด 1 digit (CSV 17 หลัก vs DB 18 หลัก)
-  //   pattern: prefix 14 chars + space + suffix 3 chars (รวม 17 หลังตัด space)
-  //   → หา order ใน DB ที่ขึ้นต้น = prefix และลงท้าย = suffix และยาว = 18
+  // ★ Smart match: Express CSV ตัด 1 digit ออกจาก order_id ยาว
+  //   เคสที่เจอ: TT 17 → DB 18 (ตัด pos กลาง) · Lazada 15 → DB 16 (ตัด pos ก่อนสุดท้าย)
+  //   ตำแหน่งที่ตัดไม่แน่นอน → ลองตัดทีละ pos ใน DB จนตรงกับ ref
   function smartLookup(ref, rawRef){
     if(byOrderId.has(ref)) return byOrderId.get(ref);
-    // ต้องเป็น TT pattern: ref clean = 17 digits, raw มี space กลาง
-    if(!ref || !rawRef || !/\s/.test(rawRef) || ref.length !== 17 || !/^\d+$/.test(ref)) return null;
-    const prefix = ref.slice(0, 14), suffix = ref.slice(-3);
+    if(!ref || !/^\d+$/.test(ref) || ref.length < 10) return null;  // กัน ref สั้นเกิน
+    const targetLen = ref.length + 1;
     let found = null, ambiguous = false;
     for(const o of (rows||[])){
       const oid = String(o.order_id||"");
-      if(oid.length === 18 && oid.startsWith(prefix) && oid.endsWith(suffix)){
+      if(oid.length !== targetLen) continue;
+      // ลองตัดทีละ pos ใน oid — ถ้าตัดแล้วเหลือเท่ากับ ref = match
+      let isMatch = false;
+      for(let pos=0; pos<oid.length; pos++){
+        if(oid.slice(0,pos) + oid.slice(pos+1) === ref){ isMatch = true; break; }
+      }
+      if(isMatch){
         if(found){ ambiguous = true; break; }
         found = o;
       }

@@ -12044,8 +12044,24 @@ async function brecUpload(kind){
     }
     if(!parsed.rows.length) throw new Error("ไม่พบรายการในไฟล์");
     if(!parsed.accountNo) throw new Error("ไม่พบเลขบัญชีในไฟล์ — ตรวจสอบรูปแบบไฟล์");
-    const acctId = await brecEnsureAccount(co, parsed.bankCode, parsed.accountNo);
-    if(!acctId) throw new Error("สร้าง bank account ไม่สำเร็จ");
+    // ★ ใช้บัญชีที่ user เลือกใน dropdown เป็นเป้าหมาย — ไม่ auto-create บัญชีใหม่
+    //   (กันเคส Express XML format "865-0-980405" vs Statement Excel "8650405" สร้าง record ใหม่ซ้ำ)
+    if(!d.accountId){
+      d.busy = false;
+      alert("กรุณาเลือกบัญชี (dropdown ด้านบน) ที่จะอัปข้อมูลเข้าก่อน — ระบบจะไม่สร้างบัญชีใหม่ให้อัตโนมัติแล้ว");
+      brecRefresh(); return;
+    }
+    const acctId = d.accountId;
+    const selAcct = (d.accounts||[]).find(a=>a.id===acctId);
+    const fileNorm = String(parsed.accountNo||"").replace(/\D/g,"");
+    const selNorm = String((selAcct&&selAcct.account_no)||"").replace(/\D/g,"");
+    // ★ ถ้าเลขบัญชีในไฟล์ไม่ตรงกับที่เลือก → confirm ก่อน (อาจอัปไฟล์ผิดบัญชี)
+    if(selNorm && fileNorm && fileNorm !== selNorm){
+      // เช็คเงื่อนไขผ่อนปรน: fileNorm contains selNorm หรือ vice versa (กรณีตัด/เกินบางหลัก)
+      const looksRelated = fileNorm.includes(selNorm) || selNorm.includes(fileNorm);
+      const msg = `⚠ เลขบัญชีในไฟล์ไม่ตรงกับบัญชีที่เลือก\n\nบัญชีที่เลือก: ${selAcct.bank_code} ${selAcct.account_no} (${selNorm})\nเลขในไฟล์: ${parsed.bankCode} ${parsed.accountNo} (${fileNorm})\n${looksRelated?'\n(เลขดูคล้าย — อาจเป็นบัญชีเดียวกันแค่ฟอร์แมตต่าง)\n':''}\nต้องการอัปข้อมูลนี้เข้าบัญชีที่เลือกไว้ ใช่หรือไม่?`;
+      if(!confirm(msg)){ d.busy = false; brecRefresh(); return; }
+    }
     const src = parsed.source;
     const rowTable = src === "express" ? "brec_express_rows" : "brec_bank_rows";
 

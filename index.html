@@ -14830,6 +14830,111 @@ async function ordIvUpload(){
 
 function ordIvSetFilter(k){ const d=ordGet(); if(!d.ivCheck) return; d.ivCheck.filter=k; renderToolOrders(); }
 function ordIvClear(){ const d=ordGet(); d.ivCheck=null; renderToolOrders(); }
+/* toggle ดูรายละเอียดเปรียบเทียบ — IV / BigSeller / หลังบ้าน */
+function ordIvToggleExpand(iv_no){ const d=ordGet(); const ic=d.ivCheck; if(!ic) return; ic.expanded = ic.expanded||new Set(); if(ic.expanded.has(iv_no)) ic.expanded.delete(iv_no); else ic.expanded.add(iv_no); renderToolOrders(); }
+/* สร้างตารางเปรียบเทียบ 2-3 บรรทัด (BigSeller / Platform / IV) — return HTML
+   - bsOrder: order_ledger row ของออเดอร์นี้ (จาก d.rows)
+   - reOrder: backend order จาก d.recon.results (ถ้ามี) — null ถ้ายังไม่อัป
+   - r: IV result (มี iv_no, total)
+*/
+function ordIvDetailPanel(r, d){
+  const fmt = ordFmtMoney;
+  const bsOrd = (d.rows||[]).find(o => o.order_id === r.ref_order_id);
+  const reItem = ((d.recon&&d.recon.results)||[]).find(x => x.order_no === r.ref_order_id);
+  const reOrd = reItem ? reItem.be : null;
+  const ch = String((bsOrd&&bsOrd.channel_group)||r.channel||'').toLowerCase();
+  const chLabel = ch==='shopee'?'Shopee' : ch==='tiktok'?'TikTok' : ch==='lazada'?'Lazada' : (r.channel||'หลังบ้าน');
+
+  // คำนวณ row data จาก order object — items.price + disc + ship + รวม
+  function rowFromOrder(o){
+    if(!o) return null;
+    let it = o.items;
+    if(typeof it === 'string'){ try{ it = JSON.parse(it); }catch(e){ it = []; } }
+    if(!Array.isArray(it)) it = [];
+    const sku = it.map(x=>String(x.sku||'').trim()).filter(Boolean).join(', ') || '(no sku)';
+    const qty = it.reduce((s,x)=>s+(Number(x.qty)||0),0) || 1;
+    const price = it.length ? +it.reduce((s,x)=>s+(Number(x.price)||0)*(Number(x.qty)||0),0).toFixed(2) : Number(o.order_total||0);
+    const disc = Number(o.seller_discount||0);
+    const net = +(price - disc).toFixed(2);
+    const ship = Number(o.shipping_fee||0);
+    const total = +(net + ship).toFixed(2);
+    return { sku, qty, price, disc, net, ship, total };
+  }
+  const bs = rowFromOrder(bsOrd);
+  const re = rowFromOrder(reOrd);
+  const iv = { total: Number(r.total||0) };
+
+  // verdict
+  const ne = (a,b)=> Math.abs((Number(a)||0)-(Number(b)||0)) >= 0.01;
+  const bsReMatch = (bs && re) ? !ne(bs.total, re.total) : null;
+  const bsExpected = bs ? bs.total : null;
+  const compareWith = re ? re.total : bsExpected;   // ใช้ Platform เป็นหลัก ถ้ามี, ไม่งั้น BigSeller
+  const ivMatch = compareWith!=null ? !ne(iv.total, compareWith) : null;
+
+  // build comparison table
+  const th = (lbl, w, align)=> `<th style="${w?`width:${w};`:''}padding:7px 10px;background:var(--n-50);font:600 10.5px/1 inherit;color:var(--n-500);text-transform:uppercase;letter-spacing:.04em;text-align:${align||'left'};border-bottom:1px solid var(--n-200)">${lbl}</th>`;
+  const td = (val, align, bold)=> `<td style="padding:8px 10px;font:${bold?'700':'500'} 12.5px/1.3 inherit;${align?'text-align:'+align:''};border-bottom:1px solid var(--n-100);font-variant-numeric:tabular-nums">${val}</td>`;
+  const labelTd = (txt, color)=> `<td style="padding:8px 10px;font:600 12.5px/1.3 inherit;color:${color||'var(--n-900)'};border-bottom:1px solid var(--n-100);background:var(--n-50)">${esc(txt)}</td>`;
+
+  const rowHtml = (label, color, data)=> {
+    if(!data){
+      return `<tr>${labelTd(label, color)}<td colspan="7" style="padding:8px 10px;font:500 12.5px/1.3 inherit;color:var(--n-500);font-style:italic;border-bottom:1px solid var(--n-100)">— ไม่มีข้อมูล (ยังไม่ได้อัปไฟล์) —</td></tr>`;
+    }
+    return `<tr>${labelTd(label, color)}
+      ${td(esc(data.sku),'left')}
+      ${td(data.qty, 'right')}
+      ${td(fmt(data.price), 'right')}
+      ${td(fmt(data.disc), 'right')}
+      ${td(fmt(data.net), 'right')}
+      ${td(fmt(data.ship), 'right')}
+      ${td(fmt(data.total), 'right', true)}
+    </tr>`;
+  };
+
+  // IV row — เลข total อย่างเดียว
+  const ivRow = `<tr>${labelTd('ตาม IV (Express 723-5)','var(--in-700)')}
+    <td colspan="6" style="padding:8px 10px;font:500 12px/1.3 inherit;color:var(--n-500);border-bottom:1px solid var(--n-100)">${esc(r.iv_no)} · ${esc(r.doc_date||'—')} · <i>723-5 มีเฉพาะยอดรวม ไม่แยกบรรทัด</i></td>
+    ${td(fmt(iv.total),'right',true)}
+  </tr>`;
+
+  // verdict box
+  const v = [];
+  if(bs && re){
+    if(bsReMatch) v.push(`<div style="color:var(--ok-700);font:600 13px/1.4 inherit">✅ BigSeller ↔ ${chLabel}: <b>ตรงกัน</b> (${fmt(bs.total)} บาท)</div>`);
+    else v.push(`<div style="color:var(--dg-700);font:600 13px/1.4 inherit">❌ BigSeller ↔ ${chLabel}: <b>ไม่ตรง</b> · BigSeller ${fmt(bs.total)} vs ${chLabel} ${fmt(re.total)} · ผลต่าง ${fmt(Math.abs(bs.total-re.total))}</div>`);
+  } else if(bs && !re){
+    v.push(`<div style="color:var(--n-600);font:500 13px/1.4 inherit">ℹ ยังไม่มีข้อมูลหลังบ้าน ${chLabel} — อัปไฟล์ในแท็บ "ตรวจรายวัน" เพื่อยืนยันยอดจริงจาก platform</div>`);
+  }
+  if(compareWith!=null){
+    if(ivMatch) v.push(`<div style="color:var(--ok-700);font:600 13px/1.4 inherit">✅ IV (${fmt(iv.total)}) ตรงกับ ${re?chLabel:'BigSeller'} (${fmt(compareWith)})</div>`);
+    else {
+      const dx = +(iv.total - compareWith).toFixed(2);
+      v.push(`<div style="color:var(--dg-700);font:600 13px/1.4 inherit">❌ IV (${fmt(iv.total)}) <b>ไม่ตรง</b>กับ ${re?chLabel:'BigSeller'} (${fmt(compareWith)}) — ${dx<0?'ขาด':'เกิน'} ${fmt(Math.abs(dx))} บาท · ตรวจ ${esc(r.iv_no)} ใน Express</div>`);
+    }
+  } else {
+    v.push(`<div style="color:var(--n-600);font:500 13px/1.4 inherit">ℹ ยังไม่มีข้อมูล BigSeller — อัปรายงานขาย BigSeller ก่อนถึงจะเทียบยอด IV ได้</div>`);
+  }
+
+  return `<div style="padding:14px 16px;background:#fff;border:1px solid var(--n-200);border-radius:10px;margin:6px 0">
+    <div style="font:700 13px/1.3 inherit;margin-bottom:10px;display:flex;align-items:center;gap:8px">
+      🔍 รายละเอียดเปรียบเทียบ — ${esc(r.iv_no)}
+      ${r.ref_order_id?`<span style="font:500 11.5px/1 inherit;color:var(--n-500)">/ ${esc(r.ref_order_id)}</span>`:''}
+      <span class="ord-bd mute" style="margin-left:auto">${esc(chLabel)}</span>
+    </div>
+    <table style="width:100%;border-collapse:separate;border-spacing:0;background:#fff;border:1px solid var(--n-100);border-radius:8px;overflow:hidden;margin-bottom:12px">
+      <thead><tr>${th('แหล่งข้อมูล','170px')}${th('รหัสสินค้า','')}${th('จำนวน','60px','right')}${th('ราคา/หน่วย','100px','right')}${th('ส่วนลด','90px','right')}${th('ราคาสุทธิ','100px','right')}${th('ค่าส่ง','80px','right')}${th('รวม','100px','right')}</tr></thead>
+      <tbody>
+        ${rowHtml('BigSeller', 'var(--p-700,#0d9488)', bs)}
+        ${rowHtml(chLabel + ' (หลังบ้าน)', 'var(--wn-700)', re)}
+        ${ivRow}
+      </tbody>
+    </table>
+    <div style="display:flex;flex-direction:column;gap:6px;padding:10px 12px;background:var(--n-50);border:1px solid var(--n-200);border-radius:8px">
+      <div style="font:600 11px/1 inherit;color:var(--n-500);text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px">📊 สรุปผลตรวจ</div>
+      ${v.join('')}
+    </div>
+  </div>`;
+}
 /* ★ วิเคราะห์ใหม่ — ใช้ IVs ที่ cache ไว้ + order data ล่าสุด (เผื่อ logic ordIvAnalyze เปลี่ยน) */
 async function ordIvReanalyze(){
   const d = ordGet();
@@ -15181,10 +15286,11 @@ function ordRenderIv(d){
               const cbCell = isCheckable
                 ? `<input type="checkbox" ${isChecked?'checked':''} onclick="ordIvToggle('${esc(r.iv_no)}')">`
                 : '<span style="color:var(--n-300);font-size:10px">—</span>';
+              const expanded = (ic.expanded && ic.expanded.has(r.iv_no));
               return `<tr style="${isChecked?'background:color-mix(in srgb,var(--brand,#0d9488) 6%,transparent)':''}">
                 <td style="text-align:center">${cbCell}</td>
                 <td class="tnum" style="font-size:12px">${r.doc_date||'—'}</td>
-                <td class="mono">${esc(r.iv_no)}</td>
+                <td class="mono" style="cursor:pointer;color:var(--brand,#0d9488);text-decoration:underline;text-decoration-style:dotted;text-underline-offset:3px" onclick="ordIvToggleExpand('${esc(r.iv_no)}')" title="คลิกดูรายละเอียดเปรียบเทียบ">${esc(r.iv_no)} ${expanded?'▾':'▸'}</td>
                 <td class="mono" style="font-size:11px">${esc(r.ref_order_id||'—')}</td>
                 <td style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(r.customer)} / ${esc(r.channel)}">
                   <div style="font:500 12.5px/1.3 inherit">${esc(r.customer||'—')}</div>
@@ -15194,7 +15300,7 @@ function ordRenderIv(d){
                 <td class="right" style="color:var(--n-600)">${curHtml}</td>
                 <td class="right">${diffHtml}</td>
                 <td><span class="ord-bd ${bdCls(r.status)}">${bdIc(r.status)} ${bdLab(r.status)}</span></td>
-              </tr>`;
+              </tr>${expanded ? `<tr><td colspan="9" style="padding:0 12px 12px;background:var(--n-50)">${ordIvDetailPanel(r, d)}</td></tr>` : ''}`;
             }).join("")}
           </tbody>
         </table>

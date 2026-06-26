@@ -14660,6 +14660,13 @@ function ordMenu(v){ const d=ordGet(); d._menu=(d._menu===v?'':v); renderToolOrd
 function ordSetRange(k){ const d=ordGet(); d.dateRange=k; renderToolOrders(); }
 function ordReconViz(m){ const d=ordGet(); d.reconViz=m; renderToolOrders(); }
 function ordPlatGo(p){ const d=ordGet(); d.view='reg'; d.fStatus='all'; d.fPlatform=p; d._menu=''; renderToolOrders(); }
+/* badge โลโก้แบรนด์ต่อช่องทาง (Clearbit) + fallback ตัวอักษร · key: shopee/tiktok/lazada/offline/other */
+function ordPlatLogo(key, size){
+  size=size||40;
+  const M={shopee:{c:'#ee4d2d',b:'S',d:'shopee.com'},tiktok:{c:'#000',b:'T',d:'tiktok.com'},lazada:{c:'#3f3bcc',b:'L',d:'lazada.com'},offline:{c:'#64748b',b:'฿',d:''},other:{c:'#64748b',b:'+',d:''}};
+  const m=M[key]||M.other; const fs=Math.round(size*0.44);
+  return `<span style="position:relative;display:inline-flex;align-items:center;justify-content:center;width:${size}px;height:${size}px;border-radius:50%;background:${m.c};color:#fff;font:800 ${fs}px/1 inherit;overflow:hidden;flex-shrink:0">${m.b}${m.d?`<img src="https://logo.clearbit.com/${m.d}" alt="" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover" onerror="this.style.display='none'">`:''}</span>`;
+}
 function ordRangeBounds(range){
   const t=new Date(); t.setHours(0,0,0,0);
   const iso=x=>`${x.getFullYear()}-${String(x.getMonth()+1).padStart(2,'0')}-${String(x.getDate()).padStart(2,'0')}`;
@@ -14676,7 +14683,7 @@ function ordReconChart(cov, mode, fmt, pAgg){
   if(mode==='a'){
     return rows.map(r=>{const{cn,tot,rate,m}=r;const g=tot?cn.matched/tot*100:0,rd=tot?cn.only_be/tot*100:0,or=tot?cn.only_bs/tot*100:0;return `
       <div style="margin-bottom:18px">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:7px"><div style="display:flex;align-items:baseline;gap:8px"><span style="width:10px;height:10px;border-radius:2px;background:${m.c};align-self:center"></span><span style="font:700 14px/1.2 inherit">${m.l}</span><span style="font:500 11.5px/1.2 inherit;color:#94a3b8">${sub(r)}</span></div><span style="font:700 13px/1.2 inherit;color:#16a34a">แมท ${rate.toFixed(1)}%</span></div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:7px"><div style="display:flex;align-items:center;gap:9px">${ordPlatLogo(r.ch,22)}<span style="font:700 14px/1.2 inherit">${m.l}</span><span style="font:500 11.5px/1.2 inherit;color:#94a3b8">${sub(r)}</span></div><span style="font:700 13px/1.2 inherit;color:#16a34a">แมท ${rate.toFixed(1)}%</span></div>
         <div style="height:26px;border-radius:7px;overflow:hidden;display:flex;background:#f1f5f9">${g?`<div style="width:${g}%;background:#16a34a"></div>`:''}${rd?`<div style="width:${rd}%;background:#dc2626"></div>`:''}${or?`<div style="width:${or}%;background:#d97706"></div>`:''}</div>
         <div style="display:flex;gap:18px;margin-top:7px;font:600 12px/1.2 inherit"><span style="color:#16a34a">ตรงกัน ${cn.matched}</span><span style="color:#dc2626">ไม่มีใน BigSeller ${cn.only_be}</span><span style="color:#d97706">ไม่มีในแพลตฟอร์ม ${cn.only_bs}</span></div>
       </div>`;}).join('');
@@ -14686,7 +14693,7 @@ function ordReconChart(cov, mode, fmt, pAgg){
     return `<div style="display:flex;justify-content:space-between;font:700 10.5px/1.4 inherit;margin:4px 0 12px"><span style="color:#475569">◀ แพลตฟอร์ม e-commerce (SP/TT/LZ)</span><span style="color:#475569">BigSeller (หน้าบ้าน) ▶</span></div>`+
       rows.map(r=>{const{cn,m,rate}=r;const lw=x=>x/maxT*50;return `
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
-        <div style="width:90px;flex-shrink:0"><div style="display:flex;align-items:center;gap:6px"><span style="width:9px;height:9px;border-radius:2px;background:${m.c}"></span><span style="font:700 12.5px/1.2 inherit">${m.l}</span></div><div style="font:600 10.5px/1.3 inherit;color:#16a34a;margin-top:2px">แมท ${rate.toFixed(1)}%</div></div>
+        <div style="width:98px;flex-shrink:0"><div style="display:flex;align-items:center;gap:7px">${ordPlatLogo(r.ch,18)}<span style="font:700 12.5px/1.2 inherit">${m.l}</span></div><div style="font:600 10.5px/1.3 inherit;color:#16a34a;margin-top:2px">แมท ${rate.toFixed(1)}%</div></div>
         <div style="flex:1;height:26px;border-radius:7px;background:#f1f5f9;overflow:hidden;display:flex;position:relative">
           <div style="width:50%;display:flex;justify-content:flex-end"><div style="width:${lw(cn.only_be)}%;background:#dc2626"></div><div style="width:${lw(cn.matched)}%;background:#16a34a"></div></div>
           <div style="width:1px;background:#fff"></div>
@@ -14698,7 +14705,7 @@ function ordReconChart(cov, mode, fmt, pAgg){
   if(mode==='d'){
     return `<div style="display:grid;grid-template-columns:repeat(${Math.min(3,rows.length)},1fr);gap:12px">`+rows.map(r=>{const{cn,tot,rate,m}=r;const beP=tot?cn.only_be/tot*100:0,bsP=tot?cn.only_bs/tot*100:0;return `
       <div style="border:1px solid #eef1f6;border-radius:14px;padding:16px 14px;text-align:center">
-        <div style="display:flex;align-items:center;justify-content:center;gap:7px;margin-bottom:12px"><span style="width:11px;height:11px;border-radius:3px;background:${m.c}"></span><span style="font:700 14px/1.2 inherit">${m.l}</span></div>
+        <div style="display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:12px">${ordPlatLogo(r.ch,22)}<span style="font:700 14px/1.2 inherit">${m.l}</span></div>
         <div style="width:120px;height:120px;border-radius:50%;margin:0 auto;background:conic-gradient(#16a34a 0% ${rate}%,#dc2626 ${rate}% ${rate+beP}%,#d97706 ${rate+beP}% 100%);display:flex;align-items:center;justify-content:center">
           <div style="width:84px;height:84px;border-radius:50%;background:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center"><span style="font:800 23px/1 inherit;color:#15803d">${rate.toFixed(1)}%</span><span style="font:500 10px/1.4 inherit;color:#94a3b8">แมท</span></div>
         </div>
@@ -14711,7 +14718,7 @@ function ordReconChart(cov, mode, fmt, pAgg){
   return `<div style="display:flex;justify-content:space-between;font:700 10.5px/1.4 inherit;margin:4px 0 12px"><span style="color:#dc2626">◀ มีในแพลตฟอร์ม · ไม่มีใน BigSeller</span><span style="color:#16a34a">ตรงกัน</span><span style="color:#d97706">มีใน BigSeller · ไม่มีในแพลตฟอร์ม ▶</span></div>`+
     rows.map(r=>{const{cn,m}=r;return `
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
-      <div style="width:78px;flex-shrink:0"><div style="display:flex;align-items:center;gap:6px"><span style="width:10px;height:10px;border-radius:2px;background:${m.c}"></span><span style="font:700 12.5px/1.2 inherit">${m.l}</span></div></div>
+      <div style="width:86px;flex-shrink:0"><div style="display:flex;align-items:center;gap:7px">${ordPlatLogo(r.ch,18)}<span style="font:700 12.5px/1.2 inherit">${m.l}</span></div></div>
       <div style="flex:1;display:flex;align-items:center;gap:6px">
         <div style="flex:1;display:flex;justify-content:flex-end"><div style="height:28px;border-radius:6px;background:${cn.only_be?'#dc2626':'#f1f5f9'};width:${cn.only_be/maxSide*100}%;min-width:${cn.only_be?28:8}px;display:flex;align-items:center;justify-content:flex-start;padding-left:8px;color:#fff;font:800 12.5px/1 inherit">${cn.only_be||''}</div></div>
         <div style="width:54px;height:34px;border-radius:8px;background:#16a34a;color:#fff;display:flex;align-items:center;justify-content:center;font:800 16px/1 inherit;flex-shrink:0">${cn.matched}</div>
@@ -14737,8 +14744,8 @@ function ordRenderBoard(d){
   active.forEach(o=>{ let g=o.channel_group; if(g==='offline') g='other'; if(!pAgg[g]) g='other'; pAgg[g].n++; pAgg[g].sum+=Number(o.order_total||0); });
   const kpiCards=PLAT.map(p=>`
     <div onclick="ordPlatGo('${p.k}')" style="position:relative;background:#fff;border:1px solid #e7ebf2;border-top:3px solid ${p.c};border-radius:16px;padding:36px 16px 20px;text-align:center;box-shadow:0 1px 2px rgba(16,24,40,.04);cursor:pointer;transition:box-shadow .15s" onmouseover="this.style.boxShadow='0 10px 24px -10px rgba(16,24,40,.25)'" onmouseout="this.style.boxShadow='0 1px 2px rgba(16,24,40,.04)'">
-      <span style="position:absolute;top:-24px;left:50%;transform:translateX(-50%);width:50px;height:50px;border-radius:50%;background:${p.c};color:#fff;display:flex;align-items:center;justify-content:center;font:800 21px/1 inherit;box-shadow:0 8px 16px -5px ${p.c};border:3px solid #fff">${p.badge}</span>
-      <div style="font:700 15.5px/1.2 inherit;color:var(--n-900);margin-bottom:12px">${esc(p.l)}</div>
+      <span style="position:absolute;top:-24px;left:50%;transform:translateX(-50%);border-radius:50%;box-shadow:0 8px 16px -5px ${p.c};border:3px solid #fff">${ordPlatLogo(p.k,50)}</span>
+      <div style="font:700 15.5px/1.2 inherit;color:var(--n-900);margin-bottom:12px;margin-top:4px">${esc(p.l)}</div>
       <div class="tnum" style="font:800 28px/1.05 inherit;color:var(--n-900);letter-spacing:-.6px">${fmt(pAgg[p.k].sum)} <span style="font-size:15px;font-weight:600;color:var(--n-500)">บาท</span></div>
       <div style="font:500 13px/1.4 inherit;color:var(--n-500);margin-top:7px">${pAgg[p.k].n.toLocaleString('th-TH')} ออเดอร์</div>
     </div>`).join('');
@@ -14812,7 +14819,7 @@ function ordRenderBoard(d){
     }
     const lag=Math.abs((bsDay||0)-(pfDay||0));
     return `<div style="border:1px solid #eef1f6;border-radius:14px;padding:12px;background:#fcfdfe">
-      <div style="display:flex;align-items:center;gap:7px;margin-bottom:3px"><span style="width:10px;height:10px;border-radius:3px;background:${m.c}"></span><span style="font:700 13px/1.2 inherit">${m.l}</span>${lag>0?`<span style="margin-left:auto;font:700 10px/1.4 inherit;padding:1px 8px;border-radius:999px;background:${lag>3?'#fef2e7':'#eaf7ef'};color:${lag>3?'#b45309':'#15803d'}">ต่าง ${lag} วัน</span>`:''}</div>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:3px">${ordPlatLogo(ch,20)}<span style="font:700 13px/1.2 inherit">${m.l}</span>${lag>0?`<span style="margin-left:auto;font:700 10px/1.4 inherit;padding:1px 8px;border-radius:999px;background:${lag>3?'#fef2e7':'#eaf7ef'};color:${lag>3?'#b45309':'#15803d'}">ต่าง ${lag} วัน</span>`:''}</div>
       <div style="font:500 10.5px/1.4 inherit;color:#94a3b8;margin-bottom:9px">BS ถึง <b style="color:#334155">${cov.bsMax[ch]?cov.bsMax[ch].slice(5):'—'}</b> · หลังบ้านถึง <b style="color:#b45309">${cov.beMax[ch]?cov.beMax[ch].slice(5):'—'}</b></div>
       <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-bottom:5px">${dowH.map(x=>`<div style="text-align:center;font:700 10px/1 inherit;color:#b3bdca">${x}</div>`).join('')}</div>
       <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px">${cells}</div>
@@ -14827,7 +14834,7 @@ function ordRenderBoard(d){
     const fn= behind==='pf'?'ordReconUpload()':'ordUploadFiles()';
     return `<div style="display:flex;align-items:center;gap:10px;padding:10px 11px;border-radius:12px;border:1px solid ${ok?'#d3edde':'#f1ddb5'};background:${ok?'#f3fbf6':'#fffaf0'}">
       <span style="width:28px;height:28px;border-radius:9px;flex-shrink:0;display:flex;align-items:center;justify-content:center;background:${ok?'#dcf3e6':'#fdeccb'};color:${ok?'#15803d':'#b45309'};font:800 14px/1 inherit">${ok?'✓':'!'}</span>
-      <div style="flex:1;min-width:0"><div style="display:flex;align-items:center;gap:6px"><span style="width:9px;height:9px;border-radius:3px;background:${m.c}"></span><span style="font:700 12.5px/1.2 inherit;color:#334155">${m.l}</span><span style="font:700 10px/1.4 inherit;padding:1px 8px;border-radius:999px;background:${ok?'#dcf3e6':'#fdeccb'};color:${ok?'#15803d':'#b45309'}">${ok?'OK':gap+' วัน'}</span></div><div style="font:500 11px/1.4 inherit;color:#64748b;margin-top:2px">${msg}</div></div>
+      <div style="flex:1;min-width:0"><div style="display:flex;align-items:center;gap:7px">${ordPlatLogo(ch,18)}<span style="font:700 12.5px/1.2 inherit;color:#334155">${m.l}</span><span style="font:700 10px/1.4 inherit;padding:1px 8px;border-radius:999px;background:${ok?'#dcf3e6':'#fdeccb'};color:${ok?'#15803d':'#b45309'}">${ok?'OK':gap+' วัน'}</span></div><div style="font:500 11px/1.4 inherit;color:#64748b;margin-top:2px">${msg}</div></div>
       ${ok?'':`<button class="ord-btn" style="flex-shrink:0;padding:6px 12px" onclick="${fn}">นำเข้า</button>`}
     </div>`;
   }).join('');

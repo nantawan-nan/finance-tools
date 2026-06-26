@@ -14902,9 +14902,16 @@ function ordRenderBoard(d){
       pItems(r.be).forEach(x=>{ const k=ordNormSku(x.sku)||(x.name||'?'); const m=im.get(k)||{sku:x.sku||k,name:x.name||'',bsQ:0,bsP:0,beQ:0,beP:0}; m.beQ+=Number(x.qty)||0; if(Number(x.price))m.beP=Number(x.price); if(!m.name&&x.name)m.name=x.name; im.set(k,m); });
       const items=[...im.values()];
       const g3='grid-template-columns:1fr 116px 116px';
-      const itemRow=it=>{ const bsT=it.bsP*it.bsQ, beT=it.beP*it.beQ; const qNe=(r.bs&&r.be)&&it.bsQ!==it.beQ; const pNe=(r.bs&&r.be)&&Math.abs(bsT-beT)>=0.01;
+      // ★ สเกลราคาราย SKU ให้ตรงกับ "มูลค่าสินค้ารวม" (prod ตามสูตร: Shopee/Lazada ใช้ "ราคา" ไม่ใช่ "ราคาสินค้าเดิม")
+      const grossBs=items.reduce((s,it)=>s+it.bsP*it.bsQ,0), grossBe=items.reduce((s,it)=>s+it.beP*it.beQ,0);
+      const itemRow=it=>{
+        const rawBs=it.bsP*it.bsQ, rawBe=it.beP*it.beQ;
+        const bsT=(S&&grossBs)?+(S.prod*rawBs/grossBs).toFixed(2):+rawBs.toFixed(2);
+        const beT=(P&&grossBe)?+(P.prod*rawBe/grossBe).toFixed(2):+rawBe.toFixed(2);
+        const bsU=it.bsQ?bsT/it.bsQ:bsT, beU=it.beQ?beT/it.beQ:beT;
+        const qNe=(r.bs&&r.be)&&it.bsQ!==it.beQ; const pNe=(r.bs&&r.be)&&Math.abs(bsT-beT)>=0.01;
         return `<div style="display:grid;${g3};gap:0;padding:7px 12px;border-top:1px solid #f1f5f9;font:500 12px/1.4 inherit;align-items:center">
-          <div style="min-width:0"><span style="font-weight:700;color:#334155">${esc(it.sku)}</span>${it.name?`<span style="color:#94a3b8"> · ${esc(it.name)}</span>`:''} <span style="color:${qNe?'#dc2626':'#94a3b8'};font-weight:${qNe?700:400}">×${it.bsQ||it.beQ}${qNe?` /${it.beQ}`:''} @ ${fmt(it.bsP||it.beP)}</span></div>
+          <div style="min-width:0"><span style="font-weight:700;color:#334155">${esc(it.sku)}</span>${it.name?`<span style="color:#94a3b8"> · ${esc(it.name)}</span>`:''} <span style="color:${qNe?'#dc2626':'#94a3b8'};font-weight:${qNe?700:400}">×${it.bsQ||it.beQ}${qNe?` /${it.beQ}`:''} @ ${fmt(r.bs?bsU:beU)}</span></div>
           <div style="text-align:right;${pNe?'color:#dc2626;font-weight:700':'color:#475569'}" class="tnum">${r.bs?fmt(bsT):'—'}</div>
           <div style="text-align:right;${pNe?'color:#dc2626;font-weight:700':'color:#475569'}" class="tnum">${r.be?fmt(beT):'—'}</div>
         </div>`; };

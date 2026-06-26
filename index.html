@@ -14655,10 +14655,77 @@ function ordBoardGo(k){ const d=ordGet();
 }
 function ordFmtMoney(n){ return Number(n||0).toLocaleString("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2}); }
 
+/* ---- toolbar: เมนู dropdown + ช่วงวัน + รูปแบบกราฟ ---- */
+function ordMenu(v){ const d=ordGet(); d._menu=(d._menu===v?'':v); renderToolOrders(); }
+function ordSetRange(k){ const d=ordGet(); d.dateRange=k; renderToolOrders(); }
+function ordReconViz(m){ const d=ordGet(); d.reconViz=m; renderToolOrders(); }
+function ordPlatGo(p){ const d=ordGet(); d.view='reg'; d.fStatus='all'; d.fPlatform=p; d._menu=''; renderToolOrders(); }
+function ordRangeBounds(range){
+  const t=new Date(); t.setHours(0,0,0,0);
+  const iso=x=>`${x.getFullYear()}-${String(x.getMonth()+1).padStart(2,'0')}-${String(x.getDate()).padStart(2,'0')}`;
+  if(range==='today') return {from:iso(t),to:iso(t)};
+  if(range==='7d'){ const a=new Date(t); a.setDate(t.getDate()-6); return {from:iso(a),to:iso(t)}; }
+  if(range==='month'){ return {from:iso(new Date(t.getFullYear(),t.getMonth(),1)),to:iso(t)}; }
+  return null;
+}
+/* กราฟกระทบยอดต่อแพลตฟอร์ม 4 รูปแบบ: ก=แท่งเต็ม · ข=กระจาย · ค=กึ่งกลาง · ง=โดนัท */
+function ordReconChart(cov, mode, fmt, pAgg){
+  const plMeta={shopee:{l:'Shopee',c:'#ee4d2d',pk:'shopee'},tiktok:{l:'TikTok',c:'#1f1f29',pk:'tiktok'},lazada:{l:'Lazada',c:'#3f3bcc',pk:'lazada'},offline:{l:'หน้าร้าน',c:'#64748b',pk:'other'}};
+  const rows=cov.chans.map(ch=>{const m=plMeta[ch]||{l:ch,c:'#64748b',pk:'other'};const cn=cov.cnt[ch];const tot=cn.matched+cn.only_be+cn.only_bs;const rate=tot?cn.matched/tot*100:0;const pa=(pAgg&&pAgg[m.pk])||{n:0,sum:0};return {ch,m,cn,tot,rate,pa};});
+  const sub=r=>`${r.pa.n.toLocaleString('th-TH')} ออเดอร์ · ${fmt(r.pa.sum)} บาท`;
+  if(mode==='a'){
+    return rows.map(r=>{const{cn,tot,rate,m}=r;const g=tot?cn.matched/tot*100:0,rd=tot?cn.only_be/tot*100:0,or=tot?cn.only_bs/tot*100:0;return `
+      <div style="margin-bottom:18px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:7px"><div style="display:flex;align-items:baseline;gap:8px"><span style="width:10px;height:10px;border-radius:2px;background:${m.c};align-self:center"></span><span style="font:700 14px/1.2 inherit">${m.l}</span><span style="font:500 11.5px/1.2 inherit;color:#94a3b8">${sub(r)}</span></div><span style="font:700 13px/1.2 inherit;color:#16a34a">แมท ${rate.toFixed(1)}%</span></div>
+        <div style="height:26px;border-radius:7px;overflow:hidden;display:flex;background:#f1f5f9">${g?`<div style="width:${g}%;background:#16a34a"></div>`:''}${rd?`<div style="width:${rd}%;background:#dc2626"></div>`:''}${or?`<div style="width:${or}%;background:#d97706"></div>`:''}</div>
+        <div style="display:flex;gap:18px;margin-top:7px;font:600 12px/1.2 inherit"><span style="color:#16a34a">ตรงกัน ${cn.matched}</span><span style="color:#dc2626">ไม่มีใน BigSeller ${cn.only_be}</span><span style="color:#d97706">ไม่มีในแพลตฟอร์ม ${cn.only_bs}</span></div>
+      </div>`;}).join('');
+  }
+  if(mode==='c'){
+    const maxT=Math.max(1,...rows.map(r=>r.cn.matched+r.cn.only_be), ...rows.map(r=>r.cn.matched+r.cn.only_bs));
+    return `<div style="display:flex;justify-content:space-between;font:700 10.5px/1.4 inherit;margin:4px 0 12px"><span style="color:#475569">◀ แพลตฟอร์ม e-commerce (SP/TT/LZ)</span><span style="color:#475569">BigSeller (หน้าบ้าน) ▶</span></div>`+
+      rows.map(r=>{const{cn,m,rate}=r;const lw=x=>x/maxT*50;return `
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
+        <div style="width:90px;flex-shrink:0"><div style="display:flex;align-items:center;gap:6px"><span style="width:9px;height:9px;border-radius:2px;background:${m.c}"></span><span style="font:700 12.5px/1.2 inherit">${m.l}</span></div><div style="font:600 10.5px/1.3 inherit;color:#16a34a;margin-top:2px">แมท ${rate.toFixed(1)}%</div></div>
+        <div style="flex:1;height:26px;border-radius:7px;background:#f1f5f9;overflow:hidden;display:flex;position:relative">
+          <div style="width:50%;display:flex;justify-content:flex-end"><div style="width:${lw(cn.only_be)}%;background:#dc2626"></div><div style="width:${lw(cn.matched)}%;background:#16a34a"></div></div>
+          <div style="width:1px;background:#fff"></div>
+          <div style="width:50%;display:flex;justify-content:flex-start"><div style="width:${lw(cn.matched)}%;background:#16a34a"></div><div style="width:${lw(cn.only_bs)}%;background:#d97706"></div></div>
+        </div>
+        <div style="width:96px;flex-shrink:0;font:600 11px/1.5 inherit;text-align:right"><div style="color:#475569">แพลตฟอร์ม <b>${cn.matched+cn.only_be}</b></div><div style="color:#b45309">BigSeller <b>${cn.matched+cn.only_bs}</b></div></div>
+      </div>`;}).join('');
+  }
+  if(mode==='d'){
+    return `<div style="display:grid;grid-template-columns:repeat(${Math.min(3,rows.length)},1fr);gap:12px">`+rows.map(r=>{const{cn,tot,rate,m}=r;const beP=tot?cn.only_be/tot*100:0,bsP=tot?cn.only_bs/tot*100:0;return `
+      <div style="border:1px solid #eef1f6;border-radius:14px;padding:16px 14px;text-align:center">
+        <div style="display:flex;align-items:center;justify-content:center;gap:7px;margin-bottom:12px"><span style="width:11px;height:11px;border-radius:3px;background:${m.c}"></span><span style="font:700 14px/1.2 inherit">${m.l}</span></div>
+        <div style="width:120px;height:120px;border-radius:50%;margin:0 auto;background:conic-gradient(#16a34a 0% ${rate}%,#dc2626 ${rate}% ${rate+beP}%,#d97706 ${rate+beP}% 100%);display:flex;align-items:center;justify-content:center">
+          <div style="width:84px;height:84px;border-radius:50%;background:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center"><span style="font:800 23px/1 inherit;color:#15803d">${rate.toFixed(1)}%</span><span style="font:500 10px/1.4 inherit;color:#94a3b8">แมท</span></div>
+        </div>
+        <div style="display:flex;gap:8px;justify-content:center;margin-top:13px"><span style="font:700 11px/1.3 inherit;background:#fef2f2;color:#dc2626;padding:3px 9px;border-radius:8px">ไม่มีใน BigSeller ${cn.only_be}</span><span style="font:700 11px/1.3 inherit;background:#fffbeb;color:#b45309;padding:3px 9px;border-radius:8px">ไม่มีในแพลตฟอร์ม ${cn.only_bs}</span></div>
+        <div style="font:500 11px/1.4 inherit;color:#94a3b8;margin-top:11px">${sub(r)}</div>
+      </div>`;}).join('')+`</div>`;
+  }
+  // mode b (default) — diverging bars
+  const maxSide=Math.max(1,...rows.map(r=>Math.max(r.cn.only_be,r.cn.only_bs)));
+  return `<div style="display:flex;justify-content:space-between;font:700 10.5px/1.4 inherit;margin:4px 0 12px"><span style="color:#dc2626">◀ มีในแพลตฟอร์ม · ไม่มีใน BigSeller</span><span style="color:#16a34a">ตรงกัน</span><span style="color:#d97706">มีใน BigSeller · ไม่มีในแพลตฟอร์ม ▶</span></div>`+
+    rows.map(r=>{const{cn,m}=r;return `
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+      <div style="width:78px;flex-shrink:0"><div style="display:flex;align-items:center;gap:6px"><span style="width:10px;height:10px;border-radius:2px;background:${m.c}"></span><span style="font:700 12.5px/1.2 inherit">${m.l}</span></div></div>
+      <div style="flex:1;display:flex;align-items:center;gap:6px">
+        <div style="flex:1;display:flex;justify-content:flex-end"><div style="height:28px;border-radius:6px;background:${cn.only_be?'#dc2626':'#f1f5f9'};width:${cn.only_be/maxSide*100}%;min-width:${cn.only_be?28:8}px;display:flex;align-items:center;justify-content:flex-start;padding-left:8px;color:#fff;font:800 12.5px/1 inherit">${cn.only_be||''}</div></div>
+        <div style="width:54px;height:34px;border-radius:8px;background:#16a34a;color:#fff;display:flex;align-items:center;justify-content:center;font:800 16px/1 inherit;flex-shrink:0">${cn.matched}</div>
+        <div style="flex:1;display:flex;justify-content:flex-start"><div style="height:28px;border-radius:6px;background:${cn.only_bs?'#d97706':'#f1f5f9'};width:${cn.only_bs/maxSide*100}%;min-width:${cn.only_bs?28:8}px;display:flex;align-items:center;justify-content:flex-end;padding-right:8px;color:#fff;font:800 12.5px/1 inherit">${cn.only_bs||''}</div></div>
+      </div>
+    </div>`;}).join('');
+}
+
 /* แท็บ สรุปภาพรวม (redesign) — KPI แพลตฟอร์ม + สรุปกระทบยอด + กระทบยอดต่อแพลตฟอร์ม + recon เดิม */
 function ordRenderBoard(d){
   const fmt=ordFmtMoney;
-  const active=(d.rows||[]).filter(o=>o.status!=='cancelled');
+  const rb=ordRangeBounds(d.dateRange||'all');
+  const inRange=dt=>!rb||(dt&&String(dt).slice(0,10)>=rb.from&&String(dt).slice(0,10)<=rb.to);
+  const active=(d.rows||[]).filter(o=>o.status!=='cancelled'&&inRange(o.order_date));
   // ----- 4 KPI แพลตฟอร์ม -----
   const PLAT=[
     {k:'shopee', l:'Shopee',           c:'#ee4d2d', badge:'S'},
@@ -14669,7 +14736,7 @@ function ordRenderBoard(d){
   const pAgg={}; PLAT.forEach(p=>pAgg[p.k]={n:0,sum:0});
   active.forEach(o=>{ let g=o.channel_group; if(g==='offline') g='other'; if(!pAgg[g]) g='other'; pAgg[g].n++; pAgg[g].sum+=Number(o.order_total||0); });
   const kpiCards=PLAT.map(p=>`
-    <div style="position:relative;background:#fff;border:1px solid #e7ebf2;border-top:3px solid ${p.c};border-radius:16px;padding:36px 16px 20px;text-align:center;box-shadow:0 1px 2px rgba(16,24,40,.04)">
+    <div onclick="ordPlatGo('${p.k}')" style="position:relative;background:#fff;border:1px solid #e7ebf2;border-top:3px solid ${p.c};border-radius:16px;padding:36px 16px 20px;text-align:center;box-shadow:0 1px 2px rgba(16,24,40,.04);cursor:pointer;transition:box-shadow .15s" onmouseover="this.style.boxShadow='0 10px 24px -10px rgba(16,24,40,.25)'" onmouseout="this.style.boxShadow='0 1px 2px rgba(16,24,40,.04)'">
       <span style="position:absolute;top:-24px;left:50%;transform:translateX(-50%);width:50px;height:50px;border-radius:50%;background:${p.c};color:#fff;display:flex;align-items:center;justify-content:center;font:800 21px/1 inherit;box-shadow:0 8px 16px -5px ${p.c};border:3px solid #fff">${p.badge}</span>
       <div style="font:700 15.5px/1.2 inherit;color:var(--n-900);margin-bottom:12px">${esc(p.l)}</div>
       <div class="tnum" style="font:800 28px/1.05 inherit;color:var(--n-900);letter-spacing:-.6px">${fmt(pAgg[p.k].sum)} <span style="font-size:15px;font-weight:600;color:var(--n-500)">บาท</span></div>
@@ -14677,7 +14744,7 @@ function ordRenderBoard(d){
     </div>`).join('');
 
   // ----- recon summary -----
-  const res=(d.recon&&d.recon.results)||[];
+  const res=((d.recon&&d.recon.results)||[]).filter(r=>inRange(r.date));
   const resAmt=r=>Number(ordReconNet(r.be||r.bs||{}))||0;
   const sm={matched:{n:0,s:0},only_be:{n:0,s:0},only_bs:{n:0,s:0},diff:{n:0,s:0}};
   res.forEach(r=>{ if(sm[r.status]){ sm[r.status].n++; sm[r.status].s+=resAmt(r); } });
@@ -14713,21 +14780,16 @@ function ordRenderBoard(d){
   const cov=ordReconCoverage(d,res);
   const maxSide=Math.max(1,...cov.chans.map(ch=>Math.max(cov.cnt[ch].only_be,cov.cnt[ch].only_bs)));
   const plMeta={shopee:{l:'Shopee',c:'#ee4d2d'},tiktok:{l:'TikTok',c:'#1f1f29'},lazada:{l:'Lazada',c:'#3f3bcc'},offline:{l:'หน้าร้าน',c:'#64748b'}};
+  const viz=d.reconViz||'b';
+  const vizBtn=(mk,l)=>`<button onclick="ordReconViz('${mk}')" style="border:0;border-radius:7px;padding:5px 11px;font:700 12px/1 inherit;cursor:pointer;font-family:inherit;${viz===mk?'background:var(--brand,#1e3a8a);color:#fff':'background:transparent;color:#64748b'}">${l}</button>`;
   const perPlat=`
     <div style="background:#fff;border:1px solid #e7ebf2;border-radius:16px;padding:22px;box-shadow:0 1px 2px rgba(16,24,40,.04)">
-      <div style="display:flex;align-items:center;gap:11px;margin-bottom:6px"><span style="width:34px;height:34px;border-radius:10px;background:var(--brand-soft,#eef2fb);display:flex;align-items:center;justify-content:center"><i data-lucide="git-compare-arrows" style="width:19px;height:19px;color:var(--brand,#1e3a8a)"></i></span><div style="font:700 16px/1.2 inherit;color:var(--n-900)">กระทบยอดต่อแพลตฟอร์ม</div></div>
-      <div style="display:flex;justify-content:space-between;font:700 10.5px/1.4 inherit;color:var(--n-500);margin:14px 0 10px;letter-spacing:.2px"><span style="color:#dc2626">◀ แพลตฟอร์ม · ไม่มีใน BS</span><span style="color:#16a34a">ตรงกัน</span><span style="color:#d97706">BS · ไม่มีแพลตฟอร์ม ▶</span></div>
-      <div style="display:flex;flex-direction:column;gap:14px">
-        ${cov.chans.map(ch=>{const m=plMeta[ch]||{l:ch,c:'#64748b'};const cn=cov.cnt[ch];return `
-        <div style="display:flex;align-items:center;gap:10px">
-          <div style="width:78px;flex-shrink:0"><div style="display:flex;align-items:center;gap:6px"><span style="width:10px;height:10px;border-radius:2px;background:${m.c}"></span><span style="font:700 12.5px/1.2 inherit;color:var(--n-900)">${m.l}</span></div></div>
-          <div style="flex:1;display:flex;align-items:center;gap:6px">
-            <div style="flex:1;display:flex;justify-content:flex-end"><div style="height:28px;border-radius:6px;background:${cn.only_be?'#dc2626':'#f1f5f9'};width:${cn.only_be/maxSide*100}%;min-width:${cn.only_be?28:8}px;display:flex;align-items:center;justify-content:flex-start;padding-left:8px;color:#fff;font:800 12.5px/1 inherit">${cn.only_be||''}</div></div>
-            <div style="width:54px;height:34px;border-radius:8px;background:#16a34a;color:#fff;display:flex;align-items:center;justify-content:center;font:800 16px/1 inherit;flex-shrink:0">${cn.matched}</div>
-            <div style="flex:1;display:flex;justify-content:flex-start"><div style="height:28px;border-radius:6px;background:${cn.only_bs?'#d97706':'#f1f5f9'};width:${cn.only_bs/maxSide*100}%;min-width:${cn.only_bs?28:8}px;display:flex;align-items:center;justify-content:flex-end;padding-right:8px;color:#fff;font:800 12.5px/1 inherit">${cn.only_bs||''}</div></div>
-          </div>
-        </div>`;}).join('')}
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:4px;flex-wrap:wrap">
+        <div style="display:flex;align-items:center;gap:11px"><span style="width:34px;height:34px;border-radius:10px;background:var(--brand-soft,#eef2fb);display:flex;align-items:center;justify-content:center"><i data-lucide="git-compare-arrows" style="width:19px;height:19px;color:var(--brand,#1e3a8a)"></i></span><div><div style="font:700 16px/1.2 inherit;color:var(--n-900)">กระทบยอดต่อแพลตฟอร์ม</div><div style="font:500 11px/1.4 inherit;color:var(--n-500);margin-top:1px">หน่วย: จำนวนออเดอร์</div></div></div>
+        <div style="display:flex;align-items:center;gap:8px"><span style="font:600 11.5px/1.2 inherit;color:#94a3b8">รูปแบบ</span><div style="display:flex;gap:2px;background:#f1f5f9;padding:3px;border-radius:9px">${vizBtn('a','ก')}${vizBtn('b','ข')}${vizBtn('c','ค')}${vizBtn('d','ง')}</div></div>
       </div>
+      <div style="display:flex;gap:14px;flex-wrap:wrap;font:400 11px/1.4 inherit;color:#475569;margin:10px 0 16px"><span style="display:inline-flex;align-items:center;gap:5px"><span style="width:11px;height:11px;border-radius:3px;background:#16a34a"></span>ตรงกัน (อยู่ทั้ง 2 ระบบ)</span><span style="display:inline-flex;align-items:center;gap:5px"><span style="width:11px;height:11px;border-radius:3px;background:#dc2626"></span>มีในแพลตฟอร์ม แต่ไม่มีใน BigSeller</span><span style="display:inline-flex;align-items:center;gap:5px"><span style="width:11px;height:11px;border-radius:3px;background:#d97706"></span>มีใน BigSeller แต่ไม่มีในแพลตฟอร์ม</span></div>
+      ${ordReconChart(cov, viz, fmt, pAgg)}
     </div>`;
 
   // ----- ปฏิทินสถานะนำเข้า + สิ่งที่ต้องทำต่อ -----
@@ -16950,52 +17012,47 @@ async function renderToolOrders(){
       <input id="ordQ" value="${esc(d.q||'')}" oninput="ordSet('q',this.value)" placeholder="ค้นหาเลขออเดอร์ / IV / RE / BQ / เลขเช็ค / สินค้า — เด้งสถานะเต็มทันที">
     </div>
 
-    <!-- Actions -->
-    <div class="ord-actions">
-      <button class="ord-btn primary" onclick="ordUploadFiles()" ${brecCanWrite()?'':'disabled'}><i data-lucide="upload"></i> อัปรายงานขาย BigSeller</button>
-      <button class="ord-btn" onclick="ordExportNoIv()"><i data-lucide="download"></i> ส่งออกออเดอร์ยังไม่คีย์ IV</button>
-      <div style="flex:1"></div>
-      <button class="ord-btn danger" onclick="ordResetLedger()" ${brecCanWrite()?'':'disabled'}><i data-lucide="trash-2"></i> ล้างทะเบียน เริ่มใหม่</button>
+    <!-- Toolbar: tabs (ซ้าย) + นำเข้า/ส่งออก/ล้าง (ขวา) -->
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-top:14px">
+      <div class="ord-tabs" style="margin:0">
+        ${tabBtn('board','⇄ สรุปภาพรวม', null)}
+        ${tabBtn('reg','📋 รายละเอียดการขาย', k.totN)}
+      </div>
+      <div style="display:flex;align-items:center;gap:9px;position:relative">
+        ${d._menu?`<div onclick="ordMenu('')" style="position:fixed;inset:0;z-index:40"></div>`:''}
+        <div style="position:relative;z-index:50">
+          <button class="ord-btn primary" onclick="ordMenu('import')" ${brecCanWrite()?'':'disabled'}><i data-lucide="upload"></i> นำเข้าข้อมูล <i data-lucide="chevron-down" style="width:13px;height:13px"></i></button>
+          ${d._menu==='import'?`<div style="position:absolute;top:calc(100% + 8px);left:0;width:300px;background:#fff;border:1px solid #e2e8f0;border-radius:14px;box-shadow:0 18px 42px -12px rgba(16,24,40,.3);padding:10px;z-index:50">
+            <div style="font:700 11px/1.2 inherit;color:#94a3b8;padding:6px 8px 9px">เลือกแหล่งข้อมูลที่จะนำเข้า</div>
+            <button onclick="ordMenu('');ordUploadFiles()" style="display:flex;align-items:center;gap:11px;width:100%;text-align:left;padding:10px;border-radius:11px;border:0;background:transparent;cursor:pointer;font-family:inherit"><span style="width:36px;height:36px;border-radius:10px;background:var(--brand-soft,#eef2fb);display:flex;align-items:center;justify-content:center;flex-shrink:0"><i data-lucide="database" style="width:18px;height:18px;color:var(--brand,#1e3a8a)"></i></span><span style="flex:1"><span style="display:block;font:700 13.5px/1.3 inherit;color:#1f2937">ข้อมูลจาก BigSeller</span><span style="display:block;font:400 11.5px/1.3 inherit;color:#94a3b8">ออเดอร์รวม SP/TT/LZ + คีย์มือ (FACE/LINE)</span></span></button>
+            <button onclick="ordMenu('');ordReconUpload()" style="display:flex;align-items:center;gap:11px;width:100%;text-align:left;padding:10px;border-radius:11px;border:0;background:transparent;cursor:pointer;font-family:inherit"><span style="width:36px;height:36px;border-radius:10px;background:#fef0ec;display:flex;align-items:center;justify-content:center;flex-shrink:0"><i data-lucide="store" style="width:18px;height:18px;color:#ee4d2d"></i></span><span style="flex:1"><span style="display:block;font:700 13.5px/1.3 inherit;color:#1f2937">ข้อมูลจากแพลตฟอร์ม e-commerce</span><span style="display:block;font:400 11.5px/1.3 inherit;color:#94a3b8">รายงานหลังบ้าน Shopee / TikTok / Lazada</span></span></button>
+          </div>`:''}
+        </div>
+        <div style="position:relative;z-index:50">
+          <button class="ord-btn" onclick="ordMenu('export')"><i data-lucide="download"></i> ส่งออกข้อมูล <i data-lucide="chevron-down" style="width:13px;height:13px"></i></button>
+          ${d._menu==='export'?`<div style="position:absolute;top:calc(100% + 8px);right:0;width:300px;background:#fff;border:1px solid #e2e8f0;border-radius:14px;box-shadow:0 18px 42px -12px rgba(16,24,40,.3);padding:10px;z-index:50">
+            <div style="font:700 11px/1.2 inherit;color:#94a3b8;padding:6px 8px 9px">เลือกข้อมูลที่จะส่งออก</div>
+            <button onclick="ordMenu('');ordExportNoIv()" style="display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:10px;border-radius:11px;border:0;background:transparent;cursor:pointer;font-family:inherit"><i data-lucide="file-down" style="width:18px;height:18px;color:var(--brand,#1e3a8a)"></i><span style="font:600 13px/1.3 inherit;color:#1f2937">ออเดอร์ที่ยังไม่คีย์ IV (Excel)</span></button>
+            <button onclick="ordMenu('');ordReconGenReports()" style="display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:10px;border-radius:11px;border:0;background:transparent;cursor:pointer;font-family:inherit"><i data-lucide="file-check-2" style="width:18px;height:18px;color:#16a34a"></i><span style="font:600 13px/1.3 inherit;color:#1f2937">สร้างใบกระทบยอด (Snapshot)</span></button>
+          </div>`:''}
+        </div>
+        <button class="ord-btn danger" onclick="ordResetLedger()" ${brecCanWrite()?'':'disabled'}><i data-lucide="trash-2"></i> ล้างทะเบียน</button>
+      </div>
     </div>
 
     ${ordUnknownPanel(d)}
 
-    <!-- KPI strip (Level 2: hierarchy — total brand, ต้องทำ red, ไหลผ่าน blue, ปิดแล้ว green) -->
-    <div class="ord-kpis">
-      <div class="ord-k k-brand col">
-        <span class="ico">📦</span>
-        <div class="lbl">คำสั่งซื้อจากระบบ Big Seller</div>
-        <div class="v tnum">${k.totN.toLocaleString("th-TH")}</div>
-        <div class="sub">${fmt(k.totSum)} บาท${k.cancelN?` · ยกเลิก ${k.cancelN}`:''}</div>
-      </div>
-      <div class="ord-k ${k.actN?'soft-red':''} click" onclick="ordSetView('reg')" title="ดูในทะเบียน">
-        <div class="lbl">ต้องดำเนินการ</div>
-        <div class="v tnum">${k.actN}</div>
-        <div class="sub">${k.actN?fmt(k.actSum)+' บาท · รอคีย์ IV / ยอดไม่ตรง':'ไม่มีรายการค้าง'}</div>
-      </div>
-      <div class="ord-k ${k.onlyBe?'soft-amber':''} click" onclick="ordSetView('recon')" title="ไปแท็บตรวจรายวัน">
-        <div class="lbl">รอเทียบ / หลังบ้านขาด</div>
-        <div class="v tnum">${k.onlyBe}</div>
-        <div class="sub">${k.onlyBe?'อัปไฟล์หลังบ้านเพื่อเทียบยอด':'เทียบครบหรือยังไม่ได้อัปไฟล์'}</div>
-      </div>
-      <div class="ord-k ${k.pct>=80?'soft-green':''}">
-        <div class="lbl">ปิดงานแล้ว</div>
-        <div class="v tnum">${k.pct}%</div>
-        <div class="sub">${k.doneN.toLocaleString("th-TH")} จาก ${k.totN.toLocaleString("th-TH")} · ${fmt(k.doneSum)} บาท</div>
-      </div>
-    </div>
-
     ${view==='search' ? ordRenderSearch(d) : `
-    <!-- Tabs -->
-    <div class="ord-tabs">
-      ${tabBtn('board','🚦 สรุปสถานะ', k.onlyBe||null, k.onlyBe?'t-danger':'')}
-      ${tabBtn('reg','📋 คำสั่งซื้อจากระบบ Big Seller', k.totN)}
-    </div>
+    ${view==='board' ? `<!-- date-range chips -->
+    <div style="display:flex;align-items:center;gap:8px;background:#fff;border:1px solid var(--n-200);border-radius:12px;padding:6px 8px;margin-top:14px;width:fit-content;flex-wrap:wrap">
+      <span style="font:600 12px/1.2 inherit;color:var(--n-500);padding:0 6px;display:inline-flex;align-items:center;gap:5px"><i data-lucide="calendar-range" style="width:14px;height:14px"></i>ช่วงวันที่</span>
+      ${[['all','ทั้งหมด'],['today','วันนี้'],['7d','7 วัน'],['month','เดือนนี้']].map(([k2,l])=>`<button onclick="ordSetRange('${k2}')" style="border:0;border-radius:8px;padding:6px 13px;font:600 12.5px/1 inherit;cursor:pointer;font-family:inherit;${(d.dateRange||'all')===k2?'background:var(--brand,#1e3a8a);color:#fff':'background:transparent;color:#64748b'}">${l}</button>`).join('')}
+    </div>`:''}
 
     ${d.busy ? `<div class="ord-empty"><i data-lucide="loader-2"></i><div class="ttl">กำลังประมวลผล…</div></div>`
       : view==='reg'   ? ordRenderRegister(d)
       : view==='recon' ? ordRenderRecon(d)
-      : (view==='month'?ordRenderBoard(d):ordRenderBoard(d)) }
+      : ordRenderBoard(d) }
     `}
   </div>`;
   if(window.lucide&&window.lucide.createIcons){ try{ window.lucide.createIcons(); }catch(e){} }

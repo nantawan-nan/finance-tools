@@ -199,7 +199,15 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
   - **สิ่งที่ต้องทำต่อ** (แผงขวา): ต่อช่อง คำนวณ bsGap/pfGap จาก todayDay · ok=gap≤1 (เขียว ✓) ไม่งั้น(ส้ม !) + ปุ่ม "นำเข้า" → `ordReconUpload()` (เหลือแพลตฟอร์ม) / `ordUploadFiles()` (เหลือ BS) + ปุ่ม "นำเข้าข้อมูลเพิ่มเติม"
   - **รายการที่ไม่แมท**: ตาราง grid 6 คอลัมน์ (วันที่/ช่องทาง badge/เลขออเดอร์/ประเภท badge/ยอด/ปุ่มเปิด) จาก res only_be+only_bs · เปิด → `ordSet('q', order_no)` · cap 50
 - **action bar:** อัปไฟล์หลังบ้าน (`ordReconUpload`) + สร้างใบกระทบยอด (`ordReconGenReports`) + ประวัติรายงาน (`ordReconToggleHistory` → `ordReconHistoryHtml`) + busy loader
-- **ยังไม่ทำ:** restyle แท็บ "รายละเอียดการขาย" (register) ตามดีไซน์ · import/export dropdown menu แบบดีไซน์ · company toggle ใน hero
+### 2026-06-26 — Orders redesign Phase 4: hero/toolbar/chart ตรงดีไซน์เป๊ะ
+- **hero:** subtitle "กระทบยอด BigSeller (หน้าบ้าน) ↔ แพลตฟอร์ม e-commerce..." + ปุ่มสลับบริษัท M Bark/Benya (`setCompany`) + ช่วงข้อมูล (min–max order_date) + อัตราแมท % · เอา "ออเดอร์รวม" ออก
+- **เอา KPI strip ออก** (คำสั่งซื้อ/ต้องดำเนินการ/รอเทียบ/ปิดงาน) — ดีไซน์ไม่มี
+- **toolbar ใหม่:** tabs (สรุปภาพรวม/รายละเอียดการขาย) ซ้าย + **dropdown นำเข้าข้อมูล** (BigSeller=`ordUploadFiles` · แพลตฟอร์ม=`ordReconUpload`) + **dropdown ส่งออก** (ยังไม่คีย์ IV=`ordExportNoIv` · ใบกระทบยอด=`ordReconGenReports`) + ล้างทะเบียน · เปิด/ปิดผ่าน `ordMenu(v)`/`d._menu` + overlay click-outside
+- **date-range chips** (ทั้งหมด/วันนี้/7วัน/เดือนนี้) `ordSetRange`/`d.dateRange` → `ordRangeBounds` กรอง active+res ใน board (เฉพาะแท็บ board)
+- **กราฟกระทบยอดต่อแพลตฟอร์ม 4 รูปแบบ** `ordReconChart(cov,mode,fmt,pAgg)` toggle ก/ข/ค/ง (`ordReconViz`/`d.reconViz` default 'b'): **ก**=แท่งเต็ม+legend นับ · **ข**=กระจาย (กล่องกลางเขียว) · **ค**=กึ่งกลาง (แพลตฟอร์ม◀ ... ▶BigSeller) · **ง**=โดนัท conic-gradient %แมท + badge
+- **คลิกเด้งดีเทล:** การ์ด KPI แพลตฟอร์ม → `ordPlatGo(p)` (view='reg' + d.fPlatform) · รายการไม่แมท "เปิด" → `ordSet('q',order_no)`
+- **gotcha:** perPlat สร้างก่อน calendar → อย่าอ้าง `monthLabel`/`todayDay` ใน perPlat (TDZ)
+- **ยังไม่ทำ:** กรอง register ตาม `d.fPlatform` จริง (ตอนนี้แค่ navigate) · restyle ตาราง register ตามดีไซน์ · count/amount display toggle
 
 ### 2026-06-24 — Orders ตรวจ IV: รื้อ flow เป็น checklist + เปรียบเทียบยอดสูตรเต็ม + UI ทางการ
 - **ปัญหาเดิม:** ปุ่ม "Tag IV ที่ยังว่าง (N)" tag ทั้งหมดทันทีไม่ confirm รายตัว · เคสที่ 723-5 ยอดต่างจาก order_total จะถูก overwrite sale_amount เงียบๆ · ไม่มีฟิลเตอร์/sort/checkbox · เคส 0/0 ที่ user ไม่เชื่อใจถูก mark "ตรงแล้ว" อัตโนมัติ

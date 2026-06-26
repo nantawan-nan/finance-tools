@@ -136,7 +136,8 @@
 
   /* Cash Flow Staff view */
   .cf-chips{display:flex;gap:6px;flex-wrap:wrap}
-  .cf-chips button{border:1px solid var(--glass-border);background:rgba(255,255,255,.6);color:var(--ink-2);padding:5px 13px;border-radius:999px;font-size:12px;font-weight:600;transition:.14s}
+  .cf-chips button{border:1px solid var(--glass-border);background:rgba(255,255,255,.6);color:var(--ink-2);padding:7px 15px;border-radius:999px;font-size:13.5px;font-weight:600;transition:.14s}
+  .cf-chips button small{font-size:12px;margin-left:3px}
   .cf-chips button:hover{border-color:var(--brand);color:var(--brand-dark)}
   .cf-chips button.active{background:linear-gradient(135deg,var(--brand),var(--brand-dark));color:#fff;border-color:var(--brand);box-shadow:0 3px 10px rgba(var(--brand-rgb),.26)}
   .kpigrid{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:16px}
@@ -11112,10 +11113,10 @@ async function renderToolCashflowStaff(){
           const isSel = (D)=> d.staffMode==='day' && d.staffDate===fmtD(D);
           const friBtn = (D, n)=> `<button class="${isSel(D)?'active':''}" onclick="cffSetStaffPayDay('${fmtD(D)}')">ศุกร์ที่ ${n} <small style="opacity:.7;font-weight:500">(${labelD(D)})</small></button>`;
           const fridays = cyc.fridays;
-          const grpStyle = "display:flex;align-items:center;gap:6px;padding:6px 12px 6px 0;border-right:1px solid var(--glass-border);margin-right:6px";
-          const lblStyle = "font-size:11px;font-weight:700;color:var(--ink-3);text-transform:uppercase;letter-spacing:.04em;white-space:nowrap;margin-right:4px";
+          const grpStyle = "display:flex;align-items:center;gap:8px;padding:6px 14px 6px 0;border-right:1px solid var(--glass-border);margin-right:8px";
+          const lblStyle = "font-size:12.5px;font-weight:700;color:var(--ink-2);white-space:nowrap;margin-right:4px";
           return `
-            <button class="cf-chip-all ${d.staffMode==='all'?'active':''}" onclick="cffSetStaffAll()" style="font-weight:700;padding:6px 14px;border-radius:9px;border:1.5px solid ${d.staffMode==='all'?'var(--brand,#0d9488)':'var(--line,#e2e8f0)'};background:${d.staffMode==='all'?'var(--brand,#0d9488)':'#fff'};color:${d.staffMode==='all'?'#fff':'var(--ink,#0f172a)'};font-size:12.5px;cursor:pointer;margin-right:4px">ทั้งหมด</button>
+            <button class="cf-chip-all ${d.staffMode==='all'?'active':''}" onclick="cffSetStaffAll()" style="font-weight:700;padding:8px 18px;border-radius:10px;border:1.5px solid ${d.staffMode==='all'?'var(--brand,#0d9488)':'var(--line,#e2e8f0)'};background:${d.staffMode==='all'?'var(--brand,#0d9488)':'#fff'};color:${d.staffMode==='all'?'#fff':'var(--ink,#0f172a)'};font-size:14px;cursor:pointer;margin-right:6px">ทั้งหมด</button>
             <div style="${grpStyle}">
               <span style="${lblStyle}">📅 ช่วงวัน:</span>
               <div class="cf-chips" style="display:flex;gap:5px">

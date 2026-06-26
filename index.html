@@ -14684,7 +14684,7 @@ function ordReconChart(cov, mode, fmt, pAgg){
     return rows.map(r=>{const{cn,tot,rate,m}=r;const g=tot?cn.matched/tot*100:0,rd=tot?cn.only_be/tot*100:0,or=tot?cn.only_bs/tot*100:0;return `
       <div style="margin-bottom:18px">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:7px"><div style="display:flex;align-items:center;gap:9px">${ordPlatLogo(r.ch,22)}<span style="font:700 14px/1.2 inherit">${m.l}</span><span style="font:500 11.5px/1.2 inherit;color:#94a3b8">${sub(r)}</span></div><span style="font:700 13px/1.2 inherit;color:#16a34a">แมท ${rate.toFixed(1)}%</span></div>
-        <div style="height:26px;border-radius:7px;overflow:hidden;display:flex;background:#f1f5f9">${g?`<div style="width:${g}%;background:#16a34a"></div>`:''}${rd?`<div style="width:${rd}%;background:#dc2626"></div>`:''}${or?`<div style="width:${or}%;background:#d97706"></div>`:''}</div>
+        <div style="height:32px;border-radius:8px;overflow:hidden;display:flex;background:#f1f5f9">${g?`<div style="width:${g}%;background:#16a34a"></div>`:''}${rd?`<div style="width:${rd}%;background:#dc2626"></div>`:''}${or?`<div style="width:${or}%;background:#d97706"></div>`:''}</div>
         <div style="display:flex;gap:18px;margin-top:7px;font:600 12px/1.2 inherit"><span style="color:#16a34a">ตรงกัน ${cn.matched}</span><span style="color:#dc2626">ไม่มีใน BigSeller ${cn.only_be}</span><span style="color:#d97706">ไม่มีในแพลตฟอร์ม ${cn.only_bs}</span></div>
       </div>`;}).join('');
   }
@@ -14717,12 +14717,12 @@ function ordReconChart(cov, mode, fmt, pAgg){
   const maxSide=Math.max(1,...rows.map(r=>Math.max(r.cn.only_be,r.cn.only_bs)));
   return `<div style="display:flex;justify-content:space-between;font:700 10.5px/1.4 inherit;margin:4px 0 12px"><span style="color:#dc2626">◀ มีในแพลตฟอร์ม · ไม่มีใน BigSeller</span><span style="color:#16a34a">ตรงกัน</span><span style="color:#d97706">มีใน BigSeller · ไม่มีในแพลตฟอร์ม ▶</span></div>`+
     rows.map(r=>{const{cn,m}=r;return `
-    <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
-      <div style="width:86px;flex-shrink:0"><div style="display:flex;align-items:center;gap:7px">${ordPlatLogo(r.ch,18)}<span style="font:700 12.5px/1.2 inherit">${m.l}</span></div></div>
-      <div style="flex:1;display:flex;align-items:center;gap:6px">
-        <div style="flex:1;display:flex;justify-content:flex-end"><div style="height:28px;border-radius:6px;background:${cn.only_be?'#dc2626':'#f1f5f9'};width:${cn.only_be/maxSide*100}%;min-width:${cn.only_be?28:8}px;display:flex;align-items:center;justify-content:flex-start;padding-left:8px;color:#fff;font:800 12.5px/1 inherit">${cn.only_be||''}</div></div>
-        <div style="width:54px;height:34px;border-radius:8px;background:#16a34a;color:#fff;display:flex;align-items:center;justify-content:center;font:800 16px/1 inherit;flex-shrink:0">${cn.matched}</div>
-        <div style="flex:1;display:flex;justify-content:flex-start"><div style="height:28px;border-radius:6px;background:${cn.only_bs?'#d97706':'#f1f5f9'};width:${cn.only_bs/maxSide*100}%;min-width:${cn.only_bs?28:8}px;display:flex;align-items:center;justify-content:flex-end;padding-right:8px;color:#fff;font:800 12.5px/1 inherit">${cn.only_bs||''}</div></div>
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:18px">
+      <div style="width:92px;flex-shrink:0"><div style="display:flex;align-items:center;gap:8px">${ordPlatLogo(r.ch,22)}<span style="font:700 13.5px/1.2 inherit">${m.l}</span></div></div>
+      <div style="flex:1;display:flex;align-items:center;gap:7px">
+        <div style="flex:1;display:flex;justify-content:flex-end"><div style="height:34px;border-radius:7px;background:${cn.only_be?'#dc2626':'#f1f5f9'};width:${cn.only_be/maxSide*100}%;min-width:${cn.only_be?34:10}px;display:flex;align-items:center;justify-content:flex-start;padding-left:10px;color:#fff;font:800 14px/1 inherit">${cn.only_be||''}</div></div>
+        <div style="width:64px;height:44px;border-radius:9px;background:#16a34a;color:#fff;display:flex;align-items:center;justify-content:center;font:800 19px/1 inherit;flex-shrink:0">${cn.matched}</div>
+        <div style="flex:1;display:flex;justify-content:flex-start"><div style="height:34px;border-radius:7px;background:${cn.only_bs?'#d97706':'#f1f5f9'};width:${cn.only_bs/maxSide*100}%;min-width:${cn.only_bs?34:10}px;display:flex;align-items:center;justify-content:flex-end;padding-right:10px;color:#fff;font:800 14px/1 inherit">${cn.only_bs||''}</div></div>
       </div>
     </div>`;}).join('');
 }
@@ -14758,15 +14758,15 @@ function ordRenderBoard(d){
   const checkedN=res.length, checkedSum=res.reduce((a,r)=>a+resAmt(r),0);
   const matchRate= checkedN? (sm.matched.n/checkedN*100):0;
   const reconRow=(c,bg,l,sub,o)=>`
-    <div style="display:flex;align-items:center;gap:12px;padding:14px 16px;border-radius:13px;background:${bg};border:1px solid ${c}22">
-      <span style="width:4px;align-self:stretch;border-radius:4px;background:${c}"></span>
-      <div style="flex:1;min-width:0"><div style="font:700 14.5px/1.3 inherit;color:var(--n-900)">${l}</div><div style="font:500 12px/1.4 inherit;color:var(--n-500);margin-top:2px">${sub}</div></div>
-      <div style="text-align:right"><div class="tnum" style="font:800 23px/1 inherit;color:${c}">${o.n.toLocaleString('th-TH')}</div><div class="tnum" style="font:500 11.5px/1.4 inherit;color:var(--n-500);margin-top:2px">${fmt(o.s)} บาท</div></div>
+    <div style="display:flex;align-items:center;gap:13px;padding:17px 18px;border-radius:14px;background:${bg};border:1px solid ${c}22">
+      <span style="width:5px;align-self:stretch;border-radius:4px;background:${c}"></span>
+      <div style="flex:1;min-width:0"><div style="font:800 15.5px/1.3 inherit;color:var(--n-900)">${l}</div><div style="font:500 12.5px/1.4 inherit;color:var(--n-500);margin-top:3px">${sub}</div></div>
+      <div style="text-align:right"><div class="tnum" style="font:800 28px/1 inherit;color:${c}">${o.n.toLocaleString('th-TH')}</div><div class="tnum" style="font:500 12px/1.4 inherit;color:var(--n-500);margin-top:3px">${fmt(o.s)} บาท</div></div>
     </div>`;
   const reconSummary=`
     <div style="background:#fff;border:1px solid #e7ebf2;border-radius:16px;padding:22px;box-shadow:0 1px 2px rgba(16,24,40,.04)">
       <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:16px">
-        <div style="display:flex;align-items:center;gap:11px"><span style="width:34px;height:34px;border-radius:10px;background:var(--brand-soft,#eef2fb);display:flex;align-items:center;justify-content:center"><i data-lucide="clipboard-check" style="width:19px;height:19px;color:var(--brand,#1e3a8a)"></i></span><div><div style="font:700 16px/1.2 inherit;color:var(--n-900)">สรุปกระทบยอด</div><div style="font:500 12px/1.4 inherit;color:var(--n-500);margin-top:2px">ตรวจทั้งหมด · แบ่งตามผลการแมท</div></div></div>
+        <div style="display:flex;align-items:center;gap:11px"><span style="width:34px;height:34px;border-radius:10px;background:var(--brand-soft,#eef2fb);display:flex;align-items:center;justify-content:center"><i data-lucide="clipboard-check" style="width:19px;height:19px;color:var(--brand,#1e3a8a)"></i></span><div><div style="font:800 18px/1.2 inherit;color:var(--n-900)">สรุปกระทบยอด</div><div style="font:500 12.5px/1.4 inherit;color:var(--n-500);margin-top:2px">ตรวจทั้งหมด · แบ่งตามผลการแมท</div></div></div>
         <div style="text-align:right"><div class="tnum" style="font:800 42px/1 inherit;color:var(--n-900);letter-spacing:-1px">${checkedN.toLocaleString('th-TH')}</div><div class="tnum" style="font:500 12px/1.4 inherit;color:var(--n-500);margin-top:3px">${fmt(checkedSum)} บาท</div></div>
       </div>
       <div style="height:10px;border-radius:6px;background:#f1f5f9;overflow:hidden;display:flex;margin-bottom:16px">
@@ -14792,7 +14792,7 @@ function ordRenderBoard(d){
   const perPlat=`
     <div style="background:#fff;border:1px solid #e7ebf2;border-radius:16px;padding:22px;box-shadow:0 1px 2px rgba(16,24,40,.04)">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:4px;flex-wrap:wrap">
-        <div style="display:flex;align-items:center;gap:11px"><span style="width:34px;height:34px;border-radius:10px;background:var(--brand-soft,#eef2fb);display:flex;align-items:center;justify-content:center"><i data-lucide="git-compare-arrows" style="width:19px;height:19px;color:var(--brand,#1e3a8a)"></i></span><div><div style="font:700 16px/1.2 inherit;color:var(--n-900)">กระทบยอดต่อแพลตฟอร์ม</div><div style="font:500 11px/1.4 inherit;color:var(--n-500);margin-top:1px">หน่วย: จำนวนออเดอร์</div></div></div>
+        <div style="display:flex;align-items:center;gap:11px"><span style="width:34px;height:34px;border-radius:10px;background:var(--brand-soft,#eef2fb);display:flex;align-items:center;justify-content:center"><i data-lucide="git-compare-arrows" style="width:19px;height:19px;color:var(--brand,#1e3a8a)"></i></span><div><div style="font:800 18px/1.2 inherit;color:var(--n-900)">กระทบยอดต่อแพลตฟอร์ม</div><div style="font:500 11.5px/1.4 inherit;color:var(--n-500);margin-top:1px">หน่วย: จำนวนออเดอร์</div></div></div>
         <div style="display:flex;align-items:center;gap:8px"><span style="font:600 11.5px/1.2 inherit;color:#94a3b8">รูปแบบ</span><div style="display:flex;gap:2px;background:#f1f5f9;padding:3px;border-radius:9px">${vizBtn('a','ก')}${vizBtn('b','ข')}${vizBtn('c','ค')}${vizBtn('d','ง')}</div></div>
       </div>
       <div style="display:flex;gap:14px;flex-wrap:wrap;font:400 11px/1.4 inherit;color:#475569;margin:10px 0 16px"><span style="display:inline-flex;align-items:center;gap:5px"><span style="width:11px;height:11px;border-radius:3px;background:#16a34a"></span>ตรงกัน (อยู่ทั้ง 2 ระบบ)</span><span style="display:inline-flex;align-items:center;gap:5px"><span style="width:11px;height:11px;border-radius:3px;background:#dc2626"></span>มีในแพลตฟอร์ม แต่ไม่มีใน BigSeller</span><span style="display:inline-flex;align-items:center;gap:5px"><span style="width:11px;height:11px;border-radius:3px;background:#d97706"></span>มีใน BigSeller แต่ไม่มีในแพลตฟอร์ม</span></div>

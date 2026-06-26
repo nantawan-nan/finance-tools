@@ -193,7 +193,13 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
   - ฝัง `ordRenderRecon(d)` เดิมด้านล่าง (coverage table + รายการไม่แมท + อัปไฟล์ + ใบกระทบยอด) — ไม่ rebuild
 - **hero (`renderToolOrders`)** เพิ่ม "อัตราแมท %" (matched/checked) ข้างยอดออเดอร์รวม เมื่อมี recon results
 - **ของเดิมที่เอาออกจาก board:** totals hero ซ้ำ · stacked bar สัดส่วนสถานะ · การ์ด status grid · `ordRenderMonth` embed (ฟังก์ชันยังอยู่ แต่ board ไม่เรียกแล้ว)
-- **ยังไม่ทำ:** ปฏิทินสถานะนำเข้ารายวันต่อแพลตฟอร์ม + แผง "สิ่งที่ต้องทำต่อ" แยก (ตอนนี้ใช้ coverage table จาก ordRenderRecon แทน) · restyle แท็บ "รายละเอียดการขาย" (register) ตามดีไซน์
+### 2026-06-26 — Orders redesign Phase 3: ปฏิทินสถานะนำเข้า + สิ่งที่ต้องทำ + ตารางไม่แมท (polish ตามดีไซน์)
+- **เลิกฝัง `ordRenderRecon` (สไตล์เก่า) ในหน้าสรุปภาพรวม** → สร้างสามส่วนใหม่ตามดีไซน์ใน `ordRenderBoard`:
+  - **ปฏิทินสถานะนำเข้า** (ต่อแพลตฟอร์ม, repeat(3,1fr)): สีวันจาก `ordReconCoverage` bsMax/beMax → `isoDay()` แปลงเป็นวันของเดือนปัจจุบัน · เขียว=ครบ2ระบบ(d≤bsDay&&d≤pfDay) · ส้ม=เหลือ BS(pf only) · ฟ้า=เหลือแพลตฟอร์ม(bs only) · เทา=ยังไม่นำเข้า · วันนี้มี ring · badge "ต่าง N วัน"
+  - **สิ่งที่ต้องทำต่อ** (แผงขวา): ต่อช่อง คำนวณ bsGap/pfGap จาก todayDay · ok=gap≤1 (เขียว ✓) ไม่งั้น(ส้ม !) + ปุ่ม "นำเข้า" → `ordReconUpload()` (เหลือแพลตฟอร์ม) / `ordUploadFiles()` (เหลือ BS) + ปุ่ม "นำเข้าข้อมูลเพิ่มเติม"
+  - **รายการที่ไม่แมท**: ตาราง grid 6 คอลัมน์ (วันที่/ช่องทาง badge/เลขออเดอร์/ประเภท badge/ยอด/ปุ่มเปิด) จาก res only_be+only_bs · เปิด → `ordSet('q', order_no)` · cap 50
+- **action bar:** อัปไฟล์หลังบ้าน (`ordReconUpload`) + สร้างใบกระทบยอด (`ordReconGenReports`) + ประวัติรายงาน (`ordReconToggleHistory` → `ordReconHistoryHtml`) + busy loader
+- **ยังไม่ทำ:** restyle แท็บ "รายละเอียดการขาย" (register) ตามดีไซน์ · import/export dropdown menu แบบดีไซน์ · company toggle ใน hero
 
 ### 2026-06-24 — Orders ตรวจ IV: รื้อ flow เป็น checklist + เปรียบเทียบยอดสูตรเต็ม + UI ทางการ
 - **ปัญหาเดิม:** ปุ่ม "Tag IV ที่ยังว่าง (N)" tag ทั้งหมดทันทีไม่ confirm รายตัว · เคสที่ 723-5 ยอดต่างจาก order_total จะถูก overwrite sale_amount เงียบๆ · ไม่มีฟิลเตอร์/sort/checkbox · เคส 0/0 ที่ user ไม่เชื่อใจถูก mark "ตรงแล้ว" อัตโนมัติ

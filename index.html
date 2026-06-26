@@ -14734,22 +14734,118 @@ function ordRenderBoard(d){
       </div>
     </div>`;
 
-  const noRecon = !res.length;
+  // ----- ปฏิทินสถานะนำเข้า + สิ่งที่ต้องทำต่อ -----
+  const today=new Date(); const Y=today.getFullYear(), Mo=today.getMonth();
+  const monthDays=new Date(Y,Mo+1,0).getDate(); const firstDow=new Date(Y,Mo,1).getDay(); const todayDay=today.getDate();
+  const monthLabel=today.toLocaleDateString('th-TH',{month:'long',year:'numeric'});
+  const isoDay=iso=>{ if(!iso) return 0; const p=String(iso).slice(0,10).split('-').map(Number); const dt=new Date(p[0],p[1]-1,p[2]); if(dt<new Date(Y,Mo,1)) return 0; if(dt>new Date(Y,Mo,monthDays)) return monthDays; return dt.getDate(); };
+  const plMeta2={shopee:{l:'Shopee',c:'#ee4d2d'},tiktok:{l:'TikTok',c:'#1f1f29'},lazada:{l:'Lazada',c:'#3f3bcc'},offline:{l:'หน้าร้าน',c:'#64748b'}};
+  const dowH=['อา','จ','อ','พ','พฤ','ศ','ส'];
+  const calCards=cov.chans.map(ch=>{
+    const m=plMeta2[ch]||{l:ch,c:'#64748b'};
+    const bsDay=isoDay(cov.bsMax[ch]), pfDay=isoDay(cov.beMax[ch]);
+    let cells='';
+    for(let i=0;i<firstDow;i++) cells+=`<div style="aspect-ratio:1/1"></div>`;
+    for(let dd=1;dd<=monthDays;dd++){
+      const inPf=dd<=pfDay, inBs=dd<=bsDay; let bg='#eef1f6',col='#b3bdca';
+      if(inPf&&inBs){bg='#16a34a';col='#fff';} else if(inPf&&!inBs){bg='#f59e0b';col='#fff';} else if(!inPf&&inBs){bg='#2563eb';col='#fff';}
+      const ring=dd===todayDay?'box-shadow:0 0 0 2px var(--brand,#1e3a8a);font-weight:800;':'';
+      cells+=`<div style="aspect-ratio:1/1;border-radius:7px;display:flex;align-items:center;justify-content:center;font:600 11.5px/1 inherit;background:${bg};color:${col};${ring}">${dd}</div>`;
+    }
+    const lag=Math.abs((bsDay||0)-(pfDay||0));
+    return `<div style="border:1px solid #eef1f6;border-radius:14px;padding:12px;background:#fcfdfe">
+      <div style="display:flex;align-items:center;gap:7px;margin-bottom:3px"><span style="width:10px;height:10px;border-radius:3px;background:${m.c}"></span><span style="font:700 13px/1.2 inherit">${m.l}</span>${lag>0?`<span style="margin-left:auto;font:700 10px/1.4 inherit;padding:1px 8px;border-radius:999px;background:${lag>3?'#fef2e7':'#eaf7ef'};color:${lag>3?'#b45309':'#15803d'}">ต่าง ${lag} วัน</span>`:''}</div>
+      <div style="font:500 10.5px/1.4 inherit;color:#94a3b8;margin-bottom:9px">BS ถึง <b style="color:#334155">${cov.bsMax[ch]?cov.bsMax[ch].slice(5):'—'}</b> · หลังบ้านถึง <b style="color:#b45309">${cov.beMax[ch]?cov.beMax[ch].slice(5):'—'}</b></div>
+      <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-bottom:5px">${dowH.map(x=>`<div style="text-align:center;font:700 10px/1 inherit;color:#b3bdca">${x}</div>`).join('')}</div>
+      <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px">${cells}</div>
+    </div>`;
+  }).join('');
+  const todos=cov.chans.map(ch=>{
+    const m=plMeta2[ch]||{l:ch,c:'#64748b'};
+    const bsDay=isoDay(cov.bsMax[ch]), pfDay=isoDay(cov.beMax[ch]);
+    const bsGap=Math.max(0,todayDay-bsDay), pfGap=Math.max(0,todayDay-pfDay);
+    const behind= pfGap>=bsGap?'pf':'bs'; const gap=Math.max(bsGap,pfGap); const ok=gap<=1;
+    const msg= ok?'ข้อมูลเป็นปัจจุบัน':(behind==='pf'?`เหลือนำเข้ารายงานแพลตฟอร์ม ${pfGap} วัน`:`เหลือนำเข้า BigSeller ${bsGap} วัน`);
+    const fn= behind==='pf'?'ordReconUpload()':'ordUploadFiles()';
+    return `<div style="display:flex;align-items:center;gap:10px;padding:10px 11px;border-radius:12px;border:1px solid ${ok?'#d3edde':'#f1ddb5'};background:${ok?'#f3fbf6':'#fffaf0'}">
+      <span style="width:28px;height:28px;border-radius:9px;flex-shrink:0;display:flex;align-items:center;justify-content:center;background:${ok?'#dcf3e6':'#fdeccb'};color:${ok?'#15803d':'#b45309'};font:800 14px/1 inherit">${ok?'✓':'!'}</span>
+      <div style="flex:1;min-width:0"><div style="display:flex;align-items:center;gap:6px"><span style="width:9px;height:9px;border-radius:3px;background:${m.c}"></span><span style="font:700 12.5px/1.2 inherit;color:#334155">${m.l}</span><span style="font:700 10px/1.4 inherit;padding:1px 8px;border-radius:999px;background:${ok?'#dcf3e6':'#fdeccb'};color:${ok?'#15803d':'#b45309'}">${ok?'OK':gap+' วัน'}</span></div><div style="font:500 11px/1.4 inherit;color:#64748b;margin-top:2px">${msg}</div></div>
+      ${ok?'':`<button class="ord-btn" style="flex-shrink:0;padding:6px 12px" onclick="${fn}">นำเข้า</button>`}
+    </div>`;
+  }).join('');
+  const todoN=cov.chans.filter(ch=>{const bsDay=isoDay(cov.bsMax[ch]),pfDay=isoDay(cov.beMax[ch]);return Math.max(todayDay-bsDay,todayDay-pfDay)>1;}).length;
+
+  // ----- รายการที่ไม่แมท -----
+  const unm=res.filter(r=>r.status==='only_be'||r.status==='only_bs');
+  const chBadge=ch=>{const m=plMeta2[ch]||{l:ch,c:'#64748b'};return `<span style="display:inline-block;padding:2px 8px;border-radius:6px;font:700 11px/1.4 inherit;background:${m.c}1f;color:${m.c}">${m.l}</span>`;};
+  const unmRows=unm.slice(0,50).map(r=>{
+    const isBe=r.status==='only_be';
+    const tb= isBe?{l:'มีในแพลตฟอร์ม · ไม่มีใน BigSeller',bg:'#fef2f2',c:'#dc2626'}:{l:'มีใน BigSeller · ไม่มีในแพลตฟอร์ม',bg:'#fffbeb',c:'#b45309'};
+    const oid=String(r.order_no||'').replace(/[^\w\-./]/g,'');
+    return `<div style="display:grid;grid-template-columns:84px 96px 1.3fr 1.7fr 110px 64px;gap:0;padding:11px 14px;border-top:1px solid #f1f5f9;align-items:center;font:400 12.5px/1.4 inherit">
+      <div style="color:#64748b" class="tnum">${r.date?String(r.date).slice(5):'—'}</div>
+      <div>${chBadge(r.channel)}</div>
+      <div style="font-weight:600;color:#334155" class="tnum">${esc(r.order_no||'')}</div>
+      <div><span style="display:inline-block;padding:2px 8px;border-radius:6px;font:700 11px/1.3 inherit;background:${tb.bg};color:${tb.c}">${tb.l}</span></div>
+      <div style="text-align:right;font-weight:700;color:#0f172a" class="tnum">${fmt(resAmt(r))}</div>
+      <div style="text-align:right"><button class="ord-btn" style="padding:4px 11px" onclick="ordSet('q','${oid}')">เปิด</button></div>
+    </div>`;
+  }).join('');
+
+  const busy=(d.recon&&d.recon.busy);
+  const showHist=(d.recon&&d.recon.showHistory);
   return `
     <!-- 4 KPI แพลตฟอร์ม -->
     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:4px">${kpiCards}</div>
 
     <!-- สรุปกระทบยอด + ต่อแพลตฟอร์ม -->
-    ${noRecon ? `<div class="ord-card" style="padding:22px;margin-top:14px;text-align:center;color:var(--n-500)">ยังไม่มีผลกระทบยอด — อัปไฟล์หลังบ้าน (Shopee/TikTok/Lazada) ด้านล่างเพื่อเทียบยอด</div>`
-      : `<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:14px">${reconSummary}${perPlat}</div>`}
+    ${res.length ? `<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:14px">${reconSummary}${perPlat}</div>` : ''}
 
-    <!-- สถานะการนำเข้า + รายการไม่แมท (จาก recon เดิม) -->
-    <div style="margin-top:22px;padding-top:18px;border-top:2px solid var(--n-100)">
-      <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap">
-        <div style="font:700 16px/1.3 inherit;color:var(--n-900)"><i data-lucide="scan-search" style="width:18px;height:18px;display:inline-block;vertical-align:-3px;color:var(--brand,#1e3a8a)"></i> ตรวจรายวัน — BigSeller ↔ หลังบ้าน</div>
-        <div style="font:500 12px/1.4 inherit;color:var(--n-500)">อัปไฟล์หลังบ้านเทียบยอดต่อวัน · ปิดรอบเป็นใบกระทบยอด</div>
+    <!-- action bar -->
+    <div class="ord-actions" style="margin-top:14px">
+      <button class="ord-btn primary" onclick="ordReconUpload()" ${brecCanWrite()?'':'disabled'}><i data-lucide="upload"></i> อัปไฟล์หลังบ้าน (Shopee/TikTok/Lazada)</button>
+      <button class="ord-btn" onclick="ordReconGenReports()" ${res.length?'':'disabled'}><i data-lucide="file-check-2"></i> สร้างใบกระทบยอด</button>
+      <button class="ord-btn" onclick="ordReconToggleHistory()"><i data-lucide="history"></i> ประวัติรายงาน</button>
+    </div>
+    ${busy?`<div class="ord-empty"><i data-lucide="loader-2"></i><div class="ttl">กำลังเทียบ…</div></div>`:''}
+    ${showHist?ordReconHistoryHtml(d):''}
+
+    <!-- ปฏิทินสถานะนำเข้า + สิ่งที่ต้องทำต่อ -->
+    <div style="display:grid;grid-template-columns:1.55fr 1fr;gap:14px;margin-top:14px;align-items:stretch">
+      <div class="ord-card" style="padding:16px 18px">
+        <div style="display:flex;align-items:center;gap:9px;margin-bottom:13px;flex-wrap:wrap">
+          <i data-lucide="calendar-days" style="width:16px;height:16px;color:var(--brand,#1e3a8a)"></i>
+          <span style="font:700 15px/1.2 inherit">สถานะการนำเข้าข้อมูล</span>
+          <span style="font:600 12px/1.2 inherit;color:#94a3b8">${esc(monthLabel)}</span>
+          <span style="flex:1"></span>
+          <span style="display:inline-flex;align-items:center;gap:5px;font:400 11px/1.4 inherit;color:#475569"><span style="width:12px;height:12px;border-radius:4px;background:#16a34a"></span>ครบ 2 ระบบ</span>
+          <span style="display:inline-flex;align-items:center;gap:5px;font:400 11px/1.4 inherit;color:#475569"><span style="width:12px;height:12px;border-radius:4px;background:#f59e0b"></span>เหลือ BigSeller</span>
+          <span style="display:inline-flex;align-items:center;gap:5px;font:400 11px/1.4 inherit;color:#475569"><span style="width:12px;height:12px;border-radius:4px;background:#2563eb"></span>เหลือแพลตฟอร์ม</span>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(${Math.min(3,cov.chans.length)},1fr);gap:12px">${calCards}</div>
       </div>
-      ${ordRenderRecon(d)}
+      <div class="ord-card" style="padding:16px 18px;display:flex;flex-direction:column">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:3px"><i data-lucide="list-checks" style="width:16px;height:16px;color:var(--brand,#1e3a8a)"></i><span style="font:700 15px/1.2 inherit">สิ่งที่ต้องทำต่อ</span></div>
+        <div style="font:400 12px/1.4 inherit;color:#94a3b8;margin-bottom:12px">${todoN?todoN+' ช่องทางต้องนำเข้าเพิ่ม':'ข้อมูลครบทุกช่องทาง'}</div>
+        <div style="display:flex;flex-direction:column;gap:8px">${todos}</div>
+        <div style="flex:1"></div>
+        <button class="ord-btn primary" style="margin-top:14px;justify-content:center" onclick="ordReconUpload()" ${brecCanWrite()?'':'disabled'}><i data-lucide="upload"></i> นำเข้าข้อมูลเพิ่มเติม</button>
+      </div>
+    </div>
+
+    <!-- รายการที่ไม่แมท -->
+    <div class="ord-card" style="padding:18px 20px;margin-top:14px">
+      <div style="display:flex;align-items:center;gap:9px;margin-bottom:13px">
+        <i data-lucide="search" style="width:17px;height:17px;color:var(--brand,#1e3a8a)"></i>
+        <span style="font:700 16px/1.2 inherit">รายการที่ไม่แมท</span>
+        <span style="background:#fef2f2;color:#dc2626;font:700 13px/1.4 inherit;padding:2px 10px;border-radius:999px" class="tnum">${unm.length.toLocaleString('th-TH')}</span>
+      </div>
+      ${unm.length?`<div style="overflow:hidden;border:1px solid #eef1f6;border-radius:12px">
+        <div style="display:grid;grid-template-columns:84px 96px 1.3fr 1.7fr 110px 64px;gap:0;background:#f8fafc;padding:10px 14px;font:700 11px/1.4 inherit;color:#64748b">
+          <div>วันที่</div><div>ช่องทาง</div><div>เลขออเดอร์</div><div>ประเภท / หมายเหตุ</div><div style="text-align:right">ยอด (บาท)</div><div></div>
+        </div>${unmRows}
+      </div>${unm.length>50?`<div style="text-align:center;font:500 12px/1.4 inherit;color:#94a3b8;margin-top:10px">แสดง 50 จาก ${unm.length.toLocaleString('th-TH')} รายการ</div>`:''}`
+        : `<div style="padding:26px;text-align:center;color:#94a3b8;font:500 13px/1.4 inherit">ไม่มีรายการที่ไม่แมท ${res.length?'— ตรงกันครบ ✓':'(ยังไม่ได้อัปไฟล์หลังบ้าน)'}</div>`}
     </div>
   `;
 }

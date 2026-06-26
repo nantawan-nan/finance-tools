@@ -14774,15 +14774,10 @@ function ordRenderBoard(d){
 
   // ----- recon summary ----- (★ ทะเบียนว่าง = ไม่มีออเดอร์ → กระทบยอดไม่มีความหมาย ไม่โชว์ของค้าง)
   const hasLedger=(d.rows||[]).length>0;
-  // ★ ดึง BigSeller "สด" จากทะเบียน (มี seller_voucher ครบ) แทน snapshot เก่าใน order_recon
-  //   + คำนวณสถานะ matched/diff ใหม่จากสูตรปัจจุบัน — กันสถานะ/ข้อมูลเก่าใน DB ขัดกับฐานภาษีที่โชว์
-  const bsByOid=new Map((d.rows||[]).map(o=>[String(o.order_id), o]));
-  const res= hasLedger ? ((d.recon&&d.recon.results)||[]).filter(r=>inRange(r.date)).map(r=>{
-    const bsLive = r.bs ? (bsByOid.get(String(r.order_no)) || r.bs) : null;
-    const r2 = { ...r, bs: bsLive };
-    r2.status = ordReconEffStatus(r2);
-    return r2;
-  }) : [];
+  // ★ ใช้ snapshot bs_raw จาก order_recon (เก็บ gross_total + seller_voucher ครบ — order_ledger ไม่มี 2 คอลัมน์นี้)
+  //   + คำนวณสถานะ matched/diff ใหม่จากสูตรปัจจุบัน (กันสถานะเก่าใน DB ขัดกับฐานภาษีที่โชว์)
+  //   ★ ถ้า snapshot เก่าไม่มี voucher → ต้อง "ตรวจกระทบยอดใหม่" (อัปไฟล์หลังบ้าน) เพื่อ refresh
+  const res= hasLedger ? ((d.recon&&d.recon.results)||[]).filter(r=>inRange(r.date)).map(r=>({...r, status: ordReconEffStatus(r)})) : [];
   const resAmt=r=>Number(ordReconNet(r.be||r.bs||{}))||0;
   const sm={matched:{n:0,s:0},only_be:{n:0,s:0},only_bs:{n:0,s:0},diff:{n:0,s:0}};
   res.forEach(r=>{ if(sm[r.status]){ sm[r.status].n++; sm[r.status].s+=resAmt(r); } });
@@ -15217,7 +15212,7 @@ function ordReconNet(o){ return +Number(o.order_total||0).toFixed(2); }
 function ordTaxBase(o, side){
   const ship  = Number(o.shipping_fee||0);
   const net   = Number(o.order_total||0);   // ฝั่ง BigSeller = "ราคา" · ฝั่งหลังบ้าน = net field ต่อช่อง
-  const gross = Number(o.gross_total||0);    // ฝั่ง BigSeller = "ราคาสินค้าเดิม" · TikTok หลังบ้าน = "Before Discount"
+  const gross = Number(o.gross_total||0) || ordGrossVal(o);   // "ราคาสินค้าเดิม" · ถ้าว่าง → คำนวณจาก items (กัน TikTok=0)
   const disc  = Number(o.seller_discount||0);
   const plat  = o.channel_group;
   if(side==='be'){

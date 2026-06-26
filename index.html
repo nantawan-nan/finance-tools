@@ -10950,8 +10950,13 @@ function cffStaffReportInner(co, dt, R, opts){
               if(!open) return catHead;
               // ★ ชั้นที่ 2: กลุ่มตามเวนเดอร์ (default ย่อ — เห็นแค่ชื่อ+ยอดรวม)
               const venMap = {};
-              for(const p of info.items){ const v=p.vendor||"—"; (venMap[v] = venMap[v] || {total:0, items:[]}); venMap[v].total += p.amount; venMap[v].items.push(p); }
-              const vendors = Object.entries(venMap).sort((a,b)=> b[1].total - a[1].total);
+              for(const p of info.items){ const v=p.vendor||"—"; const g=(venMap[v] = venMap[v] || {total:0, items:[], minDue:null}); g.total += p.amount; g.items.push(p); const dd=p.original_due||p.due_date||""; if(dd && (!g.minDue || dd < g.minDue)) g.minDue = dd; }
+              // ★ เรียงตามวันครบกำหนด (น้อย→มาก เอาวันใกล้ไว้บน) · เสมอกัน → ยอดมากก่อน
+              for(const g of Object.values(venMap)) g.items.sort((x,y)=> String(x.original_due||x.due_date||"").localeCompare(String(y.original_due||y.due_date||"")));
+              const vendors = Object.entries(venMap).sort((a,b)=>{
+                const da=a[1].minDue||"9999-99-99", db=b[1].minDue||"9999-99-99";
+                return da!==db ? (da<db?-1:1) : (b[1].total - a[1].total);
+              });
               // คำอธิบายย่อยต่อรายการ: "คำอธิบาย (เด่น)  ·  เลขเอกสาร (จาง)" — ตัดส่วนซ้ำชื่อเวนเดอร์ + Express
               const subLine = (p, ven) => {
                 const doc = cffDocCode(p);

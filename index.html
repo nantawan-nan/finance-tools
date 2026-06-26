@@ -14759,8 +14759,9 @@ function ordRenderBoard(d){
       <div style="font:500 13px/1.4 inherit;color:var(--n-500);margin-top:7px">${pAgg[p.k].n.toLocaleString('th-TH')} ออเดอร์</div>
     </div>`).join('');
 
-  // ----- recon summary -----
-  const res=((d.recon&&d.recon.results)||[]).filter(r=>inRange(r.date));
+  // ----- recon summary ----- (★ ทะเบียนว่าง = ไม่มีออเดอร์ → กระทบยอดไม่มีความหมาย ไม่โชว์ของค้าง)
+  const hasLedger=(d.rows||[]).length>0;
+  const res= hasLedger ? ((d.recon&&d.recon.results)||[]).filter(r=>inRange(r.date)) : [];
   const resAmt=r=>Number(ordReconNet(r.be||r.bs||{}))||0;
   const sm={matched:{n:0,s:0},only_be:{n:0,s:0},only_bs:{n:0,s:0},diff:{n:0,s:0}};
   res.forEach(r=>{ if(sm[r.status]){ sm[r.status].n++; sm[r.status].s+=resAmt(r); } });
@@ -17013,7 +17014,7 @@ async function renderToolOrders(){
   const today = new Date().toLocaleDateString("th-TH",{day:"numeric",month:"short",year:"numeric"});
   const tabBtn=(v,l,cnt,cls)=>`<button class="ord-tab ${(d.view||'board')===v?'active':''} ${cls||''}" onclick="ordSetView('${v}')">${l}${cnt!=null?`<span class="n">${cnt}</span>`:''}</button>`;
   // hero: อัตราแมท + ช่วงข้อมูล (ตามดีไซน์)
-  const reconRes=(d.recon&&d.recon.results)||[];
+  const reconRes=((d.rows||[]).length ? (d.recon&&d.recon.results) : null)||[];   // ทะเบียนว่าง → ไม่นับ recon ค้าง
   const mrate = reconRes.length ? reconRes.filter(r=>r.status==='matched').length/reconRes.length*100 : null;
   const actDates=(d.rows||[]).filter(o=>o.status!=='cancelled'&&o.order_date).map(o=>String(o.order_date).slice(0,10)).sort();
   let rangeLabel='—';

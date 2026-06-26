@@ -14531,12 +14531,15 @@ async function ordResetLedger(){
   try{
     const { error } = await sb.from("order_ledger").delete().eq("company_id", co);
     // ★ ล้างผลกระทบยอด (order_recon) ด้วย — ไม่งั้นการ์ดแพลตฟอร์มเป็น 0 แต่ "สรุปกระทบยอด/กราฟ" ยังโชว์ของเก่า
-    try{ await sb.from("order_recon").delete().eq("company", state.company); }catch(e){ console.warn("recon clear", e); }
+    const { error:rErr } = await sb.from("order_recon").delete().eq("company", state.company);
+    if(rErr) console.warn("recon clear", rErr);
     if(error){ alert("ล้างไม่สำเร็จ: "+(error.message||JSON.stringify(error))); }
     else {
       d.recon = { results:[], channels:[], expanded:new Set() };   // เคลียร์ในหน่วยความจำ
+      d.reconLoaded = false;                                       // ★ บังคับ sync recon ใหม่จาก DB
       await ordLoad();
-      alert(`ล้างทะเบียน + กระทบยอด ${coName} เรียบร้อย (เหลือ ${(d.rows||[]).length}) · อัปไฟล์ BigSeller ใหม่ได้เลย — เลขจะตรงเป๊ะ`);
+      try{ await ordReconLoad(); }catch(e){ console.warn("recon reload", e); }   // ยืนยัน DB ว่างจริง
+      alert(`ล้างทะเบียน + กระทบยอด ${coName} เรียบร้อย (เหลือ ${(d.rows||[]).length})${rErr?`\n\n⚠ ลบกระทบยอดมีปัญหา: ${rErr.message||JSON.stringify(rErr)}`:''} · อัปไฟล์ BigSeller ใหม่ได้เลย`);
     }
   }catch(e){ alert("ล้างไม่สำเร็จ: "+(e.message||e)); }
   d.busy=false; renderToolOrders();
@@ -15216,7 +15219,7 @@ async function ordReconLoad(){
   const d=ordGet(); const company=state.company;
   let rows=[], from=0; const sz=1000;
   while(true){ const { data, error } = await sb.from("order_recon").select("*").eq("company", company).is("deleted_at",null).range(from, from+sz-1); if(error||!data||!data.length) break; rows=rows.concat(data); if(data.length<sz) break; from+=sz; }
-  if(!rows.length){ return; }
+  // ★ DB ว่าง → ต้องล้าง d.recon ด้วย (เดิม return ทิ้ง → ค่าเก่าค้างหลังลบทะเบียน)
   const results=rows.map(x=>({ order_no:x.order_no, channel:x.channel, date:x.sale_date, status:x.status, diffs:x.diff_detail||[], bs:x.bs_raw, be:x.be_raw }));
   const chans=[...new Set(results.map(r=>r.channel).filter(Boolean))];
   d.recon=d.recon||{}; Object.assign(d.recon, { results, channels:chans });

@@ -14525,13 +14525,19 @@ async function ordUploadFiles(){
 async function ordResetLedger(){
   if(!brecCanWrite()){ alert("ไม่มีสิทธิ์"); return; }
   const coName=(COMPANIES.find(c=>c.id===state.company)||{}).name||state.company;
-  if(!confirm(`ล้างทะเบียนคำสั่งซื้อทั้งหมดของ ${coName}?\n\nออเดอร์ที่นำเข้าของบริษัทนี้จะถูกลบทิ้ง (เพื่อเริ่มใหม่สะอาด ๆ) แล้วค่อยอัปไฟล์ BigSeller ใหม่รอบเดียว\n\n*ลบเฉพาะ ${coName} · อีกบริษัทไม่กระทบ*\n\nยืนยัน?`)) return;
+  if(!confirm(`ล้างทะเบียนคำสั่งซื้อทั้งหมดของ ${coName}?\n\n• ออเดอร์ BigSeller (ทะเบียน) จะถูกลบ\n• ผลกระทบยอด (สรุปกระทบยอด/กราฟต่อแพลตฟอร์ม) จะถูกล้างด้วย\n• ใบกระทบยอดที่สร้างไว้ (ประวัติรายงาน) ยังเก็บไว้\n\n*ลบเฉพาะ ${coName} · อีกบริษัทไม่กระทบ*\n\nยืนยัน?`)) return;
   const co=await fopCompanyId(); if(!co){ alert("หา company_id ไม่เจอ"); return; }
   const d=ordGet(); d.busy=true; d.unknownShops=[]; renderToolOrders();
   try{
     const { error } = await sb.from("order_ledger").delete().eq("company_id", co);
+    // ★ ล้างผลกระทบยอด (order_recon) ด้วย — ไม่งั้นการ์ดแพลตฟอร์มเป็น 0 แต่ "สรุปกระทบยอด/กราฟ" ยังโชว์ของเก่า
+    try{ await sb.from("order_recon").delete().eq("company", state.company); }catch(e){ console.warn("recon clear", e); }
     if(error){ alert("ล้างไม่สำเร็จ: "+(error.message||JSON.stringify(error))); }
-    else { await ordLoad(); alert(`ล้างทะเบียน ${coName} เรียบร้อย (เหลือ ${(d.rows||[]).length}) · อัปไฟล์ BigSeller ใหม่ได้เลย — เลขจะตรงเป๊ะ`); }
+    else {
+      d.recon = { results:[], channels:[], expanded:new Set() };   // เคลียร์ในหน่วยความจำ
+      await ordLoad();
+      alert(`ล้างทะเบียน + กระทบยอด ${coName} เรียบร้อย (เหลือ ${(d.rows||[]).length}) · อัปไฟล์ BigSeller ใหม่ได้เลย — เลขจะตรงเป๊ะ`);
+    }
   }catch(e){ alert("ล้างไม่สำเร็จ: "+(e.message||e)); }
   d.busy=false; renderToolOrders();
 }

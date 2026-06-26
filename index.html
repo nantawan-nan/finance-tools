@@ -612,6 +612,9 @@ function appToolVisible(t){
 function usrEdPermsAll(on){
   document.querySelectorAll(".uEdPermCb").forEach(cb => { cb.checked = !!on; });
 }
+function usrAddPermsAll(on){
+  document.querySelectorAll(".uAddPermCb").forEach(cb => { cb.checked = !!on; });
+}
 
 const COMPANIES = APP_CONFIG.companies || [
   { id:"mbark", name:"M Bark",  short:"MM", brand:"Mommam",
@@ -4309,6 +4312,25 @@ function usrOpenAdd(){
             `).join("")}
           </div>
         </div>
+        ${(()=>{
+          // ★ Per-page permissions ใน modal เพิ่มผู้ใช้ (เหมือนในแก้ไข)
+          const allTools = (typeof TOOLS!=="undefined" && Array.isArray(TOOLS)) ? TOOLS.filter(t=>!t.adminOnly) : [];
+          if(!allTools.length) return "";
+          return `<div>
+            <div style="font-size:12px;font-weight:700;color:var(--ink-2);margin-bottom:6px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+              <span>หน้าที่ดูได้</span>
+              <span style="font-weight:500;color:var(--ink-3);font-size:11px">(ไม่ติ๊ก = ใช้ default ของ role)</span>
+              <button type="button" class="btn ghost btn sm" onclick="usrAddPermsAll(true)" style="font-size:11px;padding:2px 8px">ติ๊กทั้งหมด</button>
+              <button type="button" class="btn ghost btn sm" onclick="usrAddPermsAll(false)" style="font-size:11px;padding:2px 8px">ล้าง</button>
+            </div>
+            <div id="uAddPerms" style="display:grid;grid-template-columns:repeat(2,1fr);gap:5px;background:var(--bg);padding:10px;border-radius:8px;max-height:200px;overflow-y:auto">
+              ${allTools.map(t => `<label style="display:flex;align-items:center;gap:6px;font-size:12.5px;cursor:pointer">
+                <input type="checkbox" class="uAddPermCb" data-tool="${esc(t.id)}" style="accent-color:var(--brand)">
+                <span>${t.ic||"📄"} ${esc(t.name)}</span>
+              </label>`).join("")}
+            </div>
+          </div>`;
+        })()}
         <div id="uAddErr" style="color:var(--bad);font-size:13px;display:none;background:#fef2f2;padding:8px 12px;border-radius:7px"></div>
       </div>
       <div style="display:flex;gap:8px;margin-top:20px;justify-content:flex-end">
@@ -4358,7 +4380,13 @@ async function usrCreate(){
         email,
         password: pwd,
         email_confirm: true,
-        app_metadata: { role },
+        app_metadata: {
+          role,
+          page_permissions: (()=>{
+            const checked = Array.from(document.querySelectorAll(".uAddPermCb")).filter(cb=>cb.checked).map(cb=>cb.getAttribute("data-tool"));
+            return checked.length ? checked : null;  // null = ใช้ default role
+          })()
+        },
         user_metadata: name ? { display_name: name } : {}
       })
     });

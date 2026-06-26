@@ -177,6 +177,15 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-06-26 — Orders redesign Phase 1: ย้าย IV จาก Express ออกไปหน้า "แมพ IV จาก Express"
+- **เป้าหมาย:** redesign หน้าทะเบียนคำสั่งซื้อตาม handoff ใหม่ (`for-design/orders-redesign/`) เหลือ 2 แท็บ (สรุปภาพรวม + รายละเอียดการขาย) · เฟสนี้ทำเฉพาะ "ย้าย IV ออกก่อน"
+- **ย้ายทั้ง 2 view ของ IV** จาก Orders → `renderToolExpressMatch` (หน้า expressmatch): `ordRenderIvSystem` (📑 IV จาก EXPRESS) + `ordRenderIv` (🧾 คัดกรองและนำเข้า IV) · sub-tab toggle `emSetIvView(v)` เก็บใน `ordGet().emIvView` (default 'ivsys')
+- **expressmatch ใช้ `ordGet()` state + `ordLoad`/`ordReconLoad` ร่วมกับ Orders** (IV อ่าน `d.rows`/`d.ivCheck`) · wrap ใน `.ord-page` + `ordInjectStyle()` ให้สไตล์ตรง
+- **★ gotcha (re-render routing):** `ordIv*` setter หลายสิบตัวเรียก `renderToolOrders()` ตอน re-render · ใส่ guard หัว `renderToolOrders`: ถ้า `state.tool==='expressmatch'` → `return renderToolExpressMatch()` (กัน #main เด้งกลับหน้า Orders) — ไม่ต้องแก้ call site ทุกตัว
+- **Orders เหลือ 2 แท็บ:** 🚦 สรุปสถานะ + 📋 คำสั่งซื้อ BigSeller (ถอด tabBtn + dispatch ของ ivsys/iv ออก) · KPI "recon" ยังคลิกไปแท็บ recon ได้
+- **เก่า em* flow ถูกแทน** — `renderToolExpressMatch` เดิม (อัป CSV แมพ IV ง่ายๆ) ถูกเขียนใหม่ · `emGet/emHandleFile/emApply/emResultHTML` ยังอยู่แต่ไม่ถูกเรียก (dead code) · `emClear` ลบแล้ว
+- **Phase 2 (ยังไม่ทำ):** redesign หน้า Orders เป็น 2 แท็บตามดีไซน์ (hero + KPI 4 + สรุปกระทบยอด + กระทบยอดต่อแพลตฟอร์ม + ปฏิทินสถานะนำเข้า + สิ่งที่ต้องทำต่อ + รายการไม่แมท / รายละเอียดการขาย)
+
 ### 2026-06-24 — Orders ตรวจ IV: รื้อ flow เป็น checklist + เปรียบเทียบยอดสูตรเต็ม + UI ทางการ
 - **ปัญหาเดิม:** ปุ่ม "Tag IV ที่ยังว่าง (N)" tag ทั้งหมดทันทีไม่ confirm รายตัว · เคสที่ 723-5 ยอดต่างจาก order_total จะถูก overwrite sale_amount เงียบๆ · ไม่มีฟิลเตอร์/sort/checkbox · เคส 0/0 ที่ user ไม่เชื่อใจถูก mark "ตรงแล้ว" อัตโนมัติ
 - **สูตรเทียบยอดใหม่** (`ordIvAnalyze` — `orderCurrent(o)`): ถ้าออเดอร์มี `sale_amount` แล้ว → ใช้ตรง · ถ้ายังไม่ tag → **`order_total + shipping_fee`** (ไม่หักส่วนลด · platform ชดเชยให้ผู้ขาย IV ยังเต็มยอด) · เก็บ `currentBase`/`currentShip`/`currentDisc`/`currentFromSale` ในแต่ละ result ไว้โชว์ breakdown ในตาราง

@@ -2930,43 +2930,44 @@ async function emApply(){
   }
 }
 
-function renderToolExpressMatch(){
+/* ★ หน้า "แมพ IV จาก Express" — โฮสต์ IV workflow ที่ย้ายมาจากหน้าทะเบียนคำสั่งซื้อ
+   2 sub-view: 📑 IV จาก EXPRESS (ordRenderIvSystem) + 🧾 คัดกรองและนำเข้า IV (ordRenderIv)
+   ใช้ ordGet() state + ordLoad ร่วมกับหน้า Orders · re-render ของ ordIv* route ผ่าน guard ใน renderToolOrders */
+async function renderToolExpressMatch(){
   const t = TOOLS.find(x=>x.id===state.tool);
-  const d = emGet();
-  const canUpload = AUTH.can("upload_express");
+  const co = COMPANIES.find(c=>c.id===state.company);
+  const d = ordGet();
+  const main = document.getElementById("main");
+  homeInjectCSS(); ordInjectStyle();
+  if(!d.loaded && !d.busy){ main.innerHTML=`<div class="ord-page"><div class="ord-empty"><i data-lucide="loader-2"></i><div class="ttl">กำลังโหลด…</div></div></div>`; try{ await ordLoad(); }catch(e){} }
+  if(!d.reconLoaded){ d.reconLoaded=true; try{ await ordReconLoad(); }catch(e){ console.warn("reconLoad",e); } }
+  const sub = d.emIvView || 'ivsys';
+  const subBtn=(v,l,cnt,cls)=>`<button class="ord-tab ${sub===v?'active':''} ${cls||''}" onclick="emSetIvView('${v}')">${l}${cnt!=null?`<span class="n">${cnt}</span>`:''}</button>`;
+  const ivsysN = (d.rows||[]).filter(o=>o.status!=='cancelled'&&!o.iv_no).length || null;
+  const ivN = (d.ivCheck&&d.ivCheck.results)?(d.ivCheck.results.filter(r=>['new','diff','conflict','voided','orphan'].includes(r.status)).length||null):null;
 
-  document.getElementById("main").innerHTML = `
-    <div class="page-head">
-      <h1>${t.ic} ${t.name} <span class="badge">${COMPANIES.find(c=>c.id===state.company).name}</span></h1>
-      <div class="sub">${t.long}</div>
-    </div>
-
-    <div class="card">
-      <h3>1 · อัปไฟล์ CSV จาก Express</h3>
-      <div class="note">รายงานขายแบบเห็นออเดอร์ (มีเลข IV + เลขออเดอร์ในคอลัมน์ "อ้างอิง")</div>
-      <div class="drop" id="emDrop" ${canUpload?"":"style='opacity:.5;pointer-events:none'"}>
-        <div class="big">📂</div>
-        <div>ลากไฟล์ CSV มาวาง หรือ <b>คลิกเพื่อเลือก</b></div>
-        <div class="sm">${canUpload?"":"⚠ คุณไม่มีสิทธิ์อัปโหลด (role = "+esc(AUTH.role||"")+")"}</div>
-        <input type="file" id="emInput" accept=".csv" style="display:none">
+  main.innerHTML = `
+  <div class="ord-page">
+    <section class="ord-hero">
+      <div class="h-inner">
+        <div class="h-logo"></div>
+        <div class="h-text">
+          <div class="h-eyebrow">${esc(co.name)} · Express IV</div>
+          <h1>${esc(t.name)}</h1>
+          <div class="h-sub">${esc(t.long)}</div>
+        </div>
       </div>
-      ${d.file?`<div class="filechip">📄 ${esc(d.file)} <button onclick="emClear()">✕</button></div>`:""}
+    </section>
+    <div class="ord-tabs">
+      ${subBtn('ivsys','📑 IV จาก EXPRESS', ivsysN, ivsysN?'t-warn':'')}
+      ${subBtn('iv','🧾 คัดกรองและนำเข้า IV', ivN, ivN?'t-warn':'')}
     </div>
-
-    ${d.result ? emResultHTML(d.result) : ""}
-  `;
-
-  const drop = document.getElementById("emDrop");
-  const inp = document.getElementById("emInput");
-  if(drop && inp && canUpload){
-    drop.onclick = ()=>inp.click();
-    inp.onchange = e => { const f=e.target.files[0]; inp.value=""; if(f) emHandleFile(f); };
-    drop.ondragover = e => { e.preventDefault(); drop.classList.add("over"); };
-    drop.ondragleave = ()=>drop.classList.remove("over");
-    drop.ondrop = e => { e.preventDefault(); drop.classList.remove("over"); const f=e.dataTransfer.files[0]; if(f) emHandleFile(f); };
-  }
+    ${d.busy ? `<div class="ord-empty"><i data-lucide="loader-2"></i><div class="ttl">กำลังประมวลผล…</div></div>`
+      : sub==='iv' ? ordRenderIv(d) : ordRenderIvSystem(d)}
+  </div>`;
+  if(window.lucide&&window.lucide.createIcons){ try{ window.lucide.createIcons(); }catch(e){} }
 }
-function emClear(){ const d=emGet(); d.file=null; d.rows=null; d.result=null; renderTool(); }
+function emSetIvView(v){ const d=ordGet(); d.emIvView=v; renderToolExpressMatch(); }
 
 function emResultHTML(R){
   const overwrite = R.matched.filter(m=>m.willOverwrite).length;
@@ -16800,6 +16801,9 @@ function ordKpis(d){
 }
 
 async function renderToolOrders(){
+  // ★ IV (ivsys/iv) ย้ายไปหน้า "แมพ IV จาก Express" — ordIv* เรียก renderToolOrders() ตอน re-render
+  //   ถ้ากำลังอยู่หน้านั้น ให้ route กลับไป renderToolExpressMatch แทน (กัน #main เด้งกลับหน้า Orders)
+  if(state.tool === 'expressmatch') return renderToolExpressMatch();
   const t = TOOLS.find(x=>x.id==="orders"); const co = COMPANIES.find(c=>c.id===state.company);
   const d = ordGet(); const main = document.getElementById("main");
   homeInjectCSS(); ordInjectStyle();
@@ -16877,15 +16881,11 @@ async function renderToolOrders(){
     <div class="ord-tabs">
       ${tabBtn('board','🚦 สรุปสถานะ', k.onlyBe||null, k.onlyBe?'t-danger':'')}
       ${tabBtn('reg','📋 คำสั่งซื้อจากระบบ Big Seller', k.totN)}
-      ${tabBtn('ivsys','📑 IV จาก EXPRESS', (()=>{const n=(d.rows||[]).filter(o=>o.status!=='cancelled'&&!o.iv_no).length;return n||null;})(), 't-warn')}
-      ${tabBtn('iv','🧾 คัดกรองและนำเข้า IV', (d.ivCheck&&d.ivCheck.results)?(d.ivCheck.results.filter(r=>r.status==='new'||r.status==='diff'||r.status==='conflict'||r.status==='voided'||r.status==='orphan').length||null):null, (d.ivCheck&&d.ivCheck.results)?'t-warn':'')}
     </div>
 
     ${d.busy ? `<div class="ord-empty"><i data-lucide="loader-2"></i><div class="ttl">กำลังประมวลผล…</div></div>`
       : view==='reg'   ? ordRenderRegister(d)
       : view==='recon' ? ordRenderRecon(d)
-      : view==='iv'    ? ordRenderIv(d)
-      : view==='ivsys' ? ordRenderIvSystem(d)
       : (view==='month'?ordRenderBoard(d):ordRenderBoard(d)) }
     `}
   </div>`;

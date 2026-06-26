@@ -11100,14 +11100,8 @@ async function renderToolCashflowStaff(){
       </div>
       ${filterOpen ? `
       <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:11px">
-        <div class="cf-chips">
-          <button class="${d.staffMode==='all'?'active':''}" onclick="cffSetStaffAll()">ทั้งหมด</button>
-          <button class="${(d.staffMode==='range'&&d.staffQuick==='thisWeek')?'active':''}" onclick="cffSetStaffQuick('thisWeek')">สัปดาห์นี้</button>
-          <button class="${(d.staffMode==='range'&&d.staffQuick==='nextWeek')?'active':''}" onclick="cffSetStaffQuick('nextWeek')">สัปดาห์หน้า</button>
-          <button class="${(d.staffMode==='range'&&d.staffQuick==='toMonthEnd')?'active':''}" onclick="cffSetStaffQuick('toMonthEnd')">ถึงสิ้นเดือน</button>
-        </div>
         ${(()=>{
-          // ★ chip "รอบจ่าย" — ศุกร์ที่ 1-5 + รอบวันที่ 15 ของเดือน
+          // ★ ปรับ layout: 1) ทั้งหมด stand-alone · 2) "เลือกตามช่วงวัน" · 3) "เลือกตามรอบจ่ายบริษัท"
           //   อิงเดือนของ staffDate ถ้าเลือกอยู่ ไม่งั้นใช้เดือน today
           const refISO = d.staffDate || (d.data && d.data.todayISO) || cffISO(new Date());
           const [yy,mm,dd] = refISO.split("-").map(Number);
@@ -11117,11 +11111,28 @@ async function renderToolCashflowStaff(){
           const labelD = (D)=> `${D.getDate()} ${["ม.ค.","ก.พ.","มี.ค.","เม.ย.","พ.ค.","มิ.ย.","ก.ค.","ส.ค.","ก.ย.","ต.ค.","พ.ย.","ธ.ค."][D.getMonth()]}`;
           const isSel = (D)=> d.staffMode==='day' && d.staffDate===fmtD(D);
           const friBtn = (D, n)=> `<button class="${isSel(D)?'active':''}" onclick="cffSetStaffPayDay('${fmtD(D)}')">ศุกร์ที่ ${n} <small style="opacity:.7;font-weight:500">(${labelD(D)})</small></button>`;
-          return `<div class="cf-chips" style="border-left:1px solid var(--glass-border);padding-left:10px;margin-left:6px">
-            ${cyc.fridays.slice(0,2).map((D,i)=>friBtn(D,i+1)).join("")}
-            <button class="${isSel(cyc.mid)?'active':''}" onclick="cffSetStaffPayDay('${fmtD(cyc.mid)}')">รอบวันที่ 15</button>
-            ${cyc.fridays.slice(2).map((D,i)=>friBtn(D,i+3)).join("")}
-          </div>`;
+          const fridays = cyc.fridays;
+          const grpStyle = "display:flex;align-items:center;gap:6px;padding:6px 12px 6px 0;border-right:1px solid var(--glass-border);margin-right:6px";
+          const lblStyle = "font-size:11px;font-weight:700;color:var(--ink-3);text-transform:uppercase;letter-spacing:.04em;white-space:nowrap;margin-right:4px";
+          return `
+            <button class="cf-chip-all ${d.staffMode==='all'?'active':''}" onclick="cffSetStaffAll()" style="font-weight:700;padding:6px 14px;border-radius:9px;border:1.5px solid ${d.staffMode==='all'?'var(--brand,#0d9488)':'var(--line,#e2e8f0)'};background:${d.staffMode==='all'?'var(--brand,#0d9488)':'#fff'};color:${d.staffMode==='all'?'#fff':'var(--ink,#0f172a)'};font-size:12.5px;cursor:pointer;margin-right:4px">ทั้งหมด</button>
+            <div style="${grpStyle}">
+              <span style="${lblStyle}">📅 ช่วงวัน:</span>
+              <div class="cf-chips" style="display:flex;gap:5px">
+                <button class="${(d.staffMode==='range'&&d.staffQuick==='thisWeek')?'active':''}" onclick="cffSetStaffQuick('thisWeek')">ภายในสัปดาห์นี้</button>
+                <button class="${(d.staffMode==='range'&&d.staffQuick==='nextWeek')?'active':''}" onclick="cffSetStaffQuick('nextWeek')">ภายในสัปดาห์หน้า</button>
+                <button class="${(d.staffMode==='range'&&d.staffQuick==='toMonthEnd')?'active':''}" onclick="cffSetStaffQuick('toMonthEnd')">วันนี้จนถึงสิ้นเดือน</button>
+              </div>
+            </div>
+            <div style="display:flex;align-items:center;gap:6px">
+              <span style="${lblStyle}">💸 รอบจ่ายบริษัท:</span>
+              <div class="cf-chips" style="display:flex;gap:5px;flex-wrap:wrap">
+                ${fridays.slice(0,2).map((D,i)=>friBtn(D,i+1)).join("")}
+                <button class="${isSel(cyc.mid)?'active':''}" onclick="cffSetStaffPayDay('${fmtD(cyc.mid)}')">รอบวันที่ 15</button>
+                ${fridays.slice(2).map((D,i)=>friBtn(D,i+3)).join("")}
+              </div>
+            </div>
+          `;
         })()}
         <div class="cf-chips">
           ${upcomingDates.slice(0,8).map(dd => `<button class="${(d.staffMode==='day'&&d.staffDate===dd)?'active':''}" onclick="cffSetStaffDay('${dd}')">${esc(fmtDate(dd))}</button>`).join("")}

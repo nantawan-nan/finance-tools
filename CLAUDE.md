@@ -177,6 +177,15 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-06-26 — Recon: ใช้สูตร "ฐานภาษีขาย" ต่อช่องทาง (VAT spec) แทนการเทียบ order_total เฉยๆ
+- **เป้าหมาย:** เทียบยอด BigSeller↔หลังบ้านให้ตรงตามฐานภาษีขายจริง (สเปคเต็ม `for-design/order-pipeline/vat-recon-logic.md` · เจ้าของยืนยันผลต่าง 0: Shopee 1,401/1,401 · Lazada 29/29 · TikTok-QI 128/128 · **MBARK TikTok ยังไม่เช็ค**)
+- **`ordTaxBase(o, side)` ใหม่** — ฐานภาษีขาย (รวม VAT) = ยอดสินค้าสุทธิ(หักเฉพาะส่วนลดผู้ขาย) + ค่าส่งผู้ซื้อจ่าย · **ไม่หักส่วนลดแพลตฟอร์ม**:
+  - `side='be'` (หลังบ้าน=source of truth): Shopee=`net − disc + ship` · Lazada=`net + disc + ship` (sellerDiscount ติดลบ) · TikTok=`gross("Before Discount") − disc + ship`
+  - `side='bs'` (BigSeller): Shopee/Lazada ใช้ `order_total`("ราคา") · **TikTok ใช้ `gross_total`("ราคาสินค้าเดิม")** เพราะ TikTok "ราคา" หักส่วนลดแพลตฟอร์มแล้ว · ทุกช่อง − `seller_voucher`("Voucher ของร้านค้า") + ship
+- **`ordReconDiffs` เปลี่ยน** — เทียบ `ordTaxBase(bs,'bs')` vs `ordTaxBase(be,'be')` strict ≥0.01 (แทน `ordReconNet`=order_total) + ค่าส่ง (info) + SKU sig
+- **ใช้ field ที่ parser เก็บอยู่แล้ว** (gross_total/order_total/seller_discount/seller_voucher/shipping_fee + channel_group) — ไม่แก้ parser/ORD_CH
+- **gotcha:** `seller_voucher` ฝั่ง BigSeller parser เป็น bill-level (Math.max) · ถ้า TikTok "Voucher ของร้านค้า" เป็น per-unit จริง อาจต่างตอน qty>1 → ต้องยืนยันกับข้อมูล MBARK ก่อนล็อก · `ordReconNet` (display amount ใน board/coverage) ยังเป็น order_total เหมือนเดิม
+
 ### 2026-06-26 — Orders redesign Phase 1: ย้าย IV จาก Express ออกไปหน้า "แมพ IV จาก Express"
 - **เป้าหมาย:** redesign หน้าทะเบียนคำสั่งซื้อตาม handoff ใหม่ (`for-design/orders-redesign/`) เหลือ 2 แท็บ (สรุปภาพรวม + รายละเอียดการขาย) · เฟสนี้ทำเฉพาะ "ย้าย IV ออกก่อน"
 - **ย้ายทั้ง 2 view ของ IV** จาก Orders → `renderToolExpressMatch` (หน้า expressmatch): `ordRenderIvSystem` (📑 IV จาก EXPRESS) + `ordRenderIv` (🧾 คัดกรองและนำเข้า IV) · sub-tab toggle `emSetIvView(v)` เก็บใน `ordGet().emIvView` (default 'ivsys')

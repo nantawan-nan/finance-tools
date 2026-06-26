@@ -15131,11 +15131,31 @@ function ordSkuSig(o){
   return String(o.sku_list||'').split(',').map(s=>ordNormSku(s)).filter(Boolean).sort().join('|');
 }
 function ordReconNet(o){ return +Number(o.order_total||0).toFixed(2); }
+/* ★ ฐานภาษีขาย (รวม VAT) ต่อออเดอร์ ตามสเปค for-design/order-pipeline/vat-recon-logic.md
+   = ยอดสินค้าสุทธิ(หักเฉพาะส่วนลดผู้ขาย) + ค่าส่งที่ผู้ซื้อจ่าย · ไม่หักส่วนลดแพลตฟอร์ม
+   side='be' (แพลตฟอร์ม=source of truth) · side='bs' (BigSeller) */
+function ordTaxBase(o, side){
+  const ship  = Number(o.shipping_fee||0);
+  const net   = Number(o.order_total||0);   // ฝั่ง BigSeller = "ราคา" · ฝั่งหลังบ้าน = net field ต่อช่อง
+  const gross = Number(o.gross_total||0);    // ฝั่ง BigSeller = "ราคาสินค้าเดิม" · TikTok หลังบ้าน = "Before Discount"
+  const disc  = Number(o.seller_discount||0);
+  const plat  = o.channel_group;
+  if(side==='be'){
+    if(plat==='shopee') return +(net   - disc + ship).toFixed(2);  // ราคาขายสุทธิ − โค้ดส่วนลดผู้ขาย + ค่าส่ง
+    if(plat==='lazada') return +(net   + disc + ship).toFixed(2);  // unitPrice + sellerDiscountTotal(ติดลบ) + ค่าส่ง
+    if(plat==='tiktok') return +(gross - disc + ship).toFixed(2);  // (Before Discount − Seller Discount) + ค่าส่ง
+    return +(net + ship).toFixed(2);
+  }
+  // BigSeller: Shopee/Lazada ใช้ "ราคา"(net) · TikTok ใช้ "ราคาสินค้าเดิม"(gross) · − Voucher ของร้านค้า · + ค่าส่ง
+  const prod = (plat==='tiktok') ? gross : net;
+  return +(prod - Number(o.seller_voucher||0) + ship).toFixed(2);
+}
 function ordReconDiffs(bs, be){
-  const diffs=[]; const ne=(a,b)=>Math.abs(Number(a||0)-Number(b||0))>=0.01;
-  // ★ เทียบ "ยอดสุทธิ" (หลังหักส่วนลด) — BigSeller แยกส่วนลด (gross−ลด) · หลังบ้านหักมาแล้ว · สุทธิต้องเท่ากัน
-  if(ne(ordReconNet(bs),ordReconNet(be))) diffs.push({f:'ยอดสุทธิ',bs:ordReconNet(bs),be:ordReconNet(be)});
-  if(ne(bs.shipping_fee,be.shipping_fee)) diffs.push({f:'ค่าส่ง',bs:Number(bs.shipping_fee||0),be:Number(be.shipping_fee||0)});
+  const diffs=[];
+  // ★ เทียบ "ฐานภาษีขาย" ของ 2 ฝั่ง (สูตรต่างกันต่อช่องทาง) — strict 0.01
+  const baseBs=ordTaxBase(bs,'bs'), baseBe=ordTaxBase(be,'be');
+  if(Math.abs(baseBs-baseBe)>=0.01) diffs.push({f:'ฐานภาษีขาย',bs:baseBs,be:baseBe});
+  if(Math.abs(Number(bs.shipping_fee||0)-Number(be.shipping_fee||0))>=0.01) diffs.push({f:'ค่าส่ง',bs:Number(bs.shipping_fee||0),be:Number(be.shipping_fee||0)});
   const bsig=ordSkuSig(bs), esig=ordSkuSig(be); if(bsig!==esig) diffs.push({f:'SKU/จำนวน',bs:bsig||'—',be:esig||'—',txt:true});
   return diffs;
 }

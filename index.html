@@ -14763,7 +14763,8 @@ function ordRenderBoard(d){
 
   // ----- recon summary ----- (★ ทะเบียนว่าง = ไม่มีออเดอร์ → กระทบยอดไม่มีความหมาย ไม่โชว์ของค้าง)
   const hasLedger=(d.rows||[]).length>0;
-  const res= hasLedger ? ((d.recon&&d.recon.results)||[]).filter(r=>inRange(r.date)) : [];
+  // ★ คำนวณสถานะใหม่จากสูตรปัจจุบัน (ordReconEffStatus) — กันสถานะเก่าใน DB ขัดกับฐานภาษีที่โชว์
+  const res= hasLedger ? ((d.recon&&d.recon.results)||[]).filter(r=>inRange(r.date)).map(r=>({...r, status: ordReconEffStatus(r)})) : [];
   const resAmt=r=>Number(ordReconNet(r.be||r.bs||{}))||0;
   const sm={matched:{n:0,s:0},only_be:{n:0,s:0},only_bs:{n:0,s:0},diff:{n:0,s:0}};
   res.forEach(r=>{ if(sm[r.status]){ sm[r.status].n++; sm[r.status].s+=resAmt(r); } });
@@ -15202,6 +15203,13 @@ function ordReconDiffs(bs, be){
   if(Math.abs(Number(bs.shipping_fee||0)-Number(be.shipping_fee||0))>=0.01) diffs.push({f:'ค่าส่ง',bs:Number(bs.shipping_fee||0),be:Number(be.shipping_fee||0)});
   const bsig=ordSkuSig(bs), esig=ordSkuSig(be); if(bsig!==esig) diffs.push({f:'SKU/จำนวน',bs:bsig||'—',be:esig||'—',txt:true});
   return diffs;
+}
+/* ★ สถานะ recon "สดๆ" จากสูตรปัจจุบัน — กันสถานะเก่าใน DB (คำนวณด้วยสูตรเดิม) ขัดกับฐานภาษีที่โชว์ */
+function ordReconEffStatus(r){
+  if(!r.bs && !r.be) return r.status;
+  if(!r.bs) return 'only_be';
+  if(!r.be) return 'only_bs';
+  return ordReconDiffs(r.bs, r.be).length ? 'diff' : 'matched';
 }
 function ordRunRecon(backendOrders){
   const d=ordGet();

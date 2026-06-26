@@ -9668,7 +9668,7 @@ async function recSave(id){
 /* ★ กำหนดวันจ่ายรายเดือน (override day_of_month) — modal 12 ช่อง
    month_schedule = { "YYYY-MM": "YYYY-MM-DD" }  ใช้แทน day_of_month สำหรับเดือนที่มีค่า */
 function recOpenSchedule(id){
-  const d = recGet(); const r = (d.recurring||[]).find(x => x.id===id);
+  const d = recGet(); const r = (d.list||[]).find(x => x.id===id);
   if(!r){ alert("ไม่พบรายการ"); return; }
   const today = new Date();
   // 12 เดือนเริ่มจากเดือนนี้

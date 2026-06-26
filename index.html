@@ -14895,15 +14895,30 @@ function ordRenderBoard(d){
     const detail=r=>{
       const S=r.bs?ordReconSide(r.bs,'bs'):null, P=r.be?ordReconSide(r.be,'be'):null;
       const skuBs=r.bs?ordSkuSig(r.bs):'', skuBe=r.be?ordSkuSig(r.be):''; const skuNe=skuBs!==skuBe;
+      // ★ รวมรายการสินค้าราย SKU จาก 2 ฝั่ง (รหัส/ชื่อ/จำนวน/ราคา)
+      const pItems=o=>{ let it=o&&o.items; if(typeof it==='string'){try{it=JSON.parse(it);}catch(e){it=null;}} return Array.isArray(it)?it:[]; };
+      const im=new Map();
+      pItems(r.bs).forEach(x=>{ const k=ordNormSku(x.sku)||(x.name||'?'); const m=im.get(k)||{sku:x.sku||k,name:x.name||'',bsQ:0,bsP:0,beQ:0,beP:0}; m.bsQ+=Number(x.qty)||0; if(Number(x.price))m.bsP=Number(x.price); if(!m.name&&x.name)m.name=x.name; im.set(k,m); });
+      pItems(r.be).forEach(x=>{ const k=ordNormSku(x.sku)||(x.name||'?'); const m=im.get(k)||{sku:x.sku||k,name:x.name||'',bsQ:0,bsP:0,beQ:0,beP:0}; m.beQ+=Number(x.qty)||0; if(Number(x.price))m.beP=Number(x.price); if(!m.name&&x.name)m.name=x.name; im.set(k,m); });
+      const items=[...im.values()];
+      const g3='grid-template-columns:1fr 116px 116px';
+      const itemRow=it=>{ const bsT=it.bsP*it.bsQ, beT=it.beP*it.beQ; const qNe=(r.bs&&r.be)&&it.bsQ!==it.beQ; const pNe=(r.bs&&r.be)&&Math.abs(bsT-beT)>=0.01;
+        return `<div style="display:grid;${g3};gap:0;padding:7px 12px;border-top:1px solid #f1f5f9;font:500 12px/1.4 inherit;align-items:center">
+          <div style="min-width:0"><span style="font-weight:700;color:#334155">${esc(it.sku)}</span>${it.name?`<span style="color:#94a3b8"> · ${esc(it.name)}</span>`:''} <span style="color:${qNe?'#dc2626':'#94a3b8'};font-weight:${qNe?700:400}">×${it.bsQ||it.beQ}${qNe?` /${it.beQ}`:''} @ ${fmt(it.bsP||it.beP)}</span></div>
+          <div style="text-align:right;${pNe?'color:#dc2626;font-weight:700':'color:#475569'}" class="tnum">${r.bs?fmt(bsT):'—'}</div>
+          <div style="text-align:right;${pNe?'color:#dc2626;font-weight:700':'color:#475569'}" class="tnum">${r.be?fmt(beT):'—'}</div>
+        </div>`; };
+      const totLine=(l,bs,be,sign,bold)=>{ const ne=Math.abs(Number(bs||0)-Number(be||0))>=0.01; return `<div style="display:grid;${g3};gap:0;padding:${bold?'9px':'7px'} 12px;border-top:${bold?'2px solid var(--brand,#1e3a8a)':'1px solid #eef1f6'};font:${bold?'800 12.5px':'600 12px'}/1.3 inherit;${bold?'background:rgba(var(--brand-rgb),.05)':(ne?'background:#fef2f2':'')}"><div style="color:${bold?'#0f172a':'#475569'}">${sign||''}${l}</div><div style="text-align:right;${ne&&!bold?'color:#dc2626;font-weight:700':''}" class="tnum">${bs==null?'—':fmt(bs)}</div><div style="text-align:right;${ne&&!bold?'color:#dc2626;font-weight:700':''}" class="tnum">${be==null?'—':fmt(be)}</div></div>`; };
       return `<div style="padding:10px 14px 14px 38px;background:#fbfcfe;border-top:1px solid #eef1f6">
-        <div style="border:1px solid #eef1f6;border-radius:10px;overflow:hidden;max-width:560px">
-          <div style="display:grid;grid-template-columns:1fr 120px 120px;gap:0;background:#f8fafc;padding:8px 12px;font:700 11px/1.2 inherit;color:#64748b"><div>รายการ</div><div style="text-align:right">BigSeller</div><div style="text-align:right">แพลตฟอร์ม(จริง)</div></div>
-          ${cmpLine('ราคาขาย', S&&S.prod, P&&P.prod)}
-          ${cmpLine('ส่วนลดผู้ขาย', S&&S.disc, P&&P.disc, '− ')}
-          ${cmpLine('ค่าส่ง', S&&S.ship, P&&P.ship, '+ ')}
-          <div style="display:grid;grid-template-columns:1fr 120px 120px;gap:0;padding:9px 12px;border-top:2px solid var(--brand,#1e3a8a);font:800 12.5px/1.2 inherit;background:rgba(var(--brand-rgb),.05)"><div>= ฐานภาษีขาย</div><div style="text-align:right" class="tnum">${S?fmt(S.base):'—'}</div><div style="text-align:right" class="tnum">${P?fmt(P.base):'—'}</div></div>
+        <div style="border:1px solid #eef1f6;border-radius:10px;overflow:hidden;max-width:640px">
+          <div style="display:grid;${g3};gap:0;background:#f8fafc;padding:8px 12px;font:700 11px/1.2 inherit;color:#64748b"><div>รายการสินค้า · รหัส ×จำนวน @ ราคา/หน่วย</div><div style="text-align:right">BigSeller</div><div style="text-align:right">แพลตฟอร์ม(จริง)</div></div>
+          ${items.length?items.map(itemRow).join(''):`<div style="padding:10px 12px;color:#94a3b8;font:500 12px/1.4 inherit">— ไม่มีรายการสินค้าย่อย —</div>`}
+          ${totLine('มูลค่าสินค้ารวม', S&&S.prod, P&&P.prod)}
+          ${totLine('ค่าส่ง', S&&S.ship, P&&P.ship, '+ ')}
+          ${totLine('ส่วนลดทั้งบิล (ลดท้ายบิล ไม่ใช่ลดรายสินค้า)', S&&S.disc, P&&P.disc, '− ')}
+          ${totLine('ฐานภาษีขาย', S&&S.base, P&&P.base, '= ', true)}
         </div>
-        <div style="font:500 11px/1.5 inherit;color:#64748b;margin-top:7px">SKU/จำนวน: <b style="color:${skuNe?'#dc2626':'#16a34a'}">${esc(skuBs||'—')}</b> ${skuNe?`≠ <b style="color:#dc2626">${esc(skuBe||'—')}</b> (ไม่ตรง)`:'(ตรง)'}${(!r.bs||!r.be)?`<span style="color:#d97706"> · มีข้างเดียว — ไม่มีคู่ให้เทียบ</span>`:''}</div>
+        <div style="font:500 11px/1.5 inherit;color:#64748b;margin-top:7px">${(!r.bs||!r.be)?`<span style="color:#d97706">มีข้างเดียว — ไม่มีคู่ให้เทียบ</span>`:(skuNe?`<span style="color:#dc2626">⚠ SKU/จำนวน ไม่ตรง</span>`:`<span style="color:#16a34a">SKU/จำนวน ตรง ✓</span>`)}</div>
       </div>`;
     };
     const rowH=r=>{

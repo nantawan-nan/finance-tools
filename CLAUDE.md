@@ -184,7 +184,16 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 - **★ gotcha (re-render routing):** `ordIv*` setter หลายสิบตัวเรียก `renderToolOrders()` ตอน re-render · ใส่ guard หัว `renderToolOrders`: ถ้า `state.tool==='expressmatch'` → `return renderToolExpressMatch()` (กัน #main เด้งกลับหน้า Orders) — ไม่ต้องแก้ call site ทุกตัว
 - **Orders เหลือ 2 แท็บ:** 🚦 สรุปสถานะ + 📋 คำสั่งซื้อ BigSeller (ถอด tabBtn + dispatch ของ ivsys/iv ออก) · KPI "recon" ยังคลิกไปแท็บ recon ได้
 - **เก่า em* flow ถูกแทน** — `renderToolExpressMatch` เดิม (อัป CSV แมพ IV ง่ายๆ) ถูกเขียนใหม่ · `emGet/emHandleFile/emApply/emResultHTML` ยังอยู่แต่ไม่ถูกเรียก (dead code) · `emClear` ลบแล้ว
-- **Phase 2 (ยังไม่ทำ):** redesign หน้า Orders เป็น 2 แท็บตามดีไซน์ (hero + KPI 4 + สรุปกระทบยอด + กระทบยอดต่อแพลตฟอร์ม + ปฏิทินสถานะนำเข้า + สิ่งที่ต้องทำต่อ + รายการไม่แมท / รายละเอียดการขาย)
+### 2026-06-26 — Orders redesign Phase 2: หน้า "สรุปภาพรวม" ตามดีไซน์ใหม่ (KPI แพลตฟอร์ม + สรุปกระทบยอด)
+- **`ordRenderBoard` รื้อใหม่** (แท็บ board = "สรุปภาพรวม"):
+  - **KPI 4 แพลตฟอร์ม** (Shopee/TikTok/Lazada/อื่นๆ FACE-LINE) — การ์ด border-top สีแบรนด์แพลตฟอร์ม + ยอดเงิน + จำนวนออเดอร์ (group จาก `o.channel_group`, offline+unknown → other)
+  - **2 คอลัมน์: สรุปกระทบยอด + กระทบยอดต่อแพลตฟอร์ม** จาก `d.recon.results`:
+    - สรุปกระทบยอด: ตรวจทั้งหมด (checkedN) + progress bar 4 สี + 4 แถว (ตรงกัน=matched เขียว · มีในแพลตฟอร์มไม่มีใน BS=only_be แดง · มีใน BS ไม่มีแพลตฟอร์ม=only_bs ส้ม · ยอดไม่ตรง=diff ม่วง) · `resAmt(r)=ordReconNet(r.be||r.bs)`
+    - กระทบยอดต่อแพลตฟอร์ม: diverging bars ต่อ channel (ซ้ายแดง=only_be · กลางเขียว=matched · ขวาส้ม=only_bs) จาก `ordReconCoverage` cnt
+  - ฝัง `ordRenderRecon(d)` เดิมด้านล่าง (coverage table + รายการไม่แมท + อัปไฟล์ + ใบกระทบยอด) — ไม่ rebuild
+- **hero (`renderToolOrders`)** เพิ่ม "อัตราแมท %" (matched/checked) ข้างยอดออเดอร์รวม เมื่อมี recon results
+- **ของเดิมที่เอาออกจาก board:** totals hero ซ้ำ · stacked bar สัดส่วนสถานะ · การ์ด status grid · `ordRenderMonth` embed (ฟังก์ชันยังอยู่ แต่ board ไม่เรียกแล้ว)
+- **ยังไม่ทำ:** ปฏิทินสถานะนำเข้ารายวันต่อแพลตฟอร์ม + แผง "สิ่งที่ต้องทำต่อ" แยก (ตอนนี้ใช้ coverage table จาก ordRenderRecon แทน) · restyle แท็บ "รายละเอียดการขาย" (register) ตามดีไซน์
 
 ### 2026-06-24 — Orders ตรวจ IV: รื้อ flow เป็น checklist + เปรียบเทียบยอดสูตรเต็ม + UI ทางการ
 - **ปัญหาเดิม:** ปุ่ม "Tag IV ที่ยังว่าง (N)" tag ทั้งหมดทันทีไม่ confirm รายตัว · เคสที่ 723-5 ยอดต่างจาก order_total จะถูก overwrite sale_amount เงียบๆ · ไม่มีฟิลเตอร์/sort/checkbox · เคส 0/0 ที่ user ไม่เชื่อใจถูก mark "ตรงแล้ว" อัตโนมัติ

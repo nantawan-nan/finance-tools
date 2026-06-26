@@ -14655,90 +14655,98 @@ function ordBoardGo(k){ const d=ordGet();
 }
 function ordFmtMoney(n){ return Number(n||0).toLocaleString("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2}); }
 
-/* แท็บ สรุปสถานะงาน — Hero + Stacked bar + Card grid + Recon embed */
+/* แท็บ สรุปภาพรวม (redesign) — KPI แพลตฟอร์ม + สรุปกระทบยอด + กระทบยอดต่อแพลตฟอร์ม + recon เดิม */
 function ordRenderBoard(d){
   const fmt=ordFmtMoney;
-  const all=(d.rows||[]);
-  const rmap=ordReconMap(d);
-  const agg={}; ORD_STATUS.forEach(s=>agg[s.k]={n:0,sum:0});
-  const cancel={n:0,sum:0};
-  all.forEach(o=>{ const k=ordStatusOf(o,rmap); if(k==='cancelled'){ cancel.n++; cancel.sum+=Number(o.order_total||0); } else if(agg[k]){ agg[k].n++; agg[k].sum+=Number(o.order_total||0); } });
-  const onlyBe={n:0,sum:0}; ((d.recon&&d.recon.results)||[]).forEach(r=>{ if(r.status==='only_be'){ onlyBe.n++; onlyBe.sum+=Number(ordReconNet(r.be||{}))||0; } });
-  const totN=all.length; const totSum=all.reduce((a,o)=>a+Number(o.order_total||0),0);
-  const activeN=totN-cancel.n; const activeSum=totSum-cancel.sum;
-  const segs = ORD_STATUS.map(s=>({k:s.k,l:s.l,c:s.c,ic:s.ic,n:agg[s.k].n,sum:agg[s.k].sum})).filter(x=>x.n>0);
-
-  const barHtml = segs.map(s=>{
-    const pct = activeN ? (s.n/activeN*100) : 0;
-    return `<div title="${esc(s.l)} · ${s.n.toLocaleString('th-TH')} (${pct.toFixed(1)}%)" onclick="ordBoardGo('${s.k}')" class="ord-bar-seg" style="background:${s.c};width:${pct}%"></div>`;
-  }).join('');
-
-  const card=(k,l,ic,c,n,sum,isCancel)=>{
-    const pct = totN ? (n/totN*100) : 0;
-    return `<div class="ord-stcard${isCancel?' cancel':''}" onclick="ordBoardGo('${k}')" style="--c:${c}">
-      <div class="ord-stcard-top">
-        <div class="ic">${ic}</div>
-        <div class="lbl">${esc(l)}</div>
+  const active=(d.rows||[]).filter(o=>o.status!=='cancelled');
+  // ----- 4 KPI แพลตฟอร์ม -----
+  const PLAT=[
+    {k:'shopee', l:'Shopee',           c:'#ee4d2d', badge:'S'},
+    {k:'tiktok', l:'TikTok',           c:'#1f1f29', badge:'T'},
+    {k:'lazada', l:'Lazada',           c:'#3f3bcc', badge:'L'},
+    {k:'other',  l:'อื่นๆ (FACE/LINE)', c:'#64748b', badge:'+'}
+  ];
+  const pAgg={}; PLAT.forEach(p=>pAgg[p.k]={n:0,sum:0});
+  active.forEach(o=>{ let g=o.channel_group; if(g==='offline') g='other'; if(!pAgg[g]) g='other'; pAgg[g].n++; pAgg[g].sum+=Number(o.order_total||0); });
+  const kpiCards=PLAT.map(p=>`
+    <div class="ord-card" style="padding:0;overflow:hidden;border-top:3px solid ${p.c}">
+      <div style="padding:16px 18px 15px">
+        <div style="display:flex;align-items:center;gap:9px;margin-bottom:11px">
+          <span style="width:34px;height:34px;border-radius:50%;background:${p.c};color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:15px">${p.badge}</span>
+          <span style="font:700 14px/1.2 inherit;color:var(--n-900)">${esc(p.l)}</span>
+        </div>
+        <div class="tnum" style="font:800 24px/1.1 inherit;color:var(--n-900);letter-spacing:-.5px">${fmt(pAgg[p.k].sum)} <span style="font-size:14px;font-weight:600;color:var(--n-500)">บาท</span></div>
+        <div style="font:500 12px/1.4 inherit;color:var(--n-500);margin-top:4px">${pAgg[p.k].n.toLocaleString('th-TH')} ออเดอร์</div>
       </div>
-      <div class="ord-stcard-mid">
-        <div class="n">${n.toLocaleString('th-TH')}</div>
-        <div class="pct">${pct.toFixed(1)}%</div>
-      </div>
-      <div class="bar"><div style="width:${pct}%;background:${c}"></div></div>
-      <div class="sum">${fmt(sum)} บาท</div>
+    </div>`).join('');
+
+  // ----- recon summary -----
+  const res=(d.recon&&d.recon.results)||[];
+  const resAmt=r=>Number(ordReconNet(r.be||r.bs||{}))||0;
+  const sm={matched:{n:0,s:0},only_be:{n:0,s:0},only_bs:{n:0,s:0},diff:{n:0,s:0}};
+  res.forEach(r=>{ if(sm[r.status]){ sm[r.status].n++; sm[r.status].s+=resAmt(r); } });
+  const checkedN=res.length, checkedSum=res.reduce((a,r)=>a+resAmt(r),0);
+  const matchRate= checkedN? (sm.matched.n/checkedN*100):0;
+  const reconRow=(c,bg,l,sub,o)=>`
+    <div style="display:flex;align-items:center;gap:11px;padding:12px 14px;border-radius:12px;background:${bg};border:1px solid ${c}22">
+      <span style="width:4px;align-self:stretch;border-radius:4px;background:${c}"></span>
+      <div style="flex:1;min-width:0"><div style="font:700 13.5px/1.3 inherit;color:var(--n-900)">${l}</div><div style="font:500 11.5px/1.4 inherit;color:var(--n-500);margin-top:1px">${sub}</div></div>
+      <div style="text-align:right"><div class="tnum" style="font:800 19px/1 inherit;color:${c}">${o.n.toLocaleString('th-TH')}</div><div class="tnum" style="font:500 11px/1.4 inherit;color:var(--n-500);margin-top:2px">${fmt(o.s)} บาท</div></div>
     </div>`;
-  };
+  const reconSummary=`
+    <div class="ord-card" style="padding:18px">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:14px">
+        <div style="display:flex;align-items:center;gap:9px"><span style="width:30px;height:30px;border-radius:9px;background:var(--brand-soft,#eef2fb);display:flex;align-items:center;justify-content:center"><i data-lucide="clipboard-check" style="width:17px;height:17px;color:var(--brand,#1e3a8a)"></i></span><div><div style="font:700 14px/1.2 inherit;color:var(--n-900)">สรุปกระทบยอด</div><div style="font:500 11px/1.4 inherit;color:var(--n-500)">ตรวจทั้งหมด · แบ่งตามผลการแมท</div></div></div>
+        <div style="text-align:right"><div class="tnum" style="font:800 26px/1 inherit;color:var(--n-900)">${checkedN.toLocaleString('th-TH')}</div><div class="tnum" style="font:500 11px/1.4 inherit;color:var(--n-500);margin-top:2px">${fmt(checkedSum)} บาท</div></div>
+      </div>
+      <div style="height:9px;border-radius:6px;background:#f1f5f9;overflow:hidden;display:flex;margin-bottom:14px">
+        <div style="width:${checkedN?sm.matched.n/checkedN*100:0}%;background:#16a34a"></div>
+        <div style="width:${checkedN?sm.only_be.n/checkedN*100:0}%;background:#dc2626"></div>
+        <div style="width:${checkedN?sm.only_bs.n/checkedN*100:0}%;background:#d97706"></div>
+        <div style="width:${checkedN?sm.diff.n/checkedN*100:0}%;background:#8b5cf6"></div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:9px">
+        ${reconRow('#16a34a','#f0fdf4','ตรงกัน','มีทั้ง 2 ระบบ · แมท '+matchRate.toFixed(1)+'%',sm.matched)}
+        ${reconRow('#dc2626','#fef2f2','มีในแพลตฟอร์ม · ไม่มีใน BigSeller','ขายแล้วยังไม่คีย์เข้า BigSeller',sm.only_be)}
+        ${reconRow('#d97706','#fffbeb','มีใน BigSeller · ไม่มีในแพลตฟอร์ม','BigSeller มี · แพลตฟอร์มยังไม่ขึ้น',sm.only_bs)}
+        ${sm.diff.n?reconRow('#8b5cf6','#f5f3ff','ยอดไม่ตรง','order_no ตรง · ยอด/ค่าส่ง/SKU ต่าง',sm.diff):''}
+      </div>
+    </div>`;
 
-  const cardHtml = ORD_STATUS.filter(s=>agg[s.k].n>0).map(s=>card(s.k,s.l,s.ic,s.c,agg[s.k].n,agg[s.k].sum,false)).join('');
-  const cancelCard = cancel.n ? card('cancelled','ยกเลิก','🚫','#94a3b8',cancel.n,cancel.sum,true) : '';
+  // ----- กระทบยอดต่อแพลตฟอร์ม (diverging bars) -----
+  const cov=ordReconCoverage(d,res);
+  const maxSide=Math.max(1,...cov.chans.map(ch=>Math.max(cov.cnt[ch].only_be,cov.cnt[ch].only_bs)));
+  const plMeta={shopee:{l:'Shopee',c:'#ee4d2d'},tiktok:{l:'TikTok',c:'#1f1f29'},lazada:{l:'Lazada',c:'#3f3bcc'},offline:{l:'หน้าร้าน',c:'#64748b'}};
+  const perPlat=`
+    <div class="ord-card" style="padding:18px">
+      <div style="display:flex;align-items:center;gap:9px;margin-bottom:6px"><span style="width:30px;height:30px;border-radius:9px;background:var(--brand-soft,#eef2fb);display:flex;align-items:center;justify-content:center"><i data-lucide="git-compare-arrows" style="width:17px;height:17px;color:var(--brand,#1e3a8a)"></i></span><div style="font:700 14px/1.2 inherit;color:var(--n-900)">กระทบยอดต่อแพลตฟอร์ม</div></div>
+      <div style="display:flex;justify-content:space-between;font:600 10px/1.4 inherit;color:var(--n-500);margin:10px 0 8px;text-transform:uppercase;letter-spacing:.3px"><span style="color:#dc2626">◀ แพลตฟอร์ม · ไม่มีใน BS</span><span style="color:#16a34a">ตรงกัน</span><span style="color:#d97706">BS · ไม่มีแพลตฟอร์ม ▶</span></div>
+      <div style="display:flex;flex-direction:column;gap:11px">
+        ${cov.chans.map(ch=>{const m=plMeta[ch]||{l:ch,c:'#64748b'};const cn=cov.cnt[ch];return `
+        <div style="display:flex;align-items:center;gap:10px">
+          <div style="width:74px;flex-shrink:0"><div style="display:flex;align-items:center;gap:6px"><span style="width:9px;height:9px;border-radius:2px;background:${m.c}"></span><span style="font:700 12px/1.2 inherit;color:var(--n-900)">${m.l}</span></div></div>
+          <div style="flex:1;display:flex;align-items:center;gap:5px">
+            <div style="flex:1;display:flex;justify-content:flex-end"><div style="height:22px;border-radius:5px;background:#dc2626;width:${cn.only_be/maxSide*100}%;min-width:${cn.only_be?22:0}px;display:flex;align-items:center;justify-content:flex-start;padding-left:6px;color:#fff;font:700 11px/1 inherit">${cn.only_be||''}</div></div>
+            <div style="width:46px;height:30px;border-radius:7px;background:#16a34a;color:#fff;display:flex;align-items:center;justify-content:center;font:800 14px/1 inherit;flex-shrink:0">${cn.matched}</div>
+            <div style="flex:1;display:flex;justify-content:flex-start"><div style="height:22px;border-radius:5px;background:#d97706;width:${cn.only_bs/maxSide*100}%;min-width:${cn.only_bs?22:0}px;display:flex;align-items:center;justify-content:flex-end;padding-right:6px;color:#fff;font:700 11px/1 inherit">${cn.only_bs||''}</div></div>
+          </div>
+        </div>`;}).join('')}
+      </div>
+    </div>`;
 
-  const co=COMPANIES.find(c=>c.id===state.company)||{};
-  const heroGrad = co.gradient ? `linear-gradient(135deg,${co.gradient[0]},${co.gradient[1]})` : 'linear-gradient(135deg,var(--brand,#0d9488),color-mix(in srgb,var(--brand,#0d9488) 65%,#000))';
-
+  const noRecon = !res.length;
   return `
-    <!-- Hero: ยอดรวม + แตก active/cancel -->
-    <div class="ord-totals" style="background:${heroGrad}">
-      <div class="ord-totals-main">
-        <div class="ord-totals-label">ออเดอร์ทั้งหมด</div>
-        <div class="ord-totals-n">${totN.toLocaleString('th-TH')}</div>
-        <div class="ord-totals-sub">${fmt(totSum)} บาท</div>
-      </div>
-      <div class="ord-totals-split">
-        <div class="ord-totals-line"><span class="dot" style="background:#fff"></span>ใช้งาน <b>${activeN.toLocaleString('th-TH')}</b><span class="mu">· ${fmt(activeSum)} บาท</span></div>
-        <div class="ord-totals-line"><span class="dot" style="background:rgba(255,255,255,.45)"></span>ยกเลิก <b>${cancel.n.toLocaleString('th-TH')}</b><span class="mu">· ${fmt(cancel.sum)} บาท</span></div>
-        <div class="ord-totals-eq"><span class="dot" style="background:transparent;border:1px dashed rgba(255,255,255,.55)"></span>${activeN.toLocaleString('th-TH')} + ${cancel.n.toLocaleString('th-TH')} = <b>${totN.toLocaleString('th-TH')}</b></div>
-      </div>
-    </div>
+    <!-- 4 KPI แพลตฟอร์ม -->
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:4px">${kpiCards}</div>
 
-    <!-- Stacked bar -->
-    <div class="ord-card" style="padding:14px 18px;margin-top:12px">
-      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:9px;flex-wrap:wrap">
-        <div style="font:700 13px/1.3 inherit;color:var(--n-900)">สัดส่วนสถานะ <span style="font-weight:500;color:var(--n-500);font-size:11.5px">(จากออเดอร์ใช้งาน ${activeN.toLocaleString('th-TH')})</span></div>
-        <div style="font:500 11.5px/1.3 inherit;color:var(--n-500)">▸ คลิกแถบหรือการ์ดเพื่อกรอง</div>
-      </div>
-      <div class="ord-bar">${barHtml||'<div style="width:100%;background:var(--n-100)"></div>'}</div>
-      <div style="display:flex;flex-wrap:wrap;gap:8px 16px;margin-top:11px;font:500 11.5px/1.5 inherit;color:var(--n-700)">
-        ${segs.map(s=>`<div style="display:inline-flex;align-items:center;gap:6px;cursor:pointer" onclick="ordBoardGo('${s.k}')"><span style="width:10px;height:10px;background:${s.c};border-radius:3px"></span>${esc(s.l)} <b style="color:var(--n-900)">${s.n.toLocaleString('th-TH')}</b></div>`).join('')}
-        ${cancel.n?`<div style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;opacity:.75" onclick="ordBoardGo('cancelled')"><span style="width:10px;height:10px;background:#94a3b8;border-radius:3px"></span>ยกเลิก <b style="color:var(--n-900)">${cancel.n.toLocaleString('th-TH')}</b></div>`:''}
-      </div>
-    </div>
+    <!-- สรุปกระทบยอด + ต่อแพลตฟอร์ม -->
+    ${noRecon ? `<div class="ord-card" style="padding:22px;margin-top:14px;text-align:center;color:var(--n-500)">ยังไม่มีผลกระทบยอด — อัปไฟล์หลังบ้าน (Shopee/TikTok/Lazada) ด้านล่างเพื่อเทียบยอด</div>`
+      : `<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:14px">${reconSummary}${perPlat}</div>`}
 
-    <!-- Cards Grid -->
-    <div class="ord-stgrid">${cardHtml}${cancelCard}</div>
-
-    <!-- Monthly chart embed -->
-    <div style="margin-top:26px;padding-top:18px;border-top:2px solid var(--n-100)">
+    <!-- สถานะการนำเข้า + รายการไม่แมท (จาก recon เดิม) -->
+    <div style="margin-top:22px;padding-top:18px;border-top:2px solid var(--n-100)">
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap">
-        <div style="font:700 16px/1.3 inherit;color:var(--n-900)"><i data-lucide="bar-chart-3" style="width:18px;height:18px;display:inline-block;vertical-align:-3px;color:var(--brand,#0d9488)"></i> สรุปรายเดือนต่อแพลตฟอร์ม</div>
-        <div style="font:500 12px/1.4 inherit;color:var(--n-500)">แท่งโปร่ง = ทั้งหมด · แท่งทึบ = คีย์ IV แล้ว · หน่วย: บาท</div>
-      </div>
-      ${ordRenderMonth(d)}
-    </div>
-
-    <!-- Recon embed -->
-    <div style="margin-top:26px;padding-top:18px;border-top:2px solid var(--n-100)">
-      <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap">
-        <div style="font:700 16px/1.3 inherit;color:var(--n-900)"><i data-lucide="scan-search" style="width:18px;height:18px;display:inline-block;vertical-align:-3px;color:var(--brand,#0d9488)"></i> ตรวจรายวัน — BigSeller ↔ หลังบ้าน</div>
+        <div style="font:700 16px/1.3 inherit;color:var(--n-900)"><i data-lucide="scan-search" style="width:18px;height:18px;display:inline-block;vertical-align:-3px;color:var(--brand,#1e3a8a)"></i> ตรวจรายวัน — BigSeller ↔ หลังบ้าน</div>
         <div style="font:500 12px/1.4 inherit;color:var(--n-500)">อัปไฟล์หลังบ้านเทียบยอดต่อวัน · ปิดรอบเป็นใบกระทบยอด</div>
       </div>
       ${ordRenderRecon(d)}
@@ -16827,10 +16835,13 @@ async function renderToolOrders(){
           <h1>${esc(t.name)}</h1>
           <div class="h-sub">${esc(t.long)}</div>
         </div>
-        <div class="h-aside">
-          <small>ออเดอร์รวม</small>
-          <b class="tnum">${k.totN.toLocaleString("th-TH")}</b>
-          <div style="font:500 11.5px/1.4 inherit;opacity:.82;margin-top:2px">${fmt(k.totSum)} บาท · ${esc(today)}</div>
+        <div class="h-aside" style="display:flex;align-items:center;gap:22px">
+          <div>
+            <small>ออเดอร์รวม</small>
+            <b class="tnum">${k.totN.toLocaleString("th-TH")}</b>
+            <div style="font:500 11.5px/1.4 inherit;opacity:.82;margin-top:2px">${fmt(k.totSum)} บาท · ${esc(today)}</div>
+          </div>
+          ${(()=>{const rr=(d.recon&&d.recon.results)||[];if(!rr.length)return '';const mr=rr.filter(r=>r.status==='matched').length/rr.length*100;return `<div style="text-align:right;padding-left:22px;border-left:1px solid rgba(255,255,255,.22)"><small>อัตราแมท</small><b class="tnum" style="font-size:30px">${mr.toFixed(1)}<span style="font-size:15px;font-weight:600;opacity:.8">%</span></b></div>`;})()}
         </div>
       </div>
     </section>

@@ -17,7 +17,7 @@
 <script src="https://unpkg.com/lucide@0.474.0/dist/umd/lucide.min.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@300;400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@300;400;500;600;700;800&family=IBM+Plex+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
   :root{
     --brand:#1e3a8a; --brand-dark:#172554; --brand-soft:#eff6ff; --brand-rgb:37,99,235;
@@ -14766,7 +14766,7 @@ function ordRenderBoard(d){
   const reconSummary=`
     <div style="background:#fff;border:1px solid #e7ebf2;border-radius:16px;padding:22px;box-shadow:0 1px 2px rgba(16,24,40,.04)">
       <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:16px">
-        <div style="display:flex;align-items:center;gap:11px"><span style="width:34px;height:34px;border-radius:10px;background:var(--brand-soft,#eef2fb);display:flex;align-items:center;justify-content:center"><i data-lucide="clipboard-check" style="width:19px;height:19px;color:var(--brand,#1e3a8a)"></i></span><div><div style="font:800 18px/1.2 inherit;color:var(--n-900)">สรุปกระทบยอด</div><div style="font:500 12.5px/1.4 inherit;color:var(--n-500);margin-top:2px">ตรวจทั้งหมด · แบ่งตามผลการแมท</div></div></div>
+        <div style="display:flex;align-items:center;gap:11px"><span style="width:34px;height:34px;border-radius:10px;background:var(--brand-soft,#eef2fb);display:flex;align-items:center;justify-content:center"><i data-lucide="clipboard-check" style="width:19px;height:19px;color:var(--brand,#1e3a8a)"></i></span><div><div style="font:800 20px/1.2 inherit;color:var(--n-900)">สรุปกระทบยอด</div><div style="font:500 12.5px/1.4 inherit;color:var(--n-500);margin-top:2px">ตรวจทั้งหมด · แบ่งตามผลการแมท</div></div></div>
         <div style="text-align:right"><div class="tnum" style="font:800 42px/1 inherit;color:var(--n-900);letter-spacing:-1px">${checkedN.toLocaleString('th-TH')}</div><div class="tnum" style="font:500 12px/1.4 inherit;color:var(--n-500);margin-top:3px">${fmt(checkedSum)} บาท</div></div>
       </div>
       <div style="height:10px;border-radius:6px;background:#f1f5f9;overflow:hidden;display:flex;margin-bottom:16px">
@@ -14792,7 +14792,7 @@ function ordRenderBoard(d){
   const perPlat=`
     <div style="background:#fff;border:1px solid #e7ebf2;border-radius:16px;padding:22px;box-shadow:0 1px 2px rgba(16,24,40,.04)">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:4px;flex-wrap:wrap">
-        <div style="display:flex;align-items:center;gap:11px"><span style="width:34px;height:34px;border-radius:10px;background:var(--brand-soft,#eef2fb);display:flex;align-items:center;justify-content:center"><i data-lucide="git-compare-arrows" style="width:19px;height:19px;color:var(--brand,#1e3a8a)"></i></span><div><div style="font:800 18px/1.2 inherit;color:var(--n-900)">กระทบยอดต่อแพลตฟอร์ม</div><div style="font:500 11.5px/1.4 inherit;color:var(--n-500);margin-top:1px">หน่วย: จำนวนออเดอร์</div></div></div>
+        <div style="display:flex;align-items:center;gap:11px"><span style="width:34px;height:34px;border-radius:10px;background:var(--brand-soft,#eef2fb);display:flex;align-items:center;justify-content:center"><i data-lucide="git-compare-arrows" style="width:19px;height:19px;color:var(--brand,#1e3a8a)"></i></span><div><div style="font:800 20px/1.2 inherit;color:var(--n-900)">กระทบยอดต่อแพลตฟอร์ม</div><div style="font:500 11.5px/1.4 inherit;color:var(--n-500);margin-top:1px">หน่วย: จำนวนออเดอร์</div></div></div>
         <div style="display:flex;align-items:center;gap:8px"><span style="font:600 11.5px/1.2 inherit;color:#94a3b8">รูปแบบ</span><div style="display:flex;gap:2px;background:#f1f5f9;padding:3px;border-radius:9px">${vizBtn('a','ก')}${vizBtn('b','ข')}${vizBtn('c','ค')}${vizBtn('d','ง')}</div></div>
       </div>
       <div style="display:flex;gap:14px;flex-wrap:wrap;font:400 11px/1.4 inherit;color:#475569;margin:10px 0 16px"><span style="display:inline-flex;align-items:center;gap:5px"><span style="width:11px;height:11px;border-radius:3px;background:#16a34a"></span>ตรงกัน (อยู่ทั้ง 2 ระบบ)</span><span style="display:inline-flex;align-items:center;gap:5px"><span style="width:11px;height:11px;border-radius:3px;background:#dc2626"></span>มีในแพลตฟอร์ม แต่ไม่มีใน BigSeller</span><span style="display:inline-flex;align-items:center;gap:5px"><span style="width:11px;height:11px;border-radius:3px;background:#d97706"></span>มีใน BigSeller แต่ไม่มีในแพลตฟอร์ม</span></div>

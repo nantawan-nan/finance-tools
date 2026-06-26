@@ -604,7 +604,10 @@ function appToolVisible(t){
   // ★ per-page permissions (app_metadata.page_permissions) — null = ใช้ role default · array = filter เฉพาะที่ระบุ
   if(typeof AUTH !== "undefined" && AUTH.role && AUTH.role !== "admin"){
     const perms = AUTH.user && AUTH.user.app_metadata && AUTH.user.app_metadata.page_permissions;
-    if(Array.isArray(perms) && !perms.includes(t.id)) return false;
+    const hasExplicit = Array.isArray(perms) && perms.includes(t.id);
+    if(Array.isArray(perms) && !hasExplicit) return false;
+    // adminOnly tool — non-admin เห็นได้เฉพาะกรณีติ๊กให้ explicit ใน page_permissions
+    if(t.adminOnly && !hasExplicit) return false;
   }
   return true;
 }
@@ -821,9 +824,8 @@ function renderSidebar(){
   const present = AUTH.isPresent();
   const stages = {}, stageOrder = [];
   TOOLS.forEach(t => {
-    if(!appToolVisible(t)) return;                         // clone whitelist + optIn tools
+    if(!appToolVisible(t)) return;                         // ★ adminOnly + page_permissions ผ่าน appToolVisible แล้ว
     if(present && !PRESENT_TOOLS.includes(t.id)) return;   // โหมดพรีเซนต์ → เห็นแค่แท็บที่กำหนด
-    if(!present && t.adminOnly && AUTH.role!=="admin") return;
     if(!stages[t.stage]){ stages[t.stage] = []; stageOrder.push(t.stage); }
     stages[t.stage].push(t);
   });
@@ -3558,8 +3560,8 @@ function renderToolHome(){
     { who:"ทีม AR", text:"บันทึกรับชำระเงิน RE 12 รายการ", time:"1 ชั่วโมงที่แล้ว", initial:"A", bg:"#FBEFD7", color:"#C77E14" },
     { who:"ระบบ", text:"สำรองฐานข้อมูลอัตโนมัติสำเร็จ", time:"วันนี้ 02:00", initial:"S", bg:"#EEF0FF", color:"#5468FF" },
   ];
-  // โมดูลที่ใช้บ่อย — จาก TOOLS จริง (live, ไม่ใช่ admin-only)
-  const quickMods = TOOLS.filter(t=> t.id!=="home" && t.status==="live" && appToolVisible(t) && !(t.adminOnly && AUTH.role!=="admin")).slice(0,8);
+  // โมดูลที่ใช้บ่อย — จาก TOOLS จริง (live, ผ่าน page_permissions + adminOnly)
+  const quickMods = TOOLS.filter(t=> t.id!=="home" && t.status==="live" && appToolVisible(t)).slice(0,8);
 
   const kpiCard = (opts) => `
     <div class="hd-kpi ${opts.tool?'click':''}" ${opts.tool?`onclick="setTool('${opts.tool}')"`:''} style="${opts.dark?'color:#fff;background:linear-gradient(140deg,var(--brand) 0%,var(--brand-dark) 100%);box-shadow:0 10px 24px rgba(13,150,132,.3);border:none':''};${opts.delay?`animation-delay:${opts.delay}`:''}">
@@ -4314,7 +4316,7 @@ function usrOpenAdd(){
         </div>
         ${(()=>{
           // ★ Per-page permissions ใน modal เพิ่มผู้ใช้ (เหมือนในแก้ไข)
-          const allTools = (typeof TOOLS!=="undefined" && Array.isArray(TOOLS)) ? TOOLS.filter(t=>!t.adminOnly) : [];
+          const allTools = (typeof TOOLS!=="undefined" && Array.isArray(TOOLS)) ? TOOLS.slice() : [];
           if(!allTools.length) return "";
           return `<div>
             <div style="font-size:12px;font-weight:700;color:var(--ink-2);margin-bottom:6px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
@@ -4324,9 +4326,9 @@ function usrOpenAdd(){
               <button type="button" class="btn ghost btn sm" onclick="usrAddPermsAll(false)" style="font-size:11px;padding:2px 8px">ล้าง</button>
             </div>
             <div id="uAddPerms" style="display:grid;grid-template-columns:repeat(2,1fr);gap:5px;background:var(--bg);padding:10px;border-radius:8px;max-height:200px;overflow-y:auto">
-              ${allTools.map(t => `<label style="display:flex;align-items:center;gap:6px;font-size:12.5px;cursor:pointer">
+              ${allTools.map(t => `<label style="display:flex;align-items:center;gap:6px;font-size:12.5px;cursor:pointer" title="${t.adminOnly?'หน้านี้ปกติเฉพาะ admin · ติ๊กให้เห็นได้':''}">
                 <input type="checkbox" class="uAddPermCb" data-tool="${esc(t.id)}" style="accent-color:var(--brand)">
-                <span>${t.ic||"📄"} ${esc(t.name)}</span>
+                <span>${t.ic||"📄"} ${esc(t.name)}${t.adminOnly?' <span style="font-size:10px;color:#dc2626;font-weight:700">🔒</span>':''}</span>
               </label>`).join("")}
             </div>
           </div>`;
@@ -4449,7 +4451,7 @@ function usrOpenEdit(uid){
         ${(()=>{
           // ★ Per-page permissions — เลือกหน้าที่ดูได้ (admin ปกติเห็นทุกหน้า ไม่ต้องเลือก)
           const allowed = Array.isArray(meta.page_permissions) ? new Set(meta.page_permissions) : null;
-          const allTools = (typeof TOOLS!=="undefined" && Array.isArray(TOOLS)) ? TOOLS.filter(t=>!t.adminOnly) : [];
+          const allTools = (typeof TOOLS!=="undefined" && Array.isArray(TOOLS)) ? TOOLS.slice() : [];
           if(!allTools.length) return "";
           return `<div>
             <div style="font-size:12px;font-weight:700;color:var(--ink-2);margin-bottom:6px;display:flex;align-items:center;gap:8px">
@@ -4459,9 +4461,9 @@ function usrOpenEdit(uid){
               <button type="button" class="btn ghost btn sm" onclick="usrEdPermsAll(false)" style="font-size:11px;padding:2px 8px">ล้าง</button>
             </div>
             <div id="uEdPerms" style="display:grid;grid-template-columns:repeat(2,1fr);gap:5px;background:var(--bg);padding:10px;border-radius:8px;max-height:200px;overflow-y:auto">
-              ${allTools.map(t => `<label style="display:flex;align-items:center;gap:6px;font-size:12.5px;cursor:pointer">
+              ${allTools.map(t => `<label style="display:flex;align-items:center;gap:6px;font-size:12.5px;cursor:pointer" title="${t.adminOnly?'หน้านี้ปกติเฉพาะ admin · ติ๊กให้เห็นได้':''}">
                 <input type="checkbox" class="uEdPermCb" data-tool="${esc(t.id)}" ${allowed && allowed.has(t.id)?'checked':''} style="accent-color:var(--brand)">
-                <span>${t.ic||"📄"} ${esc(t.name)}</span>
+                <span>${t.ic||"📄"} ${esc(t.name)}${t.adminOnly?' <span style="font-size:10px;color:#dc2626;font-weight:700">🔒</span>':''}</span>
               </label>`).join("")}
             </div>
           </div>`;
@@ -5367,7 +5369,10 @@ function renderToolExecDash(){
   // sync จาก Supabase ใน background (ถ้ามีของใหม่จะ re-render เอง)
   edSyncFromCloud();
 
-  if(AUTH.role !== "admin" && !AUTH.isPresent()){   // present เห็น Exec Cash Flow ได้
+  // ★ allow ถ้า user มี execdash ใน page_permissions (override admin-only ของหน้านี้)
+  const _execPerms = AUTH.user && AUTH.user.app_metadata && AUTH.user.app_metadata.page_permissions;
+  const _execAllowed = Array.isArray(_execPerms) && _execPerms.includes("execdash");
+  if(AUTH.role !== "admin" && !AUTH.isPresent() && !_execAllowed){
     main.innerHTML = `
       <div class="page-head"><h1>${t.name}</h1></div>
       <div class="card" style="text-align:center;padding:48px 20px">

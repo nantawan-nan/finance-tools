@@ -16914,6 +16914,12 @@ async function renderToolOrders(){
   const fmt = ordFmtMoney;
   const today = new Date().toLocaleDateString("th-TH",{day:"numeric",month:"short",year:"numeric"});
   const tabBtn=(v,l,cnt,cls)=>`<button class="ord-tab ${(d.view||'board')===v?'active':''} ${cls||''}" onclick="ordSetView('${v}')">${l}${cnt!=null?`<span class="n">${cnt}</span>`:''}</button>`;
+  // hero: อัตราแมท + ช่วงข้อมูล (ตามดีไซน์)
+  const reconRes=(d.recon&&d.recon.results)||[];
+  const mrate = reconRes.length ? reconRes.filter(r=>r.status==='matched').length/reconRes.length*100 : null;
+  const actDates=(d.rows||[]).filter(o=>o.status!=='cancelled'&&o.order_date).map(o=>String(o.order_date).slice(0,10)).sort();
+  let rangeLabel='—';
+  if(actDates.length){ const a=new Date(actDates[0]),b=new Date(actDates[actDates.length-1]); const dmon=x=>x.toLocaleDateString('th-TH',{day:'numeric',month:'short'}); const dnum=x=>x.toLocaleDateString('th-TH',{day:'numeric'}); const yr=b.toLocaleDateString('th-TH',{year:'numeric'}); const sameM=a.getMonth()===b.getMonth()&&a.getFullYear()===b.getFullYear(); rangeLabel = actDates[0]===actDates[actDates.length-1] ? `${dmon(a)} ${yr}` : (sameM?`${dnum(a)}–${dmon(b)} ${yr}`:`${dmon(a)}–${dmon(b)} ${yr}`); }
 
   main.innerHTML = `
   <div class="ord-page">
@@ -16923,17 +16929,17 @@ async function renderToolOrders(){
       <div class="h-inner">
         <div class="h-logo"></div>
         <div class="h-text">
-          <div class="h-eyebrow">${esc(co.name)} · Order Pipeline</div>
+          <div class="h-eyebrow">${esc(co.name)} · ORDER PIPELINE</div>
           <h1>${esc(t.name)}</h1>
-          <div class="h-sub">${esc(t.long)}</div>
+          <div class="h-sub">กระทบยอด BigSeller (หน้าบ้าน) ↔ แพลตฟอร์ม e-commerce (หลังบ้าน) · Shopee · TikTok · Lazada</div>
         </div>
-        <div class="h-aside" style="display:flex;align-items:center;gap:22px">
-          <div>
-            <small>ออเดอร์รวม</small>
-            <b class="tnum">${k.totN.toLocaleString("th-TH")}</b>
-            <div style="font:500 11.5px/1.4 inherit;opacity:.82;margin-top:2px">${fmt(k.totSum)} บาท · ${esc(today)}</div>
+        <div class="h-aside" style="display:flex;align-items:center;gap:18px">
+          <div style="display:flex;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.22);border-radius:11px;padding:3px">
+            ${COMPANIES.map(c=>`<button onclick="setCompany('${c.id}')" style="border:0;border-radius:8px;padding:6px 15px;font:600 12.5px/1 inherit;cursor:pointer;font-family:inherit;white-space:nowrap;${c.id===state.company?'background:#fff;color:#1e293b':'background:transparent;color:rgba(255,255,255,.82)'}">${esc(c.name)}</button>`).join('')}
           </div>
-          ${(()=>{const rr=(d.recon&&d.recon.results)||[];if(!rr.length)return '';const mr=rr.filter(r=>r.status==='matched').length/rr.length*100;return `<div style="text-align:right;padding-left:22px;border-left:1px solid rgba(255,255,255,.22)"><small>อัตราแมท</small><b class="tnum" style="font-size:30px">${mr.toFixed(1)}<span style="font-size:15px;font-weight:600;opacity:.8">%</span></b></div>`;})()}
+          <div style="width:1px;height:38px;background:rgba(255,255,255,.22)"></div>
+          <div style="text-align:right"><small style="opacity:.78;letter-spacing:.4px">ช่วงข้อมูล</small><div style="font:600 15px/1.3 inherit;margin-top:2px;white-space:nowrap">${esc(rangeLabel)}</div></div>
+          ${mrate!=null?`<div style="text-align:right;padding-left:4px"><small style="opacity:.78;letter-spacing:.4px">อัตราแมท</small><b class="tnum" style="font-size:29px;display:block;line-height:1;margin-top:1px">${mrate.toFixed(1)}<span style="font-size:15px;font-weight:600;opacity:.8">%</span></b></div>`:''}
         </div>
       </div>
     </section>

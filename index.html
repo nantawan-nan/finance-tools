@@ -9757,10 +9757,11 @@ function recOpenSchedule(id){
                 return `<button type="button" data-ym="${m.ym}" data-iso="${iso}" class="recSchedChip" style="border:1px solid #e2e8f0;background:#fff;padding:2px 8px;border-radius:999px;font:600 10.5px/1.4 inherit;color:#475569;cursor:pointer;margin-right:3px">ศ.${i+1}</button>`;
               }).join("");
               const midIso = `${m.ym}-15`;
+              const endIso = `${m.ym}-${String(lastDayOf(m.ym)).padStart(2,"0")}`;
               return `<tr style="border-bottom:1px solid #f1f5f9">
                 <td style="padding:8px 10px;font-weight:600;color:#334155">${esc(m.label)}</td>
                 <td style="padding:8px 10px"><input type="date" data-ym="${m.ym}" class="recSchedDate" value="${esc(cur)}" min="${m.ym}-01" max="${m.ym}-${String(lastDayOf(m.ym)).padStart(2,"0")}" style="font:500 12px/1 inherit;padding:5px 8px;border:1px solid #e2e8f0;border-radius:6px;width:150px"></td>
-                <td style="padding:8px 10px">${friChips}<button type="button" data-ym="${m.ym}" data-iso="${midIso}" class="recSchedChip" style="border:1px solid #e2e8f0;background:#fff;padding:2px 8px;border-radius:999px;font:600 10.5px/1.4 inherit;color:#475569;cursor:pointer">วันที่ 15</button></td>
+                <td style="padding:8px 10px">${friChips}<button type="button" data-ym="${m.ym}" data-iso="${midIso}" class="recSchedChip" style="border:1px solid #e2e8f0;background:#fff;padding:2px 8px;border-radius:999px;font:600 10.5px/1.4 inherit;color:#475569;cursor:pointer;margin-right:3px">วันที่ 15</button><button type="button" data-ym="${m.ym}" data-iso="${endIso}" class="recSchedChip" style="border:1px solid #e2e8f0;background:#fff;padding:2px 8px;border-radius:999px;font:600 10.5px/1.4 inherit;color:#475569;cursor:pointer">สิ้นเดือน</button></td>
                 <td style="padding:8px 10px;text-align:right"><button type="button" data-ym="${m.ym}" class="recSchedClear" style="border:0;background:transparent;color:#cbd5e1;cursor:pointer;font-size:13px" title="ล้าง (กลับมาใช้ default)">✕</button></td>
               </tr>`;
             }).join("")}

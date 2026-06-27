@@ -676,17 +676,9 @@ const TOOLS = [
     name:"Sales Dashboard", desc:"สรุปออเดอร์รายวัน",
     long:"คีย์ IV ถึงวันไหน · ยังค้างกี่ใบ · แยกตามช่องทาง — ข้อมูลจาก Supabase",
     multiInput:true, status:"live" },
-  { id:"bigseller", stage:"การขาย", ic:"↑", icon:"file-spreadsheet",
-    name:"BigSeller → IV", desc:"อัป BigSeller รายวัน",
-    long:"อัปไฟล์ Big Seller → ตรวจ SKU · ลบออเดอร์ที่ไม่เอา · บันทึกลง Supabase พร้อมเทมเพลตคีย์ AutoKey",
-    multiInput:true, status:"live" },
-  { id:"expressmatch", stage:"การขาย", ic:"⇌", icon:"link-2",
-    name:"แมพ IV จาก Express", desc:"CSV → ผูก IV/SR",
-    long:"อัป CSV รายงานขายแบบเห็นออเดอร์ → แมพเลข IV + SR (ใบลดหนี้/ยกเลิก) ให้ออเดอร์ใน Supabase",
-    multiInput:true, status:"live" },
-  { id:"exportkey", stage:"การขาย", ic:"↓", icon:"download",
-    name:"ส่งออกคีย์ AutoKey", desc:"Filter → CSV",
-    long:"เลือกออเดอร์ที่ยังไม่คีย์ → รัน IV + ดาวน์โหลด CSV เพื่อนำไปคีย์ออโต้คีย์",
+  { id:"bigseller", stage:"การขาย", ic:"📝", icon:"file-text",
+    name:"บันทึกขายเชื่อ (IV)", desc:"ส่งออก AutoKey + ตรวจการคีย์ด้วย 141.RWT",
+    long:"เกาะทะเบียนคำสั่งซื้อ · ส่งออก AutoKey เฉพาะออเดอร์ที่ recon ตรง · อัป 141.RWT ตรวจการคีย์",
     multiInput:true, status:"live" },
 
   // ───── 3. ลูกหนี้ ─────
@@ -888,6 +880,10 @@ function setTool(id){
 function renderTool(){
   if(AUTH.isPresent() && !PRESENT_TOOLS.includes(state.tool)) state.tool = "execdash";  // โหมดพรีเซนต์ล็อกเฉพาะแท็บที่กำหนด
   if(!appToolEnabled(state.tool)) state.tool = appToolEnabled("home") ? "home" : (APP_CONFIG.enabledTools[0] || "home");  // clone: ถ้า tool ถูกปิด → ไปหน้าแรกที่เปิด
+  // ★ retire-tool redirect: ถ้า user เคยอยู่หน้าที่ถูกลบออก (expressmatch / exportkey) → ไปหน้าใหม่ที่แทน (bigseller = บันทึกขายเชื่อ IV)
+  if(state.tool==="expressmatch" || state.tool==="exportkey") state.tool = "bigseller";
+  // ★ กัน state.tool ค้างเป็น id ที่ไม่มีใน TOOLS แล้ว → fallback home
+  if(!TOOLS.find(x=>x.id===state.tool)) state.tool = "home";
   const t = TOOLS.find(x=>x.id===state.tool);
   updateCrumb();
   if (t.multiInput) {
@@ -2464,66 +2460,665 @@ function bsImportHistory(file){
 
 /* ---------- UI ---------- */
 const BS_HEAD = ["ลำดับ","เลข IV","เลขคำสั่งซื้อ","วันที่ขาย","ช่องทาง","รหัสลูกค้า","SKU","จำนวน","ราคา","ค่าส่ง","ส่วนลดท้ายบิล","ผังค่าส่ง","Enter ค่าส่ง","ค่าส่ง (AutoKey)"];
-function renderToolBigSeller(){
-  bsSeedShopBrand();
-  // โหลด SKU master จาก Supabase (ครั้งแรก/ตอนเปลี่ยนบริษัท)
-  if(!state.skuCloud[state.company]){
-    bsLoadSkuCloud().then(()=>{
-      const d = bsGet(); if(d.raw) d.result = bsBuildResult();
-      renderTool();
-    });
-  }
-  const t = TOOLS.find(x=>x.id===state.tool);
-  const d = bsGet();
-  const sku = bsLoadJSON(BS_LS_SKU, {});
-  const seedCount = bsSeedSkuFor(state.company).length;
-  const extraCount = (sku[state.company]||[]).length;
-  const skuCount = seedCount + extraCount;
-  const histCount = (bsLoadJSON(BS_LS_HISTORY, {})[state.company]||[]).length;
 
-  document.getElementById("main").innerHTML = `
-    <div class="page-head">
-      <h1>${t.ic} ${t.name} <span class="badge">${COMPANIES.find(c=>c.id===state.company).name}</span></h1>
-      <div class="sub">${t.long}</div>
-    </div>
+/* ============================================================
+   IV RECORDING (บันทึกขายเชื่อในระบบบัญชี)
+   เกาะ order_ledger ตรง · ส่งออก AutoKey · ตรวจการคีย์ด้วย 141.RWT
+   3 แท็บ: สรุปสถานะ · ส่งออกคีย์ IV (wizard) · ตรวจการคีย์ (141.RWT)
+   ★ ไม่ persist iv_no ตอน export — รอ 141.RWT verify ก่อน
+   ============================================================ */
+function ivrInitState(){
+  return {
+    tab: 'board', batchesLoaded:false, batches:[],
+    exp: { range:'today', from:'', to:'', channels:new Set(['shopee','tiktok','lazada','offline','other']), startIv:'', startIvDirty:false, blockedOpen:false, historyOpen:false, busy:false },
+    board: { filter:'all' }
+  };
+}
+function ivrISO(d){ return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; }
+function ivrFmt(n){ return Number(n||0).toLocaleString("th-TH",{maximumFractionDigits:0}); }
+function ivrFmt2(n){ return Number(n||0).toLocaleString("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function ivrRangeBounds(e, todayISO){
+  const today = new Date(); today.setHours(0,0,0,0);
+  const mkISO = (d)=> ivrISO(d);
+  if(e.range==='today')     return [todayISO, todayISO];
+  if(e.range==='yesterday'){ const y=new Date(today); y.setDate(y.getDate()-1); return [mkISO(y), mkISO(y)]; }
+  if(e.range==='7d'){        const f=new Date(today); f.setDate(f.getDate()-6); return [mkISO(f), todayISO]; }
+  if(e.range==='month'){     const f=new Date(today.getFullYear(), today.getMonth(), 1); return [mkISO(f), todayISO]; }
+  if(e.range==='custom')     return [e.from||null, e.to||null];
+  return [null, null]; // 'all'
+}
+function ivrNextIv(iv){
+  const m = String(iv||'').replace(/^IV/i,'').match(/^(\d{10})$/);
+  if(!m) return '';
+  const n = BigInt(m[1]) + 1n;
+  return n.toString().padStart(10,'0');
+}
+function ivrPredictEnd(start, count){
+  const m = String(start||'').match(/^(\d{10})$/);
+  if(!m || !count) return '';
+  const n = BigInt(m[1]) + BigInt(count - 1);
+  return n.toString().padStart(10,'0');
+}
+function ivrCanExport(o, reconMap){
+  if(o.status === 'cancelled') return { ok:false, reason:'ออเดอร์ยกเลิก', sev:'mute' };
+  if(o.iv_no) return { ok:false, reason:'คีย์ IV แล้ว · '+o.iv_no, sev:'info' };
+  const ch = String(o.channel_group||'').toLowerCase();
+  const isMarketplace = ch==='shopee' || ch==='tiktok' || ch==='lazada';
+  if(!isMarketplace) return { ok:true, reason:'manual (offline/อื่นๆ) · ผ่านทันที', sev:'ok' };
+  const rc = reconMap ? reconMap.get(o.order_id) : null;
+  if(rc === 'matched') return { ok:true, reason:'กระทบยอด BigSeller↔หลังบ้าน ตรง', sev:'ok' };
+  if(rc === 'diff')    return { ok:false, reason:'กระทบยอด: ยอดไม่ตรง — แก้ที่ทะเบียนคำสั่งซื้อก่อน', sev:'danger' };
+  if(rc === 'only_be') return { ok:false, reason:'หลังบ้านมี · BigSeller ยังขาด', sev:'danger' };
+  if(rc === 'only_bs') return { ok:false, reason:'BigSeller มี · หลังบ้านยังขาด', sev:'warn' };
+  return { ok:false, reason:'ยังไม่ตรวจกระทบยอด — อัปไฟล์หลังบ้านก่อน', sev:'warn' };
+}
+function ivrVerifyMapFromIc(ic){
+  const m = new Map();
+  if(!ic || !ic.results) return m;
+  ic.results.forEach(r => { if(r.orderRowId) m.set(r.orderRowId, r.status); });
+  return m;
+}
+function ivrKpis(d){
+  const rows = d.rows || []; const rmap = ordReconMap(d);
+  const vmap = ivrVerifyMapFromIc(d.ivCheck);
+  let readyN=0, readySum=0, blockedN=0, blockedSum=0, keyedMatchN=0, keyedDiffN=0, keyedUnvN=0;
+  rows.forEach(o => {
+    if(o.status === 'cancelled') return;
+    if(!o.iv_no){
+      const g = ivrCanExport(o, rmap);
+      if(g.ok){ readyN++; readySum += Number(o.order_total||0); }
+      else { blockedN++; blockedSum += Number(o.order_total||0); }
+    } else {
+      const v = vmap.get(o.id);
+      if(v === 'matched' || v === 'new_match') keyedMatchN++;
+      else if(v === 'diff' || v === 'conflict' || v === 'new_diff') keyedDiffN++;
+      else keyedUnvN++;
+    }
+  });
+  return { readyN, readySum, blockedN, blockedSum, keyedMatchN, keyedDiffN, keyedUnvN, total:rows.length };
+}
 
-    <div class="slots" style="grid-template-columns:2fr 1fr 1fr">
-      <div class="slot ${d.file?'ready':''}">
-        <div class="lbl"><span class="step">1</span> 📤 อัปไฟล์ Big Seller</div>
-        <div class="hint">Excel จาก BigSeller → Order-SKU all</div>
-        <div class="drop" data-slot="bsmain">
-          <div class="big">📂</div>
-          <div>ลากหรือคลิก</div>
-          <input type="file" data-slotinp="bsmain" accept=".xlsx,.xls" style="display:none">
-        </div>
-        ${d.file?`<div class="files"><div class="fchip"><span>📄 ${esc(d.file)}<div class="meta">${d.raw?d.raw.items.length:0} แถว · ${d.raw?(new Set(d.raw.items.map(i=>i.orderNo))).size:0} ออเดอร์</div></span><button onclick="bsClear()">✕</button></div></div>`:""}
-      </div>
-
-      <div class="slot">
-        <div class="lbl"><span class="step">2</span> 🗂️ SKU Master</div>
-        <div class="hint">รหัสสินค้าที่ระบบบัญชีมี · ${skuCount} รายการ${seedCount?` (built-in ${seedCount}${extraCount?` + เพิ่มเอง ${extraCount}`:""})`:""}</div>
-        <div class="drop" data-slot="bssku" style="padding:16px;font-size:13px">
-          <div class="big" style="font-size:22px">📥</div>
-          <div>ลากไฟล์ SKU เพื่อนำเข้าเพิ่ม</div>
-          <input type="file" data-slotinp="bssku" accept=".xlsx,.xls,.csv" style="display:none">
-        </div>
-        ${extraCount?`<button class="btn ghost" style="font-size:12px;padding:6px 10px" onclick="bsClearSku()">ล้างที่เพิ่มเอง</button>`:""}
-      </div>
-
-      <div class="slot">
-        <div class="lbl"><span class="step">3</span> 📚 ประวัติคีย์</div>
-        <div class="hint">${histCount} ออเดอร์เคยคีย์แล้ว</div>
-        <div class="btnrow" style="flex-direction:column;gap:6px;align-items:stretch">
-          <button class="btn ghost" style="font-size:12px" onclick="bsExportHistory()">⬇ Export JSON</button>
-          <label class="btn ghost" style="font-size:12px;text-align:center;cursor:pointer">⬆ Import CSV/JSON<input type="file" accept=".csv,.json" onchange="bsImportHistory(this.files[0])" style="display:none"></label>
-        </div>
-        <div class="hint" style="margin-top:4px;font-size:11px;opacity:.7">CSV = รายงานขายแบบเห็นออเดอร์ (Express)</div>
-      </div>
-    </div>
-
-    ${d.result ? bsResultHTML(d.result) : `<div class="card"><div class="empty">ยังไม่มีไฟล์ — อัป Big Seller ด้านบน</div></div>`}
+/* ---- CSS scoped ใต้ .ivr-page (ห้ามชนหน้าอื่น) ---- */
+function ivrInjectStyle(){
+  if(document.getElementById("ivr-css")) return;
+  const s = document.createElement("style"); s.id = "ivr-css";
+  s.textContent = `
+  .ivr-page{font-family:"IBM Plex Sans Thai","IBM Plex Sans",system-ui,sans-serif}
+  /* KPI strip — gradient hero cards (อิงสไตล์ Executive "เงินรับ/เงินจ่าย") */
+  .ivr-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:18px}
+  @media (max-width:1100px){.ivr-kpis{grid-template-columns:repeat(2,1fr)}}
+  @media (max-width:560px){.ivr-kpis{grid-template-columns:1fr}}
+  .ivr-k{position:relative;overflow:hidden;border-radius:16px;padding:18px 20px;color:#fff;display:flex;flex-direction:column;gap:6px;cursor:pointer;transition:transform .18s,box-shadow .18s;min-height:130px;box-shadow:0 6px 18px rgba(15,23,42,.08)}
+  .ivr-k:hover{transform:translateY(-2px);box-shadow:0 14px 30px rgba(15,23,42,.14)}
+  .ivr-k.k-ready{background:linear-gradient(135deg,#0E9A88 0%,#10b981 60%,#34d399 100%)}
+  .ivr-k.k-match{background:linear-gradient(135deg,#1e3a8a 0%,#4f46e5 60%,#6366f1 100%)}
+  .ivr-k.k-diff{background:linear-gradient(135deg,#7f1d1d 0%,#dc2626 60%,#f87171 100%)}
+  .ivr-k.k-block{background:linear-gradient(135deg,#92400e 0%,#ea580c 60%,#fb923c 100%)}
+  .ivr-k.k-soft{background:#f1f5f9;color:#0f172a;border:1px solid #e2e8f0}
+  .ivr-k-top{display:flex;align-items:center;justify-content:space-between;gap:8px}
+  .ivr-k-ic{width:38px;height:38px;border-radius:11px;background:rgba(255,255,255,.18);display:grid;place-items:center;font-size:18px;backdrop-filter:blur(8px)}
+  .ivr-k.k-soft .ivr-k-ic{background:rgba(15,23,42,.07)}
+  .ivr-k-chip{font:600 10.5px/1 inherit;padding:4px 9px;border-radius:999px;background:rgba(255,255,255,.22);letter-spacing:.04em;text-transform:uppercase}
+  .ivr-k.k-soft .ivr-k-chip{background:rgba(15,23,42,.06)}
+  .ivr-k-lbl{font:600 12.5px/1.2 inherit;opacity:.86;margin-top:4px}
+  .ivr-k-v{font:700 32px/1 "IBM Plex Sans Thai",sans-serif;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+  .ivr-k-sub{font:500 12px/1.3 inherit;opacity:.82;margin-top:auto;padding-top:4px}
+  /* Bottom strip "งวดนี้พร้อมส่งออก ..." */
+  .ivr-strip{background:rgba(16,185,129,.07);border:1px solid rgba(16,185,129,.18);border-radius:12px;padding:11px 18px;display:flex;align-items:center;gap:14px;margin-bottom:18px;font:500 13.5px/1.5 inherit;color:#065f46}
+  .ivr-strip .ic{width:34px;height:34px;border-radius:10px;background:#10b981;color:#fff;display:grid;place-items:center;font-size:16px;flex:0 0 34px}
+  .ivr-strip b{color:#0f172a;font-weight:800}
+  /* Wizard */
+  .ivr-wizard{display:flex;flex-direction:column;gap:14px}
+  .ivr-step{background:#fff;border:1px solid #e2e8f0;border-radius:14px;overflow:hidden;box-shadow:0 1px 2px rgba(15,23,42,.04)}
+  .ivr-step-head{padding:13px 18px;background:#f8fafc;border-bottom:1px solid #e2e8f0;font:700 14px/1.3 inherit;color:#0f172a;display:flex;align-items:center;gap:10px}
+  .ivr-step-no{width:26px;height:26px;border-radius:50%;background:var(--brand,#0d9488);color:#fff;font:700 13px/1 inherit;display:grid;place-items:center;flex:0 0 26px}
+  .ivr-step-body{padding:18px}
+  .ivr-row{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:14px}
+  .ivr-row:last-child{margin-bottom:0}
+  .ivr-label{font:600 12.5px/1 inherit;color:#475569;min-width:90px}
+  /* Check cards (eligible/blocked) */
+  .ivr-checks{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  @media (max-width:600px){.ivr-checks{grid-template-columns:1fr}}
+  .ivr-check{display:flex;align-items:center;gap:14px;padding:16px 18px;border-radius:12px;border:1px solid}
+  .ivr-check.ok{background:#ecfdf5;border-color:#a7f3d0}
+  .ivr-check.block{background:#fef2f2;border-color:#fecaca}
+  .ivr-check-ic{width:46px;height:46px;border-radius:12px;display:grid;place-items:center;font-size:22px;flex:0 0 46px}
+  .ivr-check.ok .ivr-check-ic{background:#10b981;color:#fff}
+  .ivr-check.block .ivr-check-ic{background:#dc2626;color:#fff}
+  .ivr-check-body{flex:1;min-width:0}
+  .ivr-check-lbl{font:600 11.5px/1 inherit;text-transform:uppercase;letter-spacing:.06em}
+  .ivr-check.ok .ivr-check-lbl{color:#047857}
+  .ivr-check.block .ivr-check-lbl{color:#991b1b}
+  .ivr-check-v{font:800 30px/1.1 inherit;color:#0f172a;font-variant-numeric:tabular-nums;margin:3px 0}
+  .ivr-check-sub{font:500 12px/1.4 inherit;color:#64748b}
+  .ivr-check-sub a{color:inherit;text-decoration:underline;font-weight:600}
+  /* IV input + hint */
+  .ivr-iv-input{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:12px}
+  .ivr-iv-hint{background:#eff6ff;border:1px solid #bfdbfe;border-left:4px solid #2563eb;border-radius:9px;padding:11px 14px;font:500 12.5px/1.6 inherit;color:#1e3a8a;margin-bottom:14px}
+  .ivr-iv-hint b{color:#0f172a;font-weight:700}
+  .ivr-actions{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+  /* Preview table */
+  .ivr-prev{margin-top:18px;background:#fff;border:1px solid #e2e8f0;border-radius:14px;overflow:hidden}
+  .ivr-prev-head{padding:12px 18px;background:#f8fafc;border-bottom:1px solid #e2e8f0;display:flex;align-items:center;gap:10px;flex-wrap:wrap;font:600 13px/1.3 inherit}
+  .ivr-prev-head .mu{color:#64748b;font-weight:500}
+  /* Board */
+  .ivr-board-strip{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px}
+  /* Blocked modal */
+  .ivr-modal-bg{position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:1000;display:grid;place-items:center;padding:24px}
+  .ivr-modal{background:#fff;border-radius:18px;max-width:880px;width:100%;max-height:80vh;overflow:hidden;box-shadow:0 24px 60px rgba(15,23,42,.32);display:flex;flex-direction:column}
+  .ivr-modal-head{padding:18px 22px;border-bottom:1px solid #e2e8f0;display:flex;align-items:center;gap:10px}
+  .ivr-modal-head h3{margin:0;font:700 17px/1.3 inherit}
+  .ivr-modal-close{margin-left:auto;border:0;background:transparent;font-size:22px;color:#64748b;cursor:pointer}
+  .ivr-modal-body{padding:18px 22px;overflow:auto;flex:1}
   `;
-  bsWireDrops();
+  document.head.appendChild(s);
+}
+
+/* ---- Loaders ---- */
+async function ivrLoadBatches(){
+  const d = ordGet(); if(!d.ivrec) d.ivrec = ivrInitState();
+  try{
+    const co = await fopCompanyId(); if(!co){ d.ivrec.batches=[]; return; }
+    const { data, error } = await sb.from("iv_export_batches").select("*").eq("company_id",co).is("deleted_at",null).order("exported_at",{ascending:false}).limit(50);
+    if(error){ console.warn("ivrLoadBatches",error); d.ivrec.batches=[]; return; }
+    d.ivrec.batches = data || [];
+  }catch(e){ console.warn("ivrLoadBatches",e); d.ivrec.batches=[]; }
+}
+
+/* ---- Main entry ---- */
+async function renderToolBigSeller(){
+  const t = TOOLS.find(x=>x.id===state.tool);
+  const co = COMPANIES.find(c=>c.id===state.company);
+  const d = ordGet();
+  const main = document.getElementById("main");
+  homeInjectCSS(); ordInjectStyle(); ivrInjectStyle();
+  if(!d.loaded && !d.busy){
+    main.innerHTML = `<div class="ord-page ivr-page"><div class="ord-empty"><i data-lucide="loader-2"></i><div class="ttl">กำลังโหลดทะเบียนคำสั่งซื้อ…</div></div></div>`;
+    try{ await ordLoad(); }catch(e){}
+  }
+  if(!d.reconLoaded){ d.reconLoaded=true; try{ await ordReconLoad(); }catch(e){ console.warn("reconLoad",e); } }
+  if(!d.ivrec) d.ivrec = ivrInitState();
+  if(!d.ivrec.batchesLoaded){ try{ await ivrLoadBatches(); }catch(e){} d.ivrec.batchesLoaded=true; }
+  const tab = d.ivrec.tab || 'board';
+  const K = ivrKpis(d);
+
+  main.innerHTML = `
+  <div class="ord-page ivr-page">
+    ${ivrHeroHtml(t, co, K)}
+    ${ivrKpiStripHtml(d, K)}
+    ${ivrStripHtml(d, K)}
+    ${ivrTabsHtml(tab, K)}
+    ${
+      tab === 'export' ? ivrRenderExport(d) :
+      tab === 'verify' ? ivrRenderVerify(d) :
+      ivrRenderBoard(d)
+    }
+    ${d.ivrec.exp.blockedOpen ? ivrRenderBlockedModal(d) : ''}
+    ${d.ivrec.exp.historyOpen ? ivrRenderHistoryModal(d) : ''}
+  </div>`;
+  if(window.lucide&&window.lucide.createIcons){ try{ window.lucide.createIcons(); }catch(e){} }
+}
+
+/* ---- Hero / KPI strip / Tabs ---- */
+function ivrHeroHtml(t, co, K){
+  const dates = []; // ช่วงข้อมูลจาก ordLoad
+  const d = ordGet();
+  const orderDates = (d.rows||[]).map(o=>o.order_date).filter(Boolean).sort();
+  const dFrom = orderDates[0] || null;
+  const dTo = orderDates[orderDates.length-1] || null;
+  const period = (dFrom && dTo) ? (dFrom===dTo ? dFrom : `${dFrom} → ${dTo}`) : '—';
+  const pct = K.total ? Math.round(((K.keyedMatchN+K.keyedDiffN+K.keyedUnvN)/K.total)*100) : 0;
+  return `
+  <section class="ord-hero">
+    <div class="h-inner">
+      <div class="h-logo"></div>
+      <div class="h-text">
+        <div class="h-eyebrow">${esc(co.name)} · IV RECORDING</div>
+        <h1>📝 บันทึกขายเชื่อในระบบบัญชี (IV)</h1>
+        <div class="h-sub">ส่งออกข้อมูลออเดอร์เพื่อคีย์ใบแจ้งหนี้ในระบบบัญชี · ตรวจการคีย์ด้วยรายงาน 141.RWT · <span style="opacity:.78">หน่วย: บาท</span></div>
+      </div>
+      <div class="h-aside">
+        <small>คีย์ IV ไปแล้ว</small>
+        <b>${pct}%</b>
+        <div style="font:500 11px/1 inherit;opacity:.78;margin-top:4px">ช่วงข้อมูล: ${esc(period)}</div>
+      </div>
+    </div>
+  </section>`;
+}
+function ivrKpiStripHtml(d, K){
+  const fmt = ivrFmt;
+  const cards = [
+    { cls:'k-ready', ic:'📤', chip:'พร้อมคีย์',  lbl:'พร้อมส่งออก',      v:K.readyN,        sub:`${fmt(K.readySum)} บาท`,             go:()=>'ivrSetTab(\'export\')' },
+    { cls:'k-match', ic:'✓',  chip:'ตรง',       lbl:'คีย์แล้ว · ตรง',    v:K.keyedMatchN,    sub:K.keyedUnvN ? `+ ${fmt(K.keyedUnvN)} ยังไม่ verify` : 'ยืนยันจาก 141.RWT', go:()=>'ivrBoardFilter(\'keyed_match\')' },
+    { cls:'k-diff',  ic:'⚠',  chip:'ตรวจ',      lbl:'คีย์แล้ว · ผิด',    v:K.keyedDiffN,     sub:K.keyedDiffN ? 'ยอดไม่ตรง 141.RWT' : 'ยังไม่มีรายการ',           go:()=>'ivrBoardFilter(\'keyed_diff\')' },
+    { cls:'k-block', ic:'⛔', chip:'บล็อก',     lbl:'ติด gate',          v:K.blockedN,       sub:K.blockedN ? `${fmt(K.blockedSum)} บาท · recon ยังไม่ตรง` : '—',  go:()=>'ivrBoardFilter(\'blocked\')' },
+  ];
+  return `<div class="ivr-kpis">${cards.map(c=>`
+    <div class="ivr-k ${c.cls}" onclick="${c.go()}">
+      <div class="ivr-k-top"><div class="ivr-k-ic">${c.ic}</div><div class="ivr-k-chip">${c.chip}</div></div>
+      <div class="ivr-k-lbl">${c.lbl}</div>
+      <div class="ivr-k-v">${c.v.toLocaleString("th-TH")}</div>
+      <div class="ivr-k-sub">${c.sub}</div>
+    </div>`).join('')}</div>`;
+}
+function ivrStripHtml(d, K){
+  if(!K.readyN) return '';
+  return `<div class="ivr-strip">
+    <div class="ic">→</div>
+    <div>มี <b>${K.readyN.toLocaleString("th-TH")}</b> ออเดอร์พร้อมส่งออก (${ivrFmt(K.readySum)} บาท) · <button onclick="ivrSetTab('export')" style="background:transparent;border:0;color:#047857;font:700 13.5px/1 inherit;cursor:pointer;text-decoration:underline">เปิดแท็บส่งออกคีย์ IV →</button></div>
+  </div>`;
+}
+function ivrTabsHtml(tab, K){
+  const tabBtn = (v,l,n,cls)=>`<button class="ord-tab ${tab===v?'active':''} ${cls||''}" onclick="ivrSetTab('${v}')">${l}${n?`<span class="n">${n}</span>`:''}</button>`;
+  return `<div class="ord-tabs">
+    ${tabBtn('board', '🚦 สรุปสถานะการคีย์', null, '')}
+    ${tabBtn('export','📤 ส่งออกคีย์ IV', K.readyN||null, '')}
+    ${tabBtn('verify','🔍 ตรวจการคีย์ (141.RWT)', K.keyedDiffN||null, K.keyedDiffN?'t-warn':'')}
+  </div>`;
+}
+
+/* ---- Tab 1: Board ---- */
+function ivrRenderBoard(d){
+  const rmap = ordReconMap(d);
+  const vmap = ivrVerifyMapFromIc(d.ivCheck);
+  const filt = d.ivrec.board.filter || 'all';
+  const rows = (d.rows||[]).filter(o=>o.status!=='cancelled').map(o=>{
+    let bucket;
+    if(o.iv_no){
+      const v = vmap.get(o.id);
+      if(v==='matched'||v==='new_match') bucket='keyed_match';
+      else if(v==='diff'||v==='conflict'||v==='new_diff') bucket='keyed_diff';
+      else bucket='keyed_unv';
+    } else {
+      bucket = ivrCanExport(o, rmap).ok ? 'ready' : 'blocked';
+    }
+    return { o, bucket };
+  });
+  const filtMap = { all: ()=>true, ready: r=>r.bucket==='ready', blocked: r=>r.bucket==='blocked', keyed_match: r=>r.bucket==='keyed_match', keyed_diff: r=>r.bucket==='keyed_diff', keyed_unv: r=>r.bucket==='keyed_unv' };
+  const list = rows.filter(filtMap[filt]||filtMap.all).sort((a,b)=>{
+    const da=a.o.order_date||'', db=b.o.order_date||'';
+    if(da!==db) return da<db?1:-1;
+    return String(a.o.order_id||'').localeCompare(String(b.o.order_id||''));
+  });
+  const cnt = { all:rows.length, ready:0, blocked:0, keyed_match:0, keyed_diff:0, keyed_unv:0 };
+  rows.forEach(r=>{ cnt[r.bucket]++; });
+  const chips = [
+    ['all','ทั้งหมด',cnt.all],
+    ['ready','พร้อมส่งออก',cnt.ready],
+    ['blocked','ติด gate',cnt.blocked],
+    ['keyed_match','คีย์แล้ว · ตรง',cnt.keyed_match],
+    ['keyed_diff','คีย์แล้ว · ผิด',cnt.keyed_diff],
+    ['keyed_unv','คีย์แล้ว · ยังไม่ verify',cnt.keyed_unv],
+  ];
+  const bd = (bucket)=>{
+    if(bucket==='ready')        return {cls:'ok',    lab:'พร้อมส่งออก'};
+    if(bucket==='blocked')      return {cls:'danger',lab:'ติด gate'};
+    if(bucket==='keyed_match')  return {cls:'ok',    lab:'คีย์แล้ว · ตรง'};
+    if(bucket==='keyed_diff')   return {cls:'danger',lab:'คีย์แล้ว · ผิด'};
+    if(bucket==='keyed_unv')    return {cls:'info',  lab:'คีย์แล้ว · ยังไม่ verify'};
+    return {cls:'mute',lab:bucket};
+  };
+  const chLab = (ch)=>{ const m={shopee:'Shopee',tiktok:'TikTok',lazada:'Lazada',offline:'ออฟไลน์',other:'อื่นๆ'}; return m[String(ch||'').toLowerCase()]||ch||'—'; };
+  const cap = 200;
+  return `
+  <div class="ivr-board-strip">
+    ${chips.map(([k,lab,n])=>`<button class="ord-chip ${filt===k?'on':''}" onclick="ivrBoardFilter('${k}')">${lab}<span class="n">${n.toLocaleString('th-TH')}</span></button>`).join('')}
+  </div>
+  <div class="ord-card">
+    <div class="ord-card-head"><h3>รายการออเดอร์</h3><span class="sub">แสดง ${Math.min(list.length,cap).toLocaleString('th-TH')} / ${list.length.toLocaleString('th-TH')} รายการ${list.length>cap?` (เลือก filter ให้แคบลงเพื่อดูครบ)`:''}</span></div>
+    <div style="overflow:auto">
+    <table class="ord-table">
+      <thead><tr><th>วันที่</th><th>เลขออเดอร์</th><th>ช่องทาง</th><th>ลูกค้า</th><th class="right">ยอด</th><th>เลข IV</th><th>สถานะ</th></tr></thead>
+      <tbody>
+        ${list.slice(0,cap).map(r=>{ const o=r.o; const b=bd(r.bucket); const gate=ivrCanExport(o,rmap); return `<tr>
+          <td class="tnum">${esc(o.order_date||'—')}</td>
+          <td class="mono">${esc(o.order_id||'—')}</td>
+          <td>${esc(chLab(o.channel_group))}</td>
+          <td>${esc((o.customer||'').slice(0,32))}</td>
+          <td class="num">${ivrFmt2(o.order_total)}</td>
+          <td class="mono">${o.iv_no?esc(o.iv_no):'<span style="color:#94a3b8">—</span>'}</td>
+          <td><span class="ord-bd ${b.cls}">${b.lab}</span>${(r.bucket==='blocked')?`<div style="font:500 11px/1.3 inherit;color:#dc2626;margin-top:3px">${esc(gate.reason)}</div>`:''}</td>
+        </tr>`; }).join('') || `<tr><td colspan="7" style="padding:30px;text-align:center;color:#94a3b8">— ไม่มีรายการในช่วง filter นี้ —</td></tr>`}
+      </tbody>
+    </table>
+    </div>
+  </div>`;
+}
+
+/* ---- Tab 2: Export Wizard ---- */
+function ivrRenderExport(d){
+  const e = d.ivrec.exp;
+  const rmap = ordReconMap(d);
+  const today = ivrISO(new Date());
+  const [dFrom, dTo] = ivrRangeBounds(e, today);
+  const channels = e.channels;
+
+  const candidates = (d.rows||[]).filter(o => {
+    if(o.status === 'cancelled') return false;
+    if(o.iv_no) return false;
+    if(dFrom && o.order_date && o.order_date < dFrom) return false;
+    if(dTo && o.order_date && o.order_date > dTo) return false;
+    const ch = String(o.channel_group||'other').toLowerCase();
+    if(!channels.has(ch)) return false;
+    return true;
+  }).sort((a,b)=>{
+    const da=a.order_date||'', db=b.order_date||''; if(da!==db) return da<db?-1:1;
+    return String(a.order_id||'').localeCompare(String(b.order_id||''));
+  });
+  const eligible = [], blocked = [];
+  for(const o of candidates){
+    const g = ivrCanExport(o, rmap);
+    (g.ok ? eligible : blocked).push({o, gate:g});
+  }
+  const sumEligible = eligible.reduce((s,x)=>s+Number(x.o.order_total||0),0);
+  // auto-suggest start IV (last batch end + 1)
+  const lastBatch = (d.ivrec.batches||[])[0];
+  const suggested = (lastBatch && lastBatch.end_iv) ? ivrNextIv(lastBatch.end_iv) : '';
+  if(!e.startIvDirty && suggested && !e.startIv) e.startIv = suggested;
+  const startValid = /^\d{10}$/.test(e.startIv);
+  const endIv = startValid && eligible.length ? ivrPredictEnd(e.startIv, eligible.length) : '';
+
+  const ranges = [['today','วันนี้'],['yesterday','เมื่อวาน'],['7d','7 วัน'],['month','เดือนนี้'],['all','ทั้งหมด'],['custom','ระบุช่วง']];
+  const chanChips = [['shopee','Shopee','#ee4d2d'],['tiktok','TikTok','#000'],['lazada','Lazada','#0F146D'],['offline','ออฟไลน์','#64748b'],['other','อื่นๆ','#475569']];
+
+  return `
+  <div class="ivr-wizard">
+    <!-- Step 1 -->
+    <div class="ivr-step">
+      <div class="ivr-step-head"><span class="ivr-step-no">1</span> เลือกช่วงวันและช่องทาง</div>
+      <div class="ivr-step-body">
+        <div class="ivr-row">
+          <span class="ivr-label">ช่วงวัน</span>
+          <div class="ord-chips" style="margin-bottom:0">
+            ${ranges.map(([k,l])=>`<button class="ord-chip ${e.range===k?'on':''}" onclick="ivrSetRange('${k}')">${l}</button>`).join('')}
+          </div>
+        </div>
+        ${e.range==='custom' ? `
+        <div class="ivr-row" style="padding-left:104px">
+          <input type="date" value="${esc(e.from)}" onchange="ivrSetDate('from',this.value)" style="padding:8px 12px;border:1px solid #e2e8f0;border-radius:8px;font:500 13px/1 inherit"> ถึง
+          <input type="date" value="${esc(e.to)}" onchange="ivrSetDate('to',this.value)" style="padding:8px 12px;border:1px solid #e2e8f0;border-radius:8px;font:500 13px/1 inherit">
+        </div>` : `<div class="ivr-row" style="padding-left:104px;margin-bottom:0;font:500 12.5px/1 inherit;color:#64748b">ช่วงที่ตรงกับ filter: ${esc(dFrom||'ไม่จำกัด')} ถึง ${esc(dTo||'ไม่จำกัด')}</div>`}
+        <div class="ivr-row" style="margin-top:14px">
+          <span class="ivr-label">ช่องทาง</span>
+          <div class="ord-chips" style="margin-bottom:0">
+            ${chanChips.map(([k,l])=>`<button class="ord-chip ${channels.has(k)?'on':''}" onclick="ivrToggleChannel('${k}')">${l}</button>`).join('')}
+            <button class="ord-chip" onclick="ivrChannelAll(true)">เลือกทั้งหมด</button>
+            <button class="ord-chip" onclick="ivrChannelAll(false)">ล้าง</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Step 2 -->
+    <div class="ivr-step">
+      <div class="ivr-step-head"><span class="ivr-step-no">2</span> ตรวจสอบสิทธิ์ส่งออก (gate)</div>
+      <div class="ivr-step-body">
+        <div class="ivr-checks">
+          <div class="ivr-check ok">
+            <div class="ivr-check-ic">✅</div>
+            <div class="ivr-check-body">
+              <div class="ivr-check-lbl">ส่งออกได้</div>
+              <div class="ivr-check-v">${eligible.length.toLocaleString('th-TH')}</div>
+              <div class="ivr-check-sub">${ivrFmt(sumEligible)} บาท (รวม) · manual + recon ตรงแล้ว</div>
+            </div>
+          </div>
+          <div class="ivr-check block">
+            <div class="ivr-check-ic">⛔</div>
+            <div class="ivr-check-body">
+              <div class="ivr-check-lbl">ติด gate</div>
+              <div class="ivr-check-v">${blocked.length.toLocaleString('th-TH')}</div>
+              <div class="ivr-check-sub">${blocked.length ? `<a href="#" onclick="ivrToggleBlocked();return false">ดูเหตุผลทั้งหมด →</a>` : 'ไม่มี — พร้อมส่งออกทั้งหมด'}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Step 3 -->
+    <div class="ivr-step">
+      <div class="ivr-step-head"><span class="ivr-step-no">3</span> กำหนดเลข IV เริ่มต้นและส่งออก</div>
+      <div class="ivr-step-body">
+        <div class="ivr-iv-input">
+          <span class="ivr-label">เลข IV เริ่มต้น <span style="color:#dc2626">*</span></span>
+          <input type="text" value="${esc(e.startIv)}" placeholder="เช่น 2606000007" maxlength="10"
+                 oninput="ivrSetStartIv(this.value)"
+                 style="font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;padding:10px 14px;border:2px solid ${startValid?'#10b981':'#dc2626'};border-radius:10px;width:200px;letter-spacing:.06em;background:#fff">
+          ${startValid && eligible.length ? `<span style="font:500 13px/1 inherit;color:#475569">→ จะรันถึง <b style="color:#0f172a;font-family:'JetBrains Mono',monospace;letter-spacing:.04em">${endIv}</b> (${eligible.length} ใบ)</span>` : !startValid ? `<span style="font:500 12.5px/1 inherit;color:#dc2626">⚠ ต้องเป็นตัวเลข 10 หลัก เช่น 2606000007</span>` : ''}
+          ${suggested && e.startIv!==suggested ? `<button class="ord-btn btn-sm" onclick="ivrSetStartIv('${suggested}')" style="padding:5px 10px;font-size:11.5px"><i data-lucide="rotate-cw"></i> ใช้ที่แนะนำ ${suggested}</button>` : ''}
+        </div>
+        <div class="ivr-iv-hint">
+          ℹ <b>เลขที่ส่งออกนี้จะไม่ถูกบันทึกในระบบเว็บ</b> — บัญชีอาจแก้มือในระบบบัญชี ระบบจะจำเลข IV ลงออเดอร์ก็ต่อเมื่ออัป <b>รายงาน 141.RWT</b> มา verify หลังคีย์แล้วเท่านั้น (ดูแท็บ "ตรวจการคีย์")
+        </div>
+        <div class="ivr-actions">
+          <button class="ord-btn primary" style="font-size:14px;padding:11px 22px" ${(!startValid || !eligible.length || e.busy) ? 'disabled' : ''} onclick="ivrDoExport()">
+            <i data-lucide="download"></i> ${e.busy?'กำลังส่งออก...':`ส่งออก AutoKey (${eligible.length.toLocaleString('th-TH')} ออเดอร์)`}
+          </button>
+          <button class="ord-btn" onclick="ivrToggleHistory()">
+            <i data-lucide="history"></i> ประวัติส่งออก (${(d.ivrec.batches||[]).length})
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Preview -->
+    <div class="ivr-prev">
+      <div class="ivr-prev-head">
+        <span>👁 ตัวอย่างรายการที่จะส่งออก</span>
+        <span class="mu">· แสดง ${Math.min(eligible.length,100).toLocaleString('th-TH')} / ${eligible.length.toLocaleString('th-TH')} ใบ${eligible.length>100?` (เกิน 100 ใบ — เห็นทั้งหมดในไฟล์ที่ส่งออก)`:''}</span>
+      </div>
+      <div style="overflow:auto;max-height:400px">
+      <table class="ord-table">
+        <thead><tr><th style="width:60px">ลำดับ IV</th><th>วันที่</th><th>เลขออเดอร์</th><th>ช่องทาง</th><th>ลูกค้า</th><th class="right">ยอด</th><th>สาเหตุผ่าน gate</th></tr></thead>
+        <tbody>
+          ${eligible.length ? eligible.slice(0,100).map((x,i)=>{ const o=x.o; const ivNo = startValid ? ivrPredictEnd(e.startIv, i+1) : '—'; return `<tr>
+            <td class="mono" style="color:var(--brand,#0d9488);font-weight:700">${esc(ivNo)}</td>
+            <td class="tnum">${esc(o.order_date||'—')}</td>
+            <td class="mono">${esc(o.order_id||'—')}</td>
+            <td>${esc(({shopee:'Shopee',tiktok:'TikTok',lazada:'Lazada',offline:'ออฟไลน์',other:'อื่นๆ'})[String(o.channel_group||'').toLowerCase()]||o.channel_group||'—')}</td>
+            <td>${esc((o.customer||'').slice(0,32))}</td>
+            <td class="num">${ivrFmt2(o.order_total)}</td>
+            <td><span class="ord-bd ok" style="font-size:10.5px">${esc(x.gate.reason)}</span></td>
+          </tr>`; }).join('') : `<tr><td colspan="7" style="padding:30px;text-align:center;color:#94a3b8">— ไม่มีออเดอร์พร้อมส่งออกในช่วงที่เลือก —</td></tr>`}
+        </tbody>
+      </table>
+      </div>
+    </div>
+  </div>`;
+}
+
+/* ---- Tab 3: Verify (reuse ord IV check UI) ---- */
+function ivrRenderVerify(d){
+  // ใช้ ordRenderIv ทั้งดุ้น — เนื้อหาเดิม + ปุ่ม "อัปไฟล์ 141.RWT" ฯลฯ
+  // ★ ordIv* re-render เรียก renderToolOrders() — มี guard route กลับมา renderToolBigSeller()
+  return ordRenderIv(d);
+}
+
+/* ---- Modals ---- */
+function ivrRenderBlockedModal(d){
+  const rmap = ordReconMap(d); const e = d.ivrec.exp;
+  const today = ivrISO(new Date());
+  const [dFrom, dTo] = ivrRangeBounds(e, today);
+  const channels = e.channels;
+  const candidates = (d.rows||[]).filter(o => {
+    if(o.status==='cancelled') return false; if(o.iv_no) return false;
+    if(dFrom && o.order_date && o.order_date < dFrom) return false;
+    if(dTo && o.order_date && o.order_date > dTo) return false;
+    const ch = String(o.channel_group||'other').toLowerCase();
+    if(!channels.has(ch)) return false;
+    return true;
+  });
+  const blocked = candidates.map(o=>({o, gate:ivrCanExport(o,rmap)})).filter(x=>!x.gate.ok);
+  const byReason = new Map();
+  blocked.forEach(x=>{ const k = x.gate.reason; if(!byReason.has(k)) byReason.set(k, []); byReason.get(k).push(x); });
+  return `<div class="ivr-modal-bg" onclick="if(event.target===this)ivrToggleBlocked()">
+    <div class="ivr-modal">
+      <div class="ivr-modal-head"><h3>⛔ ออเดอร์ติด gate (${blocked.length})</h3><button class="ivr-modal-close" onclick="ivrToggleBlocked()">×</button></div>
+      <div class="ivr-modal-body">
+        <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:9px;padding:11px 14px;font:500 13px/1.5 inherit;color:#1e3a8a;margin-bottom:14px">
+          ออเดอร์ marketplace ต้องผ่านการกระทบยอด BigSeller ↔ หลังบ้านก่อน ถึงจะส่งออกได้ · <a href="#" onclick="state.tool='orders';renderTool();return false" style="color:inherit;font-weight:700;text-decoration:underline">ไปหน้าทะเบียนคำสั่งซื้อ เพื่อแก้ recon →</a>
+        </div>
+        ${[...byReason.entries()].map(([reason,list])=>`
+          <div style="margin-bottom:18px">
+            <div style="font:700 13px/1.3 inherit;margin-bottom:8px;display:flex;align-items:center;gap:8px"><span class="ord-bd danger">${esc(reason)}</span> <span style="color:#64748b;font-weight:500">${list.length} ออเดอร์</span></div>
+            <table class="ord-table" style="font-size:12.5px">
+              <thead><tr><th>วันที่</th><th>เลขออเดอร์</th><th>ช่องทาง</th><th>ลูกค้า</th><th class="right">ยอด</th></tr></thead>
+              <tbody>${list.slice(0,30).map(x=>`<tr>
+                <td class="tnum">${esc(x.o.order_date||'—')}</td>
+                <td class="mono">${esc(x.o.order_id||'—')}</td>
+                <td>${esc(x.o.channel_group||'—')}</td>
+                <td>${esc((x.o.customer||'').slice(0,28))}</td>
+                <td class="num">${ivrFmt2(x.o.order_total)}</td>
+              </tr>`).join('')}${list.length>30?`<tr><td colspan="5" style="text-align:center;color:#94a3b8;padding:8px">… และอีก ${list.length-30} รายการ</td></tr>`:''}</tbody>
+            </table>
+          </div>
+        `).join('')}
+        ${blocked.length===0?`<div style="text-align:center;color:#10b981;padding:30px;font:600 14px/1.4 inherit">✓ ไม่มีออเดอร์ติด gate</div>`:''}
+      </div>
+    </div>
+  </div>`;
+}
+function ivrRenderHistoryModal(d){
+  const list = d.ivrec.batches || [];
+  return `<div class="ivr-modal-bg" onclick="if(event.target===this)ivrToggleHistory()">
+    <div class="ivr-modal" style="max-width:1100px">
+      <div class="ivr-modal-head"><h3>📚 ประวัติการส่งออก IV</h3><button class="ivr-modal-close" onclick="ivrToggleHistory()">×</button></div>
+      <div class="ivr-modal-body">
+        ${list.length ? `<table class="ord-table">
+          <thead><tr><th>Batch No</th><th>วันเวลา</th><th>ช่วงข้อมูล</th><th>ช่องทาง</th><th class="right">จำนวน</th><th>เลข IV</th><th>ผู้ส่งออก</th><th>ไฟล์</th></tr></thead>
+          <tbody>${list.map(b=>{
+            const at = b.exported_at ? new Date(b.exported_at).toLocaleString('th-TH',{year:'numeric',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}) : '—';
+            const period = (b.date_from && b.date_to) ? (b.date_from===b.date_to?b.date_from:`${b.date_from} → ${b.date_to}`) : '—';
+            const chs = Array.isArray(b.channels) ? b.channels.join(', ') : '—';
+            return `<tr>
+              <td class="mono" style="font-weight:700">${esc(b.batch_no||'—')}</td>
+              <td class="tnum">${esc(at)}</td>
+              <td class="tnum">${esc(period)}</td>
+              <td>${esc(chs)}</td>
+              <td class="num">${(b.order_count||0).toLocaleString('th-TH')}</td>
+              <td class="mono">${esc(b.start_iv||'—')}${b.end_iv&&b.end_iv!==b.start_iv?` → ${esc(b.end_iv)}`:''}</td>
+              <td style="font-size:11.5px;color:#64748b">${esc(b.exported_email||'—')}</td>
+              <td style="font-size:11px;color:#64748b">${esc(b.file_name||'—')}</td>
+            </tr>`;
+          }).join('')}</tbody>
+        </table>` : `<div style="text-align:center;color:#94a3b8;padding:40px;font:500 14px/1.4 inherit">— ยังไม่มีประวัติการส่งออก —</div>`}
+      </div>
+    </div>
+  </div>`;
+}
+
+/* ---- Actions ---- */
+function ivrSetTab(t){ const d=ordGet(); if(!d.ivrec) d.ivrec=ivrInitState(); d.ivrec.tab=t; renderToolBigSeller(); }
+function ivrBoardFilter(f){ const d=ordGet(); if(!d.ivrec) d.ivrec=ivrInitState(); d.ivrec.tab='board'; d.ivrec.board.filter=f; renderToolBigSeller(); }
+function ivrSetRange(k){ const d=ordGet(); d.ivrec.exp.range=k; renderToolBigSeller(); }
+function ivrSetDate(k,v){ const d=ordGet(); d.ivrec.exp[k]=v||''; renderToolBigSeller(); }
+function ivrToggleChannel(ch){ const d=ordGet(); const s=d.ivrec.exp.channels; if(s.has(ch)) s.delete(ch); else s.add(ch); renderToolBigSeller(); }
+function ivrChannelAll(on){ const d=ordGet(); const all=['shopee','tiktok','lazada','offline','other']; d.ivrec.exp.channels = on ? new Set(all) : new Set(); renderToolBigSeller(); }
+function ivrSetStartIv(v){
+  const d=ordGet(); const clean = String(v||'').replace(/[^\d]/g,'').slice(0,10);
+  d.ivrec.exp.startIv = clean; d.ivrec.exp.startIvDirty = true;
+  const el = document.querySelector('.ivr-iv-input input[type="text"]');
+  const focus = el && document.activeElement===el;
+  renderToolBigSeller();
+  if(focus){ setTimeout(()=>{ const ne=document.querySelector('.ivr-iv-input input[type="text"]'); if(ne){ ne.focus(); ne.setSelectionRange(clean.length,clean.length); } },0); }
+}
+function ivrToggleBlocked(){ const d=ordGet(); d.ivrec.exp.blockedOpen=!d.ivrec.exp.blockedOpen; renderToolBigSeller(); }
+function ivrToggleHistory(){ const d=ordGet(); d.ivrec.exp.historyOpen=!d.ivrec.exp.historyOpen; if(d.ivrec.exp.historyOpen) ivrLoadBatches().then(()=>renderToolBigSeller()); else renderToolBigSeller(); }
+
+async function ivrDoExport(){
+  if(!brecCanWrite()){ alert('ไม่มีสิทธิ์ส่งออก'); return; }
+  const d = ordGet(); const e = d.ivrec.exp;
+  if(!/^\d{10}$/.test(e.startIv)){ alert('กรอกเลข IV เริ่มต้น 10 หลักก่อน'); return; }
+  const rmap = ordReconMap(d);
+  const today = ivrISO(new Date());
+  const [dFrom, dTo] = ivrRangeBounds(e, today);
+  const channels = e.channels;
+  const candidates = (d.rows||[]).filter(o => {
+    if(o.status === 'cancelled') return false;
+    if(o.iv_no) return false;
+    if(dFrom && o.order_date && o.order_date < dFrom) return false;
+    if(dTo && o.order_date && o.order_date > dTo) return false;
+    const ch = String(o.channel_group||'other').toLowerCase();
+    if(!channels.has(ch)) return false;
+    return true;
+  }).sort((a,b)=>{ const da=a.order_date||'', db=b.order_date||''; if(da!==db) return da<db?-1:1; return String(a.order_id||'').localeCompare(String(b.order_id||'')); });
+  const eligible = candidates.filter(o => ivrCanExport(o, rmap).ok);
+  if(!eligible.length){ alert('ไม่มีออเดอร์พร้อมส่งออก'); return; }
+  const endIv = ivrPredictEnd(e.startIv, eligible.length);
+  if(!confirm(`ส่งออก ${eligible.length} ออเดอร์ → AutoKey CSV\n\n• เลข IV: ${e.startIv} → ${endIv}\n• ช่วงวัน: ${dFrom||'ไม่จำกัด'} → ${dTo||'ไม่จำกัด'}\n• ช่องทาง: ${[...channels].join(', ')}\n\nดำเนินการ?`)) return;
+  e.busy = true; renderToolBigSeller();
+  try{
+    // 1) build AoA — ทุกออเดอร์เป็นรายบรรทัด items (เหมือน exkExport)
+    const co = COMPANIES.find(c=>c.id===state.company);
+    const shipSkuCode = BS_SHIP_SKU[state.company] || '';
+    const aoa = [BS_HEAD.concat(['ร้าน','หมายเหตุ'])];
+    let seq = 0;
+    let runningN = BigInt(e.startIv);
+    for(const o of eligible){
+      let its = o.items;
+      if(typeof its === 'string'){ try{ its = JSON.parse(its); }catch(_){ its = []; } }
+      if(!Array.isArray(its) || !its.length){
+        its = [{ sku:'', qty:1, price:Number(o.order_total||0), ship:0, discount:0 }];
+      }
+      const ivNo = runningN.toString().padStart(10,'0'); runningN += 1n;
+      const isManual = /^(FB|OD)/i.test(String(o.order_id||''));
+      const cust = isManual ? 'FACE' : '';
+      const orderShip = Number(o.shipping_fee||0);
+      const orderDisc = Number(o.seller_discount||0);
+      const platLabel = ({shopee:'SHOPEE',tiktok:'TIKTOK',lazada:'LAZADA'})[String(o.channel_group||'').toLowerCase()] || (o.channel||o.channel_group||'').toUpperCase();
+      its.forEach((it, idx) => {
+        seq++;
+        const isFirst = idx===0, isLast = idx===its.length-1;
+        const hasShip = isLast && orderShip > 0;
+        aoa.push([
+          seq, isFirst?ivNo:'', isFirst?(o.order_id||''):'',
+          o.order_date||'', platLabel, cust,
+          it.sku||'', Number(it.qty)||0, Number(it.price)||0,
+          isLast?orderShip:0, isFirst?orderDisc:0,
+          hasShip?shipSkuCode:'', hasShip?'{Enter}':'', hasShip?orderShip:'',
+          (o.customer||''), isManual?'Manual → FACE':''
+        ]);
+      });
+    }
+    // 2) save batch + download
+    const stampStr = (function(){ const dt=new Date(); return `${dt.getFullYear()}${String(dt.getMonth()+1).padStart(2,'0')}${String(dt.getDate()).padStart(2,'0')}_${String(dt.getHours()).padStart(2,'0')}${String(dt.getMinutes()).padStart(2,'0')}`; })();
+    const fileName = `IV_AutoKey_${co.code||co.name}_${e.startIv}_${stampStr}.csv`;
+    const companyId = await fopCompanyId();
+    if(companyId){
+      // batch_no: IV-{co}-YYYYMMDD-NNN
+      const dt = new Date();
+      const ymd = `${dt.getFullYear()}${String(dt.getMonth()+1).padStart(2,'0')}${String(dt.getDate()).padStart(2,'0')}`;
+      const prefix = `IV-${(co.code||'CO').toUpperCase()}-${ymd}`;
+      let seqNo = 1;
+      try{
+        const { data } = await sb.from('iv_export_batches').select('batch_no').eq('company_id',companyId).like('batch_no',`${prefix}-%`);
+        const used = (data||[]).map(r=>parseInt(String(r.batch_no||'').split('-').pop(),10)).filter(n=>!isNaN(n));
+        seqNo = (used.length ? Math.max(...used) : 0) + 1;
+      }catch(_){}
+      const batchNo = `${prefix}-${String(seqNo).padStart(3,'0')}`;
+      try{
+        await sb.from('iv_export_batches').insert({
+          company_id: companyId, batch_no: batchNo,
+          date_from: dFrom||null, date_to: dTo||null,
+          channels: [...channels], start_iv: e.startIv, end_iv: endIv,
+          order_count: eligible.length, order_ids: eligible.map(o=>o.order_id||o.id),
+          file_name: fileName, exported_email: AUTH.email || null
+        });
+      }catch(err){ console.warn('batch save', err); }
+    }
+    // 3) download CSV (UTF-8 BOM)
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    forceTextCells(ws, [1, 2, 6, 11, 12]);
+    download('﻿'+XLSX.utils.sheet_to_csv(ws), fileName, 'text/csv;charset=utf-8');
+    // 4) refresh batch list
+    await ivrLoadBatches();
+    e.busy = false;
+    e.startIv = ivrNextIv(endIv); e.startIvDirty = true;
+    renderToolBigSeller();
+    setTimeout(()=>alert(`✓ ส่งออกสำเร็จ ${eligible.length} ใบ → ${fileName}\nเลข IV: ${e.startIv ? `${e.startIv} (ต่อจากนี้)` : ''}\n\n★ บัญชีคีย์ในระบบบัญชีแล้ว → อัป 141.RWT ที่แท็บ "ตรวจการคีย์" เพื่อ verify`), 100);
+  }catch(err){
+    e.busy = false; renderToolBigSeller();
+    alert('ส่งออกไม่สำเร็จ: ' + (err.message||err));
+  }
 }
 
 function bsWireDrops(){
@@ -17119,8 +17714,9 @@ function ordKpis(d){
 }
 
 async function renderToolOrders(){
-  // ★ IV (ivsys/iv) ย้ายไปหน้า "แมพ IV จาก Express" — ordIv* เรียก renderToolOrders() ตอน re-render
-  //   ถ้ากำลังอยู่หน้านั้น ให้ route กลับไป renderToolExpressMatch แทน (กัน #main เด้งกลับหน้า Orders)
+  // ★ IV (ivsys/iv) ย้ายไปหน้า "บันทึกขายเชื่อ (IV)" — ordIv* เรียก renderToolOrders() ตอน re-render
+  //   ถ้ากำลังอยู่หน้านั้น ให้ route กลับไป renderer ที่ถูก (กัน #main เด้งกลับหน้า Orders)
+  if(state.tool === 'bigseller')    return renderToolBigSeller();
   if(state.tool === 'expressmatch') return renderToolExpressMatch();
   const t = TOOLS.find(x=>x.id==="orders"); const co = COMPANIES.find(c=>c.id===state.company);
   const d = ordGet(); const main = document.getElementById("main");

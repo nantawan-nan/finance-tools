@@ -104,9 +104,9 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 | `execdash` | `renderToolExecDash` | live (admin only) | **★ ห้ามแก้ — นิ่งแล้ว** ใช้เป็น reference สี/สไตล์ |
 | `orders` | `renderToolOrders` | live | **ทะเบียนคำสั่งซื้อ** (Order Ledger) — รับรู้ออเดอร์ 4 ช่องทางก่อนมี IV · timeline ขาย→IV→รับชำระ→แบงค์ · ord* helpers |
 | `dashboard` | `renderToolDashboard` | live | Sales Dashboard |
-| `bigseller` | `renderToolBigSeller` | live | BigSeller → IV import |
-| `expressmatch` | `renderToolExpressMatch` | live | แมพ IV จาก Express CSV |
-| `exportkey` | `renderToolExportKey` | live | ส่งออกคีย์ AutoKey |
+| `bigseller` | `renderToolBigSeller` | live | **บันทึกขายเชื่อ (IV)** — เกาะ order_ledger · ส่งออก AutoKey + ตรวจการคีย์ด้วย 141.RWT · ivr* helpers (รื้อใหม่ 2026-06-27) |
+| `expressmatch` | (retired) | redirect | ★ ลบจาก sidebar 2026-06-27 · `state.tool='expressmatch'` → redirect ไป `bigseller` · function ยังอยู่ (dead) |
+| `exportkey` | (retired) | redirect | ★ ลบจาก sidebar 2026-06-27 · `state.tool='exportkey'` → redirect ไป `bigseller` · function ยังอยู่ (dead) |
 | `ar` | `renderToolAr` | live | AR Outstanding |
 | `armap` | `renderToolArmap` | live | Map ลูกหนี้ → เงินเข้า |
 | `settle` | (none — generic) | live | จับยอด Settlement |
@@ -176,6 +176,19 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 - `phase0-foundation.sql` trigger `trg_sync_user_profile` ต้องเป็น `AFTER INSERT only` (ไม่ใช่ `INSERT OR UPDATE`)
 
 ## Recent changes (chronological)
+
+### 2026-06-27 — รื้อหน้า BigSeller → "บันทึกขายเชื่อในระบบบัญชี (IV)" + ยุบ expressmatch/exportkey
+- **เปลี่ยน module `bigseller`** จาก "อัปไฟล์ BigSeller → เทมเพลตคีย์" เป็นหน้าบันทึกขายเชื่อ (IV) ที่เกาะ `order_ledger` ตรง · 3 แท็บ: **🚦 สรุปสถานะการคีย์** · **📤 ส่งออกคีย์ IV (wizard)** · **🔍 ตรวจการคีย์ (141.RWT)**
+- **ยุบ `expressmatch` + `exportkey` ออกจาก sidebar** — `renderToolExpressMatch`/`renderToolExportKey` ยังอยู่ในไฟล์ (dead code) · เพิ่ม redirect ใน `renderTool()`: `state.tool` เป็น expressmatch/exportkey → set เป็น 'bigseller' · กัน TOOLS.find=undefined ด้วย fallback 'home'
+- **Schema ใหม่ `supabase/iv_export_batches.sql`** (idempotent · EXCEPTION-wrapped · ปิด RLS · NOTIFY pgrst): batch_no/date_from/to/channels[]/start_iv/end_iv/order_count/order_ids jsonb/file_name/exported_email · UNIQUE `(company_id, batch_no)` · index `(company_id, exported_at DESC)`
+- **★ Gate logic** (`ivrCanExport`): manual (FACE/LINE/Dealer/other) → ส่งออกได้ทันที (BigSeller = source of truth) · marketplace (SHOPEE/TIKTOK/LAZADA) → ต้อง `order_recon.status='matched'` เท่านั้น · diff/only_be/only_bs/pending → block + เหตุผล
+- **★ IV numbering policy** — บัญชีกรอก "เลข IV เริ่มต้น 10 หลัก" (เช่น `2606000007`) ระบบรันต่อในไฟล์ AutoKey เท่านั้น · **ไม่ persist `iv_no` ลง `order_ledger` ตอน export** — รออัป 141.RWT มา verify ก่อน (บัญชีอาจแก้มือในระบบ → 141.RWT คือ source of truth) · auto-suggest = `end_iv ของ batch ล่าสุด + 1`
+- **Export workflow:** Step 1 chip ช่วงวัน (วันนี้/เมื่อวาน/7วัน/เดือนนี้/ทั้งหมด/custom) + chip ช่องทาง → Step 2 การ์ดเขียว "ส่งออกได้ X" + การ์ดแดง "ติด gate Y" (modal ดูเหตุผลทุกราย จัดกลุ่มตามสาเหตุ) → Step 3 input เลข IV (border แดง/เขียวตาม validity) + แนะนำ end IV · ปุ่ม "ส่งออก AutoKey" สร้าง batch_no `IV-{co}-YYYYMMDD-NNN` + insert iv_export_batches + ดาวน์โหลด CSV (BOM UTF-8) + alert + auto-bump เลข IV เริ่มต้นต่อไป · ปุ่ม "ประวัติส่งออก" → modal ตาราง 8 คอลัมน์
+- **Verify tab** = reuse `ordRenderIv(d)` ทั้งดุ้น (drop-in) — `ordIvUpload`/`ordIvAnalyze`/`ordIvApply` ทำงานเหมือนเดิม · เพิ่ม guard ใน `renderToolOrders`: `state.tool==='bigseller'` → return `renderToolBigSeller()` (กัน ordIv* re-render เด้งกลับหน้า Orders)
+- **Visual style** (ตาม Executive Cash Flow ที่เจ้าของชอบ): hero gradient + watermark โลโก้ + KPI 4 ใบ gradient (ready=เขียว, match=น้ำเงิน, diff=แดง, block=ส้ม) + chip มุมขวา · ตาราง preview + status badge สีตาม bucket · wizard 3 step ใน card แยก · ปุ่มมี icon lucide ทุกอัน · CSS scoped ใต้ `.ivr-page` (ไม่ชนหน้าอื่น)
+- **ฟังก์ชันใหม่** (`ivr*`): `ivrInitState`/`ivrISO`/`ivrFmt`/`ivrFmt2`/`ivrRangeBounds`/`ivrNextIv`/`ivrPredictEnd`/`ivrCanExport`/`ivrVerifyMapFromIc`/`ivrKpis`/`ivrInjectStyle`/`ivrLoadBatches`/`ivrHeroHtml`/`ivrKpiStripHtml`/`ivrStripHtml`/`ivrTabsHtml`/`ivrRenderBoard`/`ivrRenderExport`/`ivrRenderVerify`/`ivrRenderBlockedModal`/`ivrRenderHistoryModal`/`ivrSetTab`/`ivrBoardFilter`/`ivrSetRange`/`ivrSetDate`/`ivrToggleChannel`/`ivrChannelAll`/`ivrSetStartIv`/`ivrToggleBlocked`/`ivrToggleHistory`/`ivrDoExport`
+- **State** = ใช้ `state.ord[co]` ร่วมกับหน้า Orders (key `d.ivrec`) — share `d.rows` + `d.recon` + `d.ivCheck` กับ Orders/Verify → ไม่ต้องโหลดซ้ำ
+- **กระทบหน้าอื่น:** Orders ไม่กระทบ · Express CSV import เก่า/SKU master/ประวัติคีย์ของ `bs*` ทั้งหมดยังอยู่ในไฟล์แต่ unreachable (entry เปลี่ยนหมด) · `BS_HEAD`/`BS_SHIP_SKU`/`forceTextCells` ยังใช้ใน `ivrDoExport`
 
 ### 2026-06-26 — Recon: ใช้สูตร "ฐานภาษีขาย" ต่อช่องทาง (VAT spec) แทนการเทียบ order_total เฉยๆ
 - **เป้าหมาย:** เทียบยอด BigSeller↔หลังบ้านให้ตรงตามฐานภาษีขายจริง (สเปคเต็ม `for-design/order-pipeline/vat-recon-logic.md` · เจ้าของยืนยันผลต่าง 0: Shopee 1,401/1,401 · Lazada 29/29 · TikTok-QI 128/128 · **MBARK TikTok ยังไม่เช็ค**)

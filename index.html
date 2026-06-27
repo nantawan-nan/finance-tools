@@ -15080,12 +15080,14 @@ function ordRenderRegister(d){
   // ★ map สถานะกระทบยอดราย order_no (สดจากสูตรปัจจุบัน) — ไม่มีในผลตรวจ = "รอเทียบ"
   const recMap=new Map();
   ((d.recon&&d.recon.results)||[]).forEach(r=>{ if(r.order_no) recMap.set(String(r.order_no), ordReconEffStatus(r)); });
-  const recOf=o=> o.status==='cancelled' ? 'cancelled' : (recMap.get(String(o.order_id))||'pending');
+  const recOf=o=> recMap.get(String(o.order_id))||'pending';
   const fCh=d.fCh||'all', fRec=d.fRec||'all';
-  const base=(d.rows||[]).filter(o=> fCh==='all'||o.channel_group===fCh);
+  // ★ ตัดออเดอร์ยกเลิกออก (ให้ตรงกับการ์ด KPI + tab ที่นับเฉพาะ active)
+  const act=(d.rows||[]).filter(o=> o.status!=='cancelled');
+  const base=act.filter(o=> fCh==='all'||o.channel_group===fCh);
   const rows=base.filter(o=> fRec==='all'||recOf(o)===fRec);
-  const chCount={}; (d.rows||[]).forEach(o=>{chCount[o.channel_group]=(chCount[o.channel_group]||0)+1;});
-  const recCount={matched:0,diff:0,only_bs:0,pending:0}; base.forEach(o=>{ if(o.status==='cancelled')return; const k=recOf(o); if(recCount[k]!=null)recCount[k]++; });
+  const chCount={}; act.forEach(o=>{chCount[o.channel_group]=(chCount[o.channel_group]||0)+1;});
+  const recCount={matched:0,diff:0,only_bs:0,pending:0}; base.forEach(o=>{ const k=recOf(o); if(recCount[k]!=null)recCount[k]++; });
   const chChip=(v,l)=>`<button class="ord-chip ${fCh===v?'on':''}" onclick="ordSet('fCh','${v}')">${l}${v!=='all'&&chCount[v]?` <span class="n">${chCount[v]}</span>`:''}</button>`;
   const recChip=(v,l)=>`<button class="ord-chip ${fRec===v?'on':''}" onclick="ordSet('fRec','${v}')">${l}${v!=='all'&&recCount[v]?` <span class="n">${recCount[v].toLocaleString('th-TH')}</span>`:''}</button>`;
   return `

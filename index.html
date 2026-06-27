@@ -2647,6 +2647,7 @@ async function renderToolBigSeller(){
     ${ivrHeroHtml(t, co, K)}
     ${ivrKpiStripHtml(d, K)}
     ${ivrStripHtml(d, K)}
+    ${ivrActionsHtml(d, K)}
     ${ivrTabsHtml(tab, K)}
     ${
       tab === 'export' ? ivrRenderExport(d) :
@@ -2715,6 +2716,36 @@ function ivrTabsHtml(tab, K){
     ${tabBtn('export','📤 ส่งออกคีย์ IV', K.readyN||null, '')}
     ${tabBtn('verify','🔍 ตรวจการคีย์ (141.RWT)', K.keyedDiffN||null, K.keyedDiffN?'t-warn':'')}
   </div>`;
+}
+/* ★ Action bar ทั่วถึงทุกแท็บ — ปุ่มหลัก 3 ปุ่ม + ประวัติ
+   - ส่งออกคีย์ IV (เขียว = primary action)
+   - อัปไฟล์ 141.RWT (ม่วง = upload action) — สลับไปแท็บ verify + เปิด file picker เลย
+   - ประวัติส่งออก (mute)
+   - ปุ่มที่ตรงกับแท็บปัจจุบัน = grayed (ไม่ active) */
+function ivrActionsHtml(d, K){
+  const tab = d.ivrec.tab;
+  const ic = d.ivCheck;
+  const hasIvData = !!(ic && ic.results && ic.results.length);
+  const verifyLab = hasIvData ? `อัปไฟล์ 141.RWT เพิ่ม` : `อัปไฟล์ 141.RWT ตรวจการคีย์`;
+  return `<div class="ord-actions" style="margin-bottom:14px">
+    <button class="ord-btn primary" ${tab==='export'?'disabled':''} onclick="ivrSetTab('export')">
+      <i data-lucide="download"></i> ส่งออกคีย์ IV${K.readyN?` (${K.readyN.toLocaleString('th-TH')})`:''}
+    </button>
+    <button class="ord-btn" style="background:#7c3aed;color:#fff;border-color:#7c3aed" onclick="ivrUploadVerify()">
+      <i data-lucide="upload"></i> ${verifyLab}
+    </button>
+    <button class="ord-btn" onclick="ivrToggleHistory()">
+      <i data-lucide="history"></i> ประวัติส่งออก${(d.ivrec.batches||[]).length?` (${d.ivrec.batches.length})`:''}
+    </button>
+    <div style="flex:1"></div>
+    ${hasIvData ? `<span style="font:500 12px/1.4 inherit;color:#64748b">📄 verify ล่าสุด: <b style="color:#0f172a">${esc((ic.fileNames||[]).join(', '))}</b></span>` : ''}
+  </div>`;
+}
+/* สลับไปแท็บ verify + เปิด file picker ทันที (กัน user หาปุ่มอัปไม่เจอใน tab) */
+function ivrUploadVerify(){
+  const d = ordGet(); d.ivrec.tab = 'verify';
+  renderToolBigSeller();
+  setTimeout(()=>{ try{ ordIvUpload(); }catch(e){ console.warn('ivrUploadVerify',e); } }, 60);
 }
 
 /* ---- Tab 1: Board ---- */

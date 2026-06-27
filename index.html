@@ -15688,8 +15688,11 @@ function ordRenderSearch(d){
   const res=(d.rows||[]).filter(o=>`${o.order_id||''} ${o.iv_no||''} ${o.re_no||''} ${o.bq_no||''} ${o.cheque_no||''} ${o.products||''} ${o.customer||''}`.toLowerCase().includes(q)).slice(0,20);
   if(!res.length) return `<div class="ord-empty"><i data-lucide="search-x"></i><div class="ttl">ไม่พบ "${esc(d.q)}"</div><div>ลองค้นด้วยเลขออเดอร์ / IV / RE / BQ / เลขเช็ค / ชื่อสินค้า</div></div>`;
   const rmap=ordReconMap(d);
+  // ★ precompute recon result map (full row — มี be ด้วย ถ้าอัป backend แล้ว) เพื่อ build ตารางเทียบ
+  const recResMap=new Map(); ((d.recon&&d.recon.results)||[]).forEach(r=>{ if(r.order_no) recResMap.set(String(r.order_no), r); });
   const bdCls=(k)=>{ if(k==='done') return 'ok'; if(k==='recon_diff') return 'danger'; if(k==='wait_iv'||k==='wait_deposit') return 'warn'; if(k==='wait_pay'||k==='wait_re'||k==='wait_bank') return 'info'; return 'mute'; };
   return res.map(o=>{ const sk=ordStatusOf(o,rmap); const s=ordStatusMeta(sk);
+    const rr = recResMap.get(String(o.order_id)) || {bs:o, be:null};
     return `<div class="ord-sr">
       <div class="ord-sr-head">
         <span class="mono" style="font:700 13px/1 'JetBrains Mono','IBM Plex Sans',monospace">${esc(o.order_id||'')}</span>
@@ -15698,12 +15701,13 @@ function ordRenderSearch(d){
         <span class="ord-bd ${bdCls(sk)}">${s.ic} ${s.l}</span>
       </div>
       <div class="ord-sr-keys">
-        <div><div class="l">ยอดขาย</div><div class="tnum" style="font-weight:700">${fmt(o.order_total)}</div></div>
+        <div><div class="l">ยอดขาย (ฐานภาษี)</div><div class="tnum" style="font-weight:700">${fmt(o.order_total)}</div></div>
         <div><div class="l">IV</div><div class="mono" style="font:600 12px/1 'JetBrains Mono',monospace">${o.iv_no?esc(o.iv_no):'—'}</div></div>
         <div><div class="l">RE</div><div class="mono" style="font:600 12px/1 'JetBrains Mono',monospace">${o.re_no?esc(o.re_no):'—'}</div></div>
         <div><div class="l">BQ</div><div class="mono" style="font:600 12px/1 'JetBrains Mono',monospace">${o.bq_no?esc(o.bq_no):'—'}</div></div>
         <div><div class="l">เงินเข้าแบงค์</div><div>${o.bank_in_date||'—'}</div></div>
       </div>
+      ${ordReconDetailHtml(rr)}
       ${ordTimeline(o)}
     </div>`; }).join('') + (res.length>=20?`<div style="font:500 12px/1.4 inherit;color:var(--n-500);margin-top:8px">แสดง 20 รายการแรก — พิมพ์ให้เจาะจงขึ้น</div>`:'');
 }
@@ -15756,7 +15760,7 @@ function ordRenderRegister(d){
               <td class="right tnum">${fmt(o.order_total)}</td>
               <td><span class="ord-bd ${rm.c}">${esc(rm.l)}</span></td>
             </tr>
-            ${exp?`<tr class="exp"><td colspan="6" style="padding:0">${ordReconDetailHtml(recResMap.get(String(o.order_id)))}</td></tr>`:''}
+            ${exp?`<tr class="exp"><td colspan="6" style="padding:0">${ordReconDetailHtml(recResMap.get(String(o.order_id)) || {bs:o, be:null})}</td></tr>`:''}
           `; }).join("") || `<tr><td colspan="6"><div class="ord-empty" style="border:0;background:transparent"><i data-lucide="package-search"></i><div class="ttl">ไม่มีออเดอร์ตามตัวกรอง</div></div></td></tr>`}
           </tbody>
         </table>

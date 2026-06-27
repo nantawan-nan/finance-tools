@@ -15070,24 +15070,31 @@ function ordRenderSearch(d){
     </div>`; }).join('') + (res.length>=20?`<div style="font:500 12px/1.4 inherit;color:var(--n-500);margin-top:8px">แสดง 20 รายการแรก — พิมพ์ให้เจาะจงขึ้น</div>`:'');
 }
 
-/* แท็บ ทะเบียน (ตาราง + ฟิลเตอร์) */
+/* แท็บ รายละเอียดการขาย — โฟกัส BigSeller ↔ หลังบ้าน (ตัด IV ออก กันงง) */
+const ORD_REC_META={
+  matched:{l:'ตรงกัน',c:'ok'}, diff:{l:'ยอดไม่ตรง',c:'danger'},
+  only_bs:{l:'หลังบ้านยังไม่ขึ้น',c:'warn'}, pending:{l:'รอเทียบยอดขาย',c:'mute'}, cancelled:{l:'ยกเลิก',c:'mute'}
+};
 function ordRenderRegister(d){
   const fmt=ordFmtMoney;
-  const rows = ordFiltered(d);
-  const rmap = ordReconMap(d);
+  // ★ map สถานะกระทบยอดราย order_no (สดจากสูตรปัจจุบัน) — ไม่มีในผลตรวจ = "รอเทียบ"
+  const recMap=new Map();
+  ((d.recon&&d.recon.results)||[]).forEach(r=>{ if(r.order_no) recMap.set(String(r.order_no), ordReconEffStatus(r)); });
+  const recOf=o=> o.status==='cancelled' ? 'cancelled' : (recMap.get(String(o.order_id))||'pending');
+  const fCh=d.fCh||'all', fRec=d.fRec||'all';
+  const base=(d.rows||[]).filter(o=> fCh==='all'||o.channel_group===fCh);
+  const rows=base.filter(o=> fRec==='all'||recOf(o)===fRec);
   const chCount={}; (d.rows||[]).forEach(o=>{chCount[o.channel_group]=(chCount[o.channel_group]||0)+1;});
-  const chChip=(v,l)=>`<button class="ord-chip ${d.fCh===v?'on':''}" onclick="ordSet('fCh','${v}')">${l}${v!=='all'&&chCount[v]?` <span class="n">${chCount[v]}</span>`:''}</button>`;
-  const bdCls=(k,cancelled)=>{ if(cancelled) return 'mute'; if(k==='done') return 'ok'; if(k==='recon_diff') return 'danger'; if(k==='wait_iv'||k==='wait_deposit') return 'warn'; if(k==='wait_pay'||k==='wait_re'||k==='wait_bank') return 'info'; return 'mute'; };
-  const banner=(d.fStatus&&d.fStatus!=='all')?`<div class="ord-banner">📌 <b>${ordStatusMeta(d.fStatus).ic} ${ordStatusMeta(d.fStatus).l}</b><span>${rows.length} ออเดอร์</span><button class="clear" onclick="ordSet('fStatus','all')">✕ ล้างตัวกรอง</button></div>`:'';
+  const recCount={matched:0,diff:0,only_bs:0,pending:0}; base.forEach(o=>{ if(o.status==='cancelled')return; const k=recOf(o); if(recCount[k]!=null)recCount[k]++; });
+  const chChip=(v,l)=>`<button class="ord-chip ${fCh===v?'on':''}" onclick="ordSet('fCh','${v}')">${l}${v!=='all'&&chCount[v]?` <span class="n">${chCount[v]}</span>`:''}</button>`;
+  const recChip=(v,l)=>`<button class="ord-chip ${fRec===v?'on':''}" onclick="ordSet('fRec','${v}')">${l}${v!=='all'&&recCount[v]?` <span class="n">${recCount[v].toLocaleString('th-TH')}</span>`:''}</button>`;
   return `
     <div class="ord-chips">
       ${chChip('all','ทุกช่อง')}${chChip('shopee','Shopee')}${chChip('tiktok','TikTok')}${chChip('lazada','Lazada')}${chChip('offline','หน้าร้าน/อื่น')}
       <span style="width:14px"></span>
-      <button class="ord-chip ${d.fIv==='all'?'on':''}" onclick="ordSet('fIv','all')">IV ทั้งหมด</button>
-      <button class="ord-chip ${d.fIv==='noiv'?'on':''}" onclick="ordSet('fIv','noiv')">ยังไม่คีย์ IV</button>
-      <button class="ord-chip ${d.fIv==='hasiv'?'on':''}" onclick="ordSet('fIv','hasiv')">คีย์แล้ว</button>
+      ${recChip('all','สถานะทั้งหมด')}${recChip('matched','ตรงกัน')}${recChip('diff','ยอดไม่ตรง')}${recChip('only_bs','หลังบ้านยังไม่ขึ้น')}${recChip('pending','รอเทียบ')}
     </div>
-    ${banner}
+    <div style="font:500 11.5px/1.5 inherit;color:var(--n-500);margin:2px 2px 10px">${rows.length.toLocaleString('th-TH')} ออเดอร์ · สถานะ = ผลกระทบยอด BigSeller (หน้าบ้าน) ↔ รายงานหลังบ้าน · "รอเทียบ" = ยังไม่อัปไฟล์หลังบ้านมาเทียบ</div>
     <div class="ord-card">
       <div style="max-height:60vh;overflow-y:auto">
         <table class="ord-table">
@@ -15097,22 +15104,20 @@ function ordRenderRegister(d){
             <th>รหัสคำสั่งซื้อ</th>
             <th>สินค้า</th>
             <th class="right">ยอดขาย</th>
-            <th>IV</th>
-            <th>สถานะ</th>
+            <th>สถานะกระทบยอด</th>
           </tr></thead>
           <tbody>
-          ${rows.slice(0,1000).map(o=>{ const exp=d.expanded.has(o.id); const sk=ordStatusOf(o,rmap); const sm=ordStatusMeta(sk); const cancelled=o.status==='cancelled'; return `
+          ${rows.slice(0,1000).map(o=>{ const exp=d.expanded.has(o.id); const cancelled=o.status==='cancelled'; const rk=recOf(o); const rm=ORD_REC_META[rk]||ORD_REC_META.pending; return `
             <tr class="${cancelled?'cancel':''} ${exp?'exp':''}" onclick="ordToggleRow('${o.id}')">
               <td class="tnum" style="font-size:12px">${o.order_date||'—'}</td>
               <td style="font-size:12px">${esc(o.channel_group||'')}</td>
               <td class="mono">${esc(o.order_id||'')}</td>
-              <td style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(o.products||'')}">${esc(o.products||'')}</td>
+              <td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(o.products||'')}">${esc(o.products||'')}</td>
               <td class="right tnum">${fmt(o.order_total)}</td>
-              <td class="mono">${o.iv_no?`<span style="color:var(--ok-700)">${esc(o.iv_no)}</span>`:`<span style="color:var(--wn-700);font:600 11px/1 inherit">ยังไม่คีย์</span>`}</td>
-              <td><span class="ord-bd ${bdCls(sk,cancelled)}">${cancelled?'🚫 ยกเลิก':sm.ic+' '+sm.l}</span></td>
+              <td><span class="ord-bd ${rm.c}">${esc(rm.l)}</span></td>
             </tr>
-            ${exp?`<tr class="exp"><td colspan="7" style="padding:0">${ordTimeline(o)}</td></tr>`:''}
-          `; }).join("") || `<tr><td colspan="7"><div class="ord-empty" style="border:0;background:transparent"><i data-lucide="package-search"></i><div class="ttl">ยังไม่มีออเดอร์</div><div>กดปุ่ม "อัปรายงานขาย" เพื่อนำเข้า</div></div></td></tr>`}
+            ${exp?`<tr class="exp"><td colspan="6" style="padding:0">${ordTimeline(o)}</td></tr>`:''}
+          `; }).join("") || `<tr><td colspan="6"><div class="ord-empty" style="border:0;background:transparent"><i data-lucide="package-search"></i><div class="ttl">ไม่มีออเดอร์ตามตัวกรอง</div></div></td></tr>`}
           </tbody>
         </table>
       </div>

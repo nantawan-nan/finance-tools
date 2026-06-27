@@ -186,6 +186,14 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 - **ใช้ field ที่ parser เก็บอยู่แล้ว** (gross_total/order_total/seller_discount/seller_voucher/shipping_fee + channel_group) — ไม่แก้ parser/ORD_CH
 - **gotcha:** `seller_voucher` ฝั่ง BigSeller parser เป็น bill-level (Math.max) · ถ้า TikTok "Voucher ของร้านค้า" เป็น per-unit จริง อาจต่างตอน qty>1 → ต้องยืนยันกับข้อมูล MBARK ก่อนล็อก · `ordReconNet` (display amount ใน board/coverage) ยังเป็น order_total เหมือนเดิม
 
+### 2026-06-27 — Recon fix: persist seller_voucher + gross_total ลง order_ledger (แก้ TikTok +100)
+- **ต้นเหตุ TikTok recon +100:** `order_ledger` ไม่มีคอลัมน์ `seller_voucher`/`gross_total` + `ordIngestChannelOrders` insert ไม่ได้เซฟ → parser อ่าน "Voucher ของร้านค้า" (ส่วนลดผู้ขาย TikTok) แล้ว แต่หล่นตอนเซฟ → recon (ใช้ bs จาก d.rows/order_ledger) เห็น `seller_voucher=0` → ไม่หักส่วนลด → +100 (ไม่ใช่สูตรผิด)
+- **`supabase/orders_voucher_gross.sql`** (idempotent): `ALTER TABLE order_ledger ADD COLUMN IF NOT EXISTS seller_voucher/gross_total` + NOTIFY pgrst · ตั้งชื่อ sort หลัง orders.sql/orders_pipeline.sql
+- **`ordIngestChannelOrders`** เพิ่ม `seller_voucher`/`gross_total` ใน rec(insert) + select + update (vchChanged/grossChanged → backfill ของเก่า)
+- **ต้องอัป BigSeller ใหม่** หลัง deploy → order_ledger เติม voucher/gross → recon ตรง
+- **กฎคอลัมน์ครบ (เจ้าของยืนยัน):** ส่วนลดผู้ขายทุกช่อง (Shopee/Lazada/TikTok) อยู่ใน "Voucher ของร้านค้า" ฝั่ง BigSeller · TikTok voucher per-unit (×qty) แต่ parser ยัง Math.max — ถ้า qty>1 ยังต้องเช็ค
+- **`ordReconEffStatus`** + board recompute status สด · `ordReconSide` มี gross fallback (items) แล้ว · register นับ active
+
 ### 2026-06-26 — Orders redesign Phase 1: ย้าย IV จาก Express ออกไปหน้า "แมพ IV จาก Express"
 - **เป้าหมาย:** redesign หน้าทะเบียนคำสั่งซื้อตาม handoff ใหม่ (`for-design/orders-redesign/`) เหลือ 2 แท็บ (สรุปภาพรวม + รายละเอียดการขาย) · เฟสนี้ทำเฉพาะ "ย้าย IV ออกก่อน"
 - **ย้ายทั้ง 2 view ของ IV** จาก Orders → `renderToolExpressMatch` (หน้า expressmatch): `ordRenderIvSystem` (📑 IV จาก EXPRESS) + `ordRenderIv` (🧾 คัดกรองและนำเข้า IV) · sub-tab toggle `emSetIvView(v)` เก็บใน `ordGet().emIvView` (default 'ivsys')

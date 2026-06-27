@@ -14301,7 +14301,7 @@ async function ordAssignOrder(oidEnc, companyId){
 async function ordIngestChannelOrders(co, parsed, srcLabel){
   const orders = parsed.orders || [];
   if(!orders.length) return { added:0, updated:0, total:0 };
-  const { data:existing } = await sb.from("order_ledger").select("id,order_id,status,order_date,order_total,channel_group,items,seller_discount,shipping_fee")
+  const { data:existing } = await sb.from("order_ledger").select("id,order_id,status,order_date,order_total,channel_group,items,seller_discount,shipping_fee,seller_voucher,gross_total")
     .eq("company_id", co).is("deleted_at", null);
   const byOid = new Map((existing||[]).filter(o=>o.order_id).map(o=>[o.order_id, o]));
   const inserts = [], updates = [];
@@ -14316,6 +14316,7 @@ async function ordIngestChannelOrders(co, parsed, srcLabel){
       products: o.products, item_count: o.item_count, order_total: o.order_total,
       items: (o.items&&o.items.length)?o.items:null,
       shipping_fee: o.shipping_fee, seller_discount: o.seller_discount,
+      seller_voucher: o.seller_voucher, gross_total: o.gross_total,
       returned_qty: o.returned_qty, is_returned: o.is_returned,
       order_src: srcLabel, order_ingested_at: now
     };
@@ -14328,13 +14329,18 @@ async function ordIngestChannelOrders(co, parsed, srcLabel){
     const discChanged = ('seller_discount' in (ex||{})) ? Number(ex.seller_discount||0)!==Number(o.seller_discount||0) : (o.seller_discount!=null);
     const shipChanged = ('shipping_fee' in (ex||{})) ? Number(ex.shipping_fee||0)!==Number(o.shipping_fee||0) : (o.shipping_fee!=null);
     const itemsChanged = o.items && o.items.length && JSON.stringify(ex.items||null)!==JSON.stringify(o.items);
-    const changed = ex.status!==o.status || Number(ex.order_total||0)!==Number(o.order_total||0) || (!ex.order_date && o.order_date) || fillGroup || fillItems || discChanged || shipChanged || itemsChanged;
+    // ★ seller_voucher (ส่วนลดผู้ขาย TikTok) + gross_total — backfill ของเก่าที่ยังไม่มี
+    const vchChanged   = ('seller_voucher' in (ex||{})) ? Number(ex.seller_voucher||0)!==Number(o.seller_voucher||0) : (o.seller_voucher!=null);
+    const grossChanged = ('gross_total' in (ex||{}))    ? Number(ex.gross_total||0)!==Number(o.gross_total||0)       : (o.gross_total!=null);
+    const changed = ex.status!==o.status || Number(ex.order_total||0)!==Number(o.order_total||0) || (!ex.order_date && o.order_date) || fillGroup || fillItems || discChanged || shipChanged || itemsChanged || vchChanged || grossChanged;
     if(changed){
       const upd = { status:o.status, sale_status_raw:o.sale_status_raw, is_returned:o.is_returned, returned_qty:o.returned_qty, order_total:o.order_total, order_date:fillDate };
       if(fillGroup){ upd.channel_group=o.channel_group; upd.channel=o.channel; }
       if(fillItems || itemsChanged){ upd.items=o.items; }
       if(discChanged) upd.seller_discount = o.seller_discount;
       if(shipChanged) upd.shipping_fee   = o.shipping_fee;
+      if(vchChanged)   upd.seller_voucher = o.seller_voucher;
+      if(grossChanged) upd.gross_total    = o.gross_total;
       updates.push({ id: ex.id, upd });
     }
   }

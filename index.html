@@ -16957,29 +16957,18 @@ function ordIvDetailPanel(r, d){
 
   // ★ Smart diagnostics สำหรับ 141.RWT — ระบุที่มาของ diff
   const hasIvLines = Array.isArray(r.ivLines) && r.ivLines.length > 0;
-  let smartTip = null;
-  if(hasIvLines && bs && compareWith != null && !ivMatch){
-    const ivLineDiscSum = +r.ivLines.reduce((s,ln)=>s+(Number(ln.line_disc)||0),0).toFixed(2);
-    const ivBillDisc = Number(r.ivBillDisc||0);
-    const ivTotalDisc = +(ivLineDiscSum + ivBillDisc).toFixed(2);
-    const bsDisc = Number(bs.disc||0);
-    // หาก IV ใส่ส่วนลดทั้ง 2 ที่ (line + bill) → น่าจะใส่ผิดที่
-    if(ivLineDiscSum > 0 && ivBillDisc > 0){
-      const expectedIfBillOnly = +(compareWith).toFixed(2);
-      smartTip = `🔍 <b>วิเคราะห์:</b> IV ใส่ส่วนลดที่ <b>2 ที่</b> — line ${fmt(ivLineDiscSum)} + บิล ${fmt(ivBillDisc)} = รวม ${fmt(ivTotalDisc)} (BigSeller มีแค่ส่วนลด ${fmt(bsDisc)})<br>👉 <b>วิธีแก้:</b> ลบส่วนลดบิลรวม ${fmt(ivBillDisc)} ออก + แก้ line discount จาก ${fmt(ivLineDiscSum)} → ${fmt(bsDisc)} เพื่อให้ IV = ${fmt(expectedIfBillOnly)} ตรง BigSeller`;
-    } else if(ivTotalDisc !== bsDisc){
-      const fixedDisc = bsDisc;
-      smartTip = `🔍 <b>วิเคราะห์:</b> ส่วนลดใน IV (${fmt(ivTotalDisc)}) ต่างจาก BigSeller (${fmt(bsDisc)}) อยู่ ${fmt(Math.abs(ivTotalDisc-bsDisc))} บาท<br>👉 <b>วิธีแก้:</b> ปรับส่วนลดใน IV ให้ตรง ${fmt(fixedDisc)} บาท`;
-    }
-    // SKU/qty mismatch check
-    if(bs.sku && r.ivLines.length){
-      const ivSkus = r.ivLines.filter(ln=>!/^(SH|SP1)\d/.test(ln.sku||'')).map(ln=>ln.sku||'').filter(Boolean);
-      const bsSkus = String(bs.sku).split(',').map(s=>s.trim()).filter(Boolean);
-      const skuDiff = bsSkus.filter(s=>!ivSkus.includes(s)).concat(ivSkus.filter(s=>!bsSkus.includes(s)));
-      if(skuDiff.length){
-        smartTip = (smartTip?smartTip+'<br>':'') + `⚠ <b>SKU ไม่ตรง:</b> IV มี [${ivSkus.join(', ')}] · BigSeller มี [${bsSkus.join(', ')}]`;
-      }
-    }
+  // ตัวเลขใช้ทั้ง diffCard + actionSteps + skuWarn
+  const ivLineDiscSum = hasIvLines ? +r.ivLines.reduce((s,ln)=>s+(Number(ln.line_disc)||0),0).toFixed(2) : 0;
+  const ivBillDisc = Number(r.ivBillDisc||0);
+  const ivTotalDisc = +(ivLineDiscSum + ivBillDisc).toFixed(2);
+  const bsDisc = bs ? Number(bs.disc||0) : 0;
+  // SKU mismatch detection (ใช้ทั้ง warning + step list)
+  let skuMissing = [], skuExtra = [];
+  if(hasIvLines && bs && bs.sku){
+    const ivSkus = r.ivLines.filter(ln=>!/^(SH|SP1)\d/.test(ln.sku||'')).map(ln=>ln.sku||'').filter(Boolean);
+    const bsSkus = String(bs.sku).split(',').map(s=>s.trim()).filter(Boolean);
+    skuMissing = bsSkus.filter(s=>!ivSkus.includes(s));
+    skuExtra   = ivSkus.filter(s=>!bsSkus.includes(s));
   }
 
   // build comparison table
@@ -17085,22 +17074,105 @@ function ordIvDetailPanel(r, d){
     </tr>`;
   }
 
-  // verdict box
-  const v = [];
-  if(bs && re){
-    if(bsReMatch) v.push(`<div style="color:var(--ok-700);font:600 13px/1.4 inherit">✅ BigSeller ↔ ${chLabel}: <b>ตรงกัน</b> (${fmt(bs.total)} บาท)</div>`);
-    else v.push(`<div style="color:var(--dg-700);font:600 13px/1.4 inherit">❌ BigSeller ↔ ${chLabel}: <b>ไม่ตรง</b> · BigSeller ${fmt(bs.total)} vs ${chLabel} ${fmt(re.total)} · ผลต่าง ${fmt(Math.abs(bs.total-re.total))}</div>`);
-  } else if(bs && !re){
-    v.push(`<div style="color:var(--n-600);font:500 13px/1.4 inherit">ℹ ยังไม่มีข้อมูลหลังบ้าน ${chLabel} — อัปไฟล์ในแท็บ "ตรวจรายวัน" เพื่อยืนยันยอดจริงจาก platform</div>`);
-  }
-  if(compareWith!=null){
-    if(ivMatch) v.push(`<div style="color:var(--ok-700);font:600 13px/1.4 inherit">✅ IV (${fmt(iv.total)}) ตรงกับ ${re?chLabel:'BigSeller'} (${fmt(compareWith)})</div>`);
-    else {
-      const dx = +(iv.total - compareWith).toFixed(2);
-      v.push(`<div style="color:var(--dg-700);font:600 13px/1.4 inherit">❌ IV (${fmt(iv.total)}) <b>ไม่ตรง</b>กับ ${re?chLabel:'BigSeller'} (${fmt(compareWith)}) — ${dx<0?'ขาด':'เกิน'} ${fmt(Math.abs(dx))} บาท · ตรวจ ${esc(r.iv_no)} ใน Express</div>`);
+  // ★ Diff equation card — โชว์ชัดๆ ว่า IV − ที่ควรเป็น = ส่วนต่าง (ใช้แทน verdict box เก่า)
+  let diffCard = '';
+  if(compareWith != null && iv.total != null){
+    const dx = +(iv.total - compareWith).toFixed(2);
+    const matched = Math.abs(dx) < 0.01;
+    const targetLbl = re ? `${chLabel} (หลังบ้าน)` : 'BigSeller';
+    const formula = bs ? `${fmt(bs.price||compareWith)}${bs.disc?` − ${fmt(bs.disc)}`:''}${bs.ship?` + ${fmt(bs.ship)}`:''}` : '';
+    if(matched){
+      diffCard = `<div style="display:flex;align-items:center;justify-content:center;gap:14px;padding:16px 20px;background:linear-gradient(135deg,var(--ok-50),#f0fdfa);border:1px solid var(--ok-100);border-radius:10px;margin-bottom:12px">
+        <div style="font:800 22px/1 inherit;color:var(--ok-700)">✓</div>
+        <div>
+          <div style="font:700 14.5px/1.2 inherit;color:var(--ok-700);margin-bottom:2px">ตรงกัน — ไม่ต้องแก้</div>
+          <div style="font:500 12.5px/1.3 inherit;color:var(--n-700)">IV (${fmt(iv.total)}) = ${esc(targetLbl)} (${fmt(compareWith)})</div>
+        </div>
+      </div>`;
+    } else {
+      diffCard = `<div style="padding:16px 18px;background:#fff;border:1px solid var(--dg-100);border-left:4px solid var(--dg-700);border-radius:10px;margin-bottom:12px">
+        <div style="font:700 11.5px/1 inherit;color:var(--dg-700);text-transform:uppercase;letter-spacing:.06em;margin-bottom:14px;display:flex;align-items:center;gap:8px">
+          📐 สมการส่วนต่าง · IV เทียบกับยอดที่ควรเป็น
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 28px 1fr 28px 1fr;gap:12px;align-items:stretch">
+          <div style="text-align:center;padding:14px 10px;background:var(--in-50,#eff6ff);border:1px solid var(--in-100);border-radius:10px">
+            <div style="font:600 10.5px/1 inherit;color:var(--in-700);text-transform:uppercase;letter-spacing:.04em;margin-bottom:5px">IV ที่บัญชีคีย์</div>
+            <div style="font:800 24px/1 inherit;color:var(--in-700);font-variant-numeric:tabular-nums;letter-spacing:-.02em">${fmt(iv.total)}</div>
+            <div style="font:500 10.5px/1.3 inherit;color:var(--n-500);margin-top:5px">${esc(r.iv_no)}</div>
+          </div>
+          <div style="font:700 26px/1 inherit;color:var(--n-400);display:grid;place-items:center">−</div>
+          <div style="text-align:center;padding:14px 10px;background:#ecfdf5;border:1px solid var(--ok-100);border-radius:10px">
+            <div style="font:600 10.5px/1 inherit;color:var(--ok-700);text-transform:uppercase;letter-spacing:.04em;margin-bottom:5px">ยอดที่ควรเป็น</div>
+            <div style="font:800 24px/1 inherit;color:var(--ok-700);font-variant-numeric:tabular-nums;letter-spacing:-.02em">${fmt(compareWith)}</div>
+            <div style="font:500 10.5px/1.3 inherit;color:var(--n-500);margin-top:5px">${esc(targetLbl)}${formula?`<br><span style="font:500 10px/1.3 inherit;color:var(--n-400)">${formula}</span>`:''}</div>
+          </div>
+          <div style="font:700 26px/1 inherit;color:var(--n-400);display:grid;place-items:center">=</div>
+          <div style="text-align:center;padding:14px 10px;background:var(--dg-50);border:2px solid var(--dg-100);border-radius:10px">
+            <div style="font:600 10.5px/1 inherit;color:var(--dg-700);text-transform:uppercase;letter-spacing:.04em;margin-bottom:5px">ส่วนต่าง</div>
+            <div style="font:800 24px/1 inherit;color:var(--dg-700);font-variant-numeric:tabular-nums;letter-spacing:-.02em">${dx>0?'+':''}${fmt(dx)}</div>
+            <div style="font:600 10.5px/1.3 inherit;color:var(--dg-700);margin-top:5px">${dx>0?'IV เกินไป':'IV ขาดไป'} ${fmt(Math.abs(dx))} บาท</div>
+          </div>
+        </div>
+      </div>`;
     }
-  } else {
-    v.push(`<div style="color:var(--n-600);font:500 13px/1.4 inherit">ℹ ยังไม่มีข้อมูล BigSeller — อัปรายงานขาย BigSeller ก่อนถึงจะเทียบยอด IV ได้</div>`);
+  }
+
+  // ★ Action steps — บอกขั้นตอนจริงที่บัญชีต้องทำในระบบบัญชี
+  let actionSteps = '';
+  if(compareWith != null && !ivMatch && bs){
+    const dx = +(iv.total - compareWith).toFixed(2);
+    const steps = [];
+    const openLine = `เปิด IV เลขที่ <code style="background:var(--n-100);padding:2px 8px;border-radius:5px;font:700 12.5px/1 monospace">${esc(r.iv_no)}</code> ในระบบบัญชี`;
+    if(hasIvLines && ivLineDiscSum > 0 && ivBillDisc > 0){
+      // ใส่ส่วนลด 2 ที่ (line + bill) — ใส่ผิดที่
+      steps.push(openLine);
+      steps.push(`ลบ <b>"ส่วนลดบิลรวม"</b> ${fmt(ivBillDisc)} บาท ออก (ใส่ผิดที่ — ส่วนลดควรอยู่ที่ line discount ที่เดียว)`);
+      if(Math.abs(ivLineDiscSum-bsDisc) >= 0.01){
+        steps.push(`แก้ส่วนลดในบรรทัดสินค้าจาก ${fmt(ivLineDiscSum)} → <b>${fmt(bsDisc)} บาท</b> (= "Voucher ของร้านค้า" ใน BigSeller)`);
+      }
+      steps.push(`ยอดรวม IV จะกลายเป็น <b style="color:var(--ok-700)">${fmt(compareWith)} บาท</b> ตรงกับ BigSeller ✓`);
+    } else if(hasIvLines && Math.abs(ivTotalDisc - bsDisc) >= 0.01){
+      // ส่วนลดไม่ตรง (อาจจะ 0/0 หรือใส่ผิดยอด)
+      const diffDisc = +(bsDisc - ivTotalDisc).toFixed(2);
+      steps.push(openLine);
+      if(diffDisc > 0){
+        steps.push(`เพิ่มส่วนลด <b>${fmt(diffDisc)} บาท</b> (ตอนนี้ส่วนลดใน IV = ${fmt(ivTotalDisc)} บาท · ต้องเป็น <b>${fmt(bsDisc)} บาท</b> ตาม "Voucher ของร้านค้า" ใน BigSeller)`);
+      } else {
+        steps.push(`ลดส่วนลดลง <b>${fmt(-diffDisc)} บาท</b> (ตอนนี้ส่วนลดใน IV = ${fmt(ivTotalDisc)} บาท · ต้องเป็น <b>${fmt(bsDisc)} บาท</b>)`);
+      }
+      steps.push(`ยอดรวม IV จะ${dx>0?'ลด':'เพิ่ม'}จาก ${fmt(iv.total)} → <b style="color:var(--ok-700)">${fmt(compareWith)} บาท</b> ตรง BigSeller ✓`);
+    } else {
+      // generic — เจอแต่ไม่รู้ root cause ของ diff
+      steps.push(openLine);
+      steps.push(`ปรับยอดรวมเป็น <b style="color:var(--ok-700)">${fmt(compareWith)} บาท</b> (${dx>0?`ต้องลด ${fmt(dx)}`:`ต้องเพิ่ม ${fmt(-dx)}`} บาท)`);
+      steps.push(`ตรวจรหัสสินค้า/จำนวน/ราคา/ส่วนลด/ค่าส่ง ในตารางด้านบนให้ตรงกับ BigSeller ก่อนกดบันทึก`);
+    }
+    let skuWarn = '';
+    if(skuMissing.length || skuExtra.length){
+      const miss = skuMissing.length ? `ขาด: <code style="background:#fff;padding:1px 6px;border-radius:4px">${skuMissing.map(esc).join(', ')}</code>` : '';
+      const extr = skuExtra.length   ? `เกิน: <code style="background:#fff;padding:1px 6px;border-radius:4px">${skuExtra.map(esc).join(', ')}</code>` : '';
+      skuWarn = `<div style="margin-top:10px;padding:10px 12px;background:var(--dg-50);border:1px solid var(--dg-100);border-radius:8px;color:var(--dg-700);font:600 12.5px/1.5 inherit">⚠ <b>SKU ไม่ตรงด้วย!</b> ${miss}${miss&&extr?' · ':''}${extr} — แก้ SKU/จำนวนใน IV ก่อน ไม่ใช่แค่ปรับยอด</div>`;
+    }
+    actionSteps = `<div style="padding:14px 18px;background:#fff;border:1px solid var(--in-100);border-left:4px solid var(--in-700);border-radius:10px;margin-bottom:12px">
+      <div style="font:700 12px/1 inherit;color:var(--in-700);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px;display:flex;align-items:center;gap:6px">
+        🔧 วิธีแก้ในระบบบัญชี · ${steps.length} ขั้นตอน
+      </div>
+      <ol style="margin:0;padding-left:22px;display:flex;flex-direction:column;gap:8px;font:500 13px/1.6 inherit;color:var(--n-700)">
+        ${steps.map(s=>`<li>${s}</li>`).join('')}
+      </ol>
+      ${skuWarn}
+    </div>`;
+  }
+
+  // BigSeller ↔ Platform sub-verdict (ถ้ามีทั้ง 2 ฝั่ง · บรรทัดเดียวสั้นๆ)
+  let recVerdict = '';
+  if(bs && re){
+    if(bsReMatch) recVerdict = `<div style="padding:8px 12px;background:var(--ok-50);border:1px solid var(--ok-100);border-radius:8px;color:var(--ok-700);font:600 12.5px/1.4 inherit">✓ BigSeller ↔ ${chLabel}: ตรงกัน (${fmt(bs.total)} บาท)</div>`;
+    else recVerdict = `<div style="padding:8px 12px;background:var(--dg-50);border:1px solid var(--dg-100);border-radius:8px;color:var(--dg-700);font:600 12.5px/1.4 inherit">⚠ BigSeller ↔ ${chLabel}: ไม่ตรง · ${fmt(bs.total)} vs ${fmt(re.total)} · ผลต่าง ${fmt(Math.abs(bs.total-re.total))} — แก้กระทบยอดที่ทะเบียนคำสั่งซื้อก่อน</div>`;
+  } else if(bs && !re){
+    recVerdict = `<div style="padding:8px 12px;background:var(--n-50);border:1px solid var(--n-200);border-radius:8px;color:var(--n-600);font:500 12px/1.4 inherit">ℹ ยังไม่อัปไฟล์หลังบ้าน ${chLabel} — IV เทียบกับ BigSeller เท่านั้น (ยังไม่ได้ยืนยันกับ platform จริง)</div>`;
+  } else if(!bs){
+    recVerdict = `<div style="padding:8px 12px;background:var(--wn-50);border:1px solid var(--wn-100);border-radius:8px;color:var(--wn-700);font:500 12.5px/1.4 inherit">⚠ ไม่มีออเดอร์นี้ใน BigSeller — เทียบยอดไม่ได้ ตรวจว่า ref_order_id ตรงไหม</div>`;
   }
 
   return `<div style="padding:14px 16px;background:#fff;border:1px solid var(--n-200);border-radius:10px;margin:6px 0">
@@ -17117,11 +17189,9 @@ function ordIvDetailPanel(r, d){
         ${ivRow}
       </tbody>
     </table>
-    <div style="display:flex;flex-direction:column;gap:6px;padding:10px 12px;background:var(--n-50);border:1px solid var(--n-200);border-radius:8px">
-      <div style="font:600 11px/1 inherit;color:var(--n-500);text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px">📊 สรุปผลตรวจ</div>
-      ${v.join('')}
-      ${smartTip ? `<div style="margin-top:6px;padding:10px 12px;background:var(--wn-50);border:1px solid var(--wn-100);border-radius:8px;color:var(--n-900);font:500 12.5px/1.6 inherit">${smartTip}</div>` : ''}
-    </div>
+    ${diffCard}
+    ${actionSteps}
+    ${recVerdict}
   </div>`;
 }
 /* ★ วิเคราะห์ใหม่ — ใช้ IVs ที่ cache ไว้ + order data ล่าสุด (เผื่อ logic ordIvAnalyze เปลี่ยน) */

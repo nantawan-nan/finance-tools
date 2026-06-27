@@ -15372,15 +15372,34 @@ function ordReconDetailHtml(r){
       <div style="text-align:right;${pNe?'color:#dc2626;font-weight:700':'color:#475569'}" class="tnum">${r.bs?fmt(bsT):'—'}</div>
       <div style="text-align:right;${pNe?'color:#dc2626;font-weight:700':'color:#475569'}" class="tnum">${r.be?fmt(beT):'—'}</div>
     </div>`; };
-  const totLine=(l,bs,be,sign,bold)=>{ const ne=Math.abs(Number(bs||0)-Number(be||0))>=0.01; return `<div style="display:grid;${g3};gap:0;padding:${bold?'9px':'7px'} 12px;border-top:${bold?'2px solid var(--brand,#1e3a8a)':'1px solid #eef1f6'};font:${bold?'800 12.5px':'600 12px'}/1.3 inherit;${bold?'background:rgba(var(--brand-rgb),.05)':(ne?'background:#fef2f2':'')}"><div style="color:${bold?'#0f172a':'#475569'}">${sign||''}${l}</div><div style="text-align:right;${ne&&!bold?'color:#dc2626;font-weight:700':''}" class="tnum">${bs==null?'—':fmt(bs)}</div><div style="text-align:right;${ne&&!bold?'color:#dc2626;font-weight:700':''}" class="tnum">${be==null?'—':fmt(be)}</div></div>`; };
+  const totLine=(l,bs,be,sign,bold,srcBs,srcBe)=>{
+    const ne=Math.abs(Number(bs||0)-Number(be||0))>=0.01;
+    const main = `<div style="display:grid;${g3};gap:0;padding:${bold?'9px':'7px'} 12px;border-top:${bold?'2px solid var(--brand,#1e3a8a)':'1px solid #eef1f6'};font:${bold?'800 12.5px':'600 12px'}/1.3 inherit;${bold?'background:rgba(var(--brand-rgb),.05)':(ne?'background:#fef2f2':'')}"><div style="color:${bold?'#0f172a':'#475569'}">${sign||''}${l}</div><div style="text-align:right;${ne&&!bold?'color:#dc2626;font-weight:700':''}" class="tnum">${bs==null?'—':fmt(bs)}</div><div style="text-align:right;${ne&&!bold?'color:#dc2626;font-weight:700':''}" class="tnum">${be==null?'—':fmt(be)}</div></div>`;
+    if(!srcBs && !srcBe) return main;
+    const pill=(s)=> s?`<span style="font:500 10px/1 'JetBrains Mono',monospace;background:#fff;border:1px solid #e2e8f0;color:#64748b;padding:1px 6px;border-radius:4px">${esc(s)}</span>`:'<span style="color:#cbd5e1;font-size:10px">—</span>';
+    const sub = `<div style="display:grid;${g3};gap:0;padding:2px 12px 5px;font-size:10px;line-height:1.3;color:#94a3b8;background:#fafbfc">
+      <div style="text-align:right;padding-right:6px;font-style:italic;font-size:9.5px">↳ คอลัมน์ที่มา</div>
+      <div style="text-align:right">${pill(srcBs)}</div>
+      <div style="text-align:right">${pill(srcBe)}</div>
+    </div>`;
+    return main + sub;
+  };
+  // ★ คอลัมน์ที่มาในไฟล์ source — ใช้เป็นป้ายใต้ค่าแต่ละ row (user ตรวจย้อนได้ว่าดึงมาจากไหน)
+  const beCh = r.be ? String(r.be.channel_group||'').toLowerCase() : '';
+  const beSrc = ({
+    shopee:  { gross:'ราคาขายสุทธิ',                ship:'ค่าจัดส่งที่ชำระโดยผู้ซื้อ',  disc:'โค้ดส่วนลดชำระโดยผู้ขาย' },
+    tiktok:  { gross:'SKU Subtotal Before Discount', ship:'Shipping Fee After Discount', disc:'SKU Seller Discount' },
+    lazada:  { gross:'unitPrice',                    ship:'shippingFee',                  disc:'sellerDiscountTotal' }
+  })[beCh] || {};
+  const bsSrc = { gross:'ราคาสินค้าเดิม', ship:'ค่าจัดส่ง', disc:'Voucher ของร้านค้า' };
   return `<div style="padding:10px 14px 14px 38px;background:#fbfcfe;border-top:1px solid #eef1f6">
     <div style="border:1px solid #eef1f6;border-radius:10px;overflow:hidden;max-width:640px">
       <div style="display:grid;${g3};gap:0;background:#f8fafc;padding:8px 12px;font:700 11px/1.2 inherit;color:#64748b"><div>รายการสินค้า · รหัส ×จำนวน @ ราคา/หน่วย</div><div style="text-align:right">BigSeller</div><div style="text-align:right">แพลตฟอร์ม(จริง)</div></div>
       ${items.length?items.map(itemRow).join(''):`<div style="padding:10px 12px;color:#94a3b8;font:500 12px/1.4 inherit">— ไม่มีรายการสินค้าย่อย —</div>`}
-      ${totLine('มูลค่าสินค้ารวม', S&&S.prod, P&&P.prod)}
-      ${totLine('ค่าส่ง', S&&S.ship, P&&P.ship, '+ ')}
-      ${totLine('ส่วนลดทั้งบิล (ลดท้ายบิล ไม่ใช่ลดรายสินค้า)', S&&S.disc, P&&P.disc, '− ')}
-      ${totLine('ฐานภาษีขาย', S&&S.base, P&&P.base, '= ', true)}
+      ${totLine('มูลค่าสินค้ารวม',                            S&&S.prod, P&&P.prod, '',   false, r.bs?bsSrc.gross:'', r.be?beSrc.gross:'')}
+      ${totLine('ค่าส่ง',                                     S&&S.ship, P&&P.ship, '+ ', false, r.bs?bsSrc.ship :'', r.be?beSrc.ship :'')}
+      ${totLine('ส่วนลดทั้งบิล (ลดท้ายบิล ไม่ใช่ลดรายสินค้า)', S&&S.disc, P&&P.disc, '− ', false, r.bs?bsSrc.disc :'', r.be?beSrc.disc :'')}
+      ${totLine('ฐานภาษีขาย',                                 S&&S.base, P&&P.base, '= ', true)}
     </div>
     <div style="font:500 11px/1.5 inherit;color:#64748b;margin-top:7px">${(!r.bs||!r.be)?`<span style="color:#d97706">มีข้างเดียว — ไม่มีคู่ให้เทียบ</span>`:(skuNe?`<span style="color:#dc2626">⚠ SKU/จำนวน ไม่ตรง</span>`:`<span style="color:#16a34a">SKU/จำนวน ตรง ✓</span>`)}</div>
   </div>`;

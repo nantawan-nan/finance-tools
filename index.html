@@ -14675,8 +14675,8 @@ function ordReconDrillSet(status, ch){ const d=ordGet(); const c=ch||null; const
 function ordReconRowToggle(oid){ const d=ordGet(); if(!d.reconRowOpen) d.reconRowOpen=new Set(); const k=decodeURIComponent(oid); if(d.reconRowOpen.has(k)) d.reconRowOpen.delete(k); else d.reconRowOpen.add(k); renderToolOrders(); }
 /* แตกยอดฐานภาษีต่อฝั่ง (สำหรับตารางเทียบ): ราคาขาย − ส่วนลดผู้ขาย + ค่าส่ง = ฐานภาษี */
 function ordReconSide(o, side){
-  const net=Number(o.order_total||0), gross=Number(o.gross_total||0), ship=Number(o.shipping_fee||0);
-  const prod=(o.channel_group==='tiktok')?gross:net;
+  const net=Number(o.order_total||0), gross=Number(o.gross_total||0)||ordGrossVal(o), ship=Number(o.shipping_fee||0);
+  const prod=(o.channel_group==='tiktok')?gross:net;   // ★ ใช้ fallback items กัน TikTok มูลค่า=0 (ตรงกับ ordTaxBase)
   let disc;
   if(side==='bs') disc=Number(o.seller_voucher||0);
   else { const dd=Number(o.seller_discount||0); disc=(o.channel_group==='lazada')?-dd:dd; }   // Lazada disc ติดลบ

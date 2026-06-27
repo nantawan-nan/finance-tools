@@ -2614,6 +2614,43 @@ function ivrInjectStyle(){
   document.head.appendChild(s);
 }
 
+/* ---- Persist 141.RWT verify result to localStorage (per company) ----
+   Refresh แล้วยังเห็นผลตรวจเดิม · re-analyze ด้วย d.rows ปัจจุบันตอน restore (กันข้อมูลค้าง)
+   เก็บ raw `ivs` + filter/sort/checked + fileNames · เคลียร์เมื่อ ordIvClear */
+const IVR_LS_CHECK = (co)=>`finance_tools.iv_check.${co}`;
+function ivrSaveIvCheck(){
+  const d = ordGet(); const ic = d.ivCheck;
+  if(!ic || !Array.isArray(ic.ivs) || !ic.ivs.length) return;
+  try{
+    localStorage.setItem(IVR_LS_CHECK(state.company), JSON.stringify({
+      ivs: ic.ivs, fileNames: ic.fileNames||[], uploadedAt: ic.uploadedAt||null, format: ic.format||null,
+      filter: ic.filter||'all', platform: ic.platform||'', dateFrom: ic.dateFrom||'', dateTo: ic.dateTo||'', q: ic.q||'',
+      sortKey: ic.sortKey||'_status', sortDir: ic.sortDir||'asc',
+      checked: [...(ic.checked||[])], expanded: [...(ic.expanded||[])]
+    }));
+  }catch(e){ console.warn('ivrSaveIvCheck', e); }
+}
+function ivrRestoreIvCheck(){
+  const d = ordGet();
+  if(d.ivCheck && d.ivCheck.ivs && d.ivCheck.ivs.length) return;   // already in-memory
+  try{
+    const raw = localStorage.getItem(IVR_LS_CHECK(state.company));
+    if(!raw) return;
+    const p = JSON.parse(raw);
+    if(!p || !Array.isArray(p.ivs) || !p.ivs.length) return;
+    // re-analyze ใหม่ด้วย d.rows ปัจจุบัน (เผื่ออัปทะเบียนใหม่ตั้งแต่ครั้งก่อน)
+    const fresh = ordIvAnalyze({ ivs: p.ivs }, d.rows || []);
+    d.ivCheck = { ...fresh,
+      ivs: p.ivs, fileNames: p.fileNames||[], uploadedAt: p.uploadedAt||null, format: p.format||null,
+      filter: p.filter||'all', platform: p.platform||'', dateFrom: p.dateFrom||'', dateTo: p.dateTo||'', q: p.q||'',
+      sortKey: p.sortKey||'_status', sortDir: p.sortDir||'asc',
+      checked: new Set(p.checked||[]), expanded: new Set(p.expanded||[]),
+      restored: true   // flag ให้รู้ว่าโหลดจาก LS (โชว์ banner)
+    };
+  }catch(e){ console.warn('ivrRestoreIvCheck', e); }
+}
+function ivrClearIvCheckLs(){ try{ localStorage.removeItem(IVR_LS_CHECK(state.company)); }catch(e){} }
+
 /* ---- Loaders ---- */
 async function ivrLoadBatches(){
   const d = ordGet(); if(!d.ivrec) d.ivrec = ivrInitState();
@@ -2639,8 +2676,12 @@ async function renderToolBigSeller(){
   if(!d.reconLoaded){ d.reconLoaded=true; try{ await ordReconLoad(); }catch(e){ console.warn("reconLoad",e); } }
   if(!d.ivrec) d.ivrec = ivrInitState();
   if(!d.ivrec.batchesLoaded){ try{ await ivrLoadBatches(); }catch(e){} d.ivrec.batchesLoaded=true; }
+  // ★ Restore ผล 141.RWT ก่อนหน้า (ถ้ามีใน localStorage) — ก่อนคำนวณ KPI ที่อิง verifyMap
+  ivrRestoreIvCheck();
   const tab = d.ivrec.tab || 'board';
   const K = ivrKpis(d);
+  // ★ Save ลง localStorage ทุกครั้งที่ render (เผื่อ filter/checked/sort เปลี่ยน) — write นี้เร็วมาก
+  if(d.ivCheck && d.ivCheck.ivs && d.ivCheck.ivs.length) ivrSaveIvCheck();
 
   main.innerHTML = `
   <div class="ord-page ivr-page">
@@ -16912,7 +16953,7 @@ async function ordIvUpload(){
 }
 
 function ordIvSetFilter(k){ const d=ordGet(); if(!d.ivCheck) return; d.ivCheck.filter=k; renderToolOrders(); }
-function ordIvClear(){ const d=ordGet(); d.ivCheck=null; renderToolOrders(); }
+function ordIvClear(){ const d=ordGet(); d.ivCheck=null; try{ ivrClearIvCheckLs(); }catch(e){} renderToolOrders(); }
 /* toggle ดูรายละเอียดเปรียบเทียบ — IV / BigSeller / หลังบ้าน */
 function ordIvToggleExpand(iv_no){ const d=ordGet(); const ic=d.ivCheck; if(!ic) return; ic.expanded = ic.expanded||new Set(); if(ic.expanded.has(iv_no)) ic.expanded.delete(iv_no); else ic.expanded.add(iv_no); renderToolOrders(); }
 /* สร้างตารางเปรียบเทียบ 2-3 บรรทัด (BigSeller / Platform / IV) — return HTML

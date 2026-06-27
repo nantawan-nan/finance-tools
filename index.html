@@ -14720,6 +14720,8 @@ function ordDetectChannel(headers){
   return null;
 }
 function ordNum(v){ if(v==null||v==="")return 0; const n=Number(String(v).replace(/[,%\s]/g,"")); return isNaN(n)?0:n; }
+/* ★ แปลง column index (0-based) → ตัวอักษร Excel: 0→A, 25→Z, 26→AA, 27→AB ... */
+function ordColLetter(idx){ if(idx==null || idx<0) return null; let s='', n=idx+1; while(n>0){ n--; s=String.fromCharCode(65+(n%26))+s; n=Math.floor(n/26); } return s; }
 const ORD_EN_MONTH={jan:1,feb:2,mar:3,apr:4,may:5,jun:6,jul:7,aug:8,sep:9,oct:10,nov:11,dec:12};
 function ordISO(v){
   if(!v) return null; const s=String(v).trim();
@@ -14787,6 +14789,18 @@ function ordParseSalesFile(rows){
     if(ci.cancel>=0 && !g.cancelTime) g.cancelTime = String(row[ci.cancel]||"").trim();
   }
   const cancelRe = new RegExp(cfg.cancelKw, "i");
+  // ★ source_cols — เก็บตัวอักษร Excel ของคอลัมน์ที่ใช้คำนวณ (gross/ship/disc/voucher) ต่อไฟล์
+  //   ทำครั้งเดียวต่อ parse (ใช้ headers/ci เดียวกันทุก order ในไฟล์)
+  const sourceCols = {
+    gross:   ordColLetter(ci.gross),
+    ship:    ordColLetter(ci.ship),
+    disc:    ordColLetter(ci.disc),
+    voucher: ordColLetter(ci.voucher),
+    net:     ordColLetter(ci.net),
+    order_id:ordColLetter(ci.order)
+  };
+  // ตัด null ออกเพื่อ jsonb เบา
+  Object.keys(sourceCols).forEach(k=>{ if(sourceCols[k]==null) delete sourceCols[k]; });
   const orders = [...groups.values()].map(g => {
     const cancelled = cancelRe.test(g.status) || (!!g.cancelTime && !/^(0|-|\s)*$/.test(g.cancelTime));
     const returned = g.ret > 0 || /คืน|return|refund/i.test(g.status);
@@ -14813,7 +14827,8 @@ function ordParseSalesFile(rows){
       seller_discount: +((g.disc||0) + (g.voucher||0)).toFixed(2),  // ส่วนลดผู้ขาย + Voucher ของร้านค้า (BigSeller format ใหม่)
       seller_voucher: +(g.voucher||0).toFixed(2),
       returned_qty: g.ret,
-      is_returned: returned
+      is_returned: returned,
+      source_cols: sourceCols
     };
   });
   return { channel: ch, orders };
@@ -14968,7 +14983,7 @@ async function ordAssignOrder(oidEnc, companyId){
 async function ordIngestChannelOrders(co, parsed, srcLabel){
   const orders = parsed.orders || [];
   if(!orders.length) return { added:0, updated:0, total:0 };
-  const { data:existing } = await sb.from("order_ledger").select("id,order_id,status,order_date,order_total,channel_group,items,seller_discount,shipping_fee,seller_voucher,gross_total")
+  const { data:existing } = await sb.from("order_ledger").select("id,order_id,status,order_date,order_total,channel_group,items,seller_discount,shipping_fee,seller_voucher,gross_total,source_cols")
     .eq("company_id", co).is("deleted_at", null);
   const byOid = new Map((existing||[]).filter(o=>o.order_id).map(o=>[o.order_id, o]));
   const inserts = [], updates = [];
@@ -14984,6 +14999,7 @@ async function ordIngestChannelOrders(co, parsed, srcLabel){
       items: (o.items&&o.items.length)?o.items:null,
       shipping_fee: o.shipping_fee, seller_discount: o.seller_discount,
       seller_voucher: o.seller_voucher, gross_total: o.gross_total,
+      source_cols: o.source_cols || null,
       returned_qty: o.returned_qty, is_returned: o.is_returned,
       order_src: srcLabel, order_ingested_at: now
     };
@@ -14999,7 +15015,9 @@ async function ordIngestChannelOrders(co, parsed, srcLabel){
     // ★ seller_voucher (ส่วนลดผู้ขาย TikTok) + gross_total — backfill ของเก่าที่ยังไม่มี
     const vchChanged   = ('seller_voucher' in (ex||{})) ? Number(ex.seller_voucher||0)!==Number(o.seller_voucher||0) : (o.seller_voucher!=null);
     const grossChanged = ('gross_total' in (ex||{}))    ? Number(ex.gross_total||0)!==Number(o.gross_total||0)       : (o.gross_total!=null);
-    const changed = ex.status!==o.status || Number(ex.order_total||0)!==Number(o.order_total||0) || (!ex.order_date && o.order_date) || fillGroup || fillItems || discChanged || shipChanged || itemsChanged || vchChanged || grossChanged;
+    // ★ source_cols backfill — เพิ่มถ้าเดิมไม่มี · อัปถ้าคอลัมน์ในไฟล์เปลี่ยน (เช่น header layout เปลี่ยน)
+    const colsChanged = o.source_cols && JSON.stringify(ex.source_cols||null) !== JSON.stringify(o.source_cols);
+    const changed = ex.status!==o.status || Number(ex.order_total||0)!==Number(o.order_total||0) || (!ex.order_date && o.order_date) || fillGroup || fillItems || discChanged || shipChanged || itemsChanged || vchChanged || grossChanged || colsChanged;
     if(changed){
       const upd = { status:o.status, sale_status_raw:o.sale_status_raw, is_returned:o.is_returned, returned_qty:o.returned_qty, order_total:o.order_total, order_date:fillDate };
       if(fillGroup){ upd.channel_group=o.channel_group; upd.channel=o.channel; }
@@ -15008,6 +15026,7 @@ async function ordIngestChannelOrders(co, parsed, srcLabel){
       if(shipChanged) upd.shipping_fee   = o.shipping_fee;
       if(vchChanged)   upd.seller_voucher = o.seller_voucher;
       if(grossChanged) upd.gross_total    = o.gross_total;
+      if(colsChanged)  upd.source_cols    = o.source_cols;
       updates.push({ id: ex.id, upd });
     }
   }
@@ -15385,13 +15404,28 @@ function ordReconDetailHtml(r){
     return main + sub;
   };
   // ★ คอลัมน์ที่มาในไฟล์ source — ใช้เป็นป้ายใต้ค่าแต่ละ row (user ตรวจย้อนได้ว่าดึงมาจากไหน)
+  // ชื่อคอลัมน์ (static) + ตัวอักษร Excel (dynamic จาก source_cols ที่ parser เก็บไว้ตอนอัป)
   const beCh = r.be ? String(r.be.channel_group||'').toLowerCase() : '';
-  const beSrc = ({
+  const beNames = ({
     shopee:  { gross:'ราคาขายสุทธิ',                ship:'ค่าจัดส่งที่ชำระโดยผู้ซื้อ',  disc:'โค้ดส่วนลดชำระโดยผู้ขาย' },
     tiktok:  { gross:'SKU Subtotal Before Discount', ship:'Shipping Fee After Discount', disc:'SKU Seller Discount' },
     lazada:  { gross:'unitPrice',                    ship:'shippingFee',                  disc:'sellerDiscountTotal' }
   })[beCh] || {};
-  const bsSrc = { gross:'ราคาสินค้าเดิม', ship:'ค่าจัดส่ง', disc:'Voucher ของร้านค้า' };
+  const bsNames = { gross:'ราคาสินค้าเดิม', ship:'ค่าจัดส่ง', disc:'Voucher ของร้านค้า' };
+  // ★ ผูกชื่อ + letter — bs disc มาจาก "voucher" column (ordReconSide ใช้ o.seller_voucher)
+  const bsCols = (r.bs && r.bs.source_cols) || {};
+  const beCols = (r.be && r.be.source_cols) || {};
+  const withCol = (name, letter)=> name ? (letter ? `${name} (คอลัม ${letter})` : name) : '';
+  const bsSrc = {
+    gross: withCol(bsNames.gross, bsCols.gross),
+    ship:  withCol(bsNames.ship,  bsCols.ship),
+    disc:  withCol(bsNames.disc,  bsCols.voucher)   // BS disc = Voucher ของร้านค้า column
+  };
+  const beSrc = {
+    gross: withCol(beNames.gross, beCols.gross),
+    ship:  withCol(beNames.ship,  beCols.ship),
+    disc:  withCol(beNames.disc,  beCols.disc)
+  };
   return `<div style="padding:10px 14px 14px 38px;background:#fbfcfe;border-top:1px solid #eef1f6">
     <div style="border:1px solid #eef1f6;border-radius:10px;overflow:hidden;max-width:640px">
       <div style="display:grid;${g3};gap:0;background:#f8fafc;padding:8px 12px;font:700 11px/1.2 inherit;color:#64748b"><div>รายการสินค้า · รหัส ×จำนวน @ ราคา/หน่วย</div><div style="text-align:right">BigSeller</div><div style="text-align:right">แพลตฟอร์ม(จริง)</div></div>

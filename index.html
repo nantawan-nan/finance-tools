@@ -14982,7 +14982,7 @@ function ordRenderBoard(d){
     <!-- action bar -->
     <div class="ord-actions" style="margin-top:14px">
       <button class="ord-btn primary" onclick="ordReconUpload()" ${brecCanWrite()?'':'disabled'}><i data-lucide="upload"></i> อัปไฟล์หลังบ้าน (Shopee/TikTok/Lazada)</button>
-      <button class="ord-btn" onclick="ordReconGenReports()" ${res.length?'':'disabled'}><i data-lucide="file-check-2"></i> สร้างใบกระทบยอด</button>
+      <button class="ord-btn" onclick="ordReconOpenCalendar()" ${res.length?'':'disabled'}><i data-lucide="calendar-check"></i> สร้างใบกระทบยอด (เลือกวัน)</button>
       <button class="ord-btn" onclick="ordReconToggleHistory()"><i data-lucide="history"></i> ประวัติรายงาน</button>
     </div>
     ${busy?`<div class="ord-empty"><i data-lucide="loader-2"></i><div class="ttl">กำลังเทียบ…</div></div>`:''}
@@ -15025,6 +15025,8 @@ function ordRenderBoard(d){
       </div>${unm.length>50?`<div style="text-align:center;font:500 12px/1.4 inherit;color:#94a3b8;margin-top:10px">แสดง 50 จาก ${unm.length.toLocaleString('th-TH')} รายการ</div>`:''}`
         : `<div style="padding:26px;text-align:center;color:#94a3b8;font:500 13px/1.4 inherit">ไม่มีรายการที่ไม่แมท ${res.length?'— ตรงกันครบ ✓':'(ยังไม่ได้อัปไฟล์หลังบ้าน)'}</div>`}
     </div>
+
+    ${(d.recon&&d.recon.cal&&d.recon.cal.open) ? `<div onclick="ordReconCalClose()" style="position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px">${ordReconCalendarHtml(d)}</div>` : ''}
   `;
 }
 

@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="th">
 <head>
 <meta charset="UTF-8" />
@@ -12797,15 +12797,16 @@ async function brecEnsureAccount(co, bankCode, accountNo, opts){
   // ★ opts.allowCreate=false → lookup only (return null ถ้าไม่เจอ · ไม่ปลุก/ไม่สร้างใหม่)
   //   ใช้กับ marketplace upload เพื่อกัน routing สร้างบัญชีใหม่อัตโนมัติ
   const allowCreate = !opts || opts.allowCreate !== false;
-  // Normalize accountNo: strip non-digits
-  const norm = String(accountNo||"").replace(/\D/g,"");
-  if(!norm || !bankCode) return null;
+  // ★ ใช้ helper เดียวกับ brecFindDupGroups — strip NBSP/zero-width
+  const norm = brecNormAcctNo(accountNo);
+  const codeNorm = brecNormBankCode(bankCode);
+  if(!norm || !codeNorm) return null;
   // ★ ดึง "ทุก" บัญชี รวมที่ soft-delete แล้ว (unique constraint ไม่สนใจ deleted_at)
   const { data } = await sb.from("bank_accounts").select("id,account_no,bank_code,deleted_at")
     .eq("company_id", co);
   const matches = (data||[]).filter(a =>
-    String(a.bank_code||"").toUpperCase() === bankCode.toUpperCase()
-    && String(a.account_no||"").replace(/\D/g,"") === norm);
+    brecNormBankCode(a.bank_code) === codeNorm
+    && brecNormAcctNo(a.account_no) === norm);
   // ★ เลือกบัญชีที่ยัง active ก่อนเสมอ (กันปลุกบัญชีที่รวม/ลบไปแล้วกลับมาเป็นซ้ำ)
   const active = matches.find(a => !a.deleted_at);
   if(active) return active.id;
@@ -13272,11 +13273,13 @@ function brecPickCanonical(g){
   if(dashed) return dashed;
   return g.slice().sort((a,b)=>String(a.created_at||"").localeCompare(String(b.created_at||"")))[0];
 }
-/* ★ หา dup groups (bank_code + digits-only เหมือนกัน) — ใช้ทั้ง banner + auto-detect */
+/* ★ หา dup groups (bank_code + digits-only เหมือนกัน) — ใช้ทั้ง banner + auto-detect
+   normalize อย่างหนัก: bank_code strip NBSP/zero-width/ทุก whitespace + upper · account_no เอาเฉพาะตัวเลข */
+function brecNormBankCode(s){ return String(s||"").toUpperCase().replace(/[\s ​‌‍‎‏  　﻿]+/g,""); }
+function brecNormAcctNo(s){ return String(s||"").replace(/\D/g,""); }
 function brecFindDupGroups(accts){
-  const norm = s => String(s||"").replace(/\D/g,"");
   const groups = {};
-  (accts||[]).forEach(a => { const k = String(a.bank_code||"").toUpperCase()+"|"+norm(a.account_no); (groups[k]=groups[k]||[]).push(a); });
+  (accts||[]).forEach(a => { const k = brecNormBankCode(a.bank_code)+"|"+brecNormAcctNo(a.account_no); (groups[k]=groups[k]||[]).push(a); });
   return Object.values(groups).filter(g => g.length>1);
 }
 /* ★ ลบบัญชี (soft delete) — ใช้กับปุ่ม 🗑 ข้าง dropdown · รายการ/match ที่ผูกไว้ยังอยู่ใน DB */
@@ -13304,10 +13307,8 @@ async function brecMergeDupAccounts(){
   const { data:accts, error } = await sb.from("bank_accounts")
     .select("id,bank_code,account_no,created_at").eq("company_id",co).is("deleted_at",null);
   if(error){ alert("โหลดบัญชีไม่สำเร็จ: "+(error.message||error)); return; }
-  const norm = s => String(s||"").replace(/\D/g,"");
-  const groups = {};
-  (accts||[]).forEach(a => { const k = String(a.bank_code||"").toUpperCase()+"|"+norm(a.account_no); (groups[k]=groups[k]||[]).push(a); });
-  const dupGroups = Object.values(groups).filter(g => g.length>1);
+  // ★ ใช้ helper เดียวกับ brecFindDupGroups — strip NBSP/zero-width จาก bank_code
+  const dupGroups = brecFindDupGroups(accts);
   if(!dupGroups.length){ alert("ไม่พบบัญชีซ้ำ ✓"); return; }
   const summary = dupGroups.map(g => {
     const keep = brecPickCanonical(g);
@@ -13878,7 +13879,15 @@ function brecFilterBarHTML(d){
     </div>
   </div>`;
 }
-function brecAcctLabel(a){ return `${a.nickname || (a.bank_code+" "+a.account_no)}`; }
+function brecAcctLabel(a){
+  // ★ Always show bank_code + raw account_no — ไม่ใช้ nickname (กัน label เหมือนแต่ data ต่าง)
+  //   ถ้าเลขมี dashes ต่างกัน user จะเห็นใน dropdown ทันที (เช่น 8650405 vs 865-0405)
+  const bc = String(a.bank_code||'').trim();
+  const an = String(a.account_no||'').trim();
+  // เพิ่ม id-suffix 4 ตัวสุดท้าย ถ้า user กด 🗑 จะรู้ว่าลบตัวไหน
+  const idSuf = a.id ? ` · #${String(a.id).slice(-4)}` : '';
+  return `${bc} ${an}${idSuf}`;
+}
 
 function brecSideHTML(r, side, sel){
   if(!r) return `<div class="brec-side empty">— ไม่พบ —</div>`;

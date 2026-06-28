@@ -13048,9 +13048,13 @@ function brecRenderOverview(d, t, co){
     const tone = s.bankN===0 ? 'empty' : s.pct>=90 ? 'high' : s.pct>=60 ? 'mid' : 'low';
     const lbl = brecAcctLabel(a, accts);
     const bankName = (typeof cffBankName === 'function' ? cffBankName(a.bank_code) : null) || a.bank_code;
+    const logoUrl = (typeof cffBankLogo === 'function') ? cffBankLogo(a.bank_code) : null;
+    const iconHtml = logoUrl
+      ? `<img src="${esc(logoUrl)}" alt="${esc(bankName)}" onerror="this.replaceWith(Object.assign(document.createElement('i'),{dataset:{lucide:'landmark'}}));if(window.lucide&&window.lucide.createIcons)try{window.lucide.createIcons();}catch(e){}">`
+      : `<i data-lucide="landmark"></i>`;
     return `<div class="brec-ov-card ${tone}" onclick="brecOpenAccount('${a.id}')">
       <div class="brec-ov-card-head">
-        <div class="brec-ov-card-ic"><i data-lucide="landmark"></i></div>
+        <div class="brec-ov-card-ic ${logoUrl?'has-logo':''}">${iconHtml}</div>
         <div class="brec-ov-card-title">
           <div class="name">${esc(lbl)}</div>
           <div class="meta">${esc(bankName)} · ${s.bankN} รายการในแบงค์ · ${s.expressN} รายการ Express</div>
@@ -14002,8 +14006,10 @@ function brecInjectCSS(){
   .brec-ov-card{background:#fff;border:1px solid var(--line,#e2e8f0);border-radius:14px;padding:18px 20px;cursor:pointer;transition:transform .12s,box-shadow .12s;box-shadow:0 1px 2px rgba(15,23,42,.04);display:flex;flex-direction:column;gap:12px}
   .brec-ov-card:hover{transform:translateY(-2px);box-shadow:0 12px 28px rgba(15,23,42,.12);border-color:var(--brand,#0d9488)}
   .brec-ov-card-head{display:flex;align-items:center;gap:12px}
-  .brec-ov-card-ic{width:42px;height:42px;border-radius:12px;background:#eef2ff;display:grid;place-items:center;flex-shrink:0;color:#3730a3}
+  .brec-ov-card-ic{width:46px;height:46px;border-radius:12px;background:#eef2ff;display:grid;place-items:center;flex-shrink:0;color:#3730a3;overflow:hidden}
   .brec-ov-card-ic i[data-lucide]{width:22px;height:22px}
+  .brec-ov-card-ic.has-logo{background:#fff;border:1px solid var(--line,#e2e8f0);padding:4px}
+  .brec-ov-card-ic.has-logo img{width:100%;height:100%;object-fit:contain;display:block}
   .brec-ov-card-title{flex:1;min-width:0}
   .brec-ov-card-title .name{font:700 15px/1.3 inherit;color:var(--ink,#0f172a);font-variant-numeric:tabular-nums}
   .brec-ov-card-title .meta{font:500 11.5px/1.3 inherit;color:var(--ink-3,#94a3b8);margin-top:2px}

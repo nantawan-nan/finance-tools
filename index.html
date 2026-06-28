@@ -15378,7 +15378,7 @@ function ordReconDetailHtml(r){
   pItems(r.bs).forEach(x=>{ const k=ordNormSku(x.sku)||(x.name||'?'); const m=im.get(k)||{sku:x.sku||k,name:x.name||'',bsQ:0,bsP:0,beQ:0,beP:0}; m.bsQ+=Number(x.qty)||0; if(Number(x.price))m.bsP=Number(x.price); if(!m.name&&x.name)m.name=x.name; im.set(k,m); });
   pItems(r.be).forEach(x=>{ const k=ordNormSku(x.sku)||(x.name||'?'); const m=im.get(k)||{sku:x.sku||k,name:x.name||'',bsQ:0,bsP:0,beQ:0,beP:0}; m.beQ+=Number(x.qty)||0; if(Number(x.price))m.beP=Number(x.price); if(!m.name&&x.name)m.name=x.name; im.set(k,m); });
   const items=[...im.values()];
-  const g3='grid-template-columns:1fr 116px 116px';
+  const g3='grid-template-columns:minmax(0,1fr) 150px 150px';
   const grossBs=items.reduce((s,it)=>s+it.bsP*it.bsQ,0), grossBe=items.reduce((s,it)=>s+it.beP*it.beQ,0);
   const itemRow=it=>{
     const rawBs=it.bsP*it.bsQ, rawBe=it.beP*it.beQ;
@@ -15386,25 +15386,35 @@ function ordReconDetailHtml(r){
     const beT=(P&&grossBe)?+(P.prod*rawBe/grossBe).toFixed(2):+rawBe.toFixed(2);
     const bsU=it.bsQ?bsT/it.bsQ:bsT, beU=it.beQ?beT/it.beQ:beT;
     const qNe=(r.bs&&r.be)&&it.bsQ!==it.beQ; const pNe=(r.bs&&r.be)&&Math.abs(bsT-beT)>=0.01;
-    return `<div style="display:grid;${g3};gap:0;padding:7px 12px;border-top:1px solid #f1f5f9;font:500 12px/1.4 inherit;align-items:center">
-      <div style="min-width:0"><span style="font-weight:700;color:#334155">${esc(it.sku)}</span>${it.name?`<span style="color:#94a3b8"> · ${esc(it.name)}</span>`:''} <span style="color:${qNe?'#dc2626':'#94a3b8'};font-weight:${qNe?700:400}">×${it.bsQ||it.beQ}${qNe?` /${it.beQ}`:''} @ ${fmt(r.bs?bsU:beU)}</span></div>
-      <div style="text-align:right;${pNe?'color:#dc2626;font-weight:700':'color:#475569'}" class="tnum">${r.bs?fmt(bsT):'—'}</div>
-      <div style="text-align:right;${pNe?'color:#dc2626;font-weight:700':'color:#475569'}" class="tnum">${r.be?fmt(beT):'—'}</div>
+    return `<div style="display:grid;${g3};gap:0;padding:10px 16px;border-top:1px solid #f1f5f9;font:500 13.5px/1.5 inherit;align-items:start">
+      <div style="min-width:0;overflow:hidden">
+        <div style="font-weight:700;color:#1e293b;font-size:14px">${esc(it.sku||'—')}</div>
+        ${it.name?`<div style="color:#64748b;font-size:12.5px;margin-top:2px;white-space:normal;word-break:break-word">${esc(it.name)}</div>`:''}
+        <div style="color:${qNe?'#dc2626':'#94a3b8'};font:600 12px/1.4 inherit;margin-top:3px">×${it.bsQ||it.beQ}${qNe?` /${it.beQ}`:''} @ ${fmt(r.bs?bsU:beU)}</div>
+      </div>
+      <div style="text-align:right;${pNe?'color:#dc2626;font-weight:800':'color:#1e293b;font-weight:600'};font-size:14px" class="tnum">${r.bs?fmt(bsT):'—'}</div>
+      <div style="text-align:right;${pNe?'color:#dc2626;font-weight:800':'color:#1e293b;font-weight:600'};font-size:14px" class="tnum">${r.be?fmt(beT):'—'}</div>
     </div>`; };
+  // ★ pill — โชว์ชื่อคอลัมน์ + letter chip (เด่นกว่าเดิม) · ไม่มี letter → hint "อัปใหม่จะเห็นคอลัม"
+  const srcPill = (name, letter)=>{
+    if(!name) return '<span style="color:#cbd5e1;font-size:11.5px">—</span>';
+    if(letter){
+      return `<span style="display:inline-flex;align-items:center;gap:5px;background:#fff;border:1px solid #94a3b8;color:#1e293b;padding:3px 4px 3px 9px;border-radius:7px;font:600 11.5px/1.3 inherit;white-space:nowrap">${esc(name)}<span style="background:#0d9488;color:#fff;font:800 10.5px/1 'JetBrains Mono','IBM Plex Sans',monospace;padding:4px 7px;border-radius:5px;letter-spacing:.04em">${esc(letter)}</span></span>`;
+    }
+    return `<span style="display:inline-flex;align-items:center;gap:5px;background:#f8fafc;border:1px dashed #cbd5e1;color:#64748b;padding:3px 9px;border-radius:7px;font:500 11.5px/1.3 inherit;white-space:nowrap"><span>${esc(name)}</span><span style="font:600 10px/1 inherit;color:#94a3b8;font-style:italic">(อัปใหม่จะเห็นคอลัม)</span></span>`;
+  };
   const totLine=(l,bs,be,sign,bold,srcBs,srcBe)=>{
     const ne=Math.abs(Number(bs||0)-Number(be||0))>=0.01;
-    const main = `<div style="display:grid;${g3};gap:0;padding:${bold?'9px':'7px'} 12px;border-top:${bold?'2px solid var(--brand,#1e3a8a)':'1px solid #eef1f6'};font:${bold?'800 12.5px':'600 12px'}/1.3 inherit;${bold?'background:rgba(var(--brand-rgb),.05)':(ne?'background:#fef2f2':'')}"><div style="color:${bold?'#0f172a':'#475569'}">${sign||''}${l}</div><div style="text-align:right;${ne&&!bold?'color:#dc2626;font-weight:700':''}" class="tnum">${bs==null?'—':fmt(bs)}</div><div style="text-align:right;${ne&&!bold?'color:#dc2626;font-weight:700':''}" class="tnum">${be==null?'—':fmt(be)}</div></div>`;
+    const main = `<div style="display:grid;${g3};gap:0;padding:${bold?'12px':'10px'} 16px;border-top:${bold?'2px solid var(--brand,#1e3a8a)':'1px solid #eef1f6'};font:${bold?'800 14px':'600 13.5px'}/1.4 inherit;${bold?'background:rgba(var(--brand-rgb,15 23 42),.05)':(ne?'background:#fef2f2':'')}"><div style="color:${bold?'#0f172a':'#334155'}">${sign||''}${esc(l)}</div><div style="text-align:right;${ne&&!bold?'color:#dc2626;font-weight:800':'color:#1e293b;font-weight:'+(bold?800:600)}" class="tnum">${bs==null?'—':fmt(bs)}</div><div style="text-align:right;${ne&&!bold?'color:#dc2626;font-weight:800':'color:#1e293b;font-weight:'+(bold?800:600)}" class="tnum">${be==null?'—':fmt(be)}</div></div>`;
     if(!srcBs && !srcBe) return main;
-    const pill=(s)=> s?`<span style="font:500 10px/1 'JetBrains Mono',monospace;background:#fff;border:1px solid #e2e8f0;color:#64748b;padding:1px 6px;border-radius:4px">${esc(s)}</span>`:'<span style="color:#cbd5e1;font-size:10px">—</span>';
-    const sub = `<div style="display:grid;${g3};gap:0;padding:2px 12px 5px;font-size:10px;line-height:1.3;color:#94a3b8;background:#fafbfc">
-      <div style="text-align:right;padding-right:6px;font-style:italic;font-size:9.5px">↳ คอลัมน์ที่มา</div>
-      <div style="text-align:right">${pill(srcBs)}</div>
-      <div style="text-align:right">${pill(srcBe)}</div>
+    const sub = `<div style="display:grid;${g3};gap:8px;padding:5px 16px 9px;font-size:11.5px;color:#475569;background:#fafbfc">
+      <div style="text-align:right;padding-right:4px;font-style:italic;font-size:11px;color:#94a3b8;align-self:center">↳ คอลัมน์ที่มา</div>
+      <div style="text-align:right">${srcBs?srcPill(srcBs.name,srcBs.letter):'<span style="color:#cbd5e1;font-size:11.5px">—</span>'}</div>
+      <div style="text-align:right">${srcBe?srcPill(srcBe.name,srcBe.letter):'<span style="color:#cbd5e1;font-size:11.5px">—</span>'}</div>
     </div>`;
     return main + sub;
   };
   // ★ คอลัมน์ที่มาในไฟล์ source — ใช้เป็นป้ายใต้ค่าแต่ละ row (user ตรวจย้อนได้ว่าดึงมาจากไหน)
-  // ชื่อคอลัมน์ (static) + ตัวอักษร Excel (dynamic จาก source_cols ที่ parser เก็บไว้ตอนอัป)
   const beCh = r.be ? String(r.be.channel_group||'').toLowerCase() : '';
   const beNames = ({
     shopee:  { gross:'ราคาขายสุทธิ',                ship:'ค่าจัดส่งที่ชำระโดยผู้ซื้อ',  disc:'โค้ดส่วนลดชำระโดยผู้ขาย' },
@@ -15415,27 +15425,32 @@ function ordReconDetailHtml(r){
   // ★ ผูกชื่อ + letter — bs disc มาจาก "voucher" column (ordReconSide ใช้ o.seller_voucher)
   const bsCols = (r.bs && r.bs.source_cols) || {};
   const beCols = (r.be && r.be.source_cols) || {};
-  const withCol = (name, letter)=> name ? (letter ? `${name} (คอลัม ${letter})` : name) : '';
   const bsSrc = {
-    gross: withCol(bsNames.gross, bsCols.gross),
-    ship:  withCol(bsNames.ship,  bsCols.ship),
-    disc:  withCol(bsNames.disc,  bsCols.voucher)   // BS disc = Voucher ของร้านค้า column
+    gross: r.bs ? { name:bsNames.gross, letter:bsCols.gross   } : null,
+    ship:  r.bs ? { name:bsNames.ship,  letter:bsCols.ship    } : null,
+    disc:  r.bs ? { name:bsNames.disc,  letter:bsCols.voucher } : null   // BS disc = Voucher ของร้านค้า column
   };
   const beSrc = {
-    gross: withCol(beNames.gross, beCols.gross),
-    ship:  withCol(beNames.ship,  beCols.ship),
-    disc:  withCol(beNames.disc,  beCols.disc)
+    gross: r.be ? { name:beNames.gross, letter:beCols.gross } : null,
+    ship:  r.be ? { name:beNames.ship,  letter:beCols.ship  } : null,
+    disc:  r.be ? { name:beNames.disc,  letter:beCols.disc  } : null
   };
-  return `<div style="padding:10px 14px 14px 38px;background:#fbfcfe;border-top:1px solid #eef1f6">
-    <div style="border:1px solid #eef1f6;border-radius:10px;overflow:hidden;max-width:640px">
-      <div style="display:grid;${g3};gap:0;background:#f8fafc;padding:8px 12px;font:700 11px/1.2 inherit;color:#64748b"><div>รายการสินค้า · รหัส ×จำนวน @ ราคา/หน่วย</div><div style="text-align:right">BigSeller</div><div style="text-align:right">แพลตฟอร์ม(จริง)</div></div>
-      ${items.length?items.map(itemRow).join(''):`<div style="padding:10px 12px;color:#94a3b8;font:500 12px/1.4 inherit">— ไม่มีรายการสินค้าย่อย —</div>`}
-      ${totLine('มูลค่าสินค้ารวม',                            S&&S.prod, P&&P.prod, '',   false, r.bs?bsSrc.gross:'', r.be?beSrc.gross:'')}
-      ${totLine('ค่าส่ง',                                     S&&S.ship, P&&P.ship, '+ ', false, r.bs?bsSrc.ship :'', r.be?beSrc.ship :'')}
-      ${totLine('ส่วนลดทั้งบิล (ลดท้ายบิล ไม่ใช่ลดรายสินค้า)', S&&S.disc, P&&P.disc, '− ', false, r.bs?bsSrc.disc :'', r.be?beSrc.disc :'')}
+  // hint banner ถ้าไม่มี source_cols ใดเลย (orders เก่าก่อน schema source_cols deploy)
+  const noBsCols = r.bs && !bsCols.gross && !bsCols.ship && !bsCols.voucher;
+  const noBeCols = r.be && !beCols.gross && !beCols.ship && !beCols.disc;
+  const colHint = (noBsCols || noBeCols) ? `<div style="margin-bottom:10px;padding:9px 14px;background:#eff6ff;border:1px solid #bfdbfe;border-left:4px solid #2563eb;border-radius:8px;font:500 12.5px/1.5 inherit;color:#1e3a8a">📌 <b>คอลัมน์ Excel ยังไม่โผล่:</b> ออเดอร์นี้นำเข้าก่อนเพิ่มฟีเจอร์ <b>"คอลัมน์ที่มา"</b> · อัปไฟล์ ${noBsCols?'BigSeller':''}${noBsCols&&noBeCols?' + ':''}${noBeCols?'หลังบ้าน':''} ใหม่ครั้งเดียว → letter (เช่น "คอลัม S") จะโผล่อัตโนมัติ</div>` : '';
+
+  return `<div style="padding:14px 18px 16px 42px;background:#fbfcfe;border-top:1px solid #eef1f6">
+    ${colHint}
+    <div style="border:1px solid #cbd5e1;border-radius:12px;overflow:hidden;background:#fff;box-shadow:0 1px 3px rgba(15,23,42,.04)">
+      <div style="display:grid;${g3};gap:0;background:#f1f5f9;padding:11px 16px;font:700 12px/1.2 inherit;color:#475569;border-bottom:1px solid #cbd5e1;text-transform:uppercase;letter-spacing:.04em"><div>รายการสินค้า · รหัส ×จำนวน @ ราคา/หน่วย</div><div style="text-align:right">BigSeller</div><div style="text-align:right">แพลตฟอร์ม(จริง)</div></div>
+      ${items.length?items.map(itemRow).join(''):`<div style="padding:14px 16px;color:#94a3b8;font:500 13px/1.4 inherit">— ไม่มีรายการสินค้าย่อย —</div>`}
+      ${totLine('มูลค่าสินค้ารวม',                            S&&S.prod, P&&P.prod, '',   false, bsSrc.gross, beSrc.gross)}
+      ${totLine('ค่าส่ง',                                     S&&S.ship, P&&P.ship, '+ ', false, bsSrc.ship,  beSrc.ship)}
+      ${totLine('ส่วนลดทั้งบิล (ลดท้ายบิล ไม่ใช่ลดรายสินค้า)', S&&S.disc, P&&P.disc, '− ', false, bsSrc.disc,  beSrc.disc)}
       ${totLine('ฐานภาษีขาย',                                 S&&S.base, P&&P.base, '= ', true)}
     </div>
-    <div style="font:500 11px/1.5 inherit;color:#64748b;margin-top:7px">${(!r.bs||!r.be)?`<span style="color:#d97706">มีข้างเดียว — ไม่มีคู่ให้เทียบ</span>`:(skuNe?`<span style="color:#dc2626">⚠ SKU/จำนวน ไม่ตรง</span>`:`<span style="color:#16a34a">SKU/จำนวน ตรง ✓</span>`)}</div>
+    <div style="font:500 12px/1.5 inherit;color:#64748b;margin-top:10px">${(!r.bs||!r.be)?`<span style="color:#d97706;font-weight:600">⚠ มีข้างเดียว — ไม่มีคู่ให้เทียบ (อัปไฟล์อีกฝั่งเพื่อกระทบยอด)</span>`:(skuNe?`<span style="color:#dc2626;font-weight:600">⚠ SKU/จำนวน ไม่ตรง</span>`:`<span style="color:#16a34a;font-weight:600">✓ SKU/จำนวน ตรงกัน</span>`)}</div>
   </div>`;
 }
 /* แตกยอดฐานภาษีต่อฝั่ง (สำหรับตารางเทียบ): ราคาขาย − ส่วนลดผู้ขาย + ค่าส่ง = ฐานภาษี */

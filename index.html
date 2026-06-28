@@ -14994,10 +14994,10 @@ function ordParseSalesFile(rows){
       if(cfg.discBillLevel) g.disc = Math.max(g.disc, ordNum(row[ci.disc]));
       else                  g.disc += ordNum(row[ci.disc]);
     }
-    // ★ BigSeller format ใหม่: "Voucher ของร้านค้า" แยกคอลัมน์ — ผู้ขายแบกค่าใช้จ่ายด้วย → รวมเข้า seller_discount
+    // ★ "Voucher ของร้านค้า" — per-SKU-line ทั้ง BigSeller และ platform → SUM เสมอ
+    //   (เคยใช้ Math.max ผิด · multi-SKU โดน clip เหลือค่าเดียว → ฐานภาษี BS เกินจริง · diff vs platform)
     if(ci.voucher>=0){
-      if(cfg.discBillLevel) g.voucher = Math.max(g.voucher, ordNum(row[ci.voucher]));
-      else                  g.voucher += ordNum(row[ci.voucher]);
+      g.voucher += ordNum(row[ci.voucher]);
     }
     if(ci.refund>=0) g.refund += ordNum(row[ci.refund]);
     if(ci.platform>=0 && !g.platform) g.platform = String(row[ci.platform]||"").trim();

@@ -12404,6 +12404,8 @@ function brecGet(){
   if(!state.brec[co].stmFilter) state.brec[co].stmFilter = { dir:"all", q:"" };
   // ★ filter ระดับ tab (search + วันที่ + ยอด + sort) — ใช้กับทุก tab pending/unmatched/done/all
   if(!state.brec[co].filter) state.brec[co].filter = { q:"", dateFrom:"", dateTo:"", amountMin:"", amountMax:"", sort:"date_desc" };
+  // ★ view mode: 'overview' (default landing — card grid ทุกบัญชี) · 'detail' (current single-account view)
+  if(!state.brec[co].view) state.brec[co].view = "overview";
   // migration: legacy state → ensure sales slot exists
   if(!state.brec[co].mp.files) state.brec[co].mp.files = { shopee:[], sales:[], receipt:[], cheque:[] };
   if(!Array.isArray(state.brec[co].mp.files.shopee)) state.brec[co].mp.files.shopee = [];
@@ -12914,6 +12916,163 @@ async function brecLoad(){
       d.express = rows.express; d.bank = rows.bank; d.matches = matches;
     } else { d.express=[]; d.bank=[]; d.matches=[]; }
   } finally { d.busy = false; }
+}
+
+/* ★ Overview stats — query per-account counts (ทุก period ของบัญชี · ไม่อิง period filter)
+   % กระทบ = distinct bank_row_id ที่มี confirmed match / total bank rows × 100
+   ใช้สำหรับ overview card grid */
+async function brecLoadOverview(){
+  const d = brecGet();
+  const co = d.companyId || await fopCompanyId();
+  if(!co) return;
+  const accts = d.accounts || [];
+  const stats = {};
+  accts.forEach(a => { stats[a.id] = { bankN:0, expressN:0, matchedBankIds:new Set(), matchedExIds:new Set(), pendingMatchN:0, confirmedMatchN:0, lastUpload:null }; });
+  // 1) bank + express rows count
+  const [bkRes, exRes] = await Promise.all([
+    sb.from("brec_bank_rows").select("bank_account_id").eq("company_id",co).is("deleted_at",null).limit(100000),
+    sb.from("brec_express_rows").select("bank_account_id").eq("company_id",co).is("deleted_at",null).limit(100000)
+  ]);
+  (bkRes.data||[]).forEach(r => { if(stats[r.bank_account_id]) stats[r.bank_account_id].bankN++; });
+  (exRes.data||[]).forEach(r => { if(stats[r.bank_account_id]) stats[r.bank_account_id].expressN++; });
+  // 2) matches — distinct bank/express rows ที่มี confirmed match + pending count
+  const { data:mRows } = await sb.from("brec_matches").select("bank_account_id,status,express_row_id,bank_row_id").eq("company_id",co).is("deleted_at",null).limit(100000);
+  (mRows||[]).forEach(m => {
+    const s = stats[m.bank_account_id]; if(!s) return;
+    if(m.status === "confirmed"){
+      s.confirmedMatchN++;
+      if(m.bank_row_id) s.matchedBankIds.add(m.bank_row_id);
+      if(m.express_row_id) s.matchedExIds.add(m.express_row_id);
+    } else {
+      s.pendingMatchN++;
+    }
+  });
+  // 3) last upload per account (max created_at จาก brec_imports)
+  const { data:impRows } = await sb.from("brec_imports").select("bank_account_id,created_at").eq("company_id",co).is("deleted_at",null).order("created_at",{ascending:false}).limit(2000);
+  (impRows||[]).forEach(r => {
+    const s = stats[r.bank_account_id];
+    if(s && !s.lastUpload) s.lastUpload = r.created_at;
+  });
+  // 4) compute derived fields
+  for(const id of Object.keys(stats)){
+    const s = stats[id];
+    s.matchedBankN = s.matchedBankIds.size;
+    s.matchedExN   = s.matchedExIds.size;
+    s.bkOnlyN = Math.max(0, s.bankN - s.matchedBankN);
+    s.exOnlyN = Math.max(0, s.expressN - s.matchedExN);
+    s.pct = s.bankN ? Math.round((s.matchedBankN / s.bankN) * 100) : 0;
+    delete s.matchedBankIds; delete s.matchedExIds;   // ลด memory · ไม่ต้องส่งต่อ
+  }
+  d.overviewStats = stats;
+  d.overviewLoadedAt = Date.now();
+}
+
+/* Format last-upload time ("2 ชม. ที่แล้ว" / "เมื่อวาน" / "2 มิ.ย. 26") */
+function brecFmtRel(iso){
+  if(!iso) return "ยังไม่เคยนำเข้า";
+  const t = new Date(iso).getTime(); const now = Date.now();
+  const sec = Math.floor((now - t)/1000);
+  if(sec < 60) return "เมื่อสักครู่";
+  const min = Math.floor(sec/60);
+  if(min < 60) return `${min} นาทีที่แล้ว`;
+  const hr = Math.floor(min/60);
+  if(hr < 24) return `${hr} ชั่วโมงที่แล้ว`;
+  const day = Math.floor(hr/24);
+  if(day === 1) return "เมื่อวาน";
+  if(day < 7) return `${day} วันที่แล้ว`;
+  try{ return new Date(iso).toLocaleDateString("th-TH",{day:"numeric",month:"short",year:"2-digit"}); }catch(e){ return iso.slice(0,10); }
+}
+
+/* Switch view (overview ↔ detail) + เปิดบัญชี */
+function brecSetView(v){ const d=brecGet(); d.view=v; brecRefresh(); }
+function brecOpenAccount(id){
+  const d=brecGet(); d.accountId=id; d.view="detail";
+  d.sel.ex.clear(); d.sel.bk.clear();
+  brecRefresh();
+  brecLoad().then(brecRefresh);   // load rows สำหรับบัญชีที่เลือก
+}
+
+/* ★ Render overview landing page — KPI strip + card grid */
+function brecRenderOverview(d, t, co){
+  const fmt = (n)=> Number(n||0).toLocaleString("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2});
+  const accts = d.accounts || [];
+  const stats = d.overviewStats || {};
+  const loaded = !!d.overviewStats;
+  // KPI strip aggregations
+  let totalBankN = 0, totalMatchedBankN = 0, totalPending = 0, totalOrphans = 0, totalAccounts = accts.length;
+  accts.forEach(a => { const s = stats[a.id]; if(s){
+    totalBankN += s.bankN;
+    totalMatchedBankN += s.matchedBankN;
+    totalPending += s.pendingMatchN;
+    totalOrphans += s.bkOnlyN + s.exOnlyN;
+  }});
+  const avgPct = totalBankN ? Math.round(totalMatchedBankN/totalBankN*100) : 0;
+  const allBalanced = accts.every(a => {
+    const s = stats[a.id]; if(!s) return false;
+    return s.bkOnlyN===0 && s.exOnlyN===0;
+  });
+  // Header KPI
+  const heroHtml = `<section class="brec-ov-hero">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:18px;flex-wrap:wrap">
+      <div>
+        <h1>🏦 ภาพรวมบัญชีธนาคาร — ${esc(co.name)}</h1>
+        <div class="sub">กระทบยอด Express ↔ Bank Statement · คลิกการ์ดเพื่อเข้าดูรายละเอียดบัญชี</div>
+      </div>
+      <button class="brec-btn primary" onclick="brecLoadOverview().then(brecRefresh)" style="background:rgba(255,255,255,.16);color:#fff;border-color:rgba(255,255,255,.28);font-weight:700"><i data-lucide="refresh-cw"></i> รีเฟรชสถิติ</button>
+    </div>
+    <div class="brec-ov-kpis">
+      <div class="brec-ov-k"><div class="l">บัญชีทั้งหมด</div><div class="v">${totalAccounts.toLocaleString("th-TH")}</div><div class="s">บัญชีในระบบ</div></div>
+      <div class="brec-ov-k"><div class="l">% กระทบเฉลี่ย</div><div class="v">${avgPct}%</div><div class="s">${totalMatchedBankN.toLocaleString("th-TH")} / ${totalBankN.toLocaleString("th-TH")} รายการ</div></div>
+      <div class="brec-ov-k"><div class="l">รอยืนยัน (AI)</div><div class="v">${totalPending.toLocaleString("th-TH")}</div><div class="s">คู่ที่ AI จับให้รอยืนยัน</div></div>
+      <div class="brec-ov-k"><div class="l">ค้างกระทบ</div><div class="v">${totalOrphans.toLocaleString("th-TH")}</div><div class="s">${allBalanced?'✓ ทุกบัญชีสมดุล':'รายการที่ยังไม่จับคู่'}</div></div>
+    </div>
+  </section>`;
+  // Dup banner — โชว์เหนือ grid ถ้าเจอบัญชีซ้ำ
+  const dupBanner = (d.dupGroups||[]).length ? `<div style="margin-bottom:14px;padding:12px 18px;background:linear-gradient(135deg,#fef2f2,#fff1f2);border:1px solid #fecaca;border-left:4px solid #dc2626;border-radius:11px;display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+    <div style="flex:1;min-width:260px;font:500 13px/1.5 inherit;color:#991b1b">
+      <div style="font-weight:800;font-size:14px;margin-bottom:4px">⚠ พบบัญชีซ้ำ ${d.dupGroups.length} กลุ่ม</div>
+      ${d.dupGroups.map(g=>`<div>• ${esc(cffBankName(g[0].bank_code)||g[0].bank_code)} ${esc((brecPickCanonical(g)||g[0]).account_no)} — มี ${g.length} record</div>`).join('')}
+    </div>
+    <button class="brec-btn" onclick="brecMergeDupAccounts()" ${brecCanWrite()?'':'disabled'} style="background:#dc2626;color:#fff;border-color:#dc2626;font-weight:700;padding:9px 16px"><i data-lucide="git-merge"></i> รวมเลย</button>
+  </div>` : '';
+  // Cards
+  if(!accts.length){
+    const cards = `<div class="brec-empty" style="border-top:1px solid var(--line);border-radius:14px"><i data-lucide="upload-cloud"></i><div class="ttl">ยังไม่มีบัญชี</div><div>เปิด detail view + อัปไฟล์ Express XML / Bank Statement ครั้งแรก เพื่อสร้างบัญชี</div></div>`;
+    return `<div class="brec-wrap"><div class="page-head"><h1>${esc(t.name)} <span class="badge">${esc(co.name)}</span></h1></div>${heroHtml}${dupBanner}${cards}</div>`;
+  }
+  if(!loaded){
+    return `<div class="brec-wrap"><div class="page-head"><h1>${esc(t.name)} <span class="badge">${esc(co.name)}</span></h1></div>${heroHtml}${dupBanner}<div class="brec-empty"><i data-lucide="loader-2"></i><div class="ttl">กำลังคำนวณสถิติแต่ละบัญชี…</div></div></div>`;
+  }
+  const cardHtml = accts.map(a => {
+    const s = stats[a.id] || { bankN:0, expressN:0, matchedBankN:0, matchedExN:0, bkOnlyN:0, exOnlyN:0, pendingMatchN:0, confirmedMatchN:0, pct:0, lastUpload:null };
+    const tone = s.bankN===0 ? 'empty' : s.pct>=90 ? 'high' : s.pct>=60 ? 'mid' : 'low';
+    const lbl = brecAcctLabel(a, accts);
+    const bankName = (typeof cffBankName === 'function' ? cffBankName(a.bank_code) : null) || a.bank_code;
+    return `<div class="brec-ov-card ${tone}" onclick="brecOpenAccount('${a.id}')">
+      <div class="brec-ov-card-head">
+        <div class="brec-ov-card-ic"><i data-lucide="landmark"></i></div>
+        <div class="brec-ov-card-title">
+          <div class="name">${esc(lbl)}</div>
+          <div class="meta">${esc(bankName)} · ${s.bankN} รายการในแบงค์ · ${s.expressN} รายการ Express</div>
+        </div>
+      </div>
+      <div>
+        <div class="brec-ov-pct"><span class="big">${s.pct}%</span><span class="lbl">กระทบแล้ว · ${s.matchedBankN}/${s.bankN} รายการแบงค์</span></div>
+        <div class="brec-ov-bar" style="margin-top:5px"><div style="width:${s.pct}%"></div></div>
+      </div>
+      <div class="brec-ov-stats">
+        <div class="brec-ov-stat ok"><i data-lucide="check-check" style="width:13px;height:13px"></i> กระทบ <span class="n">${s.confirmedMatchN}</span></div>
+        <div class="brec-ov-stat in"><i data-lucide="clock-3" style="width:13px;height:13px"></i> รอยืนยัน <span class="n">${s.pendingMatchN}</span></div>
+        <div class="brec-ov-stat ${s.exOnlyN?'wn':'ok'}"><i data-lucide="arrow-down-from-line" style="width:13px;height:13px"></i> ค้าง Express <span class="n">${s.exOnlyN}</span></div>
+        <div class="brec-ov-stat ${s.bkOnlyN?'dg':'ok'}"><i data-lucide="arrow-up-from-line" style="width:13px;height:13px"></i> ค้าง Bank <span class="n">${s.bkOnlyN}</span></div>
+      </div>
+      <div class="brec-ov-foot">
+        <i data-lucide="clock" style="width:13px;height:13px"></i> อัปล่าสุด: ${esc(brecFmtRel(s.lastUpload))}
+        <span class="open-btn">เปิดดูรายละเอียด <i data-lucide="chevron-right"></i></span>
+      </div>
+    </div>`;
+  }).join('');
+  return `<div class="brec-wrap"><div class="page-head"><h1>${esc(t.name)} <span class="badge">${esc(co.name)}</span></h1></div>${heroHtml}${dupBanner}<div class="brec-ov-grid">${cardHtml}</div></div>`;
 }
 
 /* ---------- FILE UPLOAD ---------- */
@@ -13829,6 +13988,53 @@ function brecInjectCSS(){
   .brec-empty{padding:40px 20px;text-align:center;color:var(--ink-3,#94a3b8);background:#fff;border:1px solid var(--line,#e2e8f0);border-top:none;border-radius:0 0 12px 12px}
   .brec-empty i{width:40px;height:40px;color:var(--ink-3,#94a3b8);margin-bottom:10px}
   .brec-empty .ttl{font-size:15px;font-weight:600;color:var(--ink,#0f172a);margin-bottom:4px}
+  /* ★ Overview landing — KPI strip + card grid (default landing เมื่อเปิดหน้านี้) */
+  .brec-ov-hero{background:linear-gradient(135deg, color-mix(in srgb,var(--brand,#0d9488) 95%,#000 18%), var(--brand,#0d9488));color:#fff;padding:24px 28px;border-radius:16px;margin-bottom:18px;box-shadow:0 12px 30px rgba(13,148,136,.18)}
+  .brec-ov-hero h1{margin:0;font:800 26px/1.15 inherit;letter-spacing:-.01em}
+  .brec-ov-hero .sub{font:500 13.5px/1.5 inherit;opacity:.86;margin-top:6px}
+  .brec-ov-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:18px}
+  .brec-ov-k{background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.22);border-radius:11px;padding:13px 16px;backdrop-filter:blur(6px)}
+  .brec-ov-k .l{font:600 10.5px/1 inherit;text-transform:uppercase;letter-spacing:.06em;opacity:.84;margin-bottom:5px}
+  .brec-ov-k .v{font:800 24px/1 "IBM Plex Sans Thai",sans-serif;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+  .brec-ov-k .s{font:500 11.5px/1.3 inherit;opacity:.78;margin-top:4px}
+  @media (max-width:760px){.brec-ov-kpis{grid-template-columns:repeat(2,1fr)}}
+  .brec-ov-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(310px,1fr));gap:14px}
+  .brec-ov-card{background:#fff;border:1px solid var(--line,#e2e8f0);border-radius:14px;padding:18px 20px;cursor:pointer;transition:transform .12s,box-shadow .12s;box-shadow:0 1px 2px rgba(15,23,42,.04);display:flex;flex-direction:column;gap:12px}
+  .brec-ov-card:hover{transform:translateY(-2px);box-shadow:0 12px 28px rgba(15,23,42,.12);border-color:var(--brand,#0d9488)}
+  .brec-ov-card-head{display:flex;align-items:center;gap:12px}
+  .brec-ov-card-ic{width:42px;height:42px;border-radius:12px;background:#eef2ff;display:grid;place-items:center;flex-shrink:0;color:#3730a3}
+  .brec-ov-card-ic i[data-lucide]{width:22px;height:22px}
+  .brec-ov-card-title{flex:1;min-width:0}
+  .brec-ov-card-title .name{font:700 15px/1.3 inherit;color:var(--ink,#0f172a);font-variant-numeric:tabular-nums}
+  .brec-ov-card-title .meta{font:500 11.5px/1.3 inherit;color:var(--ink-3,#94a3b8);margin-top:2px}
+  .brec-ov-pct{display:flex;align-items:baseline;gap:8px}
+  .brec-ov-pct .big{font:800 38px/1 "IBM Plex Sans Thai",sans-serif;letter-spacing:-.04em;font-variant-numeric:tabular-nums}
+  .brec-ov-pct .lbl{font:500 12px/1.4 inherit;color:var(--ink-2,#475569)}
+  .brec-ov-bar{height:7px;background:#f1f5f9;border-radius:5px;overflow:hidden;position:relative}
+  .brec-ov-bar > div{height:100%;border-radius:5px;transition:width .4s ease-out}
+  .brec-ov-card.high .brec-ov-pct .big{color:#10b981}
+  .brec-ov-card.high .brec-ov-bar > div{background:linear-gradient(90deg,#10b981,#34d399)}
+  .brec-ov-card.mid .brec-ov-pct .big{color:#f59e0b}
+  .brec-ov-card.mid .brec-ov-bar > div{background:linear-gradient(90deg,#f59e0b,#fbbf24)}
+  .brec-ov-card.low .brec-ov-pct .big{color:#dc2626}
+  .brec-ov-card.low .brec-ov-bar > div{background:linear-gradient(90deg,#dc2626,#f87171)}
+  .brec-ov-card.empty .brec-ov-pct .big{color:#94a3b8}
+  .brec-ov-card.empty .brec-ov-bar > div{background:#cbd5e1}
+  .brec-ov-stats{display:grid;grid-template-columns:1fr 1fr;gap:8px;font:600 12px/1.3 inherit}
+  .brec-ov-stat{display:flex;align-items:center;gap:6px;padding:6px 9px;border-radius:7px;background:#f8fafc}
+  .brec-ov-stat .n{font-weight:800;font-variant-numeric:tabular-nums}
+  .brec-ov-stat.ok{background:#ecfdf5;color:#065f46}
+  .brec-ov-stat.wn{background:#fffbeb;color:#92400e}
+  .brec-ov-stat.dg{background:#fef2f2;color:#991b1b}
+  .brec-ov-stat.in{background:#eff6ff;color:#1e40af}
+  .brec-ov-foot{display:flex;align-items:center;gap:10px;padding-top:10px;border-top:1px dashed var(--line,#e2e8f0);font:500 11.5px/1.3 inherit;color:var(--ink-3,#94a3b8)}
+  .brec-ov-foot .open-btn{margin-left:auto;color:var(--brand,#0d9488);font-weight:700;display:inline-flex;align-items:center;gap:4px}
+  .brec-ov-foot .open-btn i[data-lucide]{width:13px;height:13px}
+  /* Back button (detail view) */
+  .brec-back-bar{display:flex;align-items:center;gap:10px;padding:8px 14px;background:#f8fafc;border:1px solid var(--line,#e2e8f0);border-radius:10px;margin-bottom:14px;font:600 13px/1 inherit}
+  .brec-back-bar button{background:transparent;border:0;color:var(--brand,#0d9488);font:700 13px/1 inherit;cursor:pointer;display:inline-flex;align-items:center;gap:5px;font-family:inherit;padding:5px 8px;border-radius:6px}
+  .brec-back-bar button:hover{background:rgba(13,148,136,.08)}
+  .brec-back-bar button i[data-lucide]{width:15px;height:15px}
   `;
   document.head.appendChild(s);
 }
@@ -13981,6 +14187,17 @@ async function renderToolBankRec(){
       main.innerHTML = `<div class="page-head"><h1>${esc(t.name)}</h1></div><div class="card"><div style="color:var(--bad,#dc2626)">โหลดไม่สำเร็จ: ${esc(e.message||e)}</div></div>`;
       return;
     }
+  }
+
+  // ★ Overview view (default landing) — card grid ทุกบัญชี · KPI strip · click → detail
+  if(d.view === "overview"){
+    if(!d.overviewStats || (Date.now() - (d.overviewLoadedAt||0)) > 60_000){
+      // โหลดทุก 60 วินาที (cache ระหว่างนั้น)
+      brecLoadOverview().then(brecRefresh).catch(e=>console.warn("overview load",e));
+    }
+    main.innerHTML = brecRenderOverview(d, t, co);
+    if(window.lucide && window.lucide.createIcons){ try{ window.lucide.createIcons(); }catch(e){} }
+    return;
   }
 
   const buckets = brecBuildBuckets(d);
@@ -14153,11 +14370,19 @@ async function renderToolBankRec(){
     ? `<div class="fld"><label>เดือน</label><input type="month" value="${d.period.month}" onchange="brecSetMonth(this.value)"></div>`
     : `<div class="fld"><label>ตั้งแต่ — ถึง</label><div style="display:flex;gap:6px;align-items:center"><input type="date" value="${d.period.from||''}" onchange="brecSetRange('from',this.value)"><span style="color:#94a3b8">→</span><input type="date" value="${d.period.to||''}" onchange="brecSetRange('to',this.value)"></div></div>`;
 
+  // ★ ป้าย back button (detail view เท่านั้น) — เห็นชื่อบัญชีปัจจุบัน + ปุ่มกลับไปภาพรวม
+  const curAcct = (d.accounts||[]).find(a=>a.id===d.accountId);
+  const curLbl  = curAcct ? brecAcctLabel(curAcct, d.accounts) : '';
   main.innerHTML = `
     <div class="brec-wrap">
       <div class="page-head">
         <h1>${esc(t.name)} <span class="badge">${esc(co.name)}</span></h1>
         <div class="sub">หน่วย: บาท · กฎ: วันที่ Express ต้องตรงเป๊ะกับวันที่ใน Statement</div>
+      </div>
+      <div class="brec-back-bar">
+        <button onclick="brecSetView('overview')" title="กลับไปดูภาพรวมทุกบัญชี"><i data-lucide="arrow-left"></i> ภาพรวมบัญชี</button>
+        <span style="color:#94a3b8">/</span>
+        <span style="color:var(--ink,#0f172a);font-weight:700">${esc(curLbl||'(ยังไม่ได้เลือกบัญชี)')}</span>
       </div>
 
       <div class="brec-toolbar">

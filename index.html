@@ -13289,7 +13289,7 @@ async function brecDeleteAccount(){
   if(!d.accountId){ alert("เลือกบัญชีก่อน"); return; }
   const a = (d.accounts||[]).find(x=>x.id===d.accountId);
   if(!a) return;
-  const lbl = brecAcctLabel(a);
+  const lbl = brecAcctLabel(a, d.accounts);
   if(!confirm(`⚠ ลบบัญชี "${lbl}" (soft delete)?\n\nบัญชีจะหายจาก dropdown · รายการ/match ที่ผูกไว้ยังอยู่ใน DB (กู้คืนได้ผ่าน admin)\n\nยืนยัน?`)) return;
   d.busy=true; brecRefresh();
   try{
@@ -13395,11 +13395,17 @@ async function brecConfirmSelected(){
   const d = brecGet();
   const ids = [...d.sel.ex];
   if(!ids.length){ alert("ยังไม่ได้เลือกรายการ"); return; }
+  // ★ Bug fix: filter ให้เหลือเฉพาะ id ที่เป็น brec_matches จริง (กันเคส tick row id ใน unmatched tab)
+  const validMatchIds = ids.filter(id => (d.matches||[]).some(m => m.id === id));
+  if(!validMatchIds.length){
+    alert(`⚠ "ยืนยันที่เลือก" ใช้ในแท็บ "รอยืนยัน" เท่านั้น (มีคู่ที่ AI จับให้แล้ว)\n\nที่กำลังเลือก ${ids.length} รายการเป็น Express row · ไม่ใช่ match record\n\nถ้าอยากจับคู่ Express ↔ Bank ในแท็บ "รอกระทบยอด" → กดปุ่ม "จับคู่ที่เลือก" แทน`);
+    return;
+  }
   d.busy=true; brecRefresh();
   try{
     const { error } = await sb.from("brec_matches")
       .update({ status:"confirmed", confirmed_at: new Date().toISOString() })
-      .in("id", ids);
+      .in("id", validMatchIds);
     if(error) throw error;
     d.sel.ex.clear(); d.sel.bk.clear();
     await brecLoad(); brecRefresh();
@@ -13424,7 +13430,7 @@ async function brecReplaceUpload(kind){
   const d = brecGet();
   if(!d.accountId){ alert("เลือกบัญชีก่อน"); return; }
   const sideLabel = kind==='express' ? 'Express XML' : 'Bank Statement';
-  const acctLbl = brecAcctLabel((d.accounts||[]).find(a=>a.id===d.accountId)||{});
+  const acctLbl = brecAcctLabel((d.accounts||[]).find(a=>a.id===d.accountId)||{}, d.accounts);
   if(!confirm(`⚠ ล้าง+อัปใหม่ ${sideLabel} ของบัญชี ${acctLbl}\n\nจะ:\n  • ลบรายการ ${sideLabel} ทั้งหมดในบัญชีนี้ (soft delete · ยังกู้ได้)\n  • ลบ match ทั้งหมดของบัญชีนี้ (รวมที่ยืนยันแล้ว)\n\nจากนั้นจะเปิดให้เลือกไฟล์ใหม่ → import สด → กดจับคู่อัตโนมัติใหม่\n\nยืนยัน?`)) return;
   d.busy=true; brecRefresh();
   try{
@@ -13442,29 +13448,63 @@ async function brecReplaceUpload(kind){
   }catch(e){ alert('ล้างไม่สำเร็จ: '+(e.message||e)); d.busy=false; brecRefresh(); }
 }
 async function brecManualLink(){
+  // ★ Unified — รองรับทั้ง 1:1, 1:N, M:1, M:N · เลือก Ex ≥1 + Bk ≥1 + ผลรวมตรงเป๊ะ ±0.01
   if(!brecCanWrite()){ alert("ไม่มีสิทธิ์"); return; }
   const d = brecGet();
-  if(d.sel.ex.size !== 1 || d.sel.bk.size !== 1){
-    alert("เลือก Express 1 รายการ + Bank 1 รายการ ก่อนกด \"จับคู่เอง\""); return;
+  const exIds = [...d.sel.ex], bkIds = [...d.sel.bk];
+  if(!exIds.length || !bkIds.length){
+    alert("เลือก Express อย่างน้อย 1 รายการ + Bank อย่างน้อย 1 รายการ ก่อนกดจับคู่"); return;
   }
-  const exId = [...d.sel.ex][0], bkId = [...d.sel.bk][0];
-  const ex = d.express.find(x=>x.id===exId), bk = d.bank.find(x=>x.id===bkId);
-  if(!ex || !bk) return;
+  const exRows = exIds.map(id=>d.express.find(x=>x.id===id)).filter(Boolean);
+  const bkRows = bkIds.map(id=>d.bank.find(x=>x.id===id)).filter(Boolean);
+  if(exRows.length !== exIds.length || bkRows.length !== bkIds.length){
+    alert("บางรายการที่เลือกหาไม่เจอในข้อมูลปัจจุบัน — กดยกเลิกการเลือกแล้วเลือกใหม่"); return;
+  }
+  const fmt = (n)=> Number(n||0).toLocaleString("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2});
+  const exSum = +exRows.reduce((s,r)=>s + brecSignedAmt(r), 0).toFixed(2);
+  const bkSum = +bkRows.reduce((s,r)=>s + brecSignedAmt(r), 0).toFixed(2);
+  const diff  = +Math.abs(exSum - bkSum).toFixed(2);
+  if(diff >= 0.01){
+    alert(`❌ ผลรวมไม่ตรงเป๊ะ (ต้อง ±0.01)\n\n• Express ${exRows.length} รายการ = ${fmt(exSum)}\n• Bank ${bkRows.length} รายการ = ${fmt(bkSum)}\n• ผลต่าง = ${fmt(diff)}\n\nเลือกให้ยอดรวมตรงเป๊ะก่อนถึงจับคู่ได้`); return;
+  }
+  const isGroup = exRows.length>1 || bkRows.length>1;
+  const label = isGroup
+    ? `จับคู่หลายรายการ — ${exRows.length} Express + ${bkRows.length} Bank · ยอดรวม ${fmt(Math.abs(exSum))}`
+    : `จับคู่ 1:1 — Express ${fmt(Math.abs(exSum))} ↔ Bank ${fmt(Math.abs(bkSum))}`;
+  const pairCount = exRows.length * bkRows.length;
+  if(!confirm(`${label}\n\nสร้าง ${pairCount} match record${isGroup?' · ผูกเป็นกลุ่มเดียวกัน':''}\n\nยืนยัน?`)) return;
   d.busy=true; brecRefresh();
   try{
     const co = d.companyId || await fopCompanyId();
-    const { error } = await sb.from("brec_matches").insert({
-      company_id: co, bank_account_id: d.accountId,
-      express_row_id: exId, bank_row_id: bkId,
-      status:"manual", confidence:"manual",
-      match_reason:"manual",
-      txn_date: ex.txn_date, amount: brecSignedAmt(ex)
-    });
+    const groupId = isGroup ? `GRP-${Date.now().toString(36)}-${Math.random().toString(36).slice(2,7)}` : null;
+    const stamp = new Date().toISOString();
+    const inserts = [];
+    for(const ex of exRows){
+      for(const bk of bkRows){
+        inserts.push({
+          company_id: co, bank_account_id: d.accountId,
+          express_row_id: ex.id, bank_row_id: bk.id,
+          status: isGroup ? 'confirmed' : 'manual',
+          confidence: isGroup ? 'group' : 'manual',
+          confirmed_at: isGroup ? stamp : null,
+          match_reason: isGroup ? `กลุ่ม ${exRows.length}×${bkRows.length}` : 'manual',
+          match_group_id: groupId,
+          txn_date: ex.txn_date, amount: brecSignedAmt(ex)
+        });
+      }
+    }
+    const { error } = await sb.from("brec_matches").insert(inserts);
     if(error) throw error;
     d.sel.ex.clear(); d.sel.bk.clear();
     await brecLoad(); brecRefresh();
-  }catch(e){ alert("จับคู่เองล้มเหลว: "+(e.message||e)); d.busy=false; brecRefresh(); }
+    if(isGroup) setTimeout(()=>alert(`✓ จับคู่หลายรายการสำเร็จ — ${exRows.length} Ex × ${bkRows.length} Bk = ${pairCount} match · group ${groupId}`), 100);
+  }catch(e){ alert("จับคู่ล้มเหลว: "+(e.message||e)); d.busy=false; brecRefresh(); }
 }
+/* ยกเลิกการเลือกทั้งหมด (ทั้งฝั่ง Ex + Bk) */
+function brecClearSel(){ const d=brecGet(); d.sel.ex.clear(); d.sel.bk.clear(); brecRefresh(); }
+/* Toolbar dropdown menus (นำเข้า/ส่งออก) — toggle visible */
+function brecTbMenu(k){ const d=brecGet(); d._tbMenu=(d._tbMenu===k?null:k); brecRefresh(); }
+function brecTbMenuClose(){ const d=brecGet(); if(d._tbMenu){ d._tbMenu=null; brecRefresh(); } }
 /* ============================================================
    Phase B — Import History modal
    ============================================================ */
@@ -13751,6 +13791,17 @@ function brecInjectCSS(){
   .brec-row.unex{border-left:3px solid var(--brand);padding-left:7px}
   .brec-row.unbk{border-left:3px solid #2563eb;padding-left:7px}
   .brec-row.confirmed{background:#f0fdf4;border-left:3px solid #16a34a;padding-left:7px}
+  /* ★ Toolbar dropdown menus (นำเข้า/ส่งออก) */
+  .brec-menu{position:relative;display:inline-block}
+  .brec-menu .brec-btn.active{background:var(--brand,#0d9488);color:#fff;border-color:var(--brand,#0d9488)}
+  .brec-menu-pop{position:absolute;top:calc(100% + 5px);left:0;min-width:300px;background:#fff;border:1px solid var(--line,#e2e8f0);border-radius:10px;box-shadow:0 12px 28px rgba(15,23,42,.16);padding:6px;z-index:100;display:flex;flex-direction:column}
+  .brec-menu-pop button{display:flex;align-items:center;gap:8px;width:100%;padding:9px 12px;background:transparent;border:0;border-radius:6px;color:var(--ink,#0f172a);font:600 13px/1.3 inherit;cursor:pointer;text-align:left;font-family:inherit}
+  .brec-menu-pop button:hover:not(:disabled){background:#f1f5f9}
+  .brec-menu-pop button:disabled{opacity:.45;cursor:not-allowed}
+  .brec-menu-pop button i[data-lucide]{width:15px;height:15px;flex-shrink:0;color:var(--ink-2,#475569)}
+  .brec-menu-sec{padding:7px 12px 4px;font:700 10.5px/1 inherit;color:var(--ink-3,#94a3b8);text-transform:uppercase;letter-spacing:.06em}
+  .brec-menu-sep{height:1px;background:var(--line,#e2e8f0);margin:5px 6px}
+  .brec-menu-overlay{position:fixed;inset:0;z-index:50;background:transparent}
   /* ★ Filter bar — ใช้กับทุก tab (pending/unmatched/done/all) */
   .brec-filterbar{background:#fff;border:1px solid var(--line,#e2e8f0);border-radius:11px;padding:10px 14px;margin-bottom:10px;display:flex;flex-direction:column;gap:8px;box-shadow:0 1px 2px rgba(15,23,42,.04)}
   .brec-filterbar .row1{display:flex;align-items:center;gap:8px}
@@ -13879,14 +13930,18 @@ function brecFilterBarHTML(d){
     </div>
   </div>`;
 }
-function brecAcctLabel(a){
-  // ★ Always show bank_code + raw account_no — ไม่ใช้ nickname (กัน label เหมือนแต่ data ต่าง)
-  //   ถ้าเลขมี dashes ต่างกัน user จะเห็นใน dropdown ทันที (เช่น 8650405 vs 865-0405)
+function brecAcctLabel(a, allAccts){
+  // ★ Show bank_code + raw account_no — เลิกใช้ nickname (กัน label เหมือนแต่ data ต่าง)
+  //   เพิ่ม id-suffix เฉพาะเมื่อ label ซ้ำกับบัญชีอื่นใน list (true label dup) → ลด noise
   const bc = String(a.bank_code||'').trim();
   const an = String(a.account_no||'').trim();
-  // เพิ่ม id-suffix 4 ตัวสุดท้าย ถ้า user กด 🗑 จะรู้ว่าลบตัวไหน
-  const idSuf = a.id ? ` · #${String(a.id).slice(-4)}` : '';
-  return `${bc} ${an}${idSuf}`;
+  const base = `${bc} ${an}`;
+  if(Array.isArray(allAccts) && allAccts.length){
+    const labelClash = allAccts.some(x => x.id !== a.id
+      && `${String(x.bank_code||'').trim()} ${String(x.account_no||'').trim()}` === base);
+    if(labelClash) return `${base} · #${String(a.id||'').slice(-4)}`;
+  }
+  return base;
 }
 
 function brecSideHTML(r, side, sel){
@@ -13934,7 +13989,7 @@ async function renderToolBankRec(){
   const diff = sumEx - sumBk;
   const balanced = Math.abs(diff) < 0.01;
 
-  const acctOpts = d.accounts.map(a => `<option value="${a.id}" ${a.id===d.accountId?'selected':''}>${esc(brecAcctLabel(a))}</option>`).join("");
+  const acctOpts = d.accounts.map(a => `<option value="${a.id}" ${a.id===d.accountId?'selected':''}>${esc(brecAcctLabel(a, d.accounts))}</option>`).join("");
   const noAcct = !d.accounts.length;
 
   const fmt = (n)=> (typeof fopFmt==="function" ? fopFmt(n) : Number(n||0).toLocaleString("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2}));
@@ -14124,18 +14179,34 @@ async function renderToolBankRec(){
         </div>
         ${periodCtl}
         <div class="sp"></div>
-        <button class="brec-btn" onclick="brecUpload('express')" ${brecCanWrite()?'':'disabled'} title="เพิ่มเข้าของเดิม · dedup อัตโนมัติ"><i data-lucide="upload"></i> Express XML</button>
-        <button class="brec-btn" onclick="brecUpload('stmt')" ${brecCanWrite()?'':'disabled'} title="เพิ่มเข้าของเดิม · dedup อัตโนมัติ"><i data-lucide="upload"></i> Statement</button>
-        <button class="brec-btn" onclick="brecReplaceUpload('express')" ${brecCanWrite()&&!noAcct?'':'disabled'} style="background:#fff7ed;border-color:#fed7aa;color:#9a3412" title="ล้าง Express ของบัญชีนี้ทั้งหมด + ลบ match ทั้งหมด · จากนั้น import สดจากไฟล์ใหม่ (กันรายการซ้ำ)"><i data-lucide="refresh-ccw"></i> ล้าง+อัปใหม่ Express</button>
-        <button class="brec-btn" onclick="brecReplaceUpload('stmt')" ${brecCanWrite()&&!noAcct?'':'disabled'} style="background:#fff7ed;border-color:#fed7aa;color:#9a3412" title="ล้าง Bank Statement ของบัญชีนี้ทั้งหมด + ลบ match ทั้งหมด · จากนั้น import สดจากไฟล์ใหม่"><i data-lucide="refresh-ccw"></i> ล้าง+อัปใหม่ Statement</button>
+        <!-- ★ Toolbar reorg — รวมเป็น dropdown 2 อันแทนปุ่ม 10 อันกระจาย -->
+        <div class="brec-menu">
+          <button class="brec-btn ${d._tbMenu==='imp'?'active':''}" onclick="brecTbMenu('imp')" ${brecCanWrite()?'':'disabled'}><i data-lucide="upload"></i> นำเข้าข้อมูล <i data-lucide="chevron-down" style="width:12px;height:12px;margin-left:2px"></i></button>
+          ${d._tbMenu==='imp' ? `<div class="brec-menu-pop">
+            <div class="brec-menu-sec">เพิ่มเข้าของเดิม (dedup อัตโนมัติ)</div>
+            <button onclick="brecTbMenuClose();brecUpload('express')" ${noAcct?'disabled':''}><i data-lucide="upload"></i> Express XML</button>
+            <button onclick="brecTbMenuClose();brecUpload('stmt')" ${noAcct?'disabled':''}><i data-lucide="upload"></i> Bank Statement</button>
+            <div class="brec-menu-sep"></div>
+            <div class="brec-menu-sec">ล้าง+อัปใหม่ (เริ่มงวดใหม่สะอาด)</div>
+            <button onclick="brecTbMenuClose();brecReplaceUpload('express')" ${noAcct?'disabled':''} style="color:#9a3412"><i data-lucide="refresh-ccw"></i> ล้าง+อัปใหม่ Express</button>
+            <button onclick="brecTbMenuClose();brecReplaceUpload('stmt')" ${noAcct?'disabled':''} style="color:#9a3412"><i data-lucide="refresh-ccw"></i> ล้าง+อัปใหม่ Statement</button>
+            <div class="brec-menu-sep"></div>
+            <button onclick="brecTbMenuClose();bmpOpenUpload()" style="color:#92400e"><i data-lucide="shopping-bag"></i> Marketplace (3 ไฟล์: Shopee + Express + เช็ครับ)</button>
+          </div>` : ''}
+        </div>
+        <div class="brec-menu">
+          <button class="brec-btn ${d._tbMenu==='exp'?'active':''}" onclick="brecTbMenu('exp')" ${noAcct?'disabled':''}><i data-lucide="download"></i> ส่งออกข้อมูล <i data-lucide="chevron-down" style="width:12px;height:12px;margin-left:2px"></i></button>
+          ${d._tbMenu==='exp' ? `<div class="brec-menu-pop">
+            <button onclick="brecTbMenuClose();brecExportXlsx()"><i data-lucide="file-spreadsheet"></i> Excel — กระทบ + ค้าง (3 sheets)</button>
+            <div class="brec-menu-sep"></div>
+            <button onclick="brecTbMenuClose();brecOpenHistory()"><i data-lucide="history"></i> ประวัติการนำเข้าไฟล์</button>
+          </div>` : ''}
+        </div>
         <button class="brec-btn primary" onclick="brecRunAutoMatch()" ${brecCanWrite()&&!noAcct?'':'disabled'}><i data-lucide="zap"></i> จับคู่อัตโนมัติ</button>
-        <button class="brec-btn" onclick="brecExportXlsx()" ${noAcct?'disabled':''}><i data-lucide="download"></i> Export</button>
-        <button class="brec-btn" onclick="brecOpenHistory()" title="ดูประวัติการอัปไฟล์ทั้งหมด"><i data-lucide="history"></i> ประวัติ</button>
-        <button class="brec-btn" onclick="brecDedupExisting()" ${brecCanWrite()&&!noAcct?'':'disabled'} title="ลบแถวซ้ำที่เกิดจากอัป STM/Express หลายครั้ง — เก็บแถวที่จับคู่ไว้เสมอ"><i data-lucide="copy-minus"></i> ล้างแถวซ้ำ</button>
-        <button class="brec-btn" onclick="brecClearPeriod()" ${brecCanWrite()&&!noAcct?'':'disabled'} style="color:#b91c1c;border-color:#fecaca" title="ลบ Express + Bank + Matches ของเดือนนี้ทั้งหมด (2-step confirm)"><i data-lucide="trash-2"></i> ล้างเดือนนี้</button>
-        <button class="brec-btn" onclick="brecMergeDupAccounts()" ${brecCanWrite()?'':'disabled'} title="รวมบัญชีที่ซ้ำกัน (เลขเดียวกัน ต่างแค่รูปแบบ) ให้เหลือบัญชีเดียว"><i data-lucide="git-merge"></i> รวมบัญชีซ้ำ</button>
-        <button class="brec-btn" onclick="bmpOpenUpload()" ${brecCanWrite()?'':'disabled'} style="background:#fef3c7;border-color:#fde68a;color:#92400e"><i data-lucide="shopping-bag"></i> Marketplace (3 ไฟล์)</button>
+        <!-- ★ ลบปุ่ม "รวมบัญชีซ้ำ" + "ล้างแถวซ้ำ" + "ล้างเดือนนี้" + "Marketplace" + Export/ประวัติ ออกจาก toolbar
+             (ฟังก์ชันยังมี · "รวมบัญชีซ้ำ" เรียกผ่าน banner เตือนเท่านั้น · ที่เหลือเก็บไว้ใน menu) -->
       </div>
+      ${d._tbMenu ? `<div class="brec-menu-overlay" onclick="brecTbMenuClose()"></div>` : ''}
 
       ${(d.dupGroups||[]).length ? `<div style="margin-bottom:14px;padding:12px 18px;background:linear-gradient(135deg,#fef2f2,#fff1f2);border:1px solid #fecaca;border-left:4px solid #dc2626;border-radius:11px;display:flex;align-items:center;gap:14px;flex-wrap:wrap">
         <div style="flex:1;min-width:300px;font:500 13px/1.5 inherit;color:#991b1b">
@@ -14157,12 +14228,35 @@ async function renderToolBankRec(){
         ${tabs.map(x => `<div class="brec-tab ${x.id===tab?'active':''}" onclick="brecSetTab('${x.id}')"><i data-lucide="${x.ic}"></i> ${x.l} <span class="c">${x.c}</span></div>`).join("")}
       </div>
 
-      <div class="brec-actbar">
-        <span>เลือกแล้ว <span class="sel">${d.sel.ex.size + d.sel.bk.size}</span> รายการ</span>
-        <div class="sp"></div>
-        <button class="brec-btn" onclick="brecManualLink()" ${brecCanWrite()?'':'disabled'}><i data-lucide="link"></i> จับคู่เอง (Ex+Bk)</button>
-        <button class="brec-btn ok" onclick="brecConfirmSelected()" ${brecCanWrite()?'':'disabled'}><i data-lucide="check"></i> ยืนยันที่เลือก</button>
-      </div>
+      ${(()=>{
+        // ★ Context-aware action bar — แสดงปุ่มตาม tab ปัจจุบัน · กัน user งงว่าปุ่มไหนทำงานเมื่อไหร่
+        const exN = d.sel.ex.size, bkN = d.sel.bk.size, totalN = exN+bkN;
+        const tabNow = tab;
+        let actBtns = '';
+        let hint = '';
+        if(tabNow === 'pending'){
+          // pending — id ที่ tick เป็น match.id → ใช้ "ยืนยันที่เลือก"
+          actBtns = `<button class="brec-btn ok" onclick="brecConfirmSelected()" ${brecCanWrite()&&exN?'':'disabled'}><i data-lucide="check"></i> ยืนยันที่เลือก (${exN})</button>`;
+          hint = `เลือก match แถวที่ต้องการยืนยัน → กดปุ่ม`;
+        } else if(tabNow === 'unmatched'){
+          // unmatched — id ที่ tick เป็น row.id → ใช้ "จับคู่ที่เลือก" (1:1 / M-to-N)
+          const ok = brecCanWrite() && exN>=1 && bkN>=1;
+          actBtns = `<button class="brec-btn" onclick="brecManualLink()" ${ok?'':'disabled'} style="background:${ok?'#3b82f6':'#fff'};color:${ok?'#fff':'#64748b'};border-color:${ok?'#3b82f6':'var(--line,#e2e8f0)'}"><i data-lucide="link"></i> จับคู่ที่เลือก ${exN}:${bkN} ${exN>1||bkN>1?'(หลายรายการ)':''}</button>`;
+          hint = (exN===0&&bkN===0) ? 'เลือก Express และ Bank ที่จะจับคู่ — ผลรวมต้องตรงเป๊ะ ±0.01'
+               : (exN>0&&bkN>0) ? `Express ${exN} + Bank ${bkN}${exN>1||bkN>1?' · จับคู่แบบกลุ่ม':''}`
+               : `ต้องเลือกอีกฝั่ง (${exN>0?'Bank':'Express'})`;
+        } else {
+          hint = 'แท็บนี้ดูอย่างเดียว · ไปแท็บ "รอยืนยัน" / "รอกระทบยอด" เพื่อจัดการ match';
+        }
+        if(!actBtns && !totalN) return '';   // ไม่มีปุ่ม + ไม่มี selection → ไม่ต้องโชว์ actbar
+        return `<div class="brec-actbar">
+          <span style="font-weight:600">เลือก <span class="sel">${totalN}</span> รายการ</span>
+          <span style="color:#64748b;font-size:12px">· ${esc(hint)}</span>
+          <div class="sp"></div>
+          ${totalN ? `<button class="brec-btn" onclick="brecClearSel()" style="color:#64748b" title="ยกเลิกการเลือก"><i data-lucide="x"></i> ยกเลิกการเลือก</button>`:''}
+          ${actBtns}
+        </div>`;
+      })()}
 
       ${body}
     </div>

@@ -6,11 +6,17 @@
 -- ★ Idempotent · EXCEPTION-wrapped · NOTIFY pgrst
 -- ================================================================
 
+-- ★ ไฟล์นี้ตั้งชื่อ zz-* ให้รัน "ท้ายสุด" ทุกครั้ง — bankrec-phase1.sql รัน CREATE UNIQUE INDEX
+--   uq_brec_match_express/bank ซ้ำทุก push · ถ้าไฟล์เราใช้ชื่อ bankrec-multi-* จะรันก่อน phase1
+--   → phase1 ปลุก constraint เก่ากลับมา · M-to-N พัง (duplicate key violation)
+--   วิธีแก้: ใช้ prefix zz-* ให้รัน "หลัง" phase1 เสมอ
 DO $$
 BEGIN
-  -- 1) drop old single-column unique (Phase 1)
+  -- 1) drop old single-column unique (Phase 1) — ทั้ง INDEX form + CONSTRAINT form (กันแปลกใจ)
   BEGIN EXECUTE 'DROP INDEX IF EXISTS uq_brec_match_express'; EXCEPTION WHEN OTHERS THEN NULL; END;
   BEGIN EXECUTE 'DROP INDEX IF EXISTS uq_brec_match_bank'; EXCEPTION WHEN OTHERS THEN NULL; END;
+  BEGIN EXECUTE 'ALTER TABLE brec_matches DROP CONSTRAINT IF EXISTS uq_brec_match_express'; EXCEPTION WHEN OTHERS THEN NULL; END;
+  BEGIN EXECUTE 'ALTER TABLE brec_matches DROP CONSTRAINT IF EXISTS uq_brec_match_bank'; EXCEPTION WHEN OTHERS THEN NULL; END;
   -- 2) create new pair-based unique (allow many-to-many · กันแค่คู่เดียวกันซ้ำ)
   BEGIN EXECUTE 'CREATE UNIQUE INDEX IF NOT EXISTS uq_brec_match_pair ON brec_matches (express_row_id, bank_row_id) WHERE deleted_at IS NULL'; EXCEPTION WHEN OTHERS THEN NULL; END;
 END $$;

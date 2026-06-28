@@ -12485,7 +12485,13 @@ function brecRefMatch(a, b){
 /* tolerant amount equality */
 function brecAmtEq(a,b){ return Math.abs((Number(a)||0)-(Number(b)||0)) < 0.005; }
 /* signed amount of a row */
-function brecSignedAmt(r){ return (Number(r.deposit)||0) - (Number(r.withdrawal)||0); }
+function brecSignedAmt(r){
+  // ★ ใช้ Math.abs ทั้ง 2 ฝั่ง — กัน parser บางตัวเก็บ withdrawal เป็นเลขลบ (-20) ทำให้
+  //   sign แตก (0 - (-20) = +20) → calculator/match พัง · convention: ฝั่งฝาก = +, ฝั่งถอน = −
+  const dep = Math.abs(Number(r.deposit)||0);
+  const wd  = Math.abs(Number(r.withdrawal)||0);
+  return dep - wd;
+}
 function brecExtractAccountNo(s){
   // "S/A #BBL 865-0-98040-5 (สาขา...)" → "8650980405"
   // "S/A #SCB 136-2-684889 (สาขา...)" → "1362684889"
@@ -14158,9 +14164,11 @@ function brecAcctLabel(a, allAccts){
 
 function brecSideHTML(r, side, sel){
   if(!r) return `<div class="brec-side empty">— ไม่พบ —</div>`;
-  const inAmt = Number(r.deposit)||0, outAmt = Number(r.withdrawal)||0;
-  const amt = inAmt > 0 ? `<span class="am in">+${fopFmt ? fopFmt(inAmt) : inAmt.toLocaleString("th-TH",{minimumFractionDigits:2})}</span>`
-                       : `<span class="am out">-${fopFmt ? fopFmt(outAmt) : outAmt.toLocaleString("th-TH",{minimumFractionDigits:2})}</span>`;
+  // ★ Math.abs ทั้ง 2 ฝั่ง — กัน parser บางตัวเก็บ withdrawal เป็นเลขลบ ทำให้ display "-(20.00)"
+  const inAmt = Math.abs(Number(r.deposit)||0), outAmt = Math.abs(Number(r.withdrawal)||0);
+  const fmtPos = (n)=> n.toLocaleString("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2});
+  const amt = inAmt > 0 ? `<span class="am in">+${fmtPos(inAmt)}</span>`
+                       : `<span class="am out">-${fmtPos(outAmt)}</span>`;
   const ref = side==="ex" ? r.doc_no : r.ref_note;
   const ds = side==="ex" ? (r.remark||r.cheque_status||"") : (r.description||r.tr_desc||"");
   // ★ Single-line layout — date · ref · mne · ดู description / ยอด ขวาสุด · ทั้งแถวสูง ~30px

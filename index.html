@@ -12402,6 +12402,8 @@ function brecGet(){
   };
   if(!state.brec[co].mp) state.brec[co].mp = { withdrawals:[], orders:[], mismatchOrders:[], lastImportId:null, expanded:new Set(), uploadOpen:false, files:{shopee:[],sales:[],receipt:[],cheque:[]}, parsing:false };
   if(!state.brec[co].stmFilter) state.brec[co].stmFilter = { dir:"all", q:"" };
+  // ★ filter ระดับ tab (search + วันที่ + ยอด + sort) — ใช้กับทุก tab pending/unmatched/done/all
+  if(!state.brec[co].filter) state.brec[co].filter = { q:"", dateFrom:"", dateTo:"", amountMin:"", amountMax:"", sort:"date_desc" };
   // migration: legacy state → ensure sales slot exists
   if(!state.brec[co].mp.files) state.brec[co].mp.files = { shopee:[], sales:[], receipt:[], cheque:[] };
   if(!Array.isArray(state.brec[co].mp.files.shopee)) state.brec[co].mp.files.shopee = [];
@@ -13748,6 +13750,22 @@ function brecInjectCSS(){
   .brec-row.unex{border-left:3px solid var(--brand);padding-left:7px}
   .brec-row.unbk{border-left:3px solid #2563eb;padding-left:7px}
   .brec-row.confirmed{background:#f0fdf4;border-left:3px solid #16a34a;padding-left:7px}
+  /* ★ Filter bar — ใช้กับทุก tab (pending/unmatched/done/all) */
+  .brec-filterbar{background:#fff;border:1px solid var(--line,#e2e8f0);border-radius:11px;padding:10px 14px;margin-bottom:10px;display:flex;flex-direction:column;gap:8px;box-shadow:0 1px 2px rgba(15,23,42,.04)}
+  .brec-filterbar .row1{display:flex;align-items:center;gap:8px}
+  .brec-filterbar .row1 i[data-lucide]{width:16px;height:16px;color:var(--ink-3,#94a3b8);flex-shrink:0}
+  .brec-filterbar .row1 input{flex:1;padding:7px 11px;border:1px solid var(--line);border-radius:7px;font:500 13px/1.3 inherit;font-family:inherit;outline:none;transition:border-color .12s}
+  .brec-filterbar .row1 input:focus{border-color:var(--brand,#0d9488);box-shadow:0 0 0 3px color-mix(in srgb,var(--brand,#0d9488) 15%,transparent)}
+  .brec-filterbar .row1 .clear{border:1px solid #fecaca;background:#fff;color:#dc2626;padding:6px 11px;border-radius:6px;cursor:pointer;font:600 12px/1 inherit;font-family:inherit;white-space:nowrap}
+  .brec-filterbar .row1 .clear:hover{background:#fee2e2}
+  .brec-filterbar .row2{display:flex;flex-wrap:wrap;gap:14px;align-items:center;padding-top:2px}
+  .brec-filterbar .fld-mini{display:flex;align-items:center;gap:5px;font-size:11.5px;color:var(--ink-2,#475569)}
+  .brec-filterbar .fld-mini label{font-weight:700;color:var(--ink,#0f172a);margin-right:3px;white-space:nowrap}
+  .brec-filterbar .fld-mini input,.brec-filterbar .fld-mini select{padding:4px 8px;border:1px solid var(--line);border-radius:5px;font-size:12px;font-family:inherit;height:28px;background:#fff;color:var(--ink)}
+  .brec-filterbar .fld-mini input[type=number]{width:88px}
+  .brec-filterbar .fld-mini input[type=date]{width:135px}
+  .brec-filterbar .fld-mini select{padding-right:24px;cursor:pointer}
+  .brec-filterbar .fld-mini span{color:#94a3b8;font-size:11px}
   /* ★ Bulk confirm banner (pending tab) */
   .brec-bulk-banner{margin-bottom:10px;padding:11px 16px;background:linear-gradient(135deg,#ecfdf5,#f0fdf4);border:1px solid #86efac;border-radius:11px;display:flex;align-items:center;gap:14px}
   .brec-bulk-banner .ttl{font:600 13px/1.4 inherit;color:#065f46;flex:1}
@@ -13773,6 +13791,93 @@ function brecSetRange(k,v){ const d=brecGet(); d.period[k]=v; brecLoad().then(br
 function brecSetAccount(id){ const d=brecGet(); d.accountId=id; d.sel.ex.clear(); d.sel.bk.clear(); brecLoad().then(brecRefresh); }
 function brecToggleSel(side,id){ const d=brecGet(); const s=d.sel[side]; if(s.has(id)) s.delete(id); else s.add(id); brecRefresh(); }
 function brecSelectAll(side, ids){ const d=brecGet(); const s=d.sel[side]; const all=ids.every(i=>s.has(i)); if(all) ids.forEach(i=>s.delete(i)); else ids.forEach(i=>s.add(i)); brecRefresh(); }
+/* ★ Filter actions (ใช้ใน filter bar เหนือ tab content) */
+function brecSetFilter(k, v){
+  const d=brecGet(); if(!d.filter) d.filter={};
+  d.filter[k] = v;
+  if(k==='q'){
+    // กัน input focus หลุดตอน re-render
+    const el = document.getElementById('brecFltQ');
+    const c = el && el.selectionStart;
+    brecRefresh();
+    setTimeout(()=>{ const e=document.getElementById('brecFltQ'); if(e){ e.focus(); if(c!=null) try{e.setSelectionRange(c,c);}catch(_){} } },0);
+  } else brecRefresh();
+}
+function brecClearFilter(){ const d=brecGet(); const sort=(d.filter&&d.filter.sort)||'date_desc'; d.filter={ q:'', dateFrom:'', dateTo:'', amountMin:'', amountMax:'', sort }; brecRefresh(); }
+function brecFilterRow(r, f){
+  if(!r) return false;   // empty side — ไม่นับว่าผ่าน
+  if(f.dateFrom && (r.txn_date||'') < f.dateFrom) return false;
+  if(f.dateTo && (r.txn_date||'') > f.dateTo) return false;
+  const amt = Math.abs(Number(r.deposit||0) || Number(r.withdrawal||0));
+  if(f.amountMin!=='' && f.amountMin!=null && f.amountMin!=='' && amt < Number(f.amountMin)) return false;
+  if(f.amountMax!=='' && f.amountMax!=null && f.amountMax!=='' && amt > Number(f.amountMax)) return false;
+  if(f.q){
+    const q = String(f.q).toLowerCase().trim();
+    if(q){
+      const txt = `${r.txn_date||''} ${r.doc_no||''} ${r.ref_note||''} ${r.cheque_no||''} ${r.mne||''} ${r.remark||''} ${r.cheque_status||''} ${r.description||''} ${r.tr_desc||''} ${amt}`.toLowerCase();
+      if(!txt.includes(q)) return false;
+    }
+  }
+  return true;
+}
+function brecFilterPair(ex, bk, f){
+  // pair ผ่านถ้าฝั่งใดฝั่งหนึ่งผ่าน filter
+  return brecFilterRow(ex, f) || brecFilterRow(bk, f);
+}
+function brecSortPairs(pairs, sort){
+  const arr = pairs.slice();
+  const dateOf = p => (p.ex&&p.ex.txn_date)||(p.bk&&p.bk.txn_date)||'';
+  const amtOf  = p => { const r=p.ex||p.bk; return r ? Math.abs(Number(r.deposit||0)||Number(r.withdrawal||0)) : 0; };
+  if(sort==='date_asc')     arr.sort((a,b)=>dateOf(a).localeCompare(dateOf(b)));
+  else if(sort==='date_desc') arr.sort((a,b)=>dateOf(b).localeCompare(dateOf(a)));
+  else if(sort==='amount_asc')  arr.sort((a,b)=>amtOf(a)-amtOf(b));
+  else if(sort==='amount_desc') arr.sort((a,b)=>amtOf(b)-amtOf(a));
+  return arr;
+}
+function brecSortRows(rows, sort){
+  const arr = rows.slice();
+  const amtOf = r => Math.abs(Number(r.deposit||0)||Number(r.withdrawal||0));
+  if(sort==='date_asc')     arr.sort((a,b)=>(a.txn_date||'').localeCompare(b.txn_date||''));
+  else if(sort==='date_desc') arr.sort((a,b)=>(b.txn_date||'').localeCompare(a.txn_date||''));
+  else if(sort==='amount_asc')  arr.sort((a,b)=>amtOf(a)-amtOf(b));
+  else if(sort==='amount_desc') arr.sort((a,b)=>amtOf(b)-amtOf(a));
+  return arr;
+}
+function brecFilterBarHTML(d){
+  const f = d.filter || {};
+  const hasFilter = !!(f.q || f.dateFrom || f.dateTo || f.amountMin || f.amountMax);
+  return `<div class="brec-filterbar">
+    <div class="row1">
+      <i data-lucide="search"></i>
+      <input id="brecFltQ" type="text" placeholder="🔍 ค้นหา ref / เลขใบสำคัญ / คำอธิบาย / ยอดเงิน..." value="${esc(f.q||'')}" oninput="brecSetFilter('q',this.value)">
+      ${hasFilter ? `<button class="clear" onclick="brecClearFilter()" title="ล้าง filter ทั้งหมด">✕ ล้าง filter</button>` : ''}
+    </div>
+    <div class="row2">
+      <div class="fld-mini">
+        <label>📅 วันที่</label>
+        <input type="date" value="${f.dateFrom||''}" onchange="brecSetFilter('dateFrom',this.value)">
+        <span>→</span>
+        <input type="date" value="${f.dateTo||''}" onchange="brecSetFilter('dateTo',this.value)">
+      </div>
+      <div class="fld-mini">
+        <label>💰 ยอด</label>
+        <input type="number" placeholder="ต่ำสุด" value="${f.amountMin||''}" onchange="brecSetFilter('amountMin',this.value)">
+        <span>—</span>
+        <input type="number" placeholder="สูงสุด" value="${f.amountMax||''}" onchange="brecSetFilter('amountMax',this.value)">
+      </div>
+      <div class="fld-mini">
+        <label>🔃 เรียง</label>
+        <select onchange="brecSetFilter('sort',this.value)">
+          <option value="date_desc" ${f.sort==='date_desc'?'selected':''}>วันที่ใหม่ → เก่า</option>
+          <option value="date_asc" ${f.sort==='date_asc'?'selected':''}>วันที่เก่า → ใหม่</option>
+          <option value="amount_desc" ${f.sort==='amount_desc'?'selected':''}>ยอดมาก → น้อย</option>
+          <option value="amount_asc" ${f.sort==='amount_asc'?'selected':''}>ยอดน้อย → มาก</option>
+        </select>
+      </div>
+      ${hasFilter ? `<span style="margin-left:auto;font:600 11.5px/1 inherit;color:#dc2626">⚡ filter ทำงานอยู่</span>` : ''}
+    </div>
+  </div>`;
+}
 function brecAcctLabel(a){ return `${a.nickname || (a.bank_code+" "+a.account_no)}`; }
 
 function brecSideHTML(r, side, sel){
@@ -13848,20 +13953,23 @@ async function renderToolBankRec(){
   } else if(d.busy){
     body = `<div class="brec-empty"><i data-lucide="loader-2"></i><div class="ttl">กำลังประมวลผล…</div></div>`;
   } else if(tab === "pending"){
-    if(!buckets.pending.length) body = `<div class="brec-empty"><i data-lucide="check-circle-2"></i><div class="ttl">ไม่มีรายการรอยืนยัน</div><div>กดปุ่ม "จับคู่อัตโนมัติ" เพื่อให้ระบบหาคู่ที่เป็นไปได้</div></div>`;
+    const f = d.filter || {};
+    const pendingFiltered = brecSortPairs(buckets.pending.filter(p => brecFilterPair(p.ex, p.bk, f)), f.sort);
+    if(!buckets.pending.length) body = brecFilterBarHTML(d) + `<div class="brec-empty"><i data-lucide="check-circle-2"></i><div class="ttl">ไม่มีรายการรอยืนยัน</div><div>กดปุ่ม "จับคู่อัตโนมัติ" เพื่อให้ระบบหาคู่ที่เป็นไปได้</div></div>`;
+    else if(!pendingFiltered.length) body = brecFilterBarHTML(d) + `<div class="brec-empty"><i data-lucide="filter-x"></i><div class="ttl">ไม่มีรายการตาม filter</div><div>${buckets.pending.length} คู่ทั้งหมด · ลองล้าง filter</div></div>`;
     else {
-      const exactN = buckets.pending.filter(p=>p.m.confidence==='exact').length;
-      const sugN   = buckets.pending.length - exactN;
+      const exactN = pendingFiltered.filter(p=>p.m.confidence==='exact').length;
+      const sugN   = pendingFiltered.length - exactN;
       const banner = `<div class="brec-bulk-banner">
-        <div class="ttl">🤖 AI จับคู่ได้ <b>${buckets.pending.length}</b> คู่ — EXACT <b>${exactN}</b> · SUGGEST <b>${sugN}</b> · กดปุ่มเขียวเพื่อยืนยันทั้งหมดทีเดียว แล้วเหลือเฉพาะรายการที่จับไม่ได้</div>
+        <div class="ttl">🤖 AI จับคู่ได้ <b>${pendingFiltered.length}</b> คู่${pendingFiltered.length!==buckets.pending.length?` (จาก ${buckets.pending.length})`:''} — EXACT <b>${exactN}</b> · SUGGEST <b>${sugN}</b> · กดปุ่มเขียวเพื่อยืนยันทั้งหมดทีเดียว</div>
         <button onclick="brecConfirmAllPending()" ${brecCanWrite()?'':'disabled'}><i data-lucide="check-check"></i> ยืนยันทั้งหมด (${buckets.pending.length})</button>
       </div>`;
-      body = banner + `<div class="brec-table">
+      body = brecFilterBarHTML(d) + banner + `<div class="brec-table">
         <div class="brec-row head">
-          <div class="ck"><input type="checkbox" onchange="brecSelectAll('ex', [${buckets.pending.map(p=>`'${p.m.id}'`).join(',')}])"></div>
+          <div class="ck"><input type="checkbox" onchange="brecSelectAll('ex', [${pendingFiltered.map(p=>`'${p.m.id}'`).join(',')}])"></div>
           <div>Express (สมุดธนาคารภายใน)</div><div></div><div>Bank Statement</div><div>ความมั่นใจ</div><div>การจัดการ</div>
         </div>
-        ${buckets.pending.map(p => {
+        ${pendingFiltered.map(p => {
           const cls = p.m.confidence === "exact" ? "matched" : "suggested";
           const sel = d.sel.ex.has(p.m.id);
           return `<div class="brec-row ${cls}">
@@ -13879,15 +13987,22 @@ async function renderToolBankRec(){
       </div>`;
     }
   } else if(tab === "unmatched"){
-    const bkFiltered = brecStmFilterRows(d, buckets.bkOnly);
+    const f = d.filter || {};
+    const bkFiltered0 = brecStmFilterRows(d, buckets.bkOnly);
     const sf = d.stmFilter || { dir:"all", q:"" };
     const st = brecStmStats(d);
-    // ฝั่ง Express แสดงเมื่อ filter = all เท่านั้น (filter เน้นฝั่ง bank/STM)
+    // ฝั่ง Express แสดงเมื่อ stm-filter = all เท่านั้น (เน้นฝั่ง bank/STM)
     const showEx = sf.dir === "all";
+    // ★ apply tab-level filter ทับอีกชั้น (search/วันที่/ยอด)
+    const exFiltered = brecSortRows(buckets.exOnly.filter(r=>brecFilterRow(r,f)), f.sort);
+    const bkFiltered = brecSortRows(bkFiltered0.filter(r=>brecFilterRow(r,f)), f.sort);
     const rows = [
-      ...(showEx ? buckets.exOnly.map(ex => ({ kind:"ex", ex })) : []),
+      ...(showEx ? exFiltered.map(ex => ({ kind:"ex", ex })) : []),
       ...bkFiltered.map(bk => ({ kind:"bk", bk }))
-    ].sort((a,b)=> (a.ex?.txn_date||a.bk?.txn_date||"").localeCompare(b.ex?.txn_date||b.bk?.txn_date||""));
+    ].sort((a,b)=>{
+      const aD=(a.ex||a.bk||{}).txn_date||'', bD=(b.ex||b.bk||{}).txn_date||'';
+      return f.sort==='date_asc' ? aD.localeCompare(bD) : f.sort==='date_desc' ? bD.localeCompare(aD) : 0;
+    });
     const statsBar = `<div class="brec-stmbar">
       <div class="stmstats">
         <div class="stmst"><span class="l">ยอดยกมา</span><span class="v">${st.opening!=null?fmt(st.opening):'—'}</span></div>
@@ -13903,9 +14018,9 @@ async function renderToolBankRec(){
         <input id="brecStmQ" value="${esc(sf.q||'')}" oninput="brecSetStmFilter('q',this.value)" placeholder="🔍 ค้นหาคำอธิบายรายการ / ref" style="border:1px solid var(--line,#e2e8f0);border-radius:8px;padding:6px 11px;font-size:13px;min-width:240px;font-family:inherit">
       </div>
     </div>`;
-    if(!rows.length){ body = statsBar + `<div class="brec-empty"><i data-lucide="filter"></i><div class="ttl">ไม่มีรายการตาม filter</div></div>`; }
+    if(!rows.length){ body = brecFilterBarHTML(d) + statsBar + `<div class="brec-empty"><i data-lucide="filter"></i><div class="ttl">ไม่มีรายการตาม filter</div></div>`; }
     else {
-      body = statsBar + `<div class="brec-table">
+      body = brecFilterBarHTML(d) + statsBar + `<div class="brec-table">
         <div class="brec-row head"><div></div><div>Express</div><div></div><div>Bank Statement</div><div>เหตุผล</div><div>การจัดการ</div></div>
         ${rows.map(r => {
           if(r.kind === "ex"){
@@ -13933,10 +14048,13 @@ async function renderToolBankRec(){
       </div>`;
     }
   } else if(tab === "done"){
-    if(!buckets.confirmed.length) body = `<div class="brec-empty"><i data-lucide="check-check"></i><div class="ttl">ยังไม่มีรายการที่กระทบ</div></div>`;
-    else body = `<div class="brec-table">
+    const f = d.filter || {};
+    const confFiltered = brecSortPairs(buckets.confirmed.filter(p=>brecFilterPair(p.ex,p.bk,f)), f.sort);
+    if(!buckets.confirmed.length) body = brecFilterBarHTML(d) + `<div class="brec-empty"><i data-lucide="check-check"></i><div class="ttl">ยังไม่มีรายการที่กระทบ</div></div>`;
+    else if(!confFiltered.length) body = brecFilterBarHTML(d) + `<div class="brec-empty"><i data-lucide="filter-x"></i><div class="ttl">ไม่มีรายการตาม filter</div><div>${buckets.confirmed.length} คู่ทั้งหมด · ลองล้าง filter</div></div>`;
+    else body = brecFilterBarHTML(d) + `<div class="brec-table">
       <div class="brec-row head"><div></div><div>Express</div><div></div><div>Bank Statement</div><div>สถานะ</div><div>การจัดการ</div></div>
-      ${buckets.confirmed.map(p => `<div class="brec-row confirmed">
+      ${confFiltered.map(p => `<div class="brec-row confirmed">
         <div class="ck"></div>
         ${brecSideHTML(p.ex,"ex",false)}
         <div class="brec-link ok"><i data-lucide="check-check"></i></div>
@@ -13946,17 +14064,22 @@ async function renderToolBankRec(){
       </div>`).join("")}
     </div>`;
   } else if(tab === "all"){
-    const all = [
-      ...d.express.map(r=>({ kind:"ex", r, dt:r.txn_date })),
-      ...d.bank.map(r=>({ kind:"bk", r, dt:r.txn_date }))
-    ].sort((a,b)=> a.dt.localeCompare(b.dt));
-    body = `<div class="brec-table">
+    const f = d.filter || {};
+    const allRows = [
+      ...d.express.filter(r=>brecFilterRow(r,f)).map(r=>({ kind:"ex", r })),
+      ...d.bank.filter(r=>brecFilterRow(r,f)).map(r=>({ kind:"bk", r }))
+    ];
+    const sorted = brecSortRows(allRows.map(x=>x.r), f.sort).map(r=>{
+      const orig = allRows.find(x=>x.r===r);
+      return orig || { kind:'ex', r };
+    });
+    body = brecFilterBarHTML(d) + (sorted.length ? `<div class="brec-table">
       <div class="brec-row head"><div></div><div colspan="3">รายการ</div><div></div><div></div><div></div></div>
-      ${all.map(x => x.kind==="ex"
+      ${sorted.map(x => x.kind==="ex"
         ? `<div class="brec-row unex"><div></div>${brecSideHTML(x.r,"ex",false)}<div></div><div class="brec-side empty">—</div><div></div><div></div></div>`
         : `<div class="brec-row unbk"><div></div><div class="brec-side empty">—</div><div></div>${brecSideHTML(x.r,"bk",false)}<div></div><div></div></div>`
       ).join("")}
-    </div>`;
+    </div>` : `<div class="brec-empty"><i data-lucide="filter-x"></i><div class="ttl">ไม่มีรายการตาม filter</div></div>`);
   } else if(tab === "mp"){
     body = bmpRenderTab(d);
   }

@@ -15463,10 +15463,11 @@ function ordParseSalesFile(rows){
       if(cfg.discBillLevel) g.disc = Math.max(g.disc, ordNum(row[ci.disc]));
       else                  g.disc += ordNum(row[ci.disc]);
     }
-    // ★ "Voucher ของร้านค้า" — per-SKU-line ทั้ง BigSeller และ platform → SUM เสมอ
-    //   (เคยใช้ Math.max ผิด · multi-SKU โดน clip เหลือค่าเดียว → ฐานภาษี BS เกินจริง · diff vs platform)
+    // ★ "Voucher ของร้านค้า" — BigSeller เก็บเป็น per-unit (ต่อชิ้น) เหมือน "ราคา" → ต้อง ×qty
+    //   (mul = lineQty เฉพาะ BigSeller (perUnitPrice=true) · platform mul=1 ไม่เปลี่ยน)
+    //   เคสตัวอย่าง: QHD201 qty=2 voucher=400 → ต้องนับ 400×2=800 ให้ตรงกับฐานภาษีฝั่ง platform
     if(ci.voucher>=0){
-      g.voucher += ordNum(row[ci.voucher]);
+      g.voucher += ordNum(row[ci.voucher]) * mul;
     }
     if(ci.refund>=0) g.refund += ordNum(row[ci.refund]);
     if(ci.platform>=0 && !g.platform) g.platform = String(row[ci.platform]||"").trim();
@@ -16063,7 +16064,7 @@ function ordReconDetailHtml(r){
   pItems(r.bs).forEach(x=>{ const k=ordNormSku(x.sku)||(x.name||'?'); const m=im.get(k)||{sku:x.sku||k,name:x.name||'',bsQ:0,bsP:0,beQ:0,beP:0}; m.bsQ+=Number(x.qty)||0; if(Number(x.price))m.bsP=Number(x.price); if(!m.name&&x.name)m.name=x.name; im.set(k,m); });
   pItems(r.be).forEach(x=>{ const k=ordNormSku(x.sku)||(x.name||'?'); const m=im.get(k)||{sku:x.sku||k,name:x.name||'',bsQ:0,bsP:0,beQ:0,beP:0}; m.beQ+=Number(x.qty)||0; if(Number(x.price))m.beP=Number(x.price); if(!m.name&&x.name)m.name=x.name; im.set(k,m); });
   const items=[...im.values()];
-  const g3='grid-template-columns:minmax(0,1fr) 150px 150px';
+  const g3='grid-template-columns:minmax(0,1fr) 180px 180px';
   const grossBs=items.reduce((s,it)=>s+it.bsP*it.bsQ,0), grossBe=items.reduce((s,it)=>s+it.beP*it.beQ,0);
   const itemRow=it=>{
     const rawBs=it.bsP*it.bsQ, rawBe=it.beP*it.beQ;

@@ -12791,7 +12791,10 @@ async function brecLoadAccounts(co){
   if(error) throw error;
   return data || [];
 }
-async function brecEnsureAccount(co, bankCode, accountNo){
+async function brecEnsureAccount(co, bankCode, accountNo, opts){
+  // ★ opts.allowCreate=false → lookup only (return null ถ้าไม่เจอ · ไม่ปลุก/ไม่สร้างใหม่)
+  //   ใช้กับ marketplace upload เพื่อกัน routing สร้างบัญชีใหม่อัตโนมัติ
+  const allowCreate = !opts || opts.allowCreate !== false;
   // Normalize accountNo: strip non-digits
   const norm = String(accountNo||"").replace(/\D/g,"");
   if(!norm || !bankCode) return null;
@@ -12804,6 +12807,7 @@ async function brecEnsureAccount(co, bankCode, accountNo){
   // ★ เลือกบัญชีที่ยัง active ก่อนเสมอ (กันปลุกบัญชีที่รวม/ลบไปแล้วกลับมาเป็นซ้ำ)
   const active = matches.find(a => !a.deleted_at);
   if(active) return active.id;
+  if(!allowCreate) return null;   // lookup-only mode → ไม่ปลุก/ไม่สร้าง
   if(matches.length){
     const a = matches[0];   // ไม่มี active → กู้คืนตัวที่ลบไว้
     await sb.from("bank_accounts").update({ deleted_at:null, deleted_by:null, is_active:true }).eq("id", a.id);
@@ -12894,6 +12898,8 @@ async function brecLoad(){
     if(!co) throw new Error("หา company_id ไม่เจอ");
     d.companyId = co;
     d.accounts = await brecLoadAccounts(co);
+    // ★ Auto-detect dup accounts (same bank_code + normalized digits = ซ้ำ) — แสดง banner ตอน render
+    d.dupGroups = brecFindDupGroups(d.accounts);
     if(!d.accountId && d.accounts.length) d.accountId = d.accounts[0].id;
     if(d.accountId){
       const { from, to } = brecComputePeriod(d);
@@ -13263,6 +13269,30 @@ function brecPickCanonical(g){
   const dashed = g.find(a => /-/.test(String(a.account_no||"")));
   if(dashed) return dashed;
   return g.slice().sort((a,b)=>String(a.created_at||"").localeCompare(String(b.created_at||"")))[0];
+}
+/* ★ หา dup groups (bank_code + digits-only เหมือนกัน) — ใช้ทั้ง banner + auto-detect */
+function brecFindDupGroups(accts){
+  const norm = s => String(s||"").replace(/\D/g,"");
+  const groups = {};
+  (accts||[]).forEach(a => { const k = String(a.bank_code||"").toUpperCase()+"|"+norm(a.account_no); (groups[k]=groups[k]||[]).push(a); });
+  return Object.values(groups).filter(g => g.length>1);
+}
+/* ★ ลบบัญชี (soft delete) — ใช้กับปุ่ม 🗑 ข้าง dropdown · รายการ/match ที่ผูกไว้ยังอยู่ใน DB */
+async function brecDeleteAccount(){
+  if(!brecCanWrite()){ alert("ไม่มีสิทธิ์"); return; }
+  const d = brecGet();
+  if(!d.accountId){ alert("เลือกบัญชีก่อน"); return; }
+  const a = (d.accounts||[]).find(x=>x.id===d.accountId);
+  if(!a) return;
+  const lbl = brecAcctLabel(a);
+  if(!confirm(`⚠ ลบบัญชี "${lbl}" (soft delete)?\n\nบัญชีจะหายจาก dropdown · รายการ/match ที่ผูกไว้ยังอยู่ใน DB (กู้คืนได้ผ่าน admin)\n\nยืนยัน?`)) return;
+  d.busy=true; brecRefresh();
+  try{
+    const { error } = await sb.from('bank_accounts').update({ deleted_at: new Date().toISOString(), is_active: false }).eq('id', d.accountId);
+    if(error) throw error;
+    d.accountId = null;
+    await brecLoad(); brecRefresh();
+  }catch(e){ alert('ลบไม่สำเร็จ: '+(e.message||e)); d.busy=false; brecRefresh(); }
 }
 async function brecMergeDupAccounts(){
   if(!brecCanWrite()){ alert("ไม่มีสิทธิ์"); return; }
@@ -13945,10 +13975,13 @@ async function renderToolBankRec(){
 
       <div class="brec-toolbar">
         <div class="fld">
-          <label>บัญชี</label>
-          <select onchange="brecSetAccount(this.value)">
-            ${noAcct ? `<option>— ยังไม่มีบัญชี —</option>` : acctOpts}
-          </select>
+          <label>บัญชี <span style="font-weight:400;color:#94a3b8;font-size:11px">(${d.accounts.length} record${(d.dupGroups||[]).length?` · <span style="color:#dc2626;font-weight:700">⚠ ซ้ำ ${d.dupGroups.length} กลุ่ม</span>`:''})</span></label>
+          <div style="display:flex;gap:5px;align-items:stretch">
+            <select onchange="brecSetAccount(this.value)" style="flex:1">
+              ${noAcct ? `<option>— ยังไม่มีบัญชี —</option>` : acctOpts}
+            </select>
+            <button class="brec-btn" onclick="brecDeleteAccount()" ${brecCanWrite()&&!noAcct?'':'disabled'} style="border-color:#fecaca;color:#dc2626;padding:6px 9px" title="ลบบัญชีที่เลือก (soft delete)"><i data-lucide="trash-2"></i></button>
+          </div>
         </div>
         <div class="fld">
           <label>งวด</label>
@@ -13971,6 +14004,14 @@ async function renderToolBankRec(){
         <button class="brec-btn" onclick="brecMergeDupAccounts()" ${brecCanWrite()?'':'disabled'} title="รวมบัญชีที่ซ้ำกัน (เลขเดียวกัน ต่างแค่รูปแบบ) ให้เหลือบัญชีเดียว"><i data-lucide="git-merge"></i> รวมบัญชีซ้ำ</button>
         <button class="brec-btn" onclick="bmpOpenUpload()" ${brecCanWrite()?'':'disabled'} style="background:#fef3c7;border-color:#fde68a;color:#92400e"><i data-lucide="shopping-bag"></i> Marketplace (3 ไฟล์)</button>
       </div>
+
+      ${(d.dupGroups||[]).length ? `<div style="margin-bottom:14px;padding:12px 18px;background:linear-gradient(135deg,#fef2f2,#fff1f2);border:1px solid #fecaca;border-left:4px solid #dc2626;border-radius:11px;display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+        <div style="flex:1;min-width:300px;font:500 13px/1.5 inherit;color:#991b1b">
+          <div style="font-weight:800;font-size:14px;margin-bottom:4px">⚠ พบบัญชีซ้ำ ${d.dupGroups.length} กลุ่ม</div>
+          ${d.dupGroups.map(g=>`<div>• ${esc(cffBankName(g[0].bank_code)||g[0].bank_code)} ${esc((brecPickCanonical(g)||g[0]).account_no)} — มี ${g.length} record (รวมแล้วเหลือ 1)</div>`).join('')}
+        </div>
+        <button class="brec-btn" onclick="brecMergeDupAccounts()" ${brecCanWrite()?'':'disabled'} style="background:#dc2626;color:#fff;border-color:#dc2626;font-weight:700;padding:9px 16px"><i data-lucide="git-merge"></i> รวมเลย</button>
+      </div>` : ''}
 
       <div class="brec-sum">
         <div class="brec-sc"><div class="l">ยอด Express</div><div class="v">${fmt(sumEx)}</div><div class="s">${d.express.length} รายการ</div></div>
@@ -18269,7 +18310,11 @@ async function bmpRunUpload(){
     let grandTotalWd = 0, grandTotalOrd = 0, grandTotalMis = 0, grandTotalSkip = 0;
     for(const { shopName, shopData, routing } of shopsToProcess){
       const acctId = (routing.bankCode && routing.accountNo)
-        ? await brecEnsureAccount(co, routing.bankCode, routing.accountNo) : null;
+        ? await brecEnsureAccount(co, routing.bankCode, routing.accountNo, { allowCreate:false }) : null;
+      if(routing.bankCode && routing.accountNo && !acctId){
+        alert(`⚠ ไม่พบบัญชี "${routing.bankCode} ${routing.accountNo}" ในระบบ (สำหรับร้าน ${shopName})\n\nระบบไม่สร้างบัญชีใหม่อัตโนมัติแล้ว — ให้ไปสร้างบัญชีด้วยตัวเองที่หน้า Bank Reconciliation ก่อน (อัป Express XML ของบัญชีนั้น 1 ครั้ง) แล้วลองอัป Marketplace ใหม่`);
+        continue;
+      }
       const allWithdrawals = bmpGroupWithdrawals(shopData, arData, chqData, salesData, shopName, sharedSeq);
       // ★ dedup: ข้าม withdrawal ที่ DB มีอยู่แล้ว (key = datetime + bank_account_id + amount)
       const withdrawals = [];

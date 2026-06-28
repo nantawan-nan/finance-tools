@@ -13372,6 +13372,42 @@ async function brecConfirmSelected(){
     await brecLoad(); brecRefresh();
   }catch(e){ alert("ยืนยันล้มเหลว: "+(e.message||e)); d.busy=false; brecRefresh(); }
 }
+/* ★ ยืนยันทั้งหมดที่ AI จับคู่ไว้ (1 คลิก) — ใช้ในแท็บรอยืนยัน */
+async function brecConfirmAllPending(){
+  if(!brecCanWrite()){ alert("ไม่มีสิทธิ์"); return; }
+  const d = brecGet();
+  const buckets = brecBuildBuckets(d);
+  if(!buckets.pending.length){ alert("ไม่มีคู่ที่ AI จับไว้ (รอยืนยัน)"); return; }
+  const exactN = buckets.pending.filter(p=>p.m.confidence==='exact').length;
+  const sugN   = buckets.pending.length - exactN;
+  if(!confirm(`ยืนยัน ${buckets.pending.length} คู่ที่ AI จับไว้ทั้งหมด?\n  • EXACT (ref + วัน + ยอด ตรงเป๊ะ): ${exactN}\n  • SUGGEST (วัน + ยอด ตรง · ไม่มี ref): ${sugN}\n\nหลังยืนยันจะย้ายไปแท็บ "กระทบแล้ว" · แท็บ "รอกระทบยอด" จะเหลือเฉพาะรายการที่ AI จับไม่ได้`)) return;
+  d.sel.ex = new Set(buckets.pending.map(p=>p.m.id));
+  await brecConfirmSelected();
+}
+/* ★ ล้าง+อัปใหม่ — soft-delete ฝั่งนั้นทั้งบัญชี + ลบ match ทั้งหมด · จากนั้นเปิด file picker
+   ใช้แทน upload ปกติเมื่อ user อยากเริ่มงวดใหม่สะอาด (กันรายการซ้ำ/match เก่าค้าง) */
+async function brecReplaceUpload(kind){
+  if(!brecCanWrite()){ alert("ไม่มีสิทธิ์"); return; }
+  const d = brecGet();
+  if(!d.accountId){ alert("เลือกบัญชีก่อน"); return; }
+  const sideLabel = kind==='express' ? 'Express XML' : 'Bank Statement';
+  const acctLbl = brecAcctLabel((d.accounts||[]).find(a=>a.id===d.accountId)||{});
+  if(!confirm(`⚠ ล้าง+อัปใหม่ ${sideLabel} ของบัญชี ${acctLbl}\n\nจะ:\n  • ลบรายการ ${sideLabel} ทั้งหมดในบัญชีนี้ (soft delete · ยังกู้ได้)\n  • ลบ match ทั้งหมดของบัญชีนี้ (รวมที่ยืนยันแล้ว)\n\nจากนั้นจะเปิดให้เลือกไฟล์ใหม่ → import สด → กดจับคู่อัตโนมัติใหม่\n\nยืนยัน?`)) return;
+  d.busy=true; brecRefresh();
+  try{
+    const table = kind==='express' ? 'brec_express_rows' : 'brec_bank_rows';
+    const now = new Date().toISOString();
+    const { error:e1 } = await sb.from(table).update({deleted_at: now}).eq('bank_account_id', d.accountId).is('deleted_at', null);
+    if(e1) throw e1;
+    // ★ ลบ match ของบัญชีนี้ทั้งหมด (จะถูกสร้างใหม่จาก auto-match หลัง upload)
+    const { error:e2 } = await sb.from('brec_matches').delete().eq('bank_account_id', d.accountId);
+    if(e2) console.warn('match delete', e2);
+    await brecLoad();
+    d.busy=false; brecRefresh();
+    // เปิด file picker ต่อ — จะ import สดและไม่มีรายการเก่าให้ชน
+    brecUpload(kind);
+  }catch(e){ alert('ล้างไม่สำเร็จ: '+(e.message||e)); d.busy=false; brecRefresh(); }
+}
 async function brecManualLink(){
   if(!brecCanWrite()){ alert("ไม่มีสิทธิ์"); return; }
   const d = brecGet();
@@ -13643,43 +13679,52 @@ function brecInjectCSS(){
   .brec-actbar .sel{font-weight:600;color:var(--ink,#0f172a)}
 
   .brec-table{background:#fff;border:1px solid var(--line,#e2e8f0);border-top:none;border-radius:0 0 12px 12px;overflow:hidden}
-  .brec-row{display:grid;grid-template-columns:30px 1fr 28px 1fr 110px 100px;gap:6px;padding:10px 12px;border-bottom:1px solid #f1f5f9;align-items:center;transition:.1s}
+  /* ★ Compact rows — single-line layout · ~32-36px ต่อแถว · เห็น 12-18 รายการในจอเดียว */
+  .brec-row{display:grid;grid-template-columns:26px minmax(0,1fr) 20px minmax(0,1fr) 96px 100px;gap:6px;padding:5px 10px;border-bottom:1px solid #f1f5f9;align-items:center;transition:.1s}
   .brec-row:hover{background:#fafbfc}
-  .brec-row.head{background:#f8fafc;font-size:10.5px;font-weight:700;color:var(--ink-2,#475569);text-transform:uppercase;letter-spacing:.4px;padding:9px 12px;border-bottom:1px solid var(--line,#e2e8f0)}
+  .brec-row.head{background:#f8fafc;font-size:10.5px;font-weight:700;color:var(--ink-2,#475569);text-transform:uppercase;letter-spacing:.4px;padding:7px 10px;border-bottom:1px solid var(--line,#e2e8f0)}
   .brec-row .ck{display:flex;align-items:center;justify-content:center}
-  .brec-row .ck input{width:15px;height:15px;accent-color:var(--brand);cursor:pointer}
-  .brec-side{padding:7px 9px;border-radius:8px;background:#f8fafc;font-size:12.5px}
-  .brec-side.empty{background:repeating-linear-gradient(45deg,#fafbfc,#fafbfc 5px,#f1f5f9 5px,#f1f5f9 10px);color:#94a3b8;font-style:italic;text-align:center;padding:12px;font-size:12px}
-  .brec-side .top{display:flex;align-items:center;gap:6px;margin-bottom:2px;flex-wrap:wrap}
-  .brec-side .dt{font-weight:700;color:var(--ink,#0f172a);font-feature-settings:'tnum';font-size:12px}
-  .brec-side .rf{font-family:"IBM Plex Sans",monospace;font-size:11px;background:#fff;border:1px solid var(--line,#e2e8f0);padding:1px 6px;border-radius:5px;font-weight:600;color:var(--ink-2,#475569)}
-  .brec-side .ds{font-size:12px;color:var(--ink,#0f172a);font-weight:500;line-height:1.35}
-  .brec-side .am{display:flex;justify-content:flex-end;font-size:13px;font-weight:700;font-feature-settings:'tnum';margin-top:3px}
+  .brec-row .ck input{width:14px;height:14px;accent-color:var(--brand);cursor:pointer}
+  .brec-side{padding:4px 9px;border-radius:6px;background:#f8fafc;display:flex;align-items:center;gap:7px;min-width:0;font-size:12px;height:30px;box-sizing:border-box}
+  .brec-side.empty{background:repeating-linear-gradient(45deg,#fafbfc,#fafbfc 5px,#f1f5f9 5px,#f1f5f9 10px);color:#94a3b8;font-style:italic;justify-content:center;padding:4px 8px;font-size:11.5px}
+  .brec-side .dt{font-weight:700;color:var(--ink,#0f172a);font-feature-settings:'tnum';font-size:11.5px;white-space:nowrap;flex-shrink:0}
+  .brec-side .rf{font-family:"IBM Plex Sans",monospace;font-size:10.5px;background:#fff;border:1px solid var(--line,#e2e8f0);padding:1px 5px;border-radius:4px;font-weight:600;color:var(--ink-2,#475569);white-space:nowrap;flex-shrink:0}
+  .brec-side .mne{font-size:10px;color:var(--ink-3,#94a3b8);font-weight:600;flex-shrink:0}
+  .brec-side .ds{flex:1;font-size:11.5px;color:var(--ink,#0f172a);font-weight:500;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .brec-side .am{font-size:13px;font-weight:700;font-feature-settings:'tnum';white-space:nowrap;flex-shrink:0;margin-left:auto}
   .brec-side .am.in{color:#16a34a}
   .brec-side .am.out{color:#dc2626}
   .brec-link{display:flex;align-items:center;justify-content:center;color:#94a3b8}
-  .brec-link svg{width:18px;height:18px}
+  .brec-link svg{width:15px;height:15px}
   .brec-link.ok{color:#16a34a}
   .brec-link.sug{color:#d97706}
-  .brec-tag{font-size:10.5px;font-weight:700;padding:3px 8px;border-radius:999px;letter-spacing:.3px;display:inline-block}
+  .brec-tag{font-size:10px;font-weight:700;padding:2px 7px;border-radius:999px;letter-spacing:.3px;display:inline-block;white-space:nowrap}
   .brec-tag.exact{background:#dcfce7;color:#166534}
   .brec-tag.sug{background:#fef3c7;color:#92400e}
   .brec-tag.man{background:#e0e7ff;color:#3730a3}
   .brec-tag.conf{background:#dbeafe;color:#1e40af}
-  .brec-conf .w{font-size:10px;color:var(--ink-3,#94a3b8);margin-top:3px}
-  .brec-acts{display:flex;flex-direction:column;gap:4px}
-  .brec-acts button{border:1px solid var(--line,#e2e8f0);background:#fff;color:var(--ink-2,#475569);padding:4px 8px;border-radius:6px;font-size:11.5px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:4px;justify-content:center;font-family:inherit}
+  .brec-conf{display:flex;flex-direction:column;gap:2px;align-items:flex-start;font-size:11px;min-width:0;overflow:hidden}
+  .brec-conf .w{font-size:9.5px;color:var(--ink-3,#94a3b8);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+  .brec-acts{display:flex;gap:3px;flex-wrap:wrap}
+  .brec-acts button{border:1px solid var(--line,#e2e8f0);background:#fff;color:var(--ink-2,#475569);padding:3px 7px;border-radius:5px;font-size:10.5px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:3px;font-family:inherit;white-space:nowrap}
   .brec-acts button:hover{background:#f8fafc}
   .brec-acts button.ok{color:#16a34a;border-color:#bbf7d0}
   .brec-acts button.ok:hover{background:#dcfce7}
   .brec-acts button.warn{color:#dc2626;border-color:#fecaca}
   .brec-acts button.warn:hover{background:#fee2e2}
-  .brec-acts button i{width:11px;height:11px}
-  .brec-row.matched{border-left:3px solid #16a34a;padding-left:9px}
-  .brec-row.suggested{border-left:3px solid #d97706;padding-left:9px}
-  .brec-row.unex{border-left:3px solid var(--brand);padding-left:9px}
-  .brec-row.unbk{border-left:3px solid #2563eb;padding-left:9px}
-  .brec-row.confirmed{background:#f0fdf4;border-left:3px solid #16a34a;padding-left:9px}
+  .brec-acts button i{width:10px;height:10px}
+  .brec-row.matched{border-left:3px solid #16a34a;padding-left:7px}
+  .brec-row.suggested{border-left:3px solid #d97706;padding-left:7px}
+  .brec-row.unex{border-left:3px solid var(--brand);padding-left:7px}
+  .brec-row.unbk{border-left:3px solid #2563eb;padding-left:7px}
+  .brec-row.confirmed{background:#f0fdf4;border-left:3px solid #16a34a;padding-left:7px}
+  /* ★ Bulk confirm banner (pending tab) */
+  .brec-bulk-banner{margin-bottom:10px;padding:11px 16px;background:linear-gradient(135deg,#ecfdf5,#f0fdf4);border:1px solid #86efac;border-radius:11px;display:flex;align-items:center;gap:14px}
+  .brec-bulk-banner .ttl{font:600 13px/1.4 inherit;color:#065f46;flex:1}
+  .brec-bulk-banner .ttl b{color:#064e3b;font-weight:800}
+  .brec-bulk-banner button{background:#10b981;color:#fff;border:0;padding:9px 18px;border-radius:9px;font:700 13px/1 inherit;cursor:pointer;display:inline-flex;align-items:center;gap:6px;white-space:nowrap;font-family:inherit}
+  .brec-bulk-banner button:hover{background:#059669;box-shadow:0 4px 12px rgba(16,185,129,.3)}
+  .brec-bulk-banner button i{width:14px;height:14px}
 
   .brec-empty{padding:40px 20px;text-align:center;color:var(--ink-3,#94a3b8);background:#fff;border:1px solid var(--line,#e2e8f0);border-top:none;border-radius:0 0 12px 12px}
   .brec-empty i{width:40px;height:40px;color:var(--ink-3,#94a3b8);margin-bottom:10px}
@@ -13707,14 +13752,13 @@ function brecSideHTML(r, side, sel){
                        : `<span class="am out">-${fopFmt ? fopFmt(outAmt) : outAmt.toLocaleString("th-TH",{minimumFractionDigits:2})}</span>`;
   const ref = side==="ex" ? r.doc_no : r.ref_note;
   const ds = side==="ex" ? (r.remark||r.cheque_status||"") : (r.description||r.tr_desc||"");
-  return `<div class="brec-side">
-    <div class="top">
-      <span class="dt">${r.txn_date}</span>
-      ${ref ? `<span class="rf">${esc(ref)}</span>` : ''}
-      ${side==="ex" && r.mne ? `<span style="font-size:10px;color:var(--ink-3,#94a3b8);font-weight:600">${esc(r.mne)}</span>` : ''}
-    </div>
-    <div class="ds">${esc(ds)}</div>
-    <div class="am-wrap" style="display:flex;justify-content:flex-end">${amt}</div>
+  // ★ Single-line layout — date · ref · mne · ดู description / ยอด ขวาสุด · ทั้งแถวสูง ~30px
+  return `<div class="brec-side" title="${esc(ds)}">
+    <span class="dt">${r.txn_date}</span>
+    ${ref ? `<span class="rf">${esc(ref)}</span>` : ''}
+    ${side==="ex" && r.mne ? `<span class="mne">${esc(r.mne)}</span>` : ''}
+    <span class="ds">${esc(ds)}</span>
+    ${amt}
   </div>`;
 }
 function brecConfHTML(m){
@@ -13776,7 +13820,13 @@ async function renderToolBankRec(){
   } else if(tab === "pending"){
     if(!buckets.pending.length) body = `<div class="brec-empty"><i data-lucide="check-circle-2"></i><div class="ttl">ไม่มีรายการรอยืนยัน</div><div>กดปุ่ม "จับคู่อัตโนมัติ" เพื่อให้ระบบหาคู่ที่เป็นไปได้</div></div>`;
     else {
-      body = `<div class="brec-table">
+      const exactN = buckets.pending.filter(p=>p.m.confidence==='exact').length;
+      const sugN   = buckets.pending.length - exactN;
+      const banner = `<div class="brec-bulk-banner">
+        <div class="ttl">🤖 AI จับคู่ได้ <b>${buckets.pending.length}</b> คู่ — EXACT <b>${exactN}</b> · SUGGEST <b>${sugN}</b> · กดปุ่มเขียวเพื่อยืนยันทั้งหมดทีเดียว แล้วเหลือเฉพาะรายการที่จับไม่ได้</div>
+        <button onclick="brecConfirmAllPending()" ${brecCanWrite()?'':'disabled'}><i data-lucide="check-check"></i> ยืนยันทั้งหมด (${buckets.pending.length})</button>
+      </div>`;
+      body = banner + `<div class="brec-table">
         <div class="brec-row head">
           <div class="ck"><input type="checkbox" onchange="brecSelectAll('ex', [${buckets.pending.map(p=>`'${p.m.id}'`).join(',')}])"></div>
           <div>Express (สมุดธนาคารภายใน)</div><div></div><div>Bank Statement</div><div>ความมั่นใจ</div><div>การจัดการ</div>
@@ -13909,8 +13959,10 @@ async function renderToolBankRec(){
         </div>
         ${periodCtl}
         <div class="sp"></div>
-        <button class="brec-btn" onclick="brecUpload('express')" ${brecCanWrite()?'':'disabled'}><i data-lucide="upload"></i> Express XML</button>
-        <button class="brec-btn" onclick="brecUpload('stmt')" ${brecCanWrite()?'':'disabled'}><i data-lucide="upload"></i> Statement</button>
+        <button class="brec-btn" onclick="brecUpload('express')" ${brecCanWrite()?'':'disabled'} title="เพิ่มเข้าของเดิม · dedup อัตโนมัติ"><i data-lucide="upload"></i> Express XML</button>
+        <button class="brec-btn" onclick="brecUpload('stmt')" ${brecCanWrite()?'':'disabled'} title="เพิ่มเข้าของเดิม · dedup อัตโนมัติ"><i data-lucide="upload"></i> Statement</button>
+        <button class="brec-btn" onclick="brecReplaceUpload('express')" ${brecCanWrite()&&!noAcct?'':'disabled'} style="background:#fff7ed;border-color:#fed7aa;color:#9a3412" title="ล้าง Express ของบัญชีนี้ทั้งหมด + ลบ match ทั้งหมด · จากนั้น import สดจากไฟล์ใหม่ (กันรายการซ้ำ)"><i data-lucide="refresh-ccw"></i> ล้าง+อัปใหม่ Express</button>
+        <button class="brec-btn" onclick="brecReplaceUpload('stmt')" ${brecCanWrite()&&!noAcct?'':'disabled'} style="background:#fff7ed;border-color:#fed7aa;color:#9a3412" title="ล้าง Bank Statement ของบัญชีนี้ทั้งหมด + ลบ match ทั้งหมด · จากนั้น import สดจากไฟล์ใหม่"><i data-lucide="refresh-ccw"></i> ล้าง+อัปใหม่ Statement</button>
         <button class="brec-btn primary" onclick="brecRunAutoMatch()" ${brecCanWrite()&&!noAcct?'':'disabled'}><i data-lucide="zap"></i> จับคู่อัตโนมัติ</button>
         <button class="brec-btn" onclick="brecExportXlsx()" ${noAcct?'disabled':''}><i data-lucide="download"></i> Export</button>
         <button class="brec-btn" onclick="brecOpenHistory()" title="ดูประวัติการอัปไฟล์ทั้งหมด"><i data-lucide="history"></i> ประวัติ</button>

@@ -11316,7 +11316,7 @@ function cffStaffPayments(dt, d){
     if(r.due_date < recFromISO || r.due_date > winEndISO) continue;
     if(skipSet.has(`${r.recurring_id}|${r.due_date}`)) continue;
     payments.push({
-      type:"recurring", category: "ค่าใช้จ่ายประจำ",   // ★ รวมทุก recurring ไว้กลุ่มเดียว
+      type:"recurring", category: cffRecurCat(r.recurring_expenses&&r.recurring_expenses.category),
       vendor: cffCleanVendor((r.recurring_expenses&&r.recurring_expenses.name) || "ค่าใช้จ่ายประจำ"),
       detail:"", due_date: r.due_date, original_due: r.due_date,
       amount: Number(r.expected_amount||0), remark:"",
@@ -11348,7 +11348,7 @@ function cffStaffPayments(dt, d){
       if(occKeys.has(`${k}|${r.name}`)) continue;  // ซ้ำกับงวดจริง
       if(skipSet.has(`${r.id}|${k}`)) continue;     // ★ ถูกกดลบไว้
       payments.push({
-        type:"recurring", category: "ค่าใช้จ่ายประจำ",   // ★ รวมทุก recurring ไว้กลุ่มเดียว
+        type:"recurring", category: cffRecurCat(r.category),
         vendor: cffCleanVendor(r.name), detail:"", due_date: k, original_due: k,
         amount: Number(r.expected_amount||0), remark:"",
         internalNote: cffRecurCat(r.category),  // หมวดย่อยไปอยู่คำอธิบาย

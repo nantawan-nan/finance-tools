@@ -9735,11 +9735,11 @@ async function apoHandleXml(file){
   }catch(_){}
 
   // แท็ก: 'new' | 'update' | 'same'
-  const tagged = dedupedInvoices.map(it => {
+  const tagged = dedupedInvoices.map((it, i) => {
     const ex = existingMap[it.invoice_no];
-    if(!ex) return { ...it, _status: 'new' };
+    if(!ex) return { ...it, _status: 'new', _origIdx: i };
     const amtChanged = Math.abs(Number(it.amount_total) - Number(ex.amount_total)) >= 0.01;
-    return { ...it, _status: amtChanged ? 'update' : 'same', _exAmt: ex.amount_total };
+    return { ...it, _status: amtChanged ? 'update' : 'same', _exAmt: ex.amount_total, _origIdx: i };
   });
 
   const newCount    = tagged.filter(i=>i._status==='new').length;
@@ -9773,14 +9773,13 @@ async function apoHandleXml(file){
       <div style="overflow:auto;flex:1">
         <table style="font-size:11.5px;width:100%">
           <thead><tr style="position:sticky;top:0;background:#f8fafc">
-            <th><input type="checkbox" id="apoXAll" onclick="document.querySelectorAll('.apo-x-cb').forEach(c=>c.checked=this.checked)"></th>
+            <th><input type="checkbox" id="apoXAll" checked onclick="document.querySelectorAll('.apo-x-cb').forEach(c=>c.checked=this.checked)"></th>
             <th>สถานะ</th><th>เจ้าหนี้</th><th>เลขที่บิล</th><th>วันที่บิล</th><th>ครบกำหนด</th>
             <th style="text-align:right">ยอดรวม</th><th style="text-align:right">คงค้าง</th><th>ประเภท</th>
           </tr></thead>
-          <tbody>${tagged.map((it,i)=>{
-            const isActive = it._status !== 'same';
-            return `<tr style="opacity:${isActive?1:0.45};background:${it._status==='new'?'#f0fdf4':it._status==='update'?'#fffbeb':'#fff'}">
-              <td><input type="checkbox" class="apo-x-cb" data-i="${i}" ${isActive?'checked':''}></td>
+          <tbody>${tagged.filter(it=>it._status!=='same').map((it,i)=>{
+            return `<tr style="background:${it._status==='new'?'#f0fdf4':'#fffbeb'}">
+              <td><input type="checkbox" class="apo-x-cb" data-i="${it._origIdx}" checked></td>
               <td>${statusBadge(it._status)}</td>
               <td><b>${esc(it.vendor_name)}</b> ${it.vendor_code?`<span style="color:var(--ink-3);font-size:10px">/${esc(it.vendor_code)}</span>`:""}</td>
               <td><code style="font-size:11px">${esc(it.invoice_no)}</code></td>
@@ -9788,15 +9787,16 @@ async function apoHandleXml(file){
               <td style="${it.is_overdue?'color:var(--out-ink);font-weight:700':''}">${fopDate(it.due_date)}</td>
               <td style="text-align:right">${fopFmt(it.amount_total)}${it._exAmt!=null?`<br><span style="color:var(--ink-3);font-size:10px">เดิม ${fopFmt(it._exAmt)}</span>`:''}</td>
               <td style="text-align:right;font-weight:700;color:var(--out-ink)">${fopFmt(it.amount_outstanding)}</td>
-              <td><select class="apo-x-cat" data-i="${i}" style="font-size:11px;padding:3px 6px;border:1px solid var(--line);border-radius:6px;background:#fff;min-width:130px">
+              <td><select class="apo-x-cat" data-i="${it._origIdx}" style="font-size:11px;padding:3px 6px;border:1px solid var(--line);border-radius:6px;background:#fff;min-width:130px">
                 ${APO_CATEGORIES.map(c => `<option value="${esc(c)}" ${c===it.category?'selected':''}>${esc(c)}</option>`).join("")}
               </select></td>
             </tr>`;
-          }).join("")}</tbody>
+          }).join("")}
+          ${newCount+updateCount===0?`<tr><td colspan="9" style="text-align:center;padding:24px;color:var(--ink-3)">ทุกบิลมีในระบบและยอดไม่เปลี่ยน — ไม่มีอะไรต้องนำเข้า</td></tr>`:''}</tbody>
         </table>
       </div>
       <div style="display:flex;gap:8px;margin-top:14px;justify-content:space-between;align-items:center">
-        <div style="font-size:11.5px;color:var(--ink-3)">ติ๊กเฉพาะ "ใหม่" และ "อัปเดตยอด" ไว้ให้แล้ว · รายการ "ซ้ำ/ไม่เปลี่ยน" ไม่ต้องนำเข้าซ้ำ</div>
+        <div style="font-size:11.5px;color:var(--ink-3)">${sameCount>0?`ซ่อน ${sameCount} บิลที่มีในระบบแล้ว (ยอดเท่าเดิม) ·`:''} เลือกทั้งหมด ${newCount+updateCount} รายการไว้ให้แล้ว</div>
         <div style="display:flex;gap:8px">
           <button onclick="document.getElementById('fopModal').remove()" class="btn ghost btn sm">ยกเลิก</button>
           <button id="apoXBtn" class="btn">นำเข้าทั้งหมดที่ติ๊ก</button>

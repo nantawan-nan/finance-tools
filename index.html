@@ -3438,8 +3438,11 @@ function ivrRenderExport(d){
           ℹ <b>เลขที่ส่งออกนี้จะไม่ถูกบันทึกในระบบเว็บ</b> — บัญชีอาจแก้มือในระบบบัญชี ระบบจะจำเลข IV ลงออเดอร์ก็ต่อเมื่ออัป <b>รายงาน 141.RWT</b> มา verify หลังคีย์แล้วเท่านั้น (ดูแท็บ "ตรวจการคีย์")
         </div>
         <div class="ivr-actions">
-          <button class="ord-btn primary" style="font-size:14px;padding:11px 22px" ${(!startValid || !eligible.length || e.busy) ? 'disabled' : ''} onclick="ivrDoExport()">
-            <i data-lucide="download"></i> ${e.busy?'กำลังส่งออก...':`ส่งออก AutoKey (${eligible.length.toLocaleString('th-TH')} ออเดอร์)`}
+          <button class="ord-btn primary" style="font-size:14px;padding:11px 20px" ${(!startValid || !eligible.length || e.busy) ? 'disabled' : ''} onclick="ivrDoExport('csv')" title="AutoKey รองรับ CSV โดยตรง — แนะนำใช้แบบนี้">
+            <i data-lucide="file-text"></i> ${e.busy?'กำลังส่งออก...':`ส่งออก CSV (${eligible.length.toLocaleString('th-TH')} ออเดอร์)`}
+          </button>
+          <button class="ord-btn" style="font-size:14px;padding:11px 20px;border-color:#10b981;color:#047857" ${(!startValid || !eligible.length || e.busy) ? 'disabled' : ''} onclick="ivrDoExport('xlsx')" title="ไฟล์ Excel (.xlsx) — เปิดดู/แก้ใน Excel ได้ก่อนคีย์">
+            <i data-lucide="file-spreadsheet"></i> ${e.busy?'กำลังส่งออก...':'ส่งออก Excel'}
           </button>
           <button class="ord-btn" onclick="ivrToggleHistory()">
             <i data-lucide="history"></i> ประวัติส่งออก (${(d.ivrec.batches||[]).length})
@@ -3575,8 +3578,9 @@ function ivrSetStartIv(v){
 function ivrToggleBlocked(){ const d=ordGet(); d.ivrec.exp.blockedOpen=!d.ivrec.exp.blockedOpen; ivrRerender(); }
 function ivrToggleHistory(){ const d=ordGet(); d.ivrec.exp.historyOpen=!d.ivrec.exp.historyOpen; if(d.ivrec.exp.historyOpen) ivrLoadBatches().then(()=>ivrRerender()); else ivrRerender(); }
 
-async function ivrDoExport(){
+async function ivrDoExport(format){
   if(!brecCanWrite()){ alert('ไม่มีสิทธิ์ส่งออก'); return; }
+  const fmt = (format==='xlsx') ? 'xlsx' : 'csv';   // default = csv
   const d = ordGet(); const e = d.ivrec.exp;
   if(!/^\d{10}$/.test(e.startIv)){ alert('กรอกเลข IV เริ่มต้น 10 หลักก่อน'); return; }
   const rmap = ordReconMap(d);
@@ -3595,7 +3599,8 @@ async function ivrDoExport(){
   const eligible = candidates.filter(o => ivrCanExport(o, rmap, e.includeKeyed).ok);
   if(!eligible.length){ alert('ไม่มีออเดอร์พร้อมส่งออก'); return; }
   const endIv = ivrPredictEnd(e.startIv, eligible.length);
-  if(!confirm(`ส่งออก ${eligible.length} ออเดอร์ → AutoKey CSV\n\n• เลข IV: ${e.startIv} → ${endIv}\n• ช่วงวัน: ${dFrom||'ไม่จำกัด'} → ${dTo||'ไม่จำกัด'}\n• ช่องทาง: ${[...channels].join(', ')}\n\nดำเนินการ?`)) return;
+  const fmtLabel = fmt==='xlsx' ? 'Excel (.xlsx)' : 'CSV';
+  if(!confirm(`ส่งออก ${eligible.length} ออเดอร์ → AutoKey ${fmtLabel}\n\n• เลข IV: ${e.startIv} → ${endIv}\n• ช่วงวัน: ${dFrom||'ไม่จำกัด'} → ${dTo||'ไม่จำกัด'}\n• ช่องทาง: ${[...channels].join(', ')}\n\nดำเนินการ?`)) return;
   e.busy = true; ivrRerender();
   try{
     // 1) build AoA — ทุกออเดอร์เป็นรายบรรทัด items (เหมือน exkExport)
@@ -3632,7 +3637,8 @@ async function ivrDoExport(){
     }
     // 2) save batch + download
     const stampStr = (function(){ const dt=new Date(); return `${dt.getFullYear()}${String(dt.getMonth()+1).padStart(2,'0')}${String(dt.getDate()).padStart(2,'0')}_${String(dt.getHours()).padStart(2,'0')}${String(dt.getMinutes()).padStart(2,'0')}`; })();
-    const fileName = `IV_AutoKey_${co.code||co.name}_${e.startIv}_${stampStr}.csv`;
+    const ext = fmt==='xlsx' ? 'xlsx' : 'csv';
+    const fileName = `IV_AutoKey_${co.code||co.name}_${e.startIv}_${stampStr}.${ext}`;
     const companyId = await fopCompanyId();
     if(companyId){
       // batch_no: IV-{co}-YYYYMMDD-NNN
@@ -3656,16 +3662,24 @@ async function ivrDoExport(){
         });
       }catch(err){ console.warn('batch save', err); }
     }
-    // 3) download CSV (UTF-8 BOM)
+    // 3) download — CSV (UTF-8 BOM) หรือ Excel (.xlsx)
     const ws = XLSX.utils.aoa_to_sheet(aoa);
     forceTextCells(ws, [1, 2, 6, 11, 12]);
-    download('﻿'+XLSX.utils.sheet_to_csv(ws), fileName, 'text/csv;charset=utf-8');
+    if(fmt==='xlsx'){
+      // ตั้งความกว้างคอลัมน์ให้พอเหมาะ + รวมเป็น workbook
+      ws['!cols'] = [{wch:5},{wch:13},{wch:18},{wch:11},{wch:9},{wch:8},{wch:18},{wch:7},{wch:10},{wch:9},{wch:11},{wch:10},{wch:11},{wch:11},{wch:18},{wch:14}];
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'AutoKey IV');
+      XLSX.writeFile(wb, fileName);
+    } else {
+      download('﻿'+XLSX.utils.sheet_to_csv(ws), fileName, 'text/csv;charset=utf-8');
+    }
     // 4) refresh batch list
     await ivrLoadBatches();
     e.busy = false;
     e.startIv = ivrNextIv(endIv); e.startIvDirty = true;
     ivrRerender();
-    setTimeout(()=>alert(`✓ ส่งออกสำเร็จ ${eligible.length} ใบ → ${fileName}\nเลข IV: ${e.startIv ? `${e.startIv} (ต่อจากนี้)` : ''}\n\n★ บัญชีคีย์ในระบบบัญชีแล้ว → อัป 141.RWT ที่แท็บ "ตรวจการคีย์" เพื่อ verify`), 100);
+    setTimeout(()=>alert(`✓ ส่งออกสำเร็จ ${eligible.length} ใบ → ${fileName} (${fmtLabel})\nเลข IV: ${e.startIv ? `${e.startIv} (ต่อจากนี้)` : ''}\n\n★ บัญชีคีย์ในระบบบัญชีแล้ว → อัป 141.RWT ที่แท็บ "ตรวจการคีย์" เพื่อ verify`), 100);
   }catch(err){
     e.busy = false; ivrRerender();
     alert('ส่งออกไม่สำเร็จ: ' + (err.message||err));

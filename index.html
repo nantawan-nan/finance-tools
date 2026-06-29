@@ -3666,13 +3666,16 @@ async function ivrDoExport(format){
     const ws = XLSX.utils.aoa_to_sheet(aoa);
     forceTextCells(ws, [1, 2, 6, 11, 12]);
     if(fmt==='xlsx'){
-      // ตั้งความกว้างคอลัมน์ให้พอเหมาะ + รวมเป็น workbook
+      // ตั้งความกว้างคอลัมน์ให้พอเหมาะ + รวมเป็น workbook · cell type เป็น text แล้วจาก forceTextCells
       ws['!cols'] = [{wch:5},{wch:13},{wch:18},{wch:11},{wch:9},{wch:8},{wch:18},{wch:7},{wch:10},{wch:9},{wch:11},{wch:10},{wch:11},{wch:11},{wch:18},{wch:14}];
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, 'AutoKey IV');
       XLSX.writeFile(wb, fileName);
     } else {
-      download('﻿'+XLSX.utils.sheet_to_csv(ws), fileName, 'text/csv;charset=utf-8');
+      // ★ CSV: ล็อกฟอร์แมตคอลัมน์ที่ Excel ชอบแปลงผิด (เลขออเดอร์ยาว → scientific, วันที่ → reformat)
+      //   ใช้ Excel formula syntax `="..."` ห่อ → Excel เปิดแล้วเห็นเป็น text เป๊ะ
+      //   คอลัมน์ที่ล็อก (0-indexed): 1=เลข IV · 2=เลขคำสั่งซื้อ · 3=วันที่ · 6=SKU · 11=ผัง SKU ค่าส่ง
+      download('﻿'+aoaToLockedCsv(aoa, [1,2,3,6,11]), fileName, 'text/csv;charset=utf-8');
     }
     // 4) refresh batch list
     await ivrLoadBatches();
@@ -3959,6 +3962,42 @@ function forceTextCells(ws, textColIndices){
       }
     }
   }
+}
+/* ★ Build CSV from AoA + lock specific columns as text (Excel-safe)
+   ใช้ formula syntax `="value"` ใน CSV cell → Excel เปิดแล้วเห็นเป็น text ไม่แปลงเป็น scientific/date
+   - lockCols (0-indexed): คอลัมน์ที่จะห่อด้วย `="..."` (เฉพาะ row > 0 = ข้าม header)
+   - default = comma-separated, CRLF line ending (Excel standard) */
+function aoaToLockedCsv(aoa, lockCols){
+  const lockSet = new Set(lockCols||[]);
+  const csvEscape = (v) => {
+    const s = String(v==null ? '' : v);
+    if(s === '') return '';
+    if(/[",\r\n]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
+    return s;
+  };
+  // ห่อค่าด้วย formula text-lock — สร้าง `="value"` (escape `"` ภายในเป็น `""`) แล้วห่อเป็น CSV cell อีกชั้น
+  // ผลลัพธ์ใน CSV: `"=""value"""` · Excel decode → `="value"` (formula) → result string `value`
+  const lockCell = (v) => {
+    const s = String(v==null ? '' : v);
+    if(s === '') return '';
+    const formula = '="' + s.replace(/"/g, '""') + '"';
+    return '"' + formula.replace(/"/g, '""') + '"';
+  };
+  const lines = [];
+  for(let r=0; r<aoa.length; r++){
+    const row = aoa[r] || [];
+    const cells = [];
+    for(let c=0; c<row.length; c++){
+      const v = row[c];
+      if(r>0 && lockSet.has(c) && v != null && v !== ''){
+        cells.push(lockCell(v));
+      } else {
+        cells.push(csvEscape(v));
+      }
+    }
+    lines.push(cells.join(','));
+  }
+  return lines.join('\r\n');
 }
 
 /* ---------- Export ---------- */

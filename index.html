@@ -16279,9 +16279,9 @@ const ORD_BOARD_CHANS_MP = [
 ];
 /* ★ ขายตรง 3 ช่อง — ยุบเป็น "อื่นๆ" 1 คอลัมน์ default · คลิกขยายดู 3 ช่องแยก */
 const ORD_BOARD_CHANS_OTHER = [
-  {k:"face",   l:"FACE",   c:"#1877f2", dom:"facebook.com", isMP:false},
-  {k:"line",   l:"LINE",   c:"#06c755", dom:"line.me",      isMP:false},
-  {k:"dealer", l:"Dealer", c:"#0f766e", dom:"",             isMP:false}
+  {k:"face",   l:"FACE",   c:"#1877f2", img:"logo%20platfrom/Facebook_Logo_%282019%29.png", isMP:false},
+  {k:"line",   l:"LINE",   c:"#06c755", img:"logo%20platfrom/LINE_logo.svg.png",            isMP:false},
+  {k:"dealer", l:"Dealer", c:"#0f766e", img:"logo%20platfrom/Logo%20%E0%B8%AD%E0%B8%B7%E0%B9%88%E0%B8%99%E0%B9%86.png", isMP:false}
 ];
 const ORD_BOARD_CHANS = [...ORD_BOARD_CHANS_MP, ...ORD_BOARD_CHANS_OTHER];   /* full list — ใช้คำนวณ matrix */
 /* ===== Phase A: parser รายงานขายหลังบ้าน 4 ช่องทาง (item-level → group เป็นออเดอร์) ===== */
@@ -17310,25 +17310,18 @@ function ordRenderBoard(d){
     ? [...ORD_BOARD_CHANS_MP, ...ORD_BOARD_CHANS_OTHER]
     : [...ORD_BOARD_CHANS_MP, {k:"_oth", l:"อื่นๆ", c:"#64748b", isMP:false, isOther:true}];
 
-  // ----- header cell — horizontal layout: [logo] [name] -----
+  // ----- header cell — horizontal layout กึ่งกลาง: [logo 44px] [name 15px] -----
   const headCell=c=>{
-    const clickAttr = c.isOther
-      ? `onclick="ordBoardOtherToggle()" title="คลิกเพื่อดูแยก FACE/LINE/Dealer"`
-      : '';
-    // logo 32px: local = contain + platform-color bg · clearbit = white bg · badge = letter
+    const clickAttr = c.isOther ? `onclick="ordBoardOtherToggle()" title="คลิกเพื่อดูแยก FACE/LINE/Dealer"` : '';
+    // logo: local img = cover เต็มวง ไม่มีกรอบ · badge = ตัวอักษร
     const logoInner = c.img
-      ? `<img src="${c.img}" alt="${esc(c.l)}" style="width:100%;height:100%;object-fit:contain;display:block;padding:3px;box-sizing:border-box" onerror="this.style.display='none';this.nextSibling.style.display='flex'">`
-        + `<span style="display:none;width:100%;height:100%;align-items:center;justify-content:center;color:#fff;font:800 14px/1 inherit">${esc(c.l[0])}</span>`
-      : c.dom
-        ? `<img src="https://logo.clearbit.com/${c.dom}" alt="${esc(c.l)}" style="width:100%;height:100%;object-fit:contain;padding:3px;box-sizing:border-box" onerror="this.outerHTML='<span style=\\'color:${c.c};font:800 14px/1 inherit\\'>${esc(c.l[0])}</span>'">`
-        : `<span style="color:${c.isOther?'#fff':c.c};font:800 14px/1 inherit">${c.isOther?'⋯':esc(c.l[0])}</span>`;
-    const circleBg = c.img ? `rgba(255,255,255,.18)` : c.dom ? `#fff` : `rgba(255,255,255,.22)`;
-    const circleBorder = c.dom ? `border:2px solid rgba(255,255,255,.7);` : ``;
-    const logoDiv = `<div style="width:32px;height:32px;border-radius:50%;background:${circleBg};${circleBorder}display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0;box-shadow:0 2px 8px rgba(0,0,0,.25)">${logoInner}</div>`;
-    const nameSpan = `<span style="font:700 13.5px/1.2 inherit;color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(c.l)}${c.isOther&&!otherOpen?' <span style="font:600 10px/1 inherit;opacity:.75">▸</span>':''}</span>`;
-    return `<div ${clickAttr} class="ord-board-head" data-k="${c.k}" style="display:flex;flex-direction:row;align-items:center;gap:9px;padding:11px 14px;background:linear-gradient(135deg, ${c.c}cc 0%, ${c.c} 100%);border-radius:12px 12px 0 0;box-shadow:inset 0 -1px 0 rgba(0,0,0,.12);${c.isOther?'cursor:pointer':''}">
-      ${logoDiv}
-      ${nameSpan}
+      ? `<img src="${c.img}" alt="${esc(c.l)}" style="width:100%;height:100%;object-fit:cover;display:block" onerror="this.outerHTML='<span style=\\'color:#fff;font:800 18px/1 inherit\\'>${esc(c.l[0])}</span>'">`
+      : `<span style="color:#fff;font:800 18px/1 inherit">${c.isOther?'⋯':esc(c.l[0])}</span>`;
+    // วงกลม: local = สีแพลตฟอร์ม (ไม่มีกรอบขาว) · badge = rgba โปร่งแสง
+    const logoDiv = `<div style="width:44px;height:44px;border-radius:50%;background:${c.img?c.c:'rgba(255,255,255,.22)'};overflow:hidden;flex-shrink:0;box-shadow:0 3px 10px rgba(0,0,0,.3)">${logoInner}</div>`;
+    const nameSpan = `<span style="font:700 15px/1.2 inherit;color:#fff;text-shadow:0 1px 3px rgba(0,0,0,.35);letter-spacing:.01em;white-space:nowrap">${esc(c.l)}</span>`;
+    return `<div ${clickAttr} class="ord-board-head" data-k="${c.k}" style="display:flex;flex-direction:row;align-items:center;justify-content:center;gap:10px;padding:13px 10px;background:linear-gradient(135deg, ${c.c}cc 0%, ${c.c} 100%);border-radius:12px 12px 0 0;box-shadow:inset 0 -1px 0 rgba(0,0,0,.12);${c.isOther?'cursor:pointer':''}">
+      ${logoDiv}${nameSpan}
     </div>`;
   };
   // ----- cell (count + amount) -----

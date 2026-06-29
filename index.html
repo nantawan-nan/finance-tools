@@ -1389,8 +1389,8 @@ function parseShopeeIncome(book){
   let cNet=header.findIndex(h=>h.includes("จำนวนเงินทั้งหมดที่โอนแล้ว"));
   if(cNet<0) cNet=header.findIndex(h=>h.includes("จำนวนเงินสุทธิที่ผู้ขาย"));
   if(cNet<0) cNet=header.findIndex(h=>h.includes("จำนวนเงิน")&&h.includes("฿")&&!h.includes("คืน")&&!h.includes("ค่า"));
-  const cGross=find(["ราคาขายค้าปลีก","ราคาตั้ง"]);
-  const cSellerDisc=find(["ส่วนลดจากผู้ขาย","ส่วนลดเงินราคาจากผู้ขาย"]);
+  const cGross=find(["สินค้าราคาปกติ","ราคาขายค้าปลีก","ราคาตั้ง"]);
+  const cSellerDisc=find(["ส่วนลดสินค้าจากผู้ขาย","ส่วนลดจากผู้ขาย","ส่วนลดเงินราคาจากผู้ขาย"]);
   const out=[];
   for(let i=headerIdx+1;i<rows.length;i++){
     const r=rows[i];

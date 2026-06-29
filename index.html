@@ -3100,8 +3100,304 @@ function salInjectStyle(){
   document.head.appendChild(s);
 }
 
-/* === Stage 2-4: Coming soon placeholders === */
-function renderToolSalesIncome(){ return salesPlaceholder("2. รับชำระเงิน","credit-card","อัปรายงาน Income / รับชำระจากหลังบ้าน · แยกรายได้ → ขนส่ง → ค่าธรรมเนียม → สุทธิ · เห็นทุกค่าใช้จ่ายที่โดนหักรายออเดอร์ · ส่งออก RE ไปคีย์ในระบบบัญชี"); }
+/* ============================================================
+   SALES INCOME — 2. รับชำระเงิน
+   state: state.income[co] = { subtab, verify:{rows,busy,error,applying} }
+   ============================================================ */
+
+function incGet(){
+  if(!state.income) state.income = {};
+  const co = state.company;
+  if(!state.income[co]) state.income[co] = { subtab:'list', verify:{ rows:[], busy:false, error:null, applying:false } };
+  const d = state.income[co];
+  if(!d.verify) d.verify = { rows:[], busy:false, error:null, applying:false };
+  return d;
+}
+function incSetSubtab(t){ incGet().subtab = t; renderToolSalesIncome(); }
+
+/* "DD/MM/YYYY" (BE) → "YYYY-MM-DD" (CE) */
+function salIncomeParseBEDate(s){
+  if(!s) return "";
+  const m = String(s).trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if(!m) return "";
+  return `${parseInt(m[3])-543}-${m[2].padStart(2,"0")}-${m[1].padStart(2,"0")}`;
+}
+/* "YYYY-MM-DD" → "DD/MM/YYYY" สำหรับแสดงผล */
+function salIncomeFmtDate(iso){
+  if(!iso) return "";
+  const [y,mo,d] = iso.split("-");
+  return `${d}/${mo}/${y}`;
+}
+
+/* Parser 1.9.1 "รับชำระหนี้เรียงตามวันที่ของใบเสร็จ" (cp874 CSV, 3-row block per RE)
+   Row 1 (RE header): col[1]=date, col[3]=re_no, col[4]=customer, col[7]=iv_amount, col[9]=cheque_recv, col[14]=order_ref, col[17]=fee
+   Row 2 (cheque):    col[14]=cheque_no, col[15]=paid_date, col[16]=bank, col[17]=net_amount
+   Row 3 (IV ref):    col[5]=iv_no, col[6]=iv_date, col[7]=iv_total  */
+function salIncomeParseReceiptReport191(text){
+  const rows = bmpParseCsvText(text);
+  const result = [];
+  for(let i = 0; i < rows.length; i++){
+    const r = rows[i] || [];
+    const reNoRaw = String(r[3]||"").trim();
+    if(!/^RE\d/.test(reNoRaw)) continue;
+
+    const r2 = rows[i+1] || [];
+    const r3 = rows[i+2] || [];
+
+    const re_date     = salIncomeParseBEDate(String(r[1]||"").trim());
+    const re_no       = reNoRaw;
+    const customer    = String(r[4]||"").trim();
+    const iv_amount   = parseFloat(String(r[7]||"0").replace(/,/g,""))||0;
+    const cheque_recv = parseFloat(String(r[9]||"0").replace(/,/g,""))||0;
+    const order_ref   = String(r[14]||"").trim().replace(/[ \s]+$/,"");
+    const fee         = parseFloat(String(r[17]||"0").replace(/,/g,""))||0;
+
+    const cheque_no   = String(r2[14]||"").trim();
+    const paid_date   = salIncomeParseBEDate(String(r2[15]||"").trim());
+    const bank        = String(r2[16]||"").trim();
+    const net_amount  = parseFloat(String(r2[17]||"0").replace(/,/g,""))||0;
+
+    const iv_no    = String(r3[5]||"").trim();
+    const iv_date  = salIncomeParseBEDate(String(r3[6]||"").trim());
+    const iv_total = parseFloat(String(r3[7]||"0").replace(/,/g,""))||0;
+
+    // channel จาก prefix ของ cheque_no หรือชื่อลูกค้า
+    let channel_group = "";
+    const cn = cheque_no.toUpperCase(); const cu = customer.toUpperCase();
+    if(/^SH/.test(cn) || /SHOPEE/.test(cu)) channel_group = "shopee";
+    else if(/^TT/.test(cn) || /TIKTOK/.test(cu)) channel_group = "tiktok";
+    else if(/^LZ/.test(cn) || /LAZADA/.test(cu)) channel_group = "lazada";
+
+    result.push({ re_no, re_date, customer, iv_amount, cheque_recv, order_ref, fee,
+                  cheque_no, paid_date, bank, net_amount, iv_no, iv_date, iv_total, channel_group });
+    i += 2;
+  }
+  return result;
+}
+
+/* ---- renderToolSalesIncome ---- */
+async function renderToolSalesIncome(){
+  const main = document.getElementById("main");
+  const co = COMPANIES.find(c=>c.id===state.company);
+  const d = incGet();
+  ordInjectStyle(); salInjectStyle();
+
+  const subtab = d.subtab || 'list';
+  const verRows = d.verify.rows;
+
+  const heroHtml = `
+    <div class="sal-hero" style="background:linear-gradient(135deg,var(--brand),var(--brand-dark))">
+      <div class="sal-hero-l">
+        <div class="sal-hero-ttl">ระบบงานขาย · 2. รับชำระเงิน</div>
+        <div class="sal-hero-sub">นำเข้ารายงาน Income จากหลังบ้าน · แยกรายได้ / ค่าธรรมเนียม / สุทธิ · ส่งออก RE → AutoKey · ตรวจด้วย 1.9.1</div>
+      </div>
+      <div class="sal-hero-r">
+        <div class="sal-hero-co">${esc(co.name)}</div>
+        <div class="sal-hero-stat">${verRows.length ? verRows.length + " RE (จาก 1.9.1)" : "รอนำเข้าข้อมูล"}</div>
+      </div>
+    </div>`;
+
+  const tabHtml = `
+    <div class="sal-subtab-row">
+      <button class="sal-stab ${subtab==='list'?'active':''}" onclick="incSetSubtab('list')">
+        <i data-lucide="receipt"></i> ทะเบียนรับชำระ
+      </button>
+      <button class="sal-stab ${subtab==='export'?'active':''}" onclick="incSetSubtab('export')">
+        <i data-lucide="download"></i> ส่งออก RE → AutoKey
+      </button>
+      <button class="sal-stab ${subtab==='verify'?'active':''}" onclick="incSetSubtab('verify')">
+        <i data-lucide="check-circle-2"></i> ตรวจการคีย์ (1.9.1)
+        ${verRows.length ? `<span class="c">${verRows.length}</span>` : ""}
+      </button>
+    </div>`;
+
+  let bodyHtml = '';
+  if(subtab === 'list')        bodyHtml = incRenderList(d);
+  else if(subtab === 'export') bodyHtml = incRenderExport(d);
+  else if(subtab === 'verify') bodyHtml = incRenderVerify(d);
+
+  main.innerHTML = `<div class="ord-page sal-page">${heroHtml}${tabHtml}${bodyHtml}</div>`;
+  if(window.lucide) lucide.createIcons();
+}
+
+function incRenderList(d){
+  return `<div class="sal-empty" style="padding:60px 30px;text-align:center;background:#fff;border:1px solid #e2e8f0;border-radius:14px;margin-top:2px">
+    <i data-lucide="receipt" style="width:48px;height:48px;color:var(--brand);margin-bottom:12px;stroke-width:1.4"></i>
+    <div style="font-size:16px;font-weight:600;color:#1e293b;margin-bottom:8px">ทะเบียนรับชำระ — กำลังพัฒนา</div>
+    <div style="color:#64748b;font-size:13px">อัปรายงาน Income จาก Shopee / TikTok / Lazada<br>แยกรายได้ / ขนส่ง / ค่าธรรมเนียม / สุทธิ ต่อออเดอร์</div>
+    <div style="margin-top:20px"><button class="ord-btn" onclick="incSetSubtab('verify')"><i data-lucide="check-circle-2"></i> ไปที่ตรวจ 1.9.1 ก่อน</button></div>
+  </div>`;
+}
+function incRenderExport(d){
+  return `<div class="sal-empty" style="padding:60px 30px;text-align:center;background:#fff;border:1px solid #e2e8f0;border-radius:14px;margin-top:2px">
+    <i data-lucide="download" style="width:48px;height:48px;color:var(--brand);margin-bottom:12px;stroke-width:1.4"></i>
+    <div style="font-size:16px;font-weight:600;color:#1e293b;margin-bottom:8px">ส่งออก RE → AutoKey — กำลังพัฒนา</div>
+    <div style="color:#64748b;font-size:13px">เลือกช่วงวัน · กรอกเลข RE เริ่มต้น · ส่งออก CSV / Excel<br>ระบบรันเลข RE ต่อเนื่อง เหมือน IV AutoKey</div>
+    <div style="margin-top:20px"><button class="ord-btn" onclick="incSetSubtab('verify')"><i data-lucide="check-circle-2"></i> ไปที่ตรวจ 1.9.1 ก่อน</button></div>
+  </div>`;
+}
+
+/* แท็บ "ตรวจการคีย์ (1.9.1)" */
+function incRenderVerify(d){
+  const v = d.verify;
+  const rows = v.rows;
+
+  if(v.busy) return `<div class="sal-empty" style="padding:48px;text-align:center"><i data-lucide="loader-2" style="width:40px;height:40px;color:var(--brand)"></i><div style="margin-top:12px;color:#64748b">กำลังอ่านไฟล์…</div></div>`;
+
+  if(!rows.length){
+    return `<div style="padding:32px 0">
+      <div style="background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:48px 30px;text-align:center">
+        <i data-lucide="file-check-2" style="width:52px;height:52px;color:var(--brand);margin-bottom:16px;stroke-width:1.4"></i>
+        <div style="font-size:16px;font-weight:700;color:#1e293b;margin-bottom:8px">ตรวจการคีย์ RE จากรายงาน 1.9.1</div>
+        <div style="color:#64748b;font-size:13px;line-height:1.8;margin-bottom:24px">
+          อัปรายงาน <b>1.9.1 การรับชำระหนี้เรียงตามวันที่ของใบเสร็จ</b> จาก Express<br>
+          ระบบจับคู่ RE ↔ IV ในทะเบียนคำสั่งซื้อ → แสดงยอด + สถานะ → บันทึก RE No. เข้าทะเบียน
+        </div>
+        ${v.error ? `<div style="background:#fef2f2;border:1px solid #fca5a5;border-radius:8px;padding:10px 14px;color:#991b1b;margin-bottom:16px;font-size:13px">⚠️ ${esc(v.error)}</div>` : ""}
+        <button class="ord-btn" onclick="incVerifyUpload()"><i data-lucide="upload"></i> เลือกไฟล์ 1.9.1 (CSV cp874)</button>
+        <div style="margin-top:10px;color:#94a3b8;font-size:12px">รองรับหลายไฟล์พร้อมกัน · ระบบ dedup เลข RE อัตโนมัติ</div>
+      </div></div>`;
+  }
+
+  // คำนวณ KPI — match กับ order_ledger (ถ้าโหลดแล้ว)
+  const ordRows = ordGet().rows || [];
+  const ivMap = {};
+  for(const o of ordRows) if(o.iv_no) ivMap[o.iv_no] = o;
+  const ordLoaded = ordGet().loaded;
+
+  let cntNew=0, cntTagged=0, cntNoOrder=0, cntNoIv=0, sumNet=0, sumFee=0;
+  for(const r of rows){
+    if(!r.iv_no)              cntNoIv++;
+    else if(!ivMap[r.iv_no])  cntNoOrder++;
+    else if(ivMap[r.iv_no].re_no) cntTagged++;
+    else                      cntNew++;
+    sumNet += r.net_amount;
+    sumFee += r.fee;
+  }
+  const newRows = rows.filter(r => r.iv_no && ivMap[r.iv_no] && !ivMap[r.iv_no].re_no);
+
+  const kpiHtml = `<div class="sal-kpi-row" style="grid-template-columns:repeat(5,1fr);margin-bottom:16px">
+    <div class="sal-kpi"><div class="n">${rows.length}</div><div class="l">RE ทั้งหมด</div></div>
+    <div class="sal-kpi" style="--kc:var(--brand)"><div class="n">${cntNew}</div><div class="l">พร้อม Tag RE</div></div>
+    <div class="sal-kpi" style="--kc:#16a34a"><div class="n">${cntTagged}</div><div class="l">Tag แล้ว</div></div>
+    <div class="sal-kpi" style="--kc:#dc2626"><div class="n">${cntNoOrder + cntNoIv}</div><div class="l">ไม่พบออเดอร์</div></div>
+    <div class="sal-kpi" style="--kc:#0369a1"><div class="n">${salesFmt(sumNet)}</div><div class="l">รับสุทธิ (บาท)</div></div>
+  </div>`;
+
+  const warnBanner = !ordLoaded ? `<div style="background:#fef3c7;border:1px solid #fcd34d;border-radius:8px;padding:8px 12px;font-size:12px;color:#92400e;margin-bottom:10px">⚠️ ทะเบียนคำสั่งซื้อยังไม่โหลด — ไปที่ "1. คำสั่งซื้อ" ก่อนเพื่อโหลดข้อมูล แล้วกลับมาตรวจ RE</div>` : "";
+
+  const actionHtml = `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
+    <button class="ord-btn" onclick="incVerifyUpload()"><i data-lucide="upload"></i> อัปไฟล์เพิ่ม</button>
+    <button class="ord-btn" onclick="incVerifyClear()"><i data-lucide="trash-2"></i> ล้าง</button>
+    ${newRows.length ? `<button class="ord-btn" style="background:var(--brand);color:#fff;border-color:var(--brand)" onclick="incVerifyTagAll()"><i data-lucide="tag"></i> บันทึก Tag RE (${newRows.length})</button>` : ""}
+    ${v.applying ? `<span style="color:#64748b;font-size:13px">กำลังบันทึก…</span>` : ""}
+  </div>`;
+
+  const tableRows = rows.map(r => {
+    const ord = ivMap[r.iv_no];
+    let statusBadge = '';
+    if(!r.iv_no)      statusBadge = `<span class="ord-bd" style="background:#fef3c7;color:#92400e">ไม่มีเลข IV</span>`;
+    else if(!ord)     statusBadge = `<span class="ord-bd" style="background:#fee2e2;color:#991b1b">ไม่พบออเดอร์</span>`;
+    else if(ord.re_no)statusBadge = `<span class="ord-bd" style="background:#dcfce7;color:#166534">Tag แล้ว · ${esc(ord.re_no)}</span>`;
+    else              statusBadge = `<span class="ord-bd" style="background:rgba(var(--brand-rgb),.12);color:var(--brand-dark)">พร้อม Tag</span>`;
+    const chBadge = r.channel_group ? `<span style="font-size:11px;padding:1px 5px;border-radius:4px;background:${r.channel_group==='shopee'?'#fee2d5':r.channel_group==='tiktok'?'#f1f5f9':'#ede9fe'}">${r.channel_group}</span> ` : '';
+    return `<tr style="border-bottom:1px solid #f1f5f9">
+      <td style="padding:7px 10px;font-family:monospace;font-size:12px;white-space:nowrap">${esc(r.re_no)}</td>
+      <td style="padding:7px 10px;white-space:nowrap;font-size:12px">${r.re_date ? salIncomeFmtDate(r.re_date) : ''}</td>
+      <td style="padding:7px 10px;font-family:monospace;font-size:12px;white-space:nowrap">${esc(r.iv_no)}</td>
+      <td style="padding:7px 10px;white-space:nowrap;font-size:12px">${r.iv_date ? salIncomeFmtDate(r.iv_date) : ''}</td>
+      <td style="padding:7px 10px;font-size:12px">${chBadge}${esc(r.customer)}</td>
+      <td style="padding:7px 10px;text-align:right;font-variant-numeric:tabular-nums;font-size:12px">${salesFmt(r.iv_amount)}</td>
+      <td style="padding:7px 10px;text-align:right;color:#dc2626;font-variant-numeric:tabular-nums;font-size:12px">−${salesFmt(r.fee)}</td>
+      <td style="padding:7px 10px;text-align:right;font-weight:600;font-variant-numeric:tabular-nums;font-size:12px">${salesFmt(r.net_amount)}</td>
+      <td style="padding:7px 10px;font-family:monospace;font-size:11px;white-space:nowrap">${esc(r.cheque_no)}</td>
+      <td style="padding:7px 10px">${statusBadge}</td>
+    </tr>`;
+  }).join("");
+
+  return `<div style="padding:16px 0 0">
+    ${warnBanner}${kpiHtml}${actionHtml}
+    <div style="overflow-x:auto;border:1px solid #e2e8f0;border-radius:10px;background:#fff">
+      <table style="width:100%;border-collapse:collapse;font-size:12.5px">
+        <thead><tr style="background:#f8fafc;border-bottom:2px solid #e2e8f0">
+          <th style="padding:9px 10px;text-align:left;font-weight:600;white-space:nowrap">เลข RE</th>
+          <th style="padding:9px 10px;text-align:left;white-space:nowrap">วันที่ RE</th>
+          <th style="padding:9px 10px;text-align:left;white-space:nowrap">เลข IV</th>
+          <th style="padding:9px 10px;text-align:left;white-space:nowrap">วันที่ IV</th>
+          <th style="padding:9px 10px;text-align:left">ลูกค้า / ช่องทาง</th>
+          <th style="padding:9px 10px;text-align:right;white-space:nowrap">ยอด IV (฿)</th>
+          <th style="padding:9px 10px;text-align:right;white-space:nowrap">ค่าธรรมเนียม</th>
+          <th style="padding:9px 10px;text-align:right;white-space:nowrap">สุทธิ (฿)</th>
+          <th style="padding:9px 10px;text-align:left;white-space:nowrap">เช็ครับ</th>
+          <th style="padding:9px 10px;text-align:left">สถานะ</th>
+        </tr></thead>
+        <tbody>${tableRows}</tbody>
+      </table>
+    </div>
+    <div style="color:#94a3b8;font-size:11px;margin-top:8px">แสดง ${rows.length} รายการ · ค่าธรรมเนียมรวม ${salesFmt(sumFee)} บาท</div>
+  </div>`;
+}
+
+/* ---- incVerify action handlers ---- */
+function incVerifyUpload(){
+  const inp = document.createElement("input");
+  inp.type = "file"; inp.accept = ".csv"; inp.multiple = true;
+  inp.onchange = async (e) => {
+    const d = incGet(); const v = d.verify;
+    v.busy = true; v.error = null; renderToolSalesIncome();
+    try {
+      const allRows = [];
+      for(const f of e.target.files){
+        const buf = await f.arrayBuffer();
+        const text = bmpDecodeCp874(buf);
+        const type = bmpDetectCsvType(text);
+        if(type !== "receipt"){ v.error = `"${f.name}" ไม่ใช่ไฟล์ 1.9.1 รับชำระหนี้ (detect: ${type})`; continue; }
+        const parsed = salIncomeParseReceiptReport191(text);
+        allRows.push(...parsed);
+      }
+      const seen = new Set(v.rows.map(r=>r.re_no));
+      for(const r of allRows) if(!seen.has(r.re_no)){ v.rows.push(r); seen.add(r.re_no); }
+    } catch(err){ v.error = String(err); }
+    finally { v.busy = false; renderToolSalesIncome(); }
+  };
+  inp.click();
+}
+
+function incVerifyClear(){
+  incGet().verify = { rows:[], busy:false, error:null, applying:false };
+  renderToolSalesIncome();
+}
+
+async function incVerifyTagAll(){
+  const d = incGet(); const v = d.verify;
+  const ordD = ordGet();
+  const ivMap = {};
+  for(const o of (ordD.rows||[])) if(o.iv_no) ivMap[o.iv_no] = o;
+
+  const toTag = v.rows.filter(r => r.iv_no && ivMap[r.iv_no] && !ivMap[r.iv_no].re_no);
+  if(!toTag.length){ alert("ไม่มีรายการที่ต้อง Tag"); return; }
+  if(!confirm(`บันทึก RE No. ลงทะเบียน ${toTag.length} รายการ?\n\nตัวอย่าง:\n${toTag.slice(0,3).map(r=>`${r.re_no} → IV ${r.iv_no}`).join("\n")}`)) return;
+
+  v.applying = true; renderToolSalesIncome();
+  let ok=0, fail=0;
+  const now = new Date().toISOString();
+  for(const r of toTag){
+    try{
+      const ord = ivMap[r.iv_no];
+      const { error } = await sb.from("order_ledger")
+        .update({ re_no: r.re_no, re_date: r.re_date || null, re_keyed_at: now, updated_at: now, updated_by: AUTH.user && AUTH.user.id })
+        .eq("id", ord.id);
+      if(error) throw error;
+      ord.re_no = r.re_no; ord.re_date = r.re_date;
+      ok++;
+    } catch(err){ console.warn("incVerifyTag", r.re_no, err); fail++; }
+  }
+  v.applying = false;
+  alert(`บันทึก RE สำเร็จ ${ok} รายการ${fail ? ` · ล้มเหลว ${fail} รายการ` : ""}`);
+  renderToolSalesIncome();
+}
+
+/* === Stage 3-4: Coming soon placeholders === */
 function renderToolSalesWallet(){ return salesPlaceholder("3. กระเป๋าเงิน","wallet","อัปรายงาน Wallet / Balance · ดู running balance · แยกเงินเข้า / เงินออก / ปรับปรุง · เห็นยอดในกระเป๋าก่อนถอนเข้าธนาคาร"); }
 function renderToolSalesRecon(){  return salesPlaceholder("4. กระทบยอด","git-compare","กระทบยอด 4 ทาง · Order × Income × Wallet × ธนาคาร · ตรวจครบ / ขาด / ส่วนต่าง · ส่งออก BQ (ผ่านเช็คเข้าธนาคาร) ไปคีย์ในระบบบัญชี · ย้ายของ \"ถอน Marketplace\" จาก Bank Reconciliation มาที่นี่"); }
 function salesPlaceholder(title, icon, desc){
@@ -19984,9 +20280,10 @@ function ordKpis(d){
 async function renderToolOrders(){
   // ★ IV (ivsys/iv) ย้ายไปหน้า "บันทึกขายเชื่อ (IV)" — ordIv* เรียก renderToolOrders() ตอน re-render
   //   ถ้ากำลังอยู่หน้านั้น ให้ route กลับไป renderer ที่ถูก (กัน #main เด้งกลับหน้า Orders)
-  if(state.tool === 'bigseller')    return renderToolBigSeller();
-  if(state.tool === 'expressmatch') return renderToolExpressMatch();
-  if(state.tool === 'sales_orders') return renderToolSalesOrders();
+  if(state.tool === 'bigseller')     return renderToolBigSeller();
+  if(state.tool === 'expressmatch')  return renderToolExpressMatch();
+  if(state.tool === 'sales_orders')  return renderToolSalesOrders();
+  if(state.tool === 'sales_income')  return renderToolSalesIncome();
   const t = TOOLS.find(x=>x.id==="orders"); const co = COMPANIES.find(c=>c.id===state.company);
   const d = ordGet(); const main = document.getElementById("main");
   homeInjectCSS(); ordInjectStyle();

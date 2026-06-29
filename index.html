@@ -9712,11 +9712,34 @@ async function apoHandleXml(file){
   const { invoices, vendors } = parsed;
   if(!invoices.length){ alert("ไม่พบ invoice ใน XML"); return; }
 
-  // --- dedup ภายในไฟล์ (เก็บตัวหลังสุดถ้า invoice_no ซ้ำ) ---
-  const seenInFile = new Map();
-  for(const inv of invoices) seenInFile.set(inv.invoice_no, inv);
-  const dedupedInvoices = Array.from(seenInFile.values());
-  const dupCount = invoices.length - dedupedInvoices.length;
+  // --- dedup ภายในไฟล์ ---
+  // ถ้า invoice_no ซ้ำกันในไฟล์ → เช็คว่าเป็นเจ้าหนี้เดียวกันหรือเปล่า
+  //   - เจ้าหนี้เดียวกัน = ซ้ำจริง เก็บตัวล่าสุด
+  //   - ต่างเจ้าหนี้ = Express ออก SL เลขซ้ำ → ใช้ doc_no (RR...) เป็น invoice_no แทน (RR ไม่ซ้ำ)
+  const seenInvoiceNo = new Map(); // invoice_no → vendor_code ที่เห็นครั้งแรก
+  const dedupedInvoices = [];
+  let dupCount = 0;
+  for(const inv of invoices){
+    const prevVendor = seenInvoiceNo.get(inv.invoice_no);
+    if(prevVendor === undefined){
+      // ยังไม่เคยเห็น invoice_no นี้
+      seenInvoiceNo.set(inv.invoice_no, inv.vendor_code||inv.vendor_name);
+      dedupedInvoices.push(inv);
+    } else if(prevVendor === (inv.vendor_code||inv.vendor_name)){
+      // เจ้าหนี้เดียวกัน = ซ้ำจริง → drop
+      dupCount++;
+    } else {
+      // ต่างเจ้าหนี้ แต่ SL ซ้ำ → ใช้ doc_no แทน (RR ไม่ซ้ำ)
+      const fixedNo = inv.doc_no || (inv.invoice_no + '-' + (inv.vendor_code||'dup'));
+      dedupedInvoices.push({...inv, invoice_no: fixedNo, _slConflict: inv.invoice_no});
+      // แก้ตัวแรกด้วยถ้ายังไม่ได้แก้
+      const first = dedupedInvoices.find(x=>x.invoice_no===inv.invoice_no);
+      if(first && !first._slConflict){
+        first.invoice_no = first.doc_no || (first.invoice_no + '-' + (first.vendor_code||'dup'));
+        first._slConflict = inv.invoice_no; // mark ว่าแก้แล้ว
+      }
+    }
+  }
 
   // --- query DB เพื่อแท็กสถานะ ---
   let existingMap = {}; // invoice_no → { amount_total, amount_outstanding }
@@ -9762,7 +9785,7 @@ async function apoHandleXml(file){
     <div style="background:#fff;border-radius:14px;padding:24px;max-width:1160px;width:100%;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.3)">
       <h3 style="margin:0 0 6px;font-size:16px;font-weight:800">นำเข้า Express AP XML</h3>
       <div style="color:var(--ink-3);font-size:12.5px;margin-bottom:8px">
-        ${vendors.size} เจ้าหนี้ · ${dedupedInvoices.length} บิล${dupCount?` <span style="color:var(--warn-ink)">(ซ้ำในไฟล์ ${dupCount} รายการ รวมเหลือรายการล่าสุด)</span>`:''} · ยอดคงค้างรวม <b style="color:var(--out-ink)">${fopFmt(total)}</b>
+        ${dedupedInvoices.length} บิล จาก ${vendors.size} เจ้าหนี้${dupCount?` · <span style="color:var(--warn-ink)">ซ้ำเจ้าหนี้เดียวกัน ${dupCount} รายการ (ตัดออก)</span>`:''}${dedupedInvoices.some(i=>i._slConflict)?` · <span style="color:#7c3aed">⚠ Express ออก SL เลขซ้ำต่างเจ้าหนี้ — ใช้เลข RR แทน (ดูรายการในตาราง)</span>`:''} · ยอดรวม <b style="color:var(--out-ink)">${fopFmt(total)}</b>
         ${overdue ? ` · <b style="color:var(--warn-ink)">${overdue} บิลเกินกำหนด</b>` : ""}
       </div>
       <div style="display:flex;gap:10px;margin-bottom:10px;font-size:12px">
@@ -9782,7 +9805,7 @@ async function apoHandleXml(file){
               <td><input type="checkbox" class="apo-x-cb" data-i="${it._origIdx}" checked></td>
               <td>${statusBadge(it._status)}</td>
               <td><b>${esc(it.vendor_name)}</b> ${it.vendor_code?`<span style="color:var(--ink-3);font-size:10px">/${esc(it.vendor_code)}</span>`:""}</td>
-              <td><code style="font-size:11px">${esc(it.invoice_no)}</code></td>
+              <td><code style="font-size:11px">${esc(it.invoice_no)}</code>${it._slConflict?`<br><span style="color:#7c3aed;font-size:10px">⚠ SL ${esc(it._slConflict)} ซ้ำ → ใช้เลข RR</span>`:''}</td>
               <td>${fopDate(it.invoice_date)}</td>
               <td style="${it.is_overdue?'color:var(--out-ink);font-weight:700':''}">${fopDate(it.due_date)}</td>
               <td style="text-align:right">${fopFmt(it.amount_total)}${it._exAmt!=null?`<br><span style="color:var(--ink-3);font-size:10px">เดิม ${fopFmt(it._exAmt)}</span>`:''}</td>

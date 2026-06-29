@@ -11233,8 +11233,16 @@ async function cffLoad(){
     sb.from("recurring_occurrences").select("id,recurring_id,due_date,expected_amount,recurring_expenses(name,category)")
       .eq("company_id", cid).is("deleted_at", null).eq("status","skipped")
   ]);
+  // เรียงบัญชี: BBL ก่อน, แล้ว SCB 417... (1640), SCB 136... (4889) ท้ายสุด
+  const _balSort = (b) => {
+    const dig = (b.account_no||"").replace(/\D/g,"");
+    if((b.bank_code||"").toUpperCase()==="BBL") return 0;
+    if(dig.endsWith("4889")) return 2;
+    return 1;
+  };
+  const sortedBals = (balRes.data||[]).slice().sort((a,b)=>_balSort(a)-_balSort(b));
   d.data = {
-    balances: balRes.data || [],
+    balances: sortedBals,
     aps: apRes.data || [],
     recOccs: recRes.data || [],
     recurring: recExpRes.data || [],

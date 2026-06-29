@@ -72,6 +72,16 @@
   .nav-item .t{font-size:12.5px;font-weight:500}
   .nav-item.active .t{font-weight:700;color:var(--brand-dark)}
   .nav-item .badge-mini{margin-left:auto;font-size:9px;background:var(--warn-soft);color:var(--warn-ink);padding:1px 6px;border-radius:999px;font-weight:700}
+  /* nested group within stage (e.g. "ระบบงานขาย") */
+  .nav-group-head{position:relative}
+  .nav-group-head .chev{margin-left:auto;display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;color:#475569;transition:transform .2s ease}
+  .nav-group-head .chev svg{width:14px;height:14px;stroke-width:2.4}
+  .nav-group.collapsed .nav-group-head .chev{transform:rotate(-90deg)}
+  .nav-group-items{display:flex;flex-direction:column;overflow:hidden;transition:max-height .2s ease;padding-left:12px;margin:2px 0 4px;border-left:2px dashed rgba(var(--brand-rgb),.18)}
+  .nav-group.collapsed .nav-group-items{max-height:0!important;display:none}
+  .nav-item.nav-sub{padding:7px 9px;font-size:12px}
+  .nav-item.nav-sub .t{font-size:12px;font-weight:500}
+  .nav-item.nav-sub .ic{width:16px;height:16px;font-size:11px;font-weight:700;color:var(--brand)}
   .sb-footer{padding:10px 12px;border-top:1px solid var(--glass-border);font-size:10.5px;color:var(--ink-3);display:flex;align-items:center;gap:6px}
   .sb-footer .dot{width:6px;height:6px;border-radius:50%;background:var(--in);box-shadow:0 0 0 3px var(--in-soft);flex-shrink:0}
   .main{flex:1;padding:24px 28px;overflow-x:auto;min-width:0;max-width:none}
@@ -672,6 +682,27 @@ const TOOLS = [
     name:"ทะเบียนคำสั่งซื้อ", desc:"รับรู้ออเดอร์ทุกช่องทาง · ตั้งแต่ก่อนคีย์ IV",
     long:"อัปรายงานขายหลังบ้าน 4 ช่องทาง (Shopee/TikTok/Lazada/BigSeller) → เก็บทุกออเดอร์ · ค้นหา/timeline · ส่งออกออเดอร์ที่ยังไม่คีย์ IV",
     multiInput:true, status:"live" },
+  /* ★ ระบบงานขาย (sales pipeline) — group ใหม่ collapsible · 4 stage: คำสั่งซื้อ → รับชำระ → กระเป๋าเงิน → กระทบยอด */
+  { id:"sales_pipeline", stage:"การขาย", ic:"▣", icon:"workflow",
+    name:"ระบบงานขาย", desc:"Pipeline 4 ขั้น × 3 ช่องทาง (SP/TT/LZ)",
+    long:"คำสั่งซื้อ → รับชำระเงิน → กระเป๋าเงิน → กระทบยอด · ต่อยอดออก IV/RE/BQ",
+    isGroup:true, status:"live" },
+  { id:"sales_orders", stage:"การขาย", parent:"sales_pipeline", ic:"1",
+    name:"1. คำสั่งซื้อ", desc:"นำเข้ารายงานคำสั่งซื้อ SP/TT/LZ",
+    long:"อัปรายงานคำสั่งซื้อจากหลังบ้านแยกช่องทาง · สรุปยอดขาย ค่าขนส่ง VAT · กรองสถานะ · Export Excel",
+    multiInput:true, status:"live" },
+  { id:"sales_income", stage:"การขาย", parent:"sales_pipeline", ic:"2",
+    name:"2. รับชำระเงิน", desc:"เงินเข้ากระเป๋าจากแพลตฟอร์ม",
+    long:"นำเข้ารายงาน Income/รับชำระจาก SP/TT/LZ · แยกรายได้/ขนส่ง/ค่าธรรมเนียม/สุทธิ · ส่งออก RE",
+    multiInput:true, status:"soon" },
+  { id:"sales_wallet", stage:"การขาย", parent:"sales_pipeline", ic:"3",
+    name:"3. กระเป๋าเงิน", desc:"ยอดในกระเป๋า + ถอนเงิน",
+    long:"นำเข้ารายงาน Wallet/Balance · ดู running balance · เงินเข้า/ออก/ปรับปรุง",
+    multiInput:true, status:"soon" },
+  { id:"sales_recon", stage:"การขาย", parent:"sales_pipeline", ic:"4",
+    name:"4. กระทบยอด", desc:"Order × Income × Wallet × แบงค์",
+    long:"กระทบยอด 4 ทาง · ตรวจครบ/ขาด/ส่วนต่าง · ส่งออก BQ (ผ่านเช็คเข้าธนาคาร) — ย้ายมาจาก bankrec",
+    multiInput:true, status:"soon" },
   { id:"dashboard", stage:"การขาย", ic:"◉", icon:"bar-chart-3",
     name:"Sales Dashboard", desc:"สรุปออเดอร์รายวัน",
     long:"คีย์ IV ถึงวันไหน · ยังค้างกี่ใบ · แยกตามช่องทาง — ข้อมูลจาก Supabase",
@@ -812,25 +843,55 @@ function renderSidebar(){
     catch(e){ state.sbCollapse = {}; }
   }
 
-  // group tools by stage (เรียงตามลำดับใน TOOLS)
+  // group tools by stage (เรียงตามลำดับใน TOOLS) · skip children of nav-groups (จะ render ใต้ group)
   const present = AUTH.isPresent();
   const stages = {}, stageOrder = [];
   TOOLS.forEach(t => {
+    if(t.parent) return;                                    // ★ child ของ nav-group → render ใต้ group head ไม่ใช่ใต้ stage
     if(!appToolVisible(t)) return;                         // ★ adminOnly + page_permissions ผ่าน appToolVisible แล้ว
     if(present && !PRESENT_TOOLS.includes(t.id)) return;   // โหมดพรีเซนต์ → เห็นแค่แท็บที่กำหนด
     if(!stages[t.stage]){ stages[t.stage] = []; stageOrder.push(t.stage); }
     stages[t.stage].push(t);
   });
 
+  // หา parent group ของ active tool (ถ้า active เป็น sub-item) → ใช้ขยาย stage + group อัตโนมัติ
+  const activeTool = TOOLS.find(x=>x.id===state.tool);
+  const activeParentId = (activeTool && activeTool.parent) || null;
+
   let navHtml = "";
   for(const stage of stageOrder){
     const tools = stages[stage];
-    const hasActive = tools.some(t => t.id === state.tool);
+    const hasActive = tools.some(t => t.id === state.tool || (t.isGroup && t.id===activeParentId));
     // default = ปิดไว้ก่อน. user expand แล้วเก็บไว้. active tool stage → บังคับขยาย
     const tracked = stage in state.sbCollapse;
     let collapsed = tracked ? !!state.sbCollapse[stage] : true;
     if(hasActive) collapsed = false;
     const items = tools.map(t => {
+      // ★ nav-group (มี children) — render expand/collapse + children indented
+      if(t.isGroup){
+        const children = TOOLS.filter(x => x.parent===t.id && appToolVisible(x));
+        const gKey = `g:${t.id}`;
+        const trackedG = gKey in state.sbCollapse;
+        let collapsedG = trackedG ? !!state.sbCollapse[gKey] : true;
+        if(t.id===activeParentId) collapsedG = false;
+        const gIc = t.icon ? `<i data-lucide="${t.icon}"></i>` : (t.ic || "");
+        const childHtml = children.map(c => {
+          const cSoon = c.status==="soon" ? `<span class="badge-mini">เร็วๆนี้</span>` : "";
+          const cIc = c.icon ? `<i data-lucide="${c.icon}"></i>` : (c.ic || "");
+          return `<div class="nav-item nav-sub ${c.id===state.tool?'active':''}" onclick="setTool('${c.id}')">
+            <div class="ic">${cIc}</div>
+            <div class="t">${c.name}</div>${cSoon}
+          </div>`;
+        }).join("");
+        return `<div class="nav-group ${collapsedG?'collapsed':''}">
+          <div class="nav-item nav-group-head ${t.id===activeParentId?'':''}" onclick="toggleNavGroup('${t.id}')">
+            <div class="ic">${gIc}</div>
+            <div class="t">${t.name}</div>
+            <span class="chev"><i data-lucide="chevron-down"></i></span>
+          </div>
+          <div class="nav-group-items">${childHtml}</div>
+        </div>`;
+      }
       const soon = t.status==="soon" ? `<span class="badge-mini">เร็วๆนี้</span>` : "";
       const ic = t.icon ? `<i data-lucide="${t.icon}"></i>` : (t.ic || "");
       return `<div class="nav-item ${t.id===state.tool?'active':''}" onclick="setTool('${t.id}')">
@@ -868,6 +929,14 @@ function toggleStage(stage){
   try{ localStorage.setItem("ft-sb-collapse", JSON.stringify(state.sbCollapse)); }catch(e){}
   renderSidebar();
 }
+function toggleNavGroup(gid){
+  if(!state.sbCollapse) state.sbCollapse = {};
+  const key = `g:${gid}`;
+  const cur = (key in state.sbCollapse) ? state.sbCollapse[key] : true;
+  state.sbCollapse[key] = !cur;
+  try{ localStorage.setItem("ft-sb-collapse", JSON.stringify(state.sbCollapse)); }catch(e){}
+  renderSidebar();
+}
 function setTool(id){
   state.tool=id;
   document.getElementById('sb').classList.remove('show');
@@ -886,6 +955,12 @@ function renderTool(){
   if(!TOOLS.find(x=>x.id===state.tool)) state.tool = "home";
   const t = TOOLS.find(x=>x.id===state.tool);
   updateCrumb();
+  // ★ nav-group head ไม่มีหน้าตัวเอง — เปิดมาให้ redirect ไป sub-item แรกที่ live · ถ้าไม่มีเลย → home
+  if (t.isGroup){
+    const firstLive = TOOLS.find(x => x.parent===t.id && x.status!=="soon" && appToolVisible(x));
+    state.tool = (firstLive ? firstLive.id : "home");
+    return renderTool();
+  }
   if (t.multiInput) {
     if (t.id==="users")    return renderToolUsers();
     if (t.id==="execdash") return renderToolExecDash();
@@ -903,6 +978,11 @@ function renderTool(){
     if (t.id==="exportkey") return renderToolExportKey();
     if (t.id==="dashboard") return renderToolDashboard();
     if (t.id==="home") return renderToolHome();
+    // ★ ระบบงานขาย (sales pipeline) — Phase 1
+    if (t.id==="sales_orders") return renderToolSalesOrders();
+    if (t.id==="sales_income") return renderToolSalesIncome();
+    if (t.id==="sales_wallet") return renderToolSalesWallet();
+    if (t.id==="sales_recon")  return renderToolSalesRecon();
     if (t.status==="soon") return renderToolSoon(t);
   }
   const k = key();
@@ -15781,6 +15861,30 @@ function ordChannelGroup(channel, customer){
   if(/line|facebook|\bfb\b|\big\b|\bface\b|หน้าร้าน|dealer|\bdr\b/.test(s)) return "offline";
   return "other";
 }
+/* ★ Board redesign: แยก offline ออกเป็น face/line/dealer สำหรับตาราง matrix
+ *   ใช้ display เท่านั้น · ไม่กระทบ channel_group ใน schema (offline ยังเป็น offline ทั้งหมด)
+ *   ★ fallback: ที่ไม่ match face/line → ลง dealer (รวม "other" ที่ไม่รู้จัก) */
+function ordChannelDetail(o){
+  const cg = String(o.channel_group||"").toLowerCase();
+  if(cg === "shopee" || cg === "tiktok" || cg === "lazada") return cg;
+  const s = `${o.channel||""} ${o.customer||""}`.toLowerCase();
+  if(/\bline\b|\bli\b/.test(s)) return "line";
+  if(/face|fb|facebook|\big\b|instagram|หน้าร้าน/.test(s)) return "face";
+  return "dealer";
+}
+/* ★ marketplace 3 ช่อง — โชว์เสมอ · มี recon ฝั่งแพลตฟอร์ม */
+const ORD_BOARD_CHANS_MP = [
+  {k:"shopee", l:"Shopee", c:"#ee4d2d", dom:"shopee.com", isMP:true},
+  {k:"tiktok", l:"TikTok", c:"#000000", dom:"tiktok.com", isMP:true},
+  {k:"lazada", l:"Lazada", c:"#3f3bcc", dom:"lazada.com", isMP:true}
+];
+/* ★ ขายตรง 3 ช่อง — ยุบเป็น "อื่นๆ" 1 คอลัมน์ default · คลิกขยายดู 3 ช่องแยก */
+const ORD_BOARD_CHANS_OTHER = [
+  {k:"face",   l:"FACE",   c:"#8b5cf6", dom:"facebook.com", isMP:false},
+  {k:"line",   l:"LINE",   c:"#06c755", dom:"line.me",      isMP:false},
+  {k:"dealer", l:"Dealer", c:"#0f766e", dom:"",             isMP:false}
+];
+const ORD_BOARD_CHANS = [...ORD_BOARD_CHANS_MP, ...ORD_BOARD_CHANS_OTHER];   /* full list — ใช้คำนวณ matrix */
 /* ===== Phase A: parser รายงานขายหลังบ้าน 4 ช่องทาง (item-level → group เป็นออเดอร์) ===== */
 const ORD_CH = {
   shopee:    { sig:["หมายเลขคำสั่งซื้อ","สถานะการสั่งซื้อ"], order:"หมายเลขคำสั่งซื้อ", status:"สถานะการสั่งซื้อ", date:"วันที่ทำการสั่งซื้อ", product:"ชื่อสินค้า", sku:"เลขอ้างอิง SKU (SKU Reference No.)", qty:"จำนวน", ret:"จำนวนที่ส่งคืน", gross:"ราคาขายสุทธิ", net:"ราคาขายสุทธิ", ship:"ค่าจัดส่งที่ชำระโดยผู้ซื้อ", disc:"โค้ดส่วนลดชำระโดยผู้ขาย", cancelKw:"ยกเลิก", group:"shopee" },
@@ -16217,6 +16321,15 @@ function ordGet(){
   const co = state.company;
   if(!state.ord[co]) state.ord[co] = { rows:[], busy:false, q:"", fCh:"all", fIv:"all", fStatus:"all", view:"board", loaded:false, expanded:new Set() };
   if(!state.ord[co].expanded) state.ord[co].expanded = new Set();
+  // ★ Board redesign state — matrix detail filters + calendar collapsible + notes (per company localStorage)
+  if(state.ord[co].boardCh==null)   state.ord[co].boardCh="all";
+  if(state.ord[co].boardType==null) state.ord[co].boardType="all";
+  if(state.ord[co].boardCalOpen==null) state.ord[co].boardCalOpen=false;
+  if(state.ord[co].boardOtherOpen==null) state.ord[co].boardOtherOpen=false;
+  if(!state.ord[co].boardNotes){
+    try{ state.ord[co].boardNotes = JSON.parse(localStorage.getItem(`ord-board-notes-${co}`)||"{}"); }
+    catch(e){ state.ord[co].boardNotes = {}; }
+  }
   return state.ord[co];
 }
 async function ordUploadFiles(){
@@ -16426,7 +16539,10 @@ function ordStatusOf(o, reconMap){
   return 'wait_iv';
 }
 function ordStatusMeta(k){ return ORD_STATUS.find(s=>s.k===k) || { l:(k==='cancelled'?'ยกเลิก':k==='only_be'?'หลังบ้านมี · BigSeller ขาด':k), c:'#94a3b8', ic:'•' }; }
-function ordSetView(v){ const d=ordGet(); d.view=v; if(v!=='reg') d.fStatus='all'; renderToolOrders(); }
+function ordSetView(v){ const d=ordGet(); d.view=v; if(v!=='reg') d.fStatus='all';
+  // ★ เข้าแท็บ "ออเดอร์ที่แมพแล้ว" ครั้งแรก → default filter = matched (user ปรับเป็นอื่นได้)
+  if(v==='reg' && (d.fRec==null || d.fRec==='')) d.fRec='matched';
+  renderToolOrders(); }
 function ordBoardGo(k){ const d=ordGet();
   if(k==='only_be'){ d.view='recon'; d.recon=d.recon||{}; d.recon.filter='only_be'; renderToolOrders(); return; }
   d.fStatus=k; d.view='reg'; renderToolOrders();
@@ -16444,6 +16560,154 @@ function ordReconGoReg(status, ch){ const d=ordGet(); if(status==='only_be'){ re
 function ordReconDrillSet(status, ch){ const d=ordGet(); const c=ch||null; const cur=d.reconDrill; d.reconDrill=(cur&&cur.status===status&&cur.channel===c)?null:{status,channel:c}; if(d.reconDrill) d.reconRowOpen=new Set(); renderToolOrders(); }
 /* คลิกแถวใน drill → กางดีเทลเทียบยอด */
 function ordReconRowToggle(oid){ const d=ordGet(); if(!d.reconRowOpen) d.reconRowOpen=new Set(); const k=decodeURIComponent(oid); if(d.reconRowOpen.has(k)) d.reconRowOpen.delete(k); else d.reconRowOpen.add(k); renderToolOrders(); }
+/* ★ Board redesign actions */
+function ordBoardSetCh(ch){ const d=ordGet(); d.boardCh=ch; renderToolOrders();
+  setTimeout(()=>{ const el=document.getElementById("ordBoardDetail"); if(el) el.scrollIntoView({behavior:"smooth", block:"start"}); }, 50);
+}
+function ordBoardSetType(t){ const d=ordGet(); d.boardType=t; renderToolOrders(); }
+function ordBoardCalToggle(){ const d=ordGet(); d.boardCalOpen=!d.boardCalOpen; renderToolOrders(); }
+function ordBoardOtherToggle(){ const d=ordGet(); d.boardOtherOpen=!d.boardOtherOpen; renderToolOrders(); }
+function ordBoardGoDetail(ch){ const d=ordGet(); d.boardCh=ch; d.boardType="all"; renderToolOrders();
+  setTimeout(()=>{ const el=document.getElementById("ordBoardDetail"); if(el) el.scrollIntoView({behavior:"smooth", block:"start"}); }, 50);
+}
+function ordBoardSetNote(oidEnc, text){
+  const d=ordGet(); const co=state.company; const oid=decodeURIComponent(oidEnc);
+  if(!d.boardNotes) d.boardNotes={};
+  if(text==null||text==="") delete d.boardNotes[oid]; else d.boardNotes[oid]=text;
+  try{ localStorage.setItem(`ord-board-notes-${co}`, JSON.stringify(d.boardNotes)); }catch(e){}
+}
+/* ★ Build รายการผลต่างใช้ร่วม render + export (filter ตาม d.boardCh + d.boardType) */
+function ordBoardDetailRows(d){
+  const rb=ordRangeBounds(d.dateRange||"all");
+  const inRange=dt=>!rb||(dt&&String(dt).slice(0,10)>=rb.from&&String(dt).slice(0,10)<=rb.to);
+  const res=((d.recon&&d.recon.results)||[]).filter(r=>inRange(r.date)).map(r=>({...r, status: ordReconEffStatus(r)}));
+  const rows=[];
+  res.forEach(r=>{
+    if(r.status==="only_be"||r.status==="only_bs"||r.status==="diff"){
+      rows.push({...r, _type:r.status, _ch:r.channel});
+    }
+  });
+  const fCh=d.boardCh||"all", fType=d.boardType||"all";
+  let f=rows;
+  if(fCh==="_oth") f=f.filter(r=>["face","line","dealer"].includes(r._ch));
+  else if(fCh!=="all") f=f.filter(r=>r._ch===fCh);
+  if(fType!=="all") f=f.filter(r=>r._type===fType);
+  f.sort((a,b)=>(a.date||"").localeCompare(b.date||"") || (a.order_no||"").localeCompare(b.order_no||""));
+  return f;
+}
+/* ★ Export Excel: รายการผลต่างที่ filter อยู่ */
+function ordBoardExportXlsx(){
+  const d=ordGet(); const co=COMPANIES.find(c=>c.id===state.company);
+  const rows=ordBoardDetailRows(d);
+  if(!rows.length){ alert("ไม่มีรายการที่จะส่งออก"); return; }
+  const typeLab={only_be:"มีในแพลตฟอร์ม · ไม่มีใน BigSeller", only_bs:"มีใน BigSeller · ไม่มีในแพลตฟอร์ม", diff:"ยอดไม่ตรง"};
+  const chLab=k=>{ const m=ORD_BOARD_CHANS.find(c=>c.k===k); return m?m.l:k; };
+  const aoa=[["ลำดับ","วันที่","ช่องทาง","เลขที่คำสั่งซื้อ","ยอด (บาท)","ประเภทผลต่าง","รายละเอียด","หมายเหตุ"]];
+  rows.forEach((r,i)=>{
+    const amt=Number(ordReconNet(r.be||r.bs||{}))||0;
+    let detail="";
+    if(r._type==="diff" && r.diffs){
+      detail=r.diffs.map(df=>{
+        const fmt=ordFmtMoney;
+        const isText=df.txt;
+        return `${df.f}: ${isText?df.bs:fmt(df.bs)} vs ${isText?df.be:fmt(df.be)}`;
+      }).join(" · ");
+    } else if(r._type==="only_be"){
+      detail=`ลูกค้า ${r.be?.customer||"—"}`+(r.be?.products?` · ${String(r.be.products).slice(0,80)}`:"");
+    } else if(r._type==="only_bs"){
+      detail=`ลูกค้า ${r.bs?.customer||"—"}`+(r.bs?.products?` · ${String(r.bs.products).slice(0,80)}`:"");
+    }
+    const note=(d.boardNotes&&d.boardNotes[r.order_no])||"";
+    aoa.push([i+1, r.date||"", chLab(r._ch), r.order_no||"", +amt.toFixed(2), typeLab[r._type]||r._type, detail, note]);
+  });
+  const wb=XLSX.utils.book_new();
+  const ws=XLSX.utils.aoa_to_sheet(aoa);
+  ws["!cols"]=[{wch:6},{wch:12},{wch:10},{wch:22},{wch:14},{wch:36},{wch:60},{wch:36}];
+  XLSX.utils.book_append_sheet(wb, ws, "ผลต่าง");
+  const dt=new Date().toISOString().slice(0,10);
+  XLSX.writeFile(wb, `รายการผลต่าง_${co?co.code:"co"}_${dt}.xlsx`);
+}
+/* ★ Print PDF: เปิดหน้าต่างใหม่ + window.print() */
+function ordBoardPrintPdf(){
+  const d=ordGet(); const co=COMPANIES.find(c=>c.id===state.company);
+  const rows=ordBoardDetailRows(d);
+  if(!rows.length){ alert("ไม่มีรายการที่จะพิมพ์"); return; }
+  const typeLab={only_be:"มีในแพลตฟอร์ม · ไม่มีใน BigSeller", only_bs:"มีใน BigSeller · ไม่มีในแพลตฟอร์ม", diff:"ยอดไม่ตรง"};
+  const typeCol={only_be:"#dc2626", only_bs:"#d97706", diff:"#8b5cf6"};
+  const chLab=k=>{ const m=ORD_BOARD_CHANS.find(c=>c.k===k); return m?m.l:k; };
+  const fmt=ordFmtMoney;
+  const today=new Date().toLocaleDateString("th-TH",{day:"numeric",month:"long",year:"numeric"});
+  const totSum=rows.reduce((a,r)=>a+(Number(ordReconNet(r.be||r.bs||{}))||0), 0);
+  const w=window.open("","_blank","width=900,height=700");
+  if(!w){ alert("กรุณาอนุญาต popup เพื่อพิมพ์"); return; }
+  const tr=rows.map((r,i)=>{
+    const amt=Number(ordReconNet(r.be||r.bs||{}))||0;
+    let detail="";
+    if(r._type==="diff" && r.diffs){
+      detail=r.diffs.map(df=>{
+        const isText=df.txt;
+        return `${df.f}: ${isText?df.bs:fmt(df.bs)} vs ${isText?df.be:fmt(df.be)}`;
+      }).join(" · ");
+    } else if(r._type==="only_be"){
+      detail=`ลูกค้า ${r.be?.customer||"—"}`+(r.be?.products?` · ${String(r.be.products).slice(0,80)}`:"");
+    } else if(r._type==="only_bs"){
+      detail=`ลูกค้า ${r.bs?.customer||"—"}`+(r.bs?.products?` · ${String(r.bs.products).slice(0,80)}`:"");
+    }
+    const note=(d.boardNotes&&d.boardNotes[r.order_no])||"";
+    return `<tr>
+      <td style="text-align:center">${i+1}</td>
+      <td>${r.date||"—"}</td>
+      <td>${chLab(r._ch)}</td>
+      <td style="font-family:monospace">${r.order_no||""}</td>
+      <td style="text-align:right">${fmt(amt)}</td>
+      <td><b style="color:${typeCol[r._type]||"#64748b"}">${typeLab[r._type]||r._type}</b><div style="font-size:11px;color:#64748b;margin-top:2px">${detail}</div></td>
+      <td>${note}</td>
+    </tr>`;
+  }).join("");
+  const fCh=d.boardCh||"all", fType=d.boardType||"all";
+  const filtLabel=`ช่องทาง: ${fCh==="all"?"ทั้งหมด":chLab(fCh)} · ประเภท: ${fType==="all"?"ทั้งหมด":typeLab[fType]||fType}`;
+  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>รายการผลต่าง — ${co?co.name:""}</title>
+    <style>
+      *{font-family:"IBM Plex Sans Thai","IBM Plex Sans",system-ui,sans-serif;box-sizing:border-box}
+      body{margin:18px;color:#0f172a;font-size:12.5px}
+      h1{font-size:20px;margin:0 0 4px;color:${co?co.brand||"#0d9488":"#0d9488"}}
+      .sub{color:#475569;font-size:12px;margin-bottom:4px}
+      .meta{display:flex;justify-content:space-between;align-items:flex-end;border-bottom:2px solid ${co?co.brand||"#0d9488":"#0d9488"};padding-bottom:8px;margin-bottom:14px}
+      .summary{display:flex;gap:16px;margin-bottom:12px;padding:10px 14px;background:#f8fafc;border-radius:8px}
+      .summary > div{display:flex;flex-direction:column;gap:2px}
+      .summary .l{font-size:10.5px;color:#64748b;text-transform:uppercase;letter-spacing:.04em}
+      .summary .v{font-size:15px;font-weight:700;color:#0f172a;font-variant-numeric:tabular-nums}
+      table{width:100%;border-collapse:collapse;font-size:11.5px}
+      th,td{border-bottom:1px solid #e2e8f0;padding:8px 8px;text-align:left;vertical-align:top}
+      th{background:#f8fafc;font-weight:700;font-size:11px;text-transform:uppercase;color:#475569;letter-spacing:.04em}
+      tfoot td{border-top:2px solid #0f172a;font-weight:800;font-size:12.5px}
+      .sig{display:grid;grid-template-columns:1fr 1fr 1fr;gap:20px;margin-top:36px;font-size:11.5px;color:#475569}
+      .sig > div{text-align:center}
+      .sig .ln{border-top:1px solid #94a3b8;margin:0 12px 6px}
+      @media print{ .noprint{display:none} body{margin:12mm 10mm} }
+    </style></head><body>
+    <div class="meta">
+      <div><h1>รายการผลต่าง — ทะเบียนคำสั่งซื้อ</h1><div class="sub">${co?co.name:""} · พิมพ์เมื่อ ${today}</div></div>
+      <div style="text-align:right;color:#64748b;font-size:11.5px">${filtLabel}</div>
+    </div>
+    <div class="summary">
+      <div><span class="l">รายการ</span><span class="v">${rows.length.toLocaleString("th-TH")}</span></div>
+      <div><span class="l">ยอดรวม (บาท)</span><span class="v">${fmt(totSum)}</span></div>
+    </div>
+    <table>
+      <thead><tr><th style="width:42px">ลำดับ</th><th style="width:80px">วันที่</th><th style="width:80px">ช่องทาง</th><th>เลขที่คำสั่งซื้อ</th><th style="text-align:right;width:100px">ยอด (บาท)</th><th>หมายเหตุ</th><th style="width:140px">บันทึก</th></tr></thead>
+      <tbody>${tr}</tbody>
+      <tfoot><tr><td colspan="4" style="text-align:right">รวม ${rows.length.toLocaleString("th-TH")} รายการ</td><td style="text-align:right">${fmt(totSum)}</td><td colspan="2"></td></tr></tfoot>
+    </table>
+    <div class="sig">
+      <div><div class="ln">&nbsp;</div>ผู้จัดทำ</div>
+      <div><div class="ln">&nbsp;</div>ผู้ตรวจสอบ</div>
+      <div><div class="ln">&nbsp;</div>ผู้อนุมัติ</div>
+    </div>
+    <div class="noprint" style="margin-top:24px;text-align:center"><button onclick="window.print()" style="padding:10px 22px;border:0;border-radius:8px;background:${co?co.brand||"#0d9488":"#0d9488"};color:#fff;font:700 13px/1.2 inherit;cursor:pointer">🖨 พิมพ์</button> <button onclick="window.close()" style="padding:10px 22px;border:1px solid #e2e8f0;border-radius:8px;background:#fff;font:600 13px/1.2 inherit;cursor:pointer">ปิด</button></div>
+    </body></html>`);
+  w.document.close();
+}
 /* ★ ดีเทลเทียบยอดต่อออเดอร์ (SKU + ฐานภาษีขาย 2 ฝั่ง) — ใช้ร่วม drill + register */
 function ordReconDetailHtml(r){
   if(!r) return `<div style="padding:14px 14px 14px 38px;background:#fbfcfe;border-top:1px solid #eef1f6;color:#94a3b8;font:500 12.5px/1.4 inherit">ยังไม่ได้เทียบยอด — อัปไฟล์หลังบ้าน (Shopee/TikTok/Lazada) เพื่อกระทบยอด</div>`;
@@ -16607,11 +16871,278 @@ function ordReconChart(cov, mode, fmt, pAgg){
 }
 
 /* แท็บ สรุปภาพรวม (redesign) — KPI แพลตฟอร์ม + สรุปกระทบยอด + กระทบยอดต่อแพลตฟอร์ม + recon เดิม */
+/* ===== Board redesign (2026-06-29): Matrix 6 ช่อง × 3 แถว (BS/หลังบ้าน/ผลต่าง) + detail table + calendar collapsible ===== */
 function ordRenderBoard(d){
   const fmt=ordFmtMoney;
   const rb=ordRangeBounds(d.dateRange||'all');
   const inRange=dt=>!rb||(dt&&String(dt).slice(0,10)>=rb.from&&String(dt).slice(0,10)<=rb.to);
   const active=(d.rows||[]).filter(o=>o.status!=='cancelled'&&inRange(o.order_date));
+  const CH=ORD_BOARD_CHANS;
+  // recon results in range + recompute status
+  const res=((d.recon&&d.recon.results)||[]).filter(r=>inRange(r.date)).map(r=>({...r, status: ordReconEffStatus(r)}));
+  // ----- matrix data -----
+  const M={}; CH.forEach(c=>M[c.k]={bs:{n:0,sum:0}, be:{n:0,sum:0}, only_be:0, only_bs:0, diff:0, diffSum:0});
+  active.forEach(o=>{
+    const k=ordChannelDetail(o); if(!M[k]) return;
+    M[k].bs.n++; M[k].bs.sum+=Number(o.order_total||0);
+  });
+  res.forEach(r=>{
+    const ch=r.channel; if(!M[ch]) return;
+    const amt=Number(ordReconNet(r.be||r.bs||{}))||0;
+    // ระบบหลังบ้าน count = แถวที่มี platform side (matched+diff+only_be)
+    if(r.status==='matched'||r.status==='diff'||r.status==='only_be'){
+      M[ch].be.n++; M[ch].be.sum+=amt;
+    }
+    if(r.status==='only_be'){ M[ch].only_be++; M[ch].diffSum+=amt; }
+    if(r.status==='only_bs'){ M[ch].only_bs++; M[ch].diffSum+=amt; }
+    if(r.status==='diff'){    M[ch].diff++;    M[ch].diffSum+=amt; }
+  });
+  const diffN=k=>M[k].only_be+M[k].only_bs+M[k].diff;
+
+  // ★ aggregate "อื่นๆ" — face+line+dealer
+  const OTH_KEYS=ORD_BOARD_CHANS_OTHER.map(c=>c.k);
+  const othAgg = {
+    bs:{ n: OTH_KEYS.reduce((s,k)=>s+M[k].bs.n,0), sum: OTH_KEYS.reduce((s,k)=>s+M[k].bs.sum,0) }
+  };
+  const otherOpen = d.boardOtherOpen||false;
+
+  // ----- display column list -----
+  const displayCH = otherOpen
+    ? [...ORD_BOARD_CHANS_MP, ...ORD_BOARD_CHANS_OTHER]
+    : [...ORD_BOARD_CHANS_MP, {k:"_oth", l:"อื่นๆ", c:"#64748b", isMP:false, isOther:true}];
+
+  // ----- header cell — โลโก้จริง (Clearbit) + ไม่มี subtitle -----
+  const headCell=c=>{
+    // ★ "อื่นๆ" คลิก toggle expand · เปิด/ปิดได้
+    const clickAttr = c.isOther
+      ? `onclick="ordBoardOtherToggle()" style="cursor:pointer" title="คลิกเพื่อดูแยก FACE/LINE/Dealer"`
+      : '';
+    // logo: marketplace + LINE = ใช้ Clearbit · อื่น = badge ตัวอักษร
+    const useLogo = !!c.dom;
+    const logoHtml = useLogo
+      ? `<img src="https://logo.clearbit.com/${c.dom}" alt="${esc(c.l)}" style="width:100%;height:100%;object-fit:contain;padding:4px;box-sizing:border-box" onerror="this.outerHTML='<span style=\\'color:${c.c};font:800 16px/1 inherit\\'>${esc(c.l[0])}</span>'">`
+      : `<span style="color:${c.c};font:800 16px/1 inherit">${c.isOther?'⋯':esc(c.l[0])}</span>`;
+    // expand/collapse hint badge
+    const expandHint = c.isOther
+      ? `<span style="position:absolute;top:6px;right:6px;background:rgba(255,255,255,.28);color:#fff;font:700 9.5px/1 inherit;padding:3px 6px;border-radius:999px;letter-spacing:.04em">▸ ขยาย</span>`
+      : '';
+    return `<div ${clickAttr} class="ord-board-head" data-k="${c.k}" style="position:relative;display:flex;flex-direction:column;align-items:center;gap:6px;padding:16px 8px 14px;background:linear-gradient(160deg, ${c.c}ee 0%, ${c.c} 100%);border-radius:12px 12px 0 0;box-shadow:inset 0 -1px 0 rgba(0,0,0,.1)">
+      ${expandHint}
+      <div style="width:46px;height:46px;border-radius:50%;background:#fff;display:flex;align-items:center;justify-content:center;border:2.5px solid rgba(255,255,255,.85);overflow:hidden;box-shadow:0 4px 14px rgba(15,23,42,.22)">${logoHtml}</div>
+      <div style="font:700 12.5px/1 inherit;letter-spacing:.04em;margin-top:4px;color:#fff;text-shadow:0 1px 3px rgba(0,0,0,.25)">${esc(c.l)}</div>
+    </div>`;
+  };
+  // ----- cell (count + amount) -----
+  const cell=(n,sum,opts)=>{
+    opts=opts||{};
+    return `<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:13px 8px;${opts.bg?`background:${opts.bg};`:''}${opts.click?'cursor:pointer;transition:.15s':''}" ${opts.click?`onclick="${opts.click}" onmouseover="this.style.background='${opts.hoverBg||'#fef2f2'}'" onmouseout="this.style.background='${opts.bg||'transparent'}'"`:''}>
+      <div class="tnum" style="font:800 22px/1.1 inherit;color:${opts.col||'#0f172a'};letter-spacing:-.02em">${n.toLocaleString('th-TH')}</div>
+      <div class="tnum" style="font:500 11.5px/1.3 inherit;color:${opts.subCol||'#64748b'};margin-top:3px">${sum!=null?fmt(sum)+' บ.':''}</div>
+    </div>`;
+  };
+  const dashCell=()=>`<div style="display:flex;align-items:center;justify-content:center;padding:13px 8px;color:#cbd5e1;font:600 14px/1 inherit">—</div>`;
+  const rowLabel=(ic,l,sub,col)=>`<div style="display:flex;flex-direction:column;justify-content:center;padding:14px 18px;border-right:1px solid #eef1f6;background:#fcfdfe">
+    <div style="display:flex;align-items:center;gap:8px"><i data-lucide="${ic}" style="width:16px;height:16px;color:${col||'#475569'}"></i><span style="font:700 13.5px/1.2 inherit;color:${col||'#1e293b'}">${esc(l)}</span></div>
+    <div style="font:500 11px/1.4 inherit;color:#94a3b8;margin-top:3px">${esc(sub||'')}</div>
+  </div>`;
+
+  // ★ get cell data ต่อ column (รองรับ _oth)
+  const colData=c=>{
+    if(c.isOther){
+      return {
+        bs: othAgg.bs,
+        beShow: false,    // ไม่โชว์หลังบ้าน
+        diffShow: false   // ไม่โชว์ผลต่าง
+      };
+    }
+    return { bs:M[c.k].bs, beShow:c.isMP, diffShow:c.isMP };
+  };
+
+  const gridCols=`grid-template-columns: 200px repeat(${displayCH.length}, minmax(120px,1fr))`;
+  const matrixHtml=`
+    <div class="ord-card" style="padding:0;overflow:hidden;border-radius:16px">
+      <div style="display:grid;${gridCols};background:#f8fafc;border-bottom:1px solid #e2e8f0">
+        <div style="padding:14px 18px;display:flex;align-items:center;justify-content:space-between">
+          <span style="font:700 12px/1.2 inherit;color:#64748b;text-transform:uppercase;letter-spacing:.06em">ช่องทางขาย</span>
+          ${otherOpen?`<button onclick="ordBoardOtherToggle()" style="border:0;background:#f1f5f9;color:#475569;border-radius:7px;padding:4px 9px;font:600 10.5px/1 inherit;font-family:inherit;cursor:pointer">◂ ยุบ</button>`:''}
+        </div>
+        ${displayCH.map(headCell).join('')}
+      </div>
+      <!-- BigSeller row -->
+      <div style="display:grid;${gridCols};border-bottom:1px solid #eef1f6">
+        ${rowLabel('database','BigSeller','หน้าบ้าน (คีย์ขาย)','#0d9488')}
+        ${displayCH.map(c=>{const cd=colData(c);return cell(cd.bs.n, cd.bs.sum, {col:'#0f172a'});}).join('')}
+      </div>
+      <!-- ระบบหลังบ้าน row -->
+      <div style="display:grid;${gridCols};border-bottom:1px solid #eef1f6;background:#fafbfc">
+        ${rowLabel('cloud-download','ระบบหลังบ้าน','รายงานจากแพลตฟอร์ม','#3b82f6')}
+        ${displayCH.map(c=> c.isMP ? cell(M[c.k].be.n, M[c.k].be.sum, {col:'#0f172a'}) : dashCell()).join('')}
+      </div>
+      <!-- ผลต่าง row -->
+      <div style="display:grid;${gridCols}">
+        ${rowLabel('alert-triangle','ผลต่าง','คลิกเพื่อดูรายการ','#dc2626')}
+        ${displayCH.map(c=>{
+          if(!c.isMP) return dashCell();
+          const n=diffN(c.k);
+          if(n===0) return cell(0, 0, {col:'#16a34a', subCol:'#16a34a'});
+          return cell(n, M[c.k].diffSum, {col:'#dc2626', subCol:'#dc2626', bg:'#fef2f2', hoverBg:'#fee2e2', click:`ordBoardGoDetail('${c.k}')`});
+        }).join('')}
+      </div>
+    </div>
+    <div style="font:500 11.5px/1.4 inherit;color:#94a3b8;margin-top:8px;padding:0 4px">💡 คลิกเซลล์ "ผลต่าง" ที่มีตัวเลข → เลื่อนลงไปดูรายละเอียด · ${otherOpen?'คลิก "ยุบ" บนหัวตารางเพื่อรวม FACE/LINE/Dealer กลับเป็น "อื่นๆ"':'คลิกหัว "อื่นๆ" เพื่อดูแยก FACE/LINE/Dealer · ขายตรงไม่มีระบบหลังบ้าน (BigSeller = แหล่งข้อมูล)'}</div>
+  `;
+
+  // ----- Detail table -----
+  const detail=ordBoardDetailRows(d);
+  const fCh=d.boardCh||'all', fType=d.boardType||'all';
+  const typeMeta={only_be:{l:'มีในแพลตฟอร์ม · ไม่มีใน BigSeller', short:'ไม่มีใน BS', c:'#dc2626', bg:'#fef2f2'}, only_bs:{l:'มีใน BigSeller · ไม่มีในแพลตฟอร์ม', short:'ไม่มีใน Platform', c:'#d97706', bg:'#fffbeb'}, diff:{l:'ยอดไม่ตรง', short:'ยอดต่าง', c:'#8b5cf6', bg:'#f5f3ff'}};
+  // counts for filter chips
+  const cntCh={all:0, _oth:0}; CH.forEach(c=>cntCh[c.k]=0);
+  const cntType={all:0, only_be:0, only_bs:0, diff:0};
+  ((d.recon&&d.recon.results)||[]).filter(r=>inRange(r.date)).forEach(r=>{
+    const s=ordReconEffStatus(r);
+    if(s!=='only_be'&&s!=='only_bs'&&s!=='diff') return;
+    cntCh.all++; if(cntCh[r.channel]!=null) cntCh[r.channel]++;
+    if(["face","line","dealer"].includes(r.channel)) cntCh._oth++;
+    cntType.all++; cntType[s]++;
+  });
+  const chipCh=(k,l)=>`<button onclick="ordBoardSetCh('${k}')" style="border:0;border-radius:9px;padding:6px 13px;font:600 12.5px/1.1 inherit;font-family:inherit;cursor:pointer;display:inline-flex;align-items:center;gap:6px;${fCh===k?'background:var(--brand,#0d9488);color:#fff':'background:#f1f5f9;color:#475569'}">${esc(l)}${cntCh[k]?`<span style="font:700 10.5px/1 inherit;padding:2px 6px;border-radius:999px;${fCh===k?'background:rgba(255,255,255,.22)':'background:#fff;color:#dc2626'}" class="tnum">${cntCh[k]}</span>`:''}</button>`;
+  const chipTy=(k,l,col)=>`<button onclick="ordBoardSetType('${k}')" style="border:0;border-radius:9px;padding:6px 13px;font:600 12.5px/1.1 inherit;font-family:inherit;cursor:pointer;display:inline-flex;align-items:center;gap:6px;${fType===k?`background:${col||'#475569'};color:#fff`:'background:#f1f5f9;color:#475569'}">${esc(l)}${cntType[k]?`<span style="font:700 10.5px/1 inherit;padding:2px 6px;border-radius:999px;${fType===k?'background:rgba(255,255,255,.22)':'background:#fff;color:'+(col||'#475569')}" class="tnum">${cntType[k]}</span>`:''}</button>`;
+  // ★ ตาม otherOpen — ยุบ/ขยาย chip ขายตรง
+  const chipCHList = otherOpen
+    ? [...ORD_BOARD_CHANS_MP, ...ORD_BOARD_CHANS_OTHER]
+    : [...ORD_BOARD_CHANS_MP, {k:"_oth", l:"อื่นๆ"}];
+
+  const detailRows=detail.map((r,i)=>{
+    const m=typeMeta[r._type]||{l:r._type,c:'#64748b',bg:'#f8fafc'};
+    const cm=CH.find(c=>c.k===r._ch)||{l:r._ch,c:'#64748b'};
+    const amt=Number(ordReconNet(r.be||r.bs||{}))||0;
+    let det='';
+    if(r._type==='diff' && r.diffs){
+      det=r.diffs.map(df=>`<span style="margin-right:10px"><b>${esc(df.f)}:</b> ${df.txt?esc(df.bs):fmt(df.bs)} <span style="color:#94a3b8">vs</span> ${df.txt?esc(df.be):fmt(df.be)}</span>`).join('');
+    } else if(r._type==='only_be'){
+      det=`ลูกค้า: <b>${esc(r.be?.customer||'—')}</b>` + (r.be?.products?` · SKU: ${esc(String(r.be.products).slice(0,80))}`:'');
+    } else if(r._type==='only_bs'){
+      det=`ลูกค้า: <b>${esc(r.bs?.customer||'—')}</b>` + (r.bs?.products?` · SKU: ${esc(String(r.bs.products).slice(0,80))}`:'');
+    }
+    const note=(d.boardNotes&&d.boardNotes[r.order_no])||'';
+    const oidEnc=encodeURIComponent(r.order_no||'');
+    return `<tr>
+      <td style="text-align:center;color:#94a3b8;font-weight:600">${i+1}</td>
+      <td class="tnum" style="white-space:nowrap;font-size:12px">${r.date||'—'}</td>
+      <td><span style="display:inline-block;padding:2px 9px;border-radius:6px;font:700 11px/1.4 inherit;background:${cm.c}1f;color:${cm.c}">${esc(cm.l)}</span></td>
+      <td class="tnum" style="font-weight:700;color:#334155">${esc(r.order_no||'')}</td>
+      <td class="tnum" style="text-align:right;font-weight:700;color:#0f172a">${fmt(amt)}</td>
+      <td>
+        <div style="display:inline-block;padding:2px 9px;border-radius:6px;font:700 10.5px/1.4 inherit;background:${m.bg};color:${m.c};margin-bottom:5px">${esc(m.short)}</div>
+        <div style="font:500 11.5px/1.5 inherit;color:#475569;margin-bottom:6px">${det}</div>
+        <input type="text" value="${esc(note)}" placeholder="บันทึกหมายเหตุ..." onchange="ordBoardSetNote('${oidEnc}', this.value)" style="width:100%;padding:5px 9px;border:1px solid #e2e8f0;border-radius:7px;font:500 12px/1.4 inherit;background:#fff;color:#1e293b;outline:none;box-sizing:border-box" onfocus="this.style.borderColor='var(--brand,#0d9488)'" onblur="this.style.borderColor='#e2e8f0'">
+      </td>
+    </tr>`;
+  }).join('');
+
+  const detailHtml=`
+    <div id="ordBoardDetail" class="ord-card" style="margin-top:16px;padding:18px 22px">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;flex-wrap:wrap">
+        <i data-lucide="list-checks" style="width:18px;height:18px;color:var(--brand,#0d9488)"></i>
+        <div style="font:800 16px/1.2 inherit">รายละเอียดผลต่าง</div>
+        <span style="background:#fef2f2;color:#dc2626;font:700 12.5px/1.4 inherit;padding:2px 10px;border-radius:999px" class="tnum">${detail.length.toLocaleString('th-TH')} รายการ</span>
+        <span style="flex:1"></span>
+        <button class="ord-btn" onclick="ordBoardExportXlsx()" ${detail.length?'':'disabled'}><i data-lucide="file-spreadsheet"></i> ส่งออก Excel</button>
+        <button class="ord-btn" onclick="ordBoardPrintPdf()" ${detail.length?'':'disabled'}><i data-lucide="printer"></i> พิมพ์ / PDF</button>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:7px;margin-bottom:10px">
+        <span style="font:600 11px/1.6 inherit;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;padding:3px 0;margin-right:4px">ช่องทาง</span>
+        ${chipCh('all','ทั้งหมด')}
+        ${chipCHList.map(c=>chipCh(c.k, c.l)).join('')}
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:7px;margin-bottom:14px">
+        <span style="font:600 11px/1.6 inherit;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;padding:3px 0;margin-right:4px">ประเภท</span>
+        ${chipTy('all','ทุกประเภท')}
+        ${chipTy('only_be','มีใน Platform · ไม่มี BS','#dc2626')}
+        ${chipTy('only_bs','มีใน BS · ไม่มี Platform','#d97706')}
+        ${chipTy('diff','ยอดต่าง','#8b5cf6')}
+      </div>
+      ${detail.length ? `<div style="overflow-x:auto;border:1px solid #eef1f6;border-radius:12px">
+        <table style="width:100%;border-collapse:collapse;font:400 12.5px/1.4 inherit">
+          <thead><tr style="background:#f8fafc">
+            <th style="padding:10px 8px;font:700 11px/1.2 inherit;color:#64748b;text-transform:uppercase;letter-spacing:.04em;text-align:center;width:44px;border-bottom:1px solid #e2e8f0">ลำดับ</th>
+            <th style="padding:10px 12px;font:700 11px/1.2 inherit;color:#64748b;text-transform:uppercase;letter-spacing:.04em;text-align:left;width:90px;border-bottom:1px solid #e2e8f0">วันที่</th>
+            <th style="padding:10px 12px;font:700 11px/1.2 inherit;color:#64748b;text-transform:uppercase;letter-spacing:.04em;text-align:left;width:100px;border-bottom:1px solid #e2e8f0">ช่องทาง</th>
+            <th style="padding:10px 12px;font:700 11px/1.2 inherit;color:#64748b;text-transform:uppercase;letter-spacing:.04em;text-align:left;border-bottom:1px solid #e2e8f0">เลขที่คำสั่งซื้อ</th>
+            <th style="padding:10px 12px;font:700 11px/1.2 inherit;color:#64748b;text-transform:uppercase;letter-spacing:.04em;text-align:right;width:120px;border-bottom:1px solid #e2e8f0">ยอด (บาท)</th>
+            <th style="padding:10px 12px;font:700 11px/1.2 inherit;color:#64748b;text-transform:uppercase;letter-spacing:.04em;text-align:left;border-bottom:1px solid #e2e8f0">หมายเหตุ</th>
+          </tr></thead>
+          <tbody>${detailRows.replace(/<td /g,'<td style="padding:11px 12px;border-bottom:1px solid #f1f5f9;vertical-align:top" ').replace(/<td style="padding:11px 12px;border-bottom:1px solid #f1f5f9;vertical-align:top" /g,'<td style="padding:11px 12px;border-bottom:1px solid #f1f5f9;vertical-align:top;')}</tbody>
+        </table>
+      </div>` : `<div style="padding:32px;text-align:center;color:#94a3b8;font:500 13px/1.5 inherit;background:#fafbfc;border:1px dashed #e2e8f0;border-radius:12px">${cntType.all===0 ? '✓ ไม่มีผลต่าง — ทุกออเดอร์ตรงกัน' : 'ไม่มีรายการตามตัวกรองที่เลือก'}</div>`}
+    </div>
+  `;
+
+  // ----- Calendar (collapsible) -----
+  const calOpen=d.boardCalOpen||false;
+  let calContent='';
+  if(calOpen){
+    const today=new Date(); const Y=today.getFullYear(), Mo=today.getMonth();
+    const monthDays=new Date(Y,Mo+1,0).getDate(); const firstDow=new Date(Y,Mo,1).getDay(); const todayDay=today.getDate();
+    const monthLabel=today.toLocaleDateString('th-TH',{month:'long',year:'numeric'});
+    const isoDay=iso=>{ if(!iso) return 0; const p=String(iso).slice(0,10).split('-').map(Number); const dt=new Date(p[0],p[1]-1,p[2]); if(dt<new Date(Y,Mo,1)) return 0; if(dt>new Date(Y,Mo,monthDays)) return monthDays; return dt.getDate(); };
+    const cov=ordReconCoverage(d,res);
+    const dowH=['อา','จ','อ','พ','พฤ','ศ','ส'];
+    const calCards=cov.chans.map(ch=>{
+      const m=({shopee:{l:'Shopee'},tiktok:{l:'TikTok'},lazada:{l:'Lazada'},offline:{l:'หน้าร้าน'}})[ch]||{l:ch};
+      const bsDay=isoDay(cov.bsMax[ch]), pfDay=isoDay(cov.beMax[ch]);
+      let cells='';
+      for(let i=0;i<firstDow;i++) cells+=`<div style="aspect-ratio:1/1"></div>`;
+      for(let dd=1;dd<=monthDays;dd++){
+        const inPf=dd<=pfDay, inBs=dd<=bsDay; let bg='#eef1f6',col='#b3bdca';
+        if(inPf&&inBs){bg='#16a34a';col='#fff';} else if(inPf&&!inBs){bg='#f59e0b';col='#fff';} else if(!inPf&&inBs){bg='#2563eb';col='#fff';}
+        const ring=dd===todayDay?'box-shadow:0 0 0 2px var(--brand,#1e3a8a);font-weight:800;':'';
+        cells+=`<div style="aspect-ratio:1/1;border-radius:7px;display:flex;align-items:center;justify-content:center;font:600 11.5px/1 inherit;background:${bg};color:${col};${ring}">${dd}</div>`;
+      }
+      const lag=Math.abs((bsDay||0)-(pfDay||0));
+      return `<div style="border:1px solid #eef1f6;border-radius:14px;padding:12px;background:#fff">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:3px">${ordPlatLogo(ch,20)}<span style="font:700 13px/1.2 inherit">${m.l}</span>${lag>0?`<span style="margin-left:auto;font:700 10px/1.4 inherit;padding:1px 8px;border-radius:999px;background:${lag>3?'#fef2e7':'#eaf7ef'};color:${lag>3?'#b45309':'#15803d'}">ต่าง ${lag} วัน</span>`:''}</div>
+        <div style="font:500 10.5px/1.4 inherit;color:#94a3b8;margin-bottom:9px">BS ถึง <b style="color:#334155">${cov.bsMax[ch]?cov.bsMax[ch].slice(5):'—'}</b> · หลังบ้านถึง <b style="color:#b45309">${cov.beMax[ch]?cov.beMax[ch].slice(5):'—'}</b></div>
+        <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-bottom:5px">${dowH.map(x=>`<div style="text-align:center;font:700 10px/1 inherit;color:#b3bdca">${x}</div>`).join('')}</div>
+        <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px">${cells}</div>
+      </div>`;
+    }).join('');
+    calContent=`<div style="background:#fafbfc;border:1px solid #e2e8f0;border-radius:14px;padding:18px;margin-top:10px">
+      <div style="display:flex;align-items:center;gap:9px;margin-bottom:14px;flex-wrap:wrap">
+        <i data-lucide="calendar-days" style="width:17px;height:17px;color:var(--brand,#0d9488)"></i>
+        <span style="font:700 14.5px/1.2 inherit">สถานะการนำเข้าข้อมูล</span>
+        <span style="font:600 12px/1.2 inherit;color:#94a3b8">${esc(monthLabel)}</span>
+        <span style="flex:1"></span>
+        <span style="display:inline-flex;align-items:center;gap:5px;font:400 11px/1.4 inherit;color:#475569"><span style="width:12px;height:12px;border-radius:4px;background:#16a34a"></span>ครบ 2 ระบบ</span>
+        <span style="display:inline-flex;align-items:center;gap:5px;font:400 11px/1.4 inherit;color:#475569"><span style="width:12px;height:12px;border-radius:4px;background:#f59e0b"></span>เหลือ BigSeller</span>
+        <span style="display:inline-flex;align-items:center;gap:5px;font:400 11px/1.4 inherit;color:#475569"><span style="width:12px;height:12px;border-radius:4px;background:#2563eb"></span>เหลือแพลตฟอร์ม</span>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(${Math.min(3,cov.chans.length||1)},1fr);gap:12px">${calCards||'<div style="padding:20px;text-align:center;color:#94a3b8;font:500 12.5px/1.4 inherit">ยังไม่มีข้อมูลกระทบยอด — อัปไฟล์หลังบ้านเพื่อเริ่มเทียบ</div>'}</div>
+    </div>`;
+  }
+
+  return `
+    <!-- calContent ขยาย/ยุบจากปุ่มในแถบ toolbar ด้านบน -->
+    ${calContent ? `<div style="margin-top:10px">${calContent}</div>` : ''}
+
+    <!-- Matrix table 6×3 -->
+    <div style="margin-top:18px">${matrixHtml}</div>
+
+    <!-- Detail table -->
+    ${detailHtml}
+
+    ${(d.recon&&d.recon.cal&&d.recon.cal.open) ? `<div onclick="ordReconCalClose()" style="position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px">${ordReconCalendarHtml(d)}</div>` : ''}
+  `;
+}
+/* ★ Board (เก่า) — เลิกใช้ 2026-06-29 (รื้อเป็น matrix 6×3) · เก็บไว้เผื่อ rollback */
+function ordRenderBoard_OLD_UNUSED_DELETED(){ return ''; }
+/* eslint-disable */
+/* prettier-ignore */ /* original below — kept as dead code; never invoked */
+function _ord_dead_zone(){const fmt=ordFmtMoney;
+  const rb=ordRangeBounds('all');
+  const inRange=dt=>true;
+  const active=[];
   // ----- 4 KPI แพลตฟอร์ม -----
   const PLAT=[
     {k:'shopee', l:'Shopee',           c:'#ee4d2d', badge:'S'},
@@ -16909,22 +17440,19 @@ function ordRenderRegister(d){
   const recMap=new Map(), recResMap=new Map();
   ((d.recon&&d.recon.results)||[]).forEach(r=>{ if(r.order_no){ recMap.set(String(r.order_no), ordReconEffStatus(r)); recResMap.set(String(r.order_no), r); } });
   const recOf=o=> recMap.get(String(o.order_id))||'pending';
-  const fCh=d.fCh||'all', fRec=d.fRec||'all';
+  const fCh=d.fCh||'all';
+  const fRec='matched'; // ★ tab นี้โชว์เฉพาะออเดอร์ที่แมพตรงแล้วเท่านั้น
   // ★ ตัดออเดอร์ยกเลิกออก (ให้ตรงกับการ์ด KPI + tab ที่นับเฉพาะ active)
   const act=(d.rows||[]).filter(o=> o.status!=='cancelled');
   const base=act.filter(o=> fCh==='all'||o.channel_group===fCh);
-  const rows=base.filter(o=> fRec==='all'||recOf(o)===fRec);
-  const chCount={}; act.forEach(o=>{chCount[o.channel_group]=(chCount[o.channel_group]||0)+1;});
-  const recCount={matched:0,diff:0,only_bs:0,pending:0}; base.forEach(o=>{ const k=recOf(o); if(recCount[k]!=null)recCount[k]++; });
+  const rows=base.filter(o=> recOf(o)===fRec);
+  const chCount={}; act.filter(o=>recOf(o)==='matched').forEach(o=>{chCount[o.channel_group]=(chCount[o.channel_group]||0)+1;});
   const chChip=(v,l)=>`<button class="ord-chip ${fCh===v?'on':''}" onclick="ordSet('fCh','${v}')">${l}${v!=='all'&&chCount[v]?` <span class="n">${chCount[v]}</span>`:''}</button>`;
-  const recChip=(v,l)=>`<button class="ord-chip ${fRec===v?'on':''}" onclick="ordSet('fRec','${v}')">${l}${v!=='all'&&recCount[v]?` <span class="n">${recCount[v].toLocaleString('th-TH')}</span>`:''}</button>`;
   return `
     <div class="ord-chips">
       ${chChip('all','ทุกช่อง')}${chChip('shopee','Shopee')}${chChip('tiktok','TikTok')}${chChip('lazada','Lazada')}${chChip('offline','หน้าร้าน/อื่น')}
-      <span style="width:14px"></span>
-      ${recChip('all','สถานะทั้งหมด')}${recChip('matched','ตรงกัน')}${recChip('diff','ยอดไม่ตรง')}${recChip('only_bs','หลังบ้านยังไม่ขึ้น')}${recChip('pending','รอเทียบ')}
     </div>
-    <div style="font:500 11.5px/1.5 inherit;color:var(--n-500);margin:2px 2px 10px">${rows.length.toLocaleString('th-TH')} ออเดอร์ · สถานะ = ผลกระทบยอด BigSeller (หน้าบ้าน) ↔ รายงานหลังบ้าน · "รอเทียบ" = ยังไม่อัปไฟล์หลังบ้านมาเทียบ</div>
+    <div style="font:500 11.5px/1.5 inherit;color:var(--n-500);margin:2px 2px 10px">${rows.length.toLocaleString('th-TH')} ออเดอร์ที่กระทบยอดตรงกันแล้ว</div>
     <div class="ord-card">
       <div style="max-height:60vh;overflow-y:auto">
         <table class="ord-table">
@@ -19057,28 +19585,50 @@ async function renderToolOrders(){
       <input id="ordQ" value="${esc(d.q||'')}" oninput="ordSet('q',this.value)" placeholder="ค้นหาเลขออเดอร์ / IV / RE / BQ / เลขเช็ค / สินค้า — เด้งสถานะเต็มทันที">
     </div>
 
-    <!-- Toolbar: tabs (ซ้าย) + นำเข้า/ส่งออก/ล้าง (ขวา) -->
-    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-top:14px">
-      <div class="ord-tabs" style="margin:0">
-        ${tabBtn('board','⇄ สรุปภาพรวม', null)}
-        ${tabBtn('reg','📋 รายละเอียดการขาย', k.totN)}
+    <!-- Toolbar: tabs+chips+สถานะ (ซ้าย) | นำเข้า/ส่งออก+ล้าง (ขวา) -->
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-top:14px">
+      <!-- ซ้าย: tabs + board-only controls -->
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <div class="ord-tabs" style="margin:0">
+          ${tabBtn('board','⇄ สรุปภาพรวม', null)}
+          ${tabBtn('reg','✓ ออเดอร์ที่แมพแล้ว', k.totN)}
+        </div>
+        ${view==='board'?`
+        <div style="display:flex;align-items:center;gap:3px;background:#f8fafc;border:1px solid var(--n-200);border-radius:10px;padding:3px 5px">
+          <span style="font:600 11.5px/1.2 inherit;color:var(--n-500);padding:0 5px;display:inline-flex;align-items:center;gap:4px"><i data-lucide="calendar-range" style="width:13px;height:13px"></i>ช่วงวันที่</span>
+          ${[['all','ทั้งหมด'],['today','วันนี้'],['7d','7 วัน'],['month','เดือนนี้']].map(([k2,l])=>`<button onclick="ordSetRange('${k2}')" style="border:0;border-radius:7px;padding:5px 11px;font:600 12px/1 inherit;cursor:pointer;font-family:inherit;transition:.12s;${(d.dateRange||'all')===k2?'background:var(--brand,#1e3a8a);color:#fff':'background:transparent;color:#64748b'}">${l}</button>`).join('')}
+        </div>
+        <button onclick="ordBoardCalToggle()" style="display:inline-flex;align-items:center;gap:7px;padding:7px 12px;border-radius:9px;border:1px solid var(--n-200);background:${d.boardCalOpen?'var(--brand-soft,#eef2fb)':'#fff'};color:${d.boardCalOpen?'var(--brand,#1e3a8a)':'var(--n-700)'};font:600 12px/1.2 inherit;font-family:inherit;cursor:pointer;transition:.12s" onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background='${d.boardCalOpen?'var(--brand-soft,#eef2fb)':'#fff'}'">
+          <i data-lucide="calendar-clock" style="width:14px;height:14px;color:var(--brand,#0d9488)"></i>
+          สถานะการดึงข้อมูล
+          <i data-lucide="${d.boardCalOpen?'chevron-up':'chevron-down'}" style="width:12px;height:12px;color:#94a3b8"></i>
+        </button>`:''}
       </div>
-      <div style="display:flex;align-items:center;gap:9px;position:relative">
+      <!-- ขวา: นำเข้า/ส่งออก combined + ล้างทะเบียน -->
+      <div style="display:flex;align-items:center;gap:8px;position:relative">
         ${d._menu?`<div onclick="ordMenu('')" style="position:fixed;inset:0;z-index:40"></div>`:''}
         <div style="position:relative;z-index:50">
-          <button class="ord-btn primary" onclick="ordMenu('import')" ${brecCanWrite()?'':'disabled'}><i data-lucide="upload"></i> นำเข้าข้อมูล <i data-lucide="chevron-down" style="width:13px;height:13px"></i></button>
-          ${d._menu==='import'?`<div style="position:absolute;top:calc(100% + 8px);left:0;width:300px;background:#fff;border:1px solid #e2e8f0;border-radius:14px;box-shadow:0 18px 42px -12px rgba(16,24,40,.3);padding:10px;z-index:50">
-            <div style="font:700 11px/1.2 inherit;color:#94a3b8;padding:6px 8px 9px">เลือกแหล่งข้อมูลที่จะนำเข้า</div>
-            <button onclick="ordMenu('');ordUploadFiles()" style="display:flex;align-items:center;gap:11px;width:100%;text-align:left;padding:10px;border-radius:11px;border:0;background:transparent;cursor:pointer;font-family:inherit"><span style="width:36px;height:36px;border-radius:10px;background:var(--brand-soft,#eef2fb);display:flex;align-items:center;justify-content:center;flex-shrink:0"><i data-lucide="database" style="width:18px;height:18px;color:var(--brand,#1e3a8a)"></i></span><span style="flex:1"><span style="display:block;font:700 13.5px/1.3 inherit;color:#1f2937">ข้อมูลจาก BigSeller</span><span style="display:block;font:400 11.5px/1.3 inherit;color:#94a3b8">ออเดอร์รวม SP/TT/LZ + คีย์มือ (FACE/LINE)</span></span></button>
-            <button onclick="ordMenu('');ordReconUpload()" style="display:flex;align-items:center;gap:11px;width:100%;text-align:left;padding:10px;border-radius:11px;border:0;background:transparent;cursor:pointer;font-family:inherit"><span style="width:36px;height:36px;border-radius:10px;background:#fef0ec;display:flex;align-items:center;justify-content:center;flex-shrink:0"><i data-lucide="store" style="width:18px;height:18px;color:#ee4d2d"></i></span><span style="flex:1"><span style="display:block;font:700 13.5px/1.3 inherit;color:#1f2937">ข้อมูลจากแพลตฟอร์ม e-commerce</span><span style="display:block;font:400 11.5px/1.3 inherit;color:#94a3b8">รายงานหลังบ้าน Shopee / TikTok / Lazada</span></span></button>
-          </div>`:''}
-        </div>
-        <div style="position:relative;z-index:50">
-          <button class="ord-btn" onclick="ordMenu('export')"><i data-lucide="download"></i> ส่งออกข้อมูล <i data-lucide="chevron-down" style="width:13px;height:13px"></i></button>
-          ${d._menu==='export'?`<div style="position:absolute;top:calc(100% + 8px);right:0;width:300px;background:#fff;border:1px solid #e2e8f0;border-radius:14px;box-shadow:0 18px 42px -12px rgba(16,24,40,.3);padding:10px;z-index:50">
-            <div style="font:700 11px/1.2 inherit;color:#94a3b8;padding:6px 8px 9px">เลือกข้อมูลที่จะส่งออก</div>
-            <button onclick="ordMenu('');ordExportNoIv()" style="display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:10px;border-radius:11px;border:0;background:transparent;cursor:pointer;font-family:inherit"><i data-lucide="file-down" style="width:18px;height:18px;color:var(--brand,#1e3a8a)"></i><span style="font:600 13px/1.3 inherit;color:#1f2937">ออเดอร์ที่ยังไม่คีย์ IV (Excel)</span></button>
-            <button onclick="ordMenu('');ordReconGenReports()" style="display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:10px;border-radius:11px;border:0;background:transparent;cursor:pointer;font-family:inherit"><i data-lucide="file-check-2" style="width:18px;height:18px;color:#16a34a"></i><span style="font:600 13px/1.3 inherit;color:#1f2937">สร้างใบกระทบยอด (Snapshot)</span></button>
+          <button class="ord-btn primary" onclick="ordMenu('action')" ${brecCanWrite()?'':'disabled'}><i data-lucide="arrow-up-down"></i> นำเข้า / ส่งออก <i data-lucide="chevron-down" style="width:13px;height:13px"></i></button>
+          ${d._menu==='action'?`<div style="position:absolute;top:calc(100% + 8px);right:0;width:310px;background:#fff;border:1px solid #e2e8f0;border-radius:14px;box-shadow:0 18px 42px -12px rgba(16,24,40,.3);padding:10px;z-index:50">
+            <div style="font:700 10.5px/1.2 inherit;color:#94a3b8;padding:4px 8px 7px;letter-spacing:.6px;text-transform:uppercase">นำเข้าข้อมูล</div>
+            <button onclick="ordMenu('');ordUploadFiles()" style="display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:9px 10px;border-radius:10px;border:0;background:transparent;cursor:pointer;font-family:inherit" onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background='transparent'">
+              <span style="width:34px;height:34px;border-radius:9px;background:var(--brand-soft,#eef2fb);display:flex;align-items:center;justify-content:center;flex-shrink:0"><i data-lucide="database" style="width:17px;height:17px;color:var(--brand,#1e3a8a)"></i></span>
+              <span style="flex:1"><span style="display:block;font:700 13px/1.3 inherit;color:#1f2937">ข้อมูลจาก BigSeller</span><span style="display:block;font:400 11px/1.4 inherit;color:#94a3b8">ออเดอร์ SP/TT/LZ + FACE/LINE/Dealer</span></span>
+            </button>
+            <button onclick="ordMenu('');ordReconUpload()" style="display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:9px 10px;border-radius:10px;border:0;background:transparent;cursor:pointer;font-family:inherit" onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background='transparent'">
+              <span style="width:34px;height:34px;border-radius:9px;background:#fef0ec;display:flex;align-items:center;justify-content:center;flex-shrink:0"><i data-lucide="store" style="width:17px;height:17px;color:#ee4d2d"></i></span>
+              <span style="flex:1"><span style="display:block;font:700 13px/1.3 inherit;color:#1f2937">ข้อมูลจากแพลตฟอร์ม</span><span style="display:block;font:400 11px/1.4 inherit;color:#94a3b8">รายงาน Shopee / TikTok / Lazada</span></span>
+            </button>
+            <div style="margin:8px 4px;border-top:1px solid #f1f5f9"></div>
+            <div style="font:700 10.5px/1.2 inherit;color:#94a3b8;padding:4px 8px 7px;letter-spacing:.6px;text-transform:uppercase">ส่งออกข้อมูล</div>
+            <button onclick="ordMenu('');ordExportNoIv()" style="display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:9px 10px;border-radius:10px;border:0;background:transparent;cursor:pointer;font-family:inherit" onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background='transparent'">
+              <span style="width:34px;height:34px;border-radius:9px;background:#f0fdf4;display:flex;align-items:center;justify-content:center;flex-shrink:0"><i data-lucide="file-down" style="width:17px;height:17px;color:#16a34a"></i></span>
+              <span style="flex:1"><span style="display:block;font:700 13px/1.3 inherit;color:#1f2937">ออเดอร์ที่ยังไม่คีย์ IV</span><span style="display:block;font:400 11px/1.4 inherit;color:#94a3b8">Excel สำหรับคีย์ AutoKey</span></span>
+            </button>
+            <button onclick="ordMenu('');ordReconGenReports()" style="display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:9px 10px;border-radius:10px;border:0;background:transparent;cursor:pointer;font-family:inherit" onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background='transparent'">
+              <span style="width:34px;height:34px;border-radius:9px;background:#fefce8;display:flex;align-items:center;justify-content:center;flex-shrink:0"><i data-lucide="file-check-2" style="width:17px;height:17px;color:#ca8a04"></i></span>
+              <span style="flex:1"><span style="display:block;font:700 13px/1.3 inherit;color:#1f2937">สร้างใบกระทบยอด</span><span style="display:block;font:400 11px/1.4 inherit;color:#94a3b8">Snapshot PDF/Excel เพื่อเก็บหลักฐาน</span></span>
+            </button>
           </div>`:''}
         </div>
         <button class="ord-btn danger" onclick="ordResetLedger()" ${brecCanWrite()?'':'disabled'}><i data-lucide="trash-2"></i> ล้างทะเบียน</button>
@@ -19088,12 +19638,6 @@ async function renderToolOrders(){
     ${ordUnknownPanel(d)}
 
     ${view==='search' ? ordRenderSearch(d) : `
-    ${view==='board' ? `<!-- date-range chips -->
-    <div style="display:flex;align-items:center;gap:8px;background:#fff;border:1px solid var(--n-200);border-radius:12px;padding:6px 8px;margin-top:14px;width:fit-content;flex-wrap:wrap">
-      <span style="font:600 12px/1.2 inherit;color:var(--n-500);padding:0 6px;display:inline-flex;align-items:center;gap:5px"><i data-lucide="calendar-range" style="width:14px;height:14px"></i>ช่วงวันที่</span>
-      ${[['all','ทั้งหมด'],['today','วันนี้'],['7d','7 วัน'],['month','เดือนนี้']].map(([k2,l])=>`<button onclick="ordSetRange('${k2}')" style="border:0;border-radius:8px;padding:6px 13px;font:600 12.5px/1 inherit;cursor:pointer;font-family:inherit;${(d.dateRange||'all')===k2?'background:var(--brand,#1e3a8a);color:#fff':'background:transparent;color:#64748b'}">${l}</button>`).join('')}
-    </div>`:''}
-
     ${d.busy ? `<div class="ord-empty"><i data-lucide="loader-2"></i><div class="ttl">กำลังประมวลผล…</div></div>`
       : view==='reg'   ? ordRenderRegister(d)
       : view==='recon' ? ordRenderRecon(d)

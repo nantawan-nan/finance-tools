@@ -17256,7 +17256,7 @@ function ordRenderBoard(d){
       : '';
     // logo: local file → Clearbit CDN → badge letter
     const logoHtml = c.img
-      ? `<img src="${c.img}" alt="${esc(c.l)}" style="width:100%;height:100%;object-fit:contain;padding:3px;box-sizing:border-box" onerror="this.outerHTML='<span style=\\'color:${c.c};font:800 16px/1 inherit\\'>${esc(c.l[0])}</span>'">`
+      ? `<img src="${c.img}" alt="${esc(c.l)}" style="width:100%;height:100%;object-fit:cover;display:block" onerror="this.outerHTML='<span style=\\'color:#fff;font:800 16px/1 inherit\\'>${esc(c.l[0])}</span>'">`
       : c.dom
         ? `<img src="https://logo.clearbit.com/${c.dom}" alt="${esc(c.l)}" style="width:100%;height:100%;object-fit:contain;padding:4px;box-sizing:border-box" onerror="this.outerHTML='<span style=\\'color:${c.c};font:800 16px/1 inherit\\'>${esc(c.l[0])}</span>'">`
         : `<span style="color:${c.c};font:800 16px/1 inherit">${c.isOther?'⋯':esc(c.l[0])}</span>`;
@@ -17264,9 +17264,13 @@ function ordRenderBoard(d){
     const expandHint = c.isOther
       ? `<span style="position:absolute;top:6px;right:6px;background:rgba(255,255,255,.28);color:#fff;font:700 9.5px/1 inherit;padding:3px 6px;border-radius:999px;letter-spacing:.04em">▸ ขยาย</span>`
       : '';
+    // local logo = ไม่มีวงขาว ให้รูปเต็มวงกลม | clearbit/badge = วงขาว
+    const circleStyle = c.img
+      ? `width:52px;height:52px;border-radius:50%;overflow:hidden;box-shadow:0 4px 16px rgba(0,0,0,.35);flex-shrink:0`
+      : `width:46px;height:46px;border-radius:50%;background:#fff;display:flex;align-items:center;justify-content:center;border:2.5px solid rgba(255,255,255,.85);overflow:hidden;box-shadow:0 4px 14px rgba(15,23,42,.22)`;
     return `<div ${clickAttr} class="ord-board-head" data-k="${c.k}" style="position:relative;display:flex;flex-direction:column;align-items:center;gap:6px;padding:16px 8px 14px;background:linear-gradient(160deg, ${c.c}ee 0%, ${c.c} 100%);border-radius:12px 12px 0 0;box-shadow:inset 0 -1px 0 rgba(0,0,0,.1)">
       ${expandHint}
-      <div style="width:46px;height:46px;border-radius:50%;background:#fff;display:flex;align-items:center;justify-content:center;border:2.5px solid rgba(255,255,255,.85);overflow:hidden;box-shadow:0 4px 14px rgba(15,23,42,.22)">${logoHtml}</div>
+      <div style="${circleStyle}">${logoHtml}</div>
       <div style="font:700 12.5px/1 inherit;letter-spacing:.04em;margin-top:4px;color:#fff;text-shadow:0 1px 3px rgba(0,0,0,.25)">${esc(c.l)}</div>
     </div>`;
   };

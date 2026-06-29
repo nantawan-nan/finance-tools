@@ -9634,13 +9634,17 @@ function apoParseExpressXml(xmlText){
       const outstanding = outCell || agingSum || paidCell || billAmtFromText;
       const total = totalCell || billAmtFromText || outstanding;
 
-      // due date: scan cells from col.outstanding+1 to end → first DateTime or date-string
+      // due date: scan cells from col.outstanding+1 to end → DateTime / dd/mm/yyyy / YYYY-MM-DD
       let dueDate = null;
       for(let k = col.outstanding + 1; k <= 20; k++){
         const c = cs[k];
         if(!c) continue;
         if(c.t === "DateTime"){ dueDate = c.v.slice(0,10); break; }
         if(typeof c.v === "string"){
+          // ISO format YYYY-MM-DD ที่หัว string (เช่น "2026-06-30 คำอธิบาย...")
+          const isoM = c.v.match(/^(\d{4}-\d{2}-\d{2})/);
+          if(isoM){ dueDate = isoM[1]; break; }
+          // dd/mm/yyyy หรือ dd/mm/yy (พ.ศ.)
           const dm = c.v.match(/(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
           if(dm){
             let y = parseInt(dm[3],10);
@@ -9653,14 +9657,17 @@ function apoParseExpressXml(xmlText){
       }
       if(!dueDate) dueDate = invDate;
 
-      // remark = last text cell
+      // remark = last text cell หลัง col.outstanding
+      // ถ้า cell ขึ้นต้นด้วย ISO date (YYYY-MM-DD) ให้ตัดวันออกและเอาแค่คำอธิบาย
       let remark = "";
       const allCols = Object.keys(cs).map(n=>parseInt(n,10)).sort((a,b)=>b-a);
       for(const k of allCols){
         const c = cs[k];
-        if(c && c.t === "String" && k > col.outstanding && !/^\s*\d+\s*\d{1,2}\/\d{1,2}\/\d{2,4}/.test(c.v||"")){
-          remark = String(c.v||"").trim();
-          if(remark) break;
+        if(c && c.t === "String" && k > col.outstanding){
+          let rv = String(c.v||"").trim();
+          // ตัด ISO date นำหน้าออก (เหลือแค่คำอธิบาย)
+          rv = rv.replace(/^\d{4}-\d{2}-\d{2}\s*/, "").trim();
+          if(rv){ remark = rv; break; }
         }
       }
 

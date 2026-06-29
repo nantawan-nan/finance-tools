@@ -9012,13 +9012,13 @@ async function apoSetCategory(id, val){
 /* set planned_payment_date inline */
 async function apoSetPlannedDate(id, val){
   try{
-    const payload = { planned_payment_date: val || null };
+    const payload = { planned_payment_date: val || null, planned_splits: null };
     payload.updated_by = AUTH.user ? AUTH.user.id : null;
     const { error } = await sb.from("ap_invoices").update(payload).eq("id", id);
     if(error) throw error;
     const d = apoGet();
     const row = (d.invoices||[]).find(r => r.id === id);
-    if(row) row.planned_payment_date = val || null;
+    if(row){ row.planned_payment_date = val || null; row.planned_splits = null; }
   }catch(e){ alert("ตั้งวันชำระไม่สำเร็จ: " + fopErr(e)); state.apo[state.company] = null; renderToolApOutstanding(); }
 }
 /* set บัญชีที่จะตัดจ่าย inline */
@@ -9402,6 +9402,7 @@ function apoBuildTable(inv, enriched, canWrite, today){
         <td>${statusBadge}</td>
         ${canWrite?`<td style="white-space:nowrap;text-align:center">
           <button class="btn ghost btn sm" onclick="apoOpenPay('${r.id}',${Number(r.amount_outstanding)})" title="บันทึกการจ่าย">จ่าย</button>
+          <button class="btn ghost btn sm" onclick="cffOpenPayCard('${r.id}')" title="ตั้งวันชำระ / แบ่งจ่าย" style="${r.planned_splits&&r.planned_splits.length?'color:var(--brand);border-color:var(--brand);font-weight:700':''}">แบ่งจ่าย${r.planned_splits&&r.planned_splits.length?` <span style="background:var(--brand);color:#fff;border-radius:999px;padding:0 5px;font-size:9px">${r.planned_splits.length}</span>`:''}</button>
           <button class="btn ghost btn sm" onclick="apoOpenEdit('${r.id}')" title="แก้ไขทุกคอลัมน์">✏️</button>
           <button class="btn ghost btn sm" style="color:var(--out-ink);border-color:var(--out)" onclick="apoSoftDelete('${r.id}','${esc(r.invoice_no)}')" title="ลบ">🗑</button>
         </td>`:''}
@@ -10900,7 +10901,6 @@ function cffToggleVendor(cat, ven){ const d=cffGet(); if(!d.venOpen) d.venOpen={
 
 /* คลิกรายการ AP ใน Cash Flow → popup การ์ดเจ้าหนี้ แก้วันชำระได้ */
 async function cffOpenPayCard(apId){
-  // โหลดข้อมูลสด
   const cid = await fopCompanyId();
   const { data: ap, error } = await sb.from("ap_invoices")
     .select("*, vendors(name)")
@@ -10912,14 +10912,21 @@ async function cffOpenPayCard(apId){
   const fmtB = n => Number(n||0).toLocaleString("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2});
   const fmtD = s => s ? new Date(s+"T00:00:00").toLocaleDateString("th-TH",{day:"numeric",month:"short",year:"numeric"}) : "—";
   const overdue = ap.due_date && ap.due_date < new Date().toISOString().slice(0,10);
+  const hasSplits = ap.planned_splits && ap.planned_splits.length > 0;
+
+  // init globals
+  window._apoPayCardSplits = hasSplits ? ap.planned_splits.map(s=>({...s})) : [];
+  window._apoPayCardOut = Number(ap.amount_outstanding||0);
+  const initMode = hasSplits ? 'split' : 'single';
+
+  const tabStyle = (active) => `border:0;background:transparent;padding:8px 14px;font-size:12.5px;font-weight:700;cursor:pointer;font-family:inherit;border-bottom:2.5px solid ${active?'var(--brand,#0d9488)':'transparent'};color:${active?'var(--brand,#0d9488)':'#94a3b8'};transition:.15s`;
 
   const m = document.createElement("div");
   m.id = "cffPayCardModal";
   m.style.cssText = "position:fixed;inset:0;background:rgba(15,23,42,.5);z-index:1100;display:flex;align-items:center;justify-content:center;padding:20px";
   m.innerHTML = `
-    <div style="background:#fff;border-radius:18px;padding:0;max-width:480px;width:100%;box-shadow:0 24px 60px rgba(0,0,0,.22);overflow:hidden">
-      <!-- หัวการ์ด -->
-      <div style="background:linear-gradient(135deg,var(--brand,#0d9488) 0%,color-mix(in srgb,var(--brand,#0d9488) 70%,#000) 100%);padding:20px 22px 16px">
+    <div style="background:#fff;border-radius:18px;padding:0;max-width:500px;width:100%;max-height:92vh;overflow-y:auto;box-shadow:0 24px 60px rgba(0,0,0,.22)">
+      <div style="background:linear-gradient(135deg,var(--brand,#0d9488) 0%,color-mix(in srgb,var(--brand,#0d9488) 70%,#000) 100%);padding:20px 22px 16px;border-radius:18px 18px 0 0">
         <div style="display:flex;justify-content:space-between;align-items:flex-start">
           <div>
             <div style="color:rgba(255,255,255,.75);font-size:11px;font-weight:600;margin-bottom:3px">ใบแจ้งหนี้</div>
@@ -10929,8 +10936,7 @@ async function cffOpenPayCard(apId){
           <button onclick="document.getElementById('cffPayCardModal').remove()" style="border:0;background:rgba(255,255,255,.18);color:#fff;border-radius:8px;width:30px;height:30px;cursor:pointer;font-size:16px;line-height:1;display:flex;align-items:center;justify-content:center">✕</button>
         </div>
       </div>
-      <!-- ตัวเลข 3 ช่อง -->
-      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:0;border-bottom:1px solid #f1f5f9">
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);border-bottom:1px solid #f1f5f9">
         <div style="padding:14px 16px;border-right:1px solid #f1f5f9;text-align:center">
           <div style="font-size:10.5px;color:#94a3b8;font-weight:600;margin-bottom:3px">ยอดรวม</div>
           <div style="font-size:15px;font-weight:800;color:#334155">${fmtB(ap.amount_total)}</div>
@@ -10944,7 +10950,6 @@ async function cffOpenPayCard(apId){
           <div style="font-size:15px;font-weight:800;color:#dc2626">${fmtB(ap.amount_outstanding)}</div>
         </div>
       </div>
-      <!-- รายละเอียด -->
       <div style="padding:16px 22px;display:flex;flex-direction:column;gap:10px">
         <div style="display:flex;justify-content:space-between;align-items:center">
           <span style="font-size:12px;color:#64748b">วันที่บิล</span>
@@ -10958,30 +10963,60 @@ async function cffOpenPayCard(apId){
           <span style="font-size:12px;color:#64748b;white-space:nowrap">หมายเหตุ</span>
           <span style="font-size:12px;color:#475569;text-align:right">${esc(ap.remark)}</span>
         </div>` : ""}
-        <!-- วันชำระเงิน (แก้ได้) -->
+        <!-- วันชำระเงิน section -->
         <div style="border-top:1px solid #f1f5f9;padding-top:12px;margin-top:2px">
-          <div style="font-size:12px;font-weight:700;color:#374151;margin-bottom:8px">📅 วันที่ชำระเงิน (ประมาณการ)</div>
+          <div style="font-size:12px;font-weight:700;color:#374151;margin-bottom:6px">📅 วันที่ชำระเงิน (ประมาณการ)</div>
           ${canEdit ? `
-          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px" id="cffQuickDates">
-            ${[0,7,14,30].map(d=>{
-              const dt = new Date(); dt.setDate(dt.getDate()+d);
-              const iso = dt.toISOString().slice(0,10);
-              const lbl = d===0?"วันนี้":d===7?"อีก 7 วัน":d===14?"อีก 14 วัน":"อีก 30 วัน";
-              const active = ap.planned_payment_date===iso;
-              return `<button onclick="document.getElementById('cffPayDateIn').value='${iso}'" style="border:1px solid ${active?'var(--brand,#0d9488)':'#e2e8f0'};background:${active?'var(--brand,#0d9488)':'#fff'};color:${active?'#fff':'#475569'};border-radius:8px;padding:4px 11px;font-size:11.5px;cursor:pointer;font-family:inherit">${lbl}</button>`;
-            }).join("")}
+          <!-- แท็บ -->
+          <div style="display:flex;border-bottom:1px solid #e2e8f0;margin-bottom:12px">
+            <button id="cffTabSingle" onclick="apoSplitSetTab('single')" style="${tabStyle(initMode==='single')}">จ่ายครั้งเดียว</button>
+            <button id="cffTabSplit" onclick="apoSplitSetTab('split')" style="${tabStyle(initMode==='split')}">แบ่งจ่าย</button>
           </div>
-          <div style="display:flex;gap:8px;align-items:center">
-            <input id="cffPayDateIn" type="date" value="${ap.planned_payment_date||''}" style="flex:1;border:1.5px solid #e2e8f0;border-radius:9px;padding:8px 12px;font-size:13px;font-family:inherit;outline:none" onfocus="this.style.borderColor='var(--brand,#0d9488)'" onblur="this.style.borderColor='#e2e8f0'">
-            <button onclick="cffSavePayDate('${ap.id}')" style="background:var(--brand,#0d9488);color:#fff;border:0;border-radius:9px;padding:8px 18px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;white-space:nowrap">บันทึก</button>
+          <!-- จ่ายครั้งเดียว -->
+          <div id="cffModeSingle" style="display:${initMode==='single'?'':'none'}">
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+              ${[0,7,14,30].map(d=>{
+                const dt2=new Date(); dt2.setDate(dt2.getDate()+d);
+                const iso=dt2.toISOString().slice(0,10);
+                const lbl=d===0?"วันนี้":d===7?"อีก 7 วัน":d===14?"อีก 14 วัน":"อีก 30 วัน";
+                const act=!hasSplits&&ap.planned_payment_date===iso;
+                return `<button onclick="document.getElementById('cffPayDateIn').value='${iso}'" style="border:1px solid ${act?'var(--brand,#0d9488)':'#e2e8f0'};background:${act?'var(--brand,#0d9488)':'#fff'};color:${act?'#fff':'#475569'};border-radius:8px;padding:4px 11px;font-size:11.5px;cursor:pointer;font-family:inherit">${lbl}</button>`;
+              }).join("")}
+            </div>
+            <div style="display:flex;gap:8px;align-items:center">
+              <input id="cffPayDateIn" type="date" value="${hasSplits?'':ap.planned_payment_date||''}" style="flex:1;border:1.5px solid #e2e8f0;border-radius:9px;padding:8px 12px;font-size:13px;font-family:inherit;outline:none" onfocus="this.style.borderColor='var(--brand,#0d9488)'" onblur="this.style.borderColor='#e2e8f0'">
+              <button onclick="cffSavePayDate('${ap.id}')" style="background:var(--brand,#0d9488);color:#fff;border:0;border-radius:9px;padding:8px 18px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;white-space:nowrap">บันทึก</button>
+            </div>
+            ${(ap.planned_payment_date||hasSplits) ? `<button onclick="cffSavePayDate('${ap.id}',true)" style="margin-top:8px;border:0;background:transparent;color:#94a3b8;font-size:11px;cursor:pointer;text-decoration:underline;font-family:inherit">ล้างวันชำระ (ยังไม่กำหนด)</button>` : ""}
           </div>
-          ${ap.planned_payment_date ? `<button onclick="cffSavePayDate('${ap.id}',true)" style="margin-top:8px;border:0;background:transparent;color:#94a3b8;font-size:11px;cursor:pointer;text-decoration:underline;font-family:inherit">ล้างวันชำระ (ยังไม่กำหนด)</button>` : ""}
-          ` : `<div style="font-size:14px;font-weight:700;color:#334155">${ap.planned_payment_date ? fmtD(ap.planned_payment_date) : '<span style="color:#94a3b8">ยังไม่กำหนด</span>'}</div>`}
+          <!-- แบ่งจ่าย -->
+          <div id="cffModeSplit" style="display:${initMode==='split'?'':'none'}">
+            <table style="width:100%;border-collapse:collapse;margin-bottom:8px;font-size:12.5px">
+              <thead><tr style="background:#f8fafc">
+                <th style="text-align:left;padding:6px 8px;border-bottom:1px solid #e2e8f0;color:#64748b;font-weight:600">งวด</th>
+                <th style="text-align:left;padding:6px 8px;border-bottom:1px solid #e2e8f0;color:#64748b;font-weight:600">วันที่ชำระ</th>
+                <th style="text-align:right;padding:6px 8px;border-bottom:1px solid #e2e8f0;color:#64748b;font-weight:600">จำนวนเงิน (บาท)</th>
+                <th style="width:32px;border-bottom:1px solid #e2e8f0"></th>
+              </tr></thead>
+              <tbody id="cffSplitRows"></tbody>
+            </table>
+            <button onclick="apoSplitAdd()" style="border:1.5px dashed var(--brand,#0d9488);background:rgba(var(--brand-rgb,13,148,136),.04);color:var(--brand,#0d9488);border-radius:8px;padding:6px 14px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;width:100%;margin-bottom:10px">+ เพิ่มงวด</button>
+            <div id="cffSplitRemain" style="font-size:12px;color:#64748b;padding:8px 10px;background:#f8fafc;border-radius:8px;margin-bottom:10px"></div>
+            <div style="display:flex;gap:8px;justify-content:flex-end">
+              ${hasSplits ? `<button onclick="cffClearSplits('${ap.id}')" style="border:1px solid #e2e8f0;background:#fff;color:#94a3b8;border-radius:9px;padding:8px 14px;font-size:12.5px;cursor:pointer;font-family:inherit">ล้างการแบ่งจ่าย</button>` : ""}
+              <button onclick="cffSaveSplits('${ap.id}')" style="background:var(--brand,#0d9488);color:#fff;border:0;border-radius:9px;padding:8px 20px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">บันทึก</button>
+            </div>
+          </div>
+          ` : `<div style="font-size:14px;font-weight:700;color:#334155">${hasSplits
+            ? `<div style="display:flex;flex-direction:column;gap:4px">${(ap.planned_splits||[]).map((sp,i)=>`<span style="font-size:12.5px">งวด ${i+1}: ${fmtD(sp.date)} — ${fmtB(sp.amount)} บาท</span>`).join("")}</div>`
+            : ap.planned_payment_date ? fmtD(ap.planned_payment_date) : '<span style="color:#94a3b8">ยังไม่กำหนด</span>'
+          }</div>`}
         </div>
       </div>
     </div>`;
   document.body.appendChild(m);
   m.onclick = e => { if(e.target===m) m.remove(); };
+  if(initMode==='split') apoSplitRender();
 }
 
 async function cffSavePayDate(apId, clear=false){
@@ -11001,6 +11036,80 @@ async function cffSavePayDate(apId, clear=false){
     const d = cffGet(); d._uiOnly = false;
     renderToolCashflowForecast();
   }catch(e){ alert("บันทึกไม่สำเร็จ: " + fopErr(e)); }
+}
+/* ── Split-payment helpers (ใช้ใน cffOpenPayCard modal) ── */
+function apoSplitSetTab(tab){
+  window._apoPayCardMode = tab;
+  const s = document.getElementById('cffModeSingle'), sp = document.getElementById('cffModeSplit');
+  const ts = document.getElementById('cffTabSingle'), tsp = document.getElementById('cffTabSplit');
+  if(s) s.style.display = tab==='single' ? '' : 'none';
+  if(sp) sp.style.display = tab==='split' ? '' : 'none';
+  const act = 'border:0;background:transparent;padding:8px 14px;font-size:12.5px;font-weight:700;cursor:pointer;font-family:inherit;border-bottom:2.5px solid var(--brand,#0d9488);color:var(--brand,#0d9488);transition:.15s';
+  const inact = 'border:0;background:transparent;padding:8px 14px;font-size:12.5px;font-weight:700;cursor:pointer;font-family:inherit;border-bottom:2.5px solid transparent;color:#94a3b8;transition:.15s';
+  if(ts) ts.style.cssText = tab==='single' ? act : inact;
+  if(tsp) tsp.style.cssText = tab==='split' ? act : inact;
+  if(tab==='split') apoSplitRender();
+}
+function apoSplitAdd(){
+  window._apoPayCardSplits = window._apoPayCardSplits || [];
+  window._apoPayCardSplits.push({date:'', amount:''});
+  apoSplitRender();
+}
+function apoSplitRemove(i){
+  (window._apoPayCardSplits||[]).splice(i,1);
+  apoSplitRender();
+}
+function apoSplitRender(){
+  const splits = window._apoPayCardSplits || [];
+  const out = window._apoPayCardOut || 0;
+  const total = splits.reduce((s,sp)=>s+Number(sp.amount||0),0);
+  const remain = out - total;
+  const tbody = document.getElementById('cffSplitRows');
+  if(!tbody) return;
+  tbody.innerHTML = splits.map((sp,i)=>`
+    <tr style="border-bottom:1px solid #f1f5f9">
+      <td style="padding:5px 8px;color:#64748b;font-size:12px;font-weight:600">${i+1}</td>
+      <td style="padding:5px 6px"><input type="date" value="${sp.date||''}" onchange="window._apoPayCardSplits[${i}].date=this.value" style="font-size:12px;border:1px solid #e2e8f0;border-radius:7px;padding:5px 7px;font-family:inherit;width:130px;outline:none" onfocus="this.style.borderColor='var(--brand,#0d9488)'" onblur="this.style.borderColor='#e2e8f0'"></td>
+      <td style="padding:5px 6px"><input type="number" value="${sp.amount||''}" min="0.01" step="0.01" placeholder="0.00" oninput="window._apoPayCardSplits[${i}].amount=this.value;apoSplitRender()" style="font-size:12px;border:1px solid #e2e8f0;border-radius:7px;padding:5px 7px;font-family:inherit;width:120px;text-align:right;outline:none" onfocus="this.style.borderColor='var(--brand,#0d9488)'" onblur="this.style.borderColor='#e2e8f0'"></td>
+      <td style="padding:5px 4px;text-align:center"><button onclick="apoSplitRemove(${i})" style="border:0;background:transparent;color:#cbd5e1;cursor:pointer;font-size:15px;line-height:1;padding:4px" onmouseover="this.style.color='#dc2626'" onmouseout="this.style.color='#cbd5e1'" title="ลบงวดนี้">✕</button></td>
+    </tr>`).join('');
+  const fmt = n => Number(n||0).toLocaleString('th-TH',{minimumFractionDigits:2,maximumFractionDigits:2});
+  const color = Math.abs(remain)<0.01 ? '#16a34a' : remain<0 ? '#dc2626' : '#64748b';
+  const el = document.getElementById('cffSplitRemain');
+  if(el) el.innerHTML = `ยอดคงค้าง <b>${fmt(out)}</b> · ผลรวมงวด <b>${fmt(total)}</b> · คงเหลือ <b style="color:${color}">${fmt(remain)}</b> บาท`;
+}
+async function cffSaveSplits(apId){
+  const splits = (window._apoPayCardSplits||[]).filter(sp=>sp.date&&Number(sp.amount||0)>0);
+  if(!splits.length){ alert('กรุณาใส่วันที่และจำนวนเงินอย่างน้อย 1 งวด'); return; }
+  const minDate = splits.map(s=>s.date).sort()[0];
+  const cleaned = splits.map(s=>({date:s.date, amount:Number(s.amount)}));
+  try{
+    const {error} = await sb.from('ap_invoices')
+      .update({planned_splits:cleaned, planned_payment_date:minDate, updated_by:AUTH.user?AUTH.user.id:null})
+      .eq('id', apId);
+    if(error) throw error;
+    document.getElementById('cffPayCardModal')?.remove();
+    const co = state.company;
+    if(state.cff&&state.cff[co]) state.cff[co].data = null;
+    if(state.apo&&state.apo[co]) state.apo[co] = null;
+    cffRerender();
+    const d=cffGet(); d._uiOnly=false; renderToolCashflowForecast();
+  }catch(e){ alert('บันทึกไม่สำเร็จ: '+fopErr(e)); }
+}
+async function cffClearSplits(apId){
+  if(!confirm('ล้างการแบ่งจ่ายทั้งหมด?\n(วันชำระประมาณการจะถูกล้างด้วย)')) return;
+  try{
+    const {error} = await sb.from('ap_invoices')
+      .update({planned_splits:null, planned_payment_date:null, updated_by:AUTH.user?AUTH.user.id:null})
+      .eq('id', apId);
+    if(error) throw error;
+    document.getElementById('cffPayCardModal')?.remove();
+    const co = state.company;
+    if(state.cff&&state.cff[co]) state.cff[co].data = null;
+    if(state.apo&&state.apo[co]) state.apo[co] = null;
+    cffRerender();
+    const d=cffGet(); d._uiOnly=false; renderToolCashflowForecast();
+  }catch(e){ alert('ล้างไม่สำเร็จ: '+fopErr(e)); }
 }
 /* คำอธิบายสะอาด: ตัดวันที่ ISO นำหน้า + รหัสเอกสารภายใน (PO/WO/IV/RR/RW/AC/IS...) ที่นำหน้าออก */
 function cffCleanDesc(s){
@@ -11115,7 +11224,7 @@ async function cffLoad(){
 
   const [balRes, apRes, recRes, recExpRes, recSkipRes] = await Promise.all([
     sb.rpc("fn_balance_as_of", { p_company: cid, p_as_of: todayISO }),
-    sb.from("ap_invoices").select("id,vendor_name_raw,vendors(name),invoice_no,due_date,planned_payment_date,internal_note,amount_outstanding,amount_total,amount_paid,status,category,remark,pay_from_account_id")
+    sb.from("ap_invoices").select("id,vendor_name_raw,vendors(name),invoice_no,due_date,planned_payment_date,planned_splits,internal_note,amount_outstanding,amount_total,amount_paid,status,category,remark,pay_from_account_id")
       .eq("company_id", cid).is("deleted_at", null)
       .neq("status","paid").neq("status","void"),
     sb.from("recurring_occurrences").select("id,recurring_id,due_date,expected_amount,status,recurring_expenses(name,category,bank_account_id)")
@@ -11285,17 +11394,30 @@ function cffStaffPayments(dt, d){
   // 1) AP ที่ จนท. กรอก planned_payment_date แล้วเท่านั้น (ยังไม่กรอก = ยังไม่ตัดสินใจจ่าย)
   for(const ap of dt.aps){
     if(Number(ap.amount_outstanding||0) <= 0) continue;
-    if(!ap.planned_payment_date) continue;
-    payments.push({
+    const splits = ap.planned_splits && ap.planned_splits.length > 0 ? ap.planned_splits : null;
+    if(!splits && !ap.planned_payment_date) continue;
+    const base = {
       type:"ap", category: ap.category || "เจ้าหนี้การค้า",
       vendor: cffCleanVendor((ap.vendors&&ap.vendors.name) || ap.vendor_name_raw || "—"),
-      detail: ap.invoice_no, due_date: ap.planned_payment_date, original_due: ap.due_date,
-      amount: Number(ap.amount_outstanding||0),
+      detail: ap.invoice_no, original_due: ap.due_date,
       remark: ap.remark || "", internalNote: ap.internal_note || "",
       payAccountId: ap.pay_from_account_id || null,
       apId: ap.id, apInvoiceNo: ap.invoice_no, apDueDate: ap.due_date,
       apTotal: ap.amount_total, apPaid: ap.amount_paid
-    });
+    };
+    if(splits){
+      // แบ่งจ่าย → emit ต่อ split
+      for(let si=0; si<splits.length; si++){
+        const sp = splits[si];
+        if(!sp.date || Number(sp.amount||0)<=0) continue;
+        payments.push({...base, due_date: sp.date, amount: Number(sp.amount),
+          detail: ap.invoice_no + (splits.length>1 ? ` (งวด ${si+1}/${splits.length})` : ""),
+          isSplit: true});
+      }
+    } else {
+      payments.push({...base, due_date: ap.planned_payment_date,
+        amount: Number(ap.amount_outstanding||0)});
+    }
   }
   // 2) ค่าใช้จ่ายประจำ → ผูกตามวันจ่าย (day_of_month) ของแต่ละเดือนในช่วง
   //    window = ต้นเดือนนี้ → สิ้นเดือนถัดไป (ขยายถึง staffTo ถ้าผู้ใช้เลือกช่วงไกลกว่า)

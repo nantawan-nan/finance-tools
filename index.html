@@ -1335,6 +1335,29 @@ function parseExpressSales(text){
 
 /* ---------- Parser: Shopee Income ---------- */
 function parseShopeeIncome(book){
+  // --- Service Fee Details map → orderNo → [{name, amount}] ---
+  const feeSheetName = book.names.find(n => /service fee/i.test(n));
+  const feeMap = new Map();
+  if(feeSheetName){
+    const fs = book.sheets[feeSheetName]||[];
+    let fhIdx=-1;
+    for(let i=0;i<Math.min(6,fs.length);i++){
+      if((fs[i]||[]).some(c=>String(c||"").includes("หมายเลขคำสั่งซื้อ"))){ fhIdx=i; break; }
+    }
+    if(fhIdx>=0){
+      const fh=(fs[fhIdx]||[]).map(h=>String(h||""));
+      const fcOrder=fh.findIndex(h=>h.includes("หมายเลขคำสั่งซื้อ"));
+      const feeCols=fh.map((h,i)=>i>fcOrder&&h?{name:h,idx:i}:null).filter(Boolean);
+      for(let i=fhIdx+1;i<fs.length;i++){
+        const r=fs[i]||[];
+        const oNo=String(r[fcOrder]||"").trim();
+        if(!oNo) continue;
+        const fees=feeCols.filter(f=>num(r[f.idx])!==0).map(f=>({name:f.name,amount:num(r[f.idx])}));
+        if(fees.length) feeMap.set(oNo,fees);
+      }
+    }
+  }
+  // --- Income sheet ---
   const incomeName = book.names.find(n => /^income$/i.test(n)) || book.names[0];
   const summaryName = book.names.find(n => /summary/i.test(n)) || null;
   let seller="";
@@ -1367,17 +1390,22 @@ function parseShopeeIncome(book){
   if(cNet<0) cNet=header.findIndex(h=>h.includes("จำนวนเงินสุทธิที่ผู้ขาย"));
   if(cNet<0) cNet=header.findIndex(h=>h.includes("จำนวนเงิน")&&h.includes("฿")&&!h.includes("คืน")&&!h.includes("ค่า"));
   const cGross=find(["ราคาขายค้าปลีก","ราคาตั้ง"]);
+  const cSellerDisc=find(["ส่วนลดจากผู้ขาย","ส่วนลดเงินราคาจากผู้ขาย"]);
   const out=[];
   for(let i=headerIdx+1;i<rows.length;i++){
     const r=rows[i];
     const o=String(r[cOrder]||"").trim();
     if(!o) continue;
+    const grossVal=num(r[cGross]); const netVal=num(r[cNet]);
     out.push({
       orderNo:o,
       paymentDate:parseDate(r[cPaidDate]),
       orderDate:parseDate(r[cOrderDate]),
-      net:num(r[cNet]),
-      gross:num(r[cGross])
+      net:netVal,
+      gross:grossVal,
+      sellerDiscount: cSellerDisc>=0 ? num(r[cSellerDisc]) : 0,
+      feeTotal: Math.max(0, grossVal-netVal),
+      feeBreakdown: feeMap.get(o)||[]
     });
   }
   return { rows:out, seller };
@@ -1385,6 +1413,31 @@ function parseShopeeIncome(book){
 
 /* ---------- Parser: TikTok Income ---------- */
 function parseTikTokIncome(book){
+  // --- Fee description map → orderNo → [{name, amount}] ---
+  const feeDescName = book.names.find(n => n.includes("คำอธิบาย")||n.includes("ค่าธรรมเนียม"));
+  const feeMap = new Map();
+  if(feeDescName){
+    const fs = book.sheets[feeDescName]||[];
+    if(fs.length>1){
+      const fh=(fs[0]||[]).map(h=>String(h||""));
+      const fcOrder=fh.findIndex(h=>h.includes("หมายเลขคำสั่งซื้อ"));
+      const fcName=fh.findIndex(h=>h.includes("ประเภท")||h.includes("ชื่อ"));
+      const fcAmt=fh.findIndex(h=>h.includes("จำนวน")||h.includes("ยอด"));
+      if(fcOrder>=0&&fcAmt>=0){
+        for(let i=1;i<fs.length;i++){
+          const r=fs[i]||[];
+          const oNo=String(r[fcOrder]||"").trim();
+          if(!oNo) continue;
+          const name=fcName>=0?String(r[fcName]||"").trim():"ค่าธรรมเนียม";
+          const amt=num(r[fcAmt]);
+          if(amt===0) continue;
+          const ex=feeMap.get(oNo)||[];
+          ex.push({name,amount:amt}); feeMap.set(oNo,ex);
+        }
+      }
+    }
+  }
+  // --- Order detail sheet ---
   const detailName = book.names.find(n => n.includes("รายละเอียดคำสั่งซื้อ")) || book.names[0];
   const rows=book.sheets[detailName]||[];
   if(!rows.length) return { rows:[], seller:"" };
@@ -1398,17 +1451,24 @@ function parseTikTokIncome(book){
   const cCreate=find(["เวลาที่สร้างคำสั่งซื้อ"]);
   const cNet=find(["จำนวนเงินที่ชำระทั้งหมด","จำนวนเงินที่จะถึง"]);
   const cGross=find(["รายได้รวม","มูลค่าสั่ง"]);
+  const cSellerDisc=find(["ส่วนลดจากผู้ขาย","ส่วนลดจากร้านค้า"]);
+  const cFeeTotal=find(["ค่าธรรมเนียมรวมทั้งหมด","ค่าธรรมเนียมรวม"]);
   const out=[];
   for(let i=1;i<rows.length;i++){
     const r=rows[i];
     const o=String(r[cOrder]||"").trim();
     if(!o) continue;
+    const grossVal=num(r[cGross]); const netVal=num(r[cNet]);
+    const feeTotalVal=cFeeTotal>=0?Math.abs(num(r[cFeeTotal])):Math.max(0,grossVal-netVal);
     out.push({
       orderNo:o,
       paymentDate:parseDate(r[cClose])||parseDate(r[cCreate]),
       orderDate:parseDate(r[cCreate]),
-      net:num(r[cNet]),
-      gross:num(r[cGross])
+      net:netVal,
+      gross:grossVal,
+      sellerDiscount: cSellerDisc>=0 ? num(r[cSellerDisc]) : 0,
+      feeTotal: feeTotalVal,
+      feeBreakdown: feeMap.get(o)||[]
     });
   }
   return { rows:out, seller:"" };
@@ -3108,12 +3168,19 @@ function salInjectStyle(){
 function incGet(){
   if(!state.income) state.income = {};
   const co = state.company;
-  if(!state.income[co]) state.income[co] = { subtab:'list', verify:{ rows:[], busy:false, error:null, applying:false } };
+  if(!state.income[co]) state.income[co] = {
+    subtab:'list',
+    verify:{ rows:[], busy:false, error:null, applying:false },
+    incRows:[], incLoaded:false, incBusy:false, incFilter:'', incExpandedOrder:null
+  };
   const d = state.income[co];
   if(!d.verify) d.verify = { rows:[], busy:false, error:null, applying:false };
+  if(!d.incRows) d.incRows = [];
   return d;
 }
 function incSetSubtab(t){ incGet().subtab = t; renderToolSalesIncome(); }
+function incSetIncFilter(f){ const d=incGet(); d.incFilter=f; renderToolSalesIncome(); }
+function incToggleFeeRow(oid){ const d=incGet(); d.incExpandedOrder=(d.incExpandedOrder===oid?null:oid); renderToolSalesIncome(); }
 
 /* "DD/MM/YYYY" (BE) → "YYYY-MM-DD" (CE) */
 function salIncomeParseBEDate(s){
@@ -3211,6 +3278,15 @@ async function renderToolSalesIncome(){
       </button>
     </div>`;
 
+  // auto-load income rows on first visit to list tab
+  if(subtab === 'list' && !d.incLoaded && !d.incBusy){
+    d.incBusy = true;
+    main.innerHTML = `<div class="ord-page sal-page">${heroHtml}${tabHtml}<div style="padding:60px;text-align:center"><i data-lucide="loader-2" style="width:36px;height:36px;color:var(--brand)"></i><div style="margin-top:12px;color:#64748b">กำลังโหลดรายการรับชำระ...</div></div></div>`;
+    if(window.lucide) lucide.createIcons();
+    incLoadRows(d).then(()=>{ d.incBusy=false; renderToolSalesIncome(); });
+    return;
+  }
+
   let bodyHtml = '';
   if(subtab === 'list')        bodyHtml = incRenderList(d);
   else if(subtab === 'export') bodyHtml = incRenderExport(d);
@@ -3221,11 +3297,100 @@ async function renderToolSalesIncome(){
 }
 
 function incRenderList(d){
-  return `<div class="sal-empty" style="padding:60px 30px;text-align:center;background:#fff;border:1px solid #e2e8f0;border-radius:14px;margin-top:2px">
-    <i data-lucide="receipt" style="width:48px;height:48px;color:var(--brand);margin-bottom:12px;stroke-width:1.4"></i>
-    <div style="font-size:16px;font-weight:600;color:#1e293b;margin-bottom:8px">ทะเบียนรับชำระ — กำลังพัฒนา</div>
-    <div style="color:#64748b;font-size:13px">อัปรายงาน Income จาก Shopee / TikTok / Lazada<br>แยกรายได้ / ขนส่ง / ค่าธรรมเนียม / สุทธิ ต่อออเดอร์</div>
-    <div style="margin-top:20px"><button class="ord-btn" onclick="incSetSubtab('verify')"><i data-lucide="check-circle-2"></i> ไปที่ตรวจ 1.9.1 ก่อน</button></div>
+  const rows = d.incRows || [];
+  const filter = d.incFilter || '';
+  const ordD = ordGet();
+  const ordByOrderId = {};
+  for(const o of (ordD.rows||[])) if(o.order_id) ordByOrderId[o.order_id] = o;
+
+  const filtered = filter ? rows.filter(r=>r.channel_group===filter) : rows;
+  const sumGross = filtered.reduce((s,r)=>s+(r.gross||0), 0);
+  const sumFee   = filtered.reduce((s,r)=>s+(r.fee_total||0), 0);
+  const sumNet   = filtered.reduce((s,r)=>s+(r.net_received||0), 0);
+  const chCounts = {shopee:0, tiktok:0, lazada:0};
+  for(const r of rows){ if(r.channel_group in chCounts) chCounts[r.channel_group]++; }
+
+  const chipBtn = (val, label) => {
+    const active = val===filter;
+    return `<button class="ord-chip${active?' active':''}" onclick="incSetIncFilter('${val}')">${label}</button>`;
+  };
+
+  const kpiHtml = `<div class="sal-kpi-row" style="grid-template-columns:repeat(4,1fr);margin-bottom:14px">
+    <div class="sal-kpi"><div class="n">${filtered.length}</div><div class="l">ออเดอร์ที่รับ</div></div>
+    <div class="sal-kpi" style="--kc:#1e293b"><div class="n">${salesFmt(sumGross)}</div><div class="l">Gross (บาท)</div></div>
+    <div class="sal-kpi" style="--kc:#dc2626"><div class="n">${salesFmt(sumFee)}</div><div class="l">ค่าธรรมเนียม</div></div>
+    <div class="sal-kpi" style="--kc:#16a34a"><div class="n">${salesFmt(sumNet)}</div><div class="l">สุทธิ (บาท)</div></div>
+  </div>`;
+
+  const actionHtml = `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
+    <button class="ord-btn" onclick="incUploadIncome()"><i data-lucide="upload"></i> อัปรายงาน Income (XLSX)</button>
+    <button class="ord-btn" onclick="incLoadRows(incGet()).then(()=>renderToolSalesIncome())"><i data-lucide="refresh-cw"></i></button>
+    <span style="color:#e2e8f0">|</span>
+    ${chipBtn('','ทั้งหมด ('+rows.length+')')}
+    ${chipBtn('shopee','Shopee ('+chCounts.shopee+')')}
+    ${chipBtn('tiktok','TikTok ('+chCounts.tiktok+')')}
+    ${chipBtn('lazada','Lazada ('+chCounts.lazada+')')}
+  </div>`;
+
+  if(!rows.length){
+    return `<div style="padding:16px 0 0">${actionHtml}
+      <div style="background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:52px 30px;text-align:center">
+        <i data-lucide="receipt" style="width:48px;height:48px;color:var(--brand);margin-bottom:12px;stroke-width:1.4"></i>
+        <div style="font-size:16px;font-weight:600;color:#1e293b;margin-bottom:8px">ยังไม่มีข้อมูลรับชำระ</div>
+        <div style="color:#64748b;font-size:13px">อัปรายงาน Income จาก Shopee / TikTok / Lazada (ไฟล์ XLSX จากหลังบ้านแพลตฟอร์ม)</div>
+      </div>
+    </div>`;
+  }
+
+  const tableRows = filtered.map(r=>{
+    const ord = ordByOrderId[r.order_id];
+    const ivBadge = ord && ord.iv_no
+      ? `<span class="ord-bd" style="background:#dcfce7;color:#166534;font-size:11px">${esc(ord.iv_no)}</span>`
+      : ord ? `<span class="ord-bd" style="background:#fef3c7;color:#92400e">รอ IV</span>`
+      : `<span style="color:#cbd5e1;font-size:11px">—</span>`;
+    const reBadge = ord && ord.re_no
+      ? `<span class="ord-bd" style="background:#dcfce7;color:#166534;font-size:11px">${esc(ord.re_no)}</span>`
+      : ord ? `<span class="ord-bd" style="background:#fef3c7;color:#92400e">รอ RE</span>`
+      : `<span style="color:#cbd5e1;font-size:11px">—</span>`;
+    const chColor = r.channel_group==='shopee'?'#ee4d2d':r.channel_group==='tiktok'?'#161823':'#1a0dab';
+    const chLabel = r.channel_group==='shopee'?'Shopee':r.channel_group==='tiktok'?'TikTok':r.channel_group==='lazada'?'Lazada':r.channel_group||'—';
+    const hasFee = r.fee_breakdown && r.fee_breakdown.length>0;
+    const isExpanded = d.incExpandedOrder===r.order_id;
+    return `<tr style="border-bottom:1px solid #f1f5f9;cursor:${hasFee?'pointer':'default'}" onclick="${hasFee?'incToggleFeeRow(\''+esc(r.order_id||'')+'\')':''}">
+      <td style="padding:7px 10px;font-family:monospace;font-size:11.5px;white-space:nowrap;color:#334155">${esc(r.order_id||'')}</td>
+      <td style="padding:7px 10px;white-space:nowrap;font-size:12px">${r.paid_date?salIncomeFmtDate(r.paid_date):''}</td>
+      <td style="padding:7px 6px"><span style="font-size:11px;padding:2px 7px;border-radius:4px;background:${chColor}18;color:${chColor};border:1px solid ${chColor}35;font-weight:600">${chLabel}</span></td>
+      <td style="padding:7px 10px;text-align:right;font-variant-numeric:tabular-nums;font-size:12px">${salesFmt(r.gross||0)}</td>
+      <td style="padding:7px 10px;text-align:right;color:#dc2626;font-variant-numeric:tabular-nums;font-size:12px">−${salesFmt(r.fee_total||0)}</td>
+      <td style="padding:7px 10px;text-align:right;font-weight:600;font-variant-numeric:tabular-nums;font-size:12px;color:#16a34a">${salesFmt(r.net_received||0)}</td>
+      <td style="padding:7px 10px">${ivBadge}</td>
+      <td style="padding:7px 10px">${reBadge}</td>
+      <td style="padding:7px 6px;color:#94a3b8;font-size:11px">${hasFee?(isExpanded?'▴':'▾ รายละเอียด'):''}</td>
+    </tr>${isExpanded&&hasFee?`<tr><td colspan="9" style="padding:0 16px 10px 52px;background:#f8fafc">
+      <div style="border-left:3px solid var(--brand);padding:6px 12px;font-size:12px">
+        ${r.fee_breakdown.map(f=>`<div style="display:flex;justify-content:space-between;max-width:340px;padding:2px 0"><span style="color:#475569">${esc(f.name||'')}</span><span style="font-family:monospace;color:#dc2626">${salesFmt(f.amount)}</span></div>`).join("")}
+      </div></td></tr>`:''}`;
+  }).join("");
+
+  return `<div style="padding:16px 0 0">
+    ${kpiHtml}${actionHtml}
+    <div style="overflow-x:auto;border:1px solid #e2e8f0;border-radius:10px;background:#fff">
+      <table style="width:100%;border-collapse:collapse;font-size:12.5px">
+        <thead><tr style="background:#f8fafc;border-bottom:2px solid #e2e8f0">
+          <th style="padding:9px 10px;text-align:left;font-weight:600;white-space:nowrap">เลขออเดอร์</th>
+          <th style="padding:9px 10px;text-align:left;white-space:nowrap">วันที่รับ</th>
+          <th style="padding:9px 10px;text-align:left">ช่องทาง</th>
+          <th style="padding:9px 10px;text-align:right;white-space:nowrap">Gross (฿)</th>
+          <th style="padding:9px 10px;text-align:right;white-space:nowrap">ค่าธรรมเนียม</th>
+          <th style="padding:9px 10px;text-align:right;white-space:nowrap">สุทธิ (฿)</th>
+          <th style="padding:9px 10px;text-align:left;white-space:nowrap">IV</th>
+          <th style="padding:9px 10px;text-align:left;white-space:nowrap">RE</th>
+          <th style="padding:9px 10px"></th>
+        </tr></thead>
+        <tbody>${tableRows}</tbody>
+      </table>
+    </div>
+    <div style="color:#94a3b8;font-size:11px;margin-top:8px">แสดง ${filtered.length} รายการ · สุทธิรวม ${salesFmt(sumNet)} บาท</div>
   </div>`;
 }
 function incRenderExport(d){
@@ -3395,6 +3560,83 @@ async function incVerifyTagAll(){
   v.applying = false;
   alert(`บันทึก RE สำเร็จ ${ok} รายการ${fail ? ` · ล้มเหลว ${fail} รายการ` : ""}`);
   renderToolSalesIncome();
+}
+
+/* ---- Income list: load / ingest / upload ---- */
+async function incLoadRows(d){
+  if(!d) d = incGet();
+  try{
+    const co = await fopCompanyId(); if(!co){ d.incRows=[]; d.incLoaded=true; return; }
+    const { data, error } = await sb.from("sales_income_rows")
+      .select("*").eq("company_id",co).is("deleted_at",null)
+      .order("paid_date",{ascending:false}).limit(2000);
+    if(error) throw error;
+    d.incRows = data||[];
+  } catch(e){ console.warn("incLoadRows",e); d.incRows=[]; }
+  d.incLoaded = true;
+}
+
+async function incIngestRows(parsedRows, channelGroup){
+  const co = await fopCompanyId(); if(!co) return {ok:0,fail:0};
+  const toUpsert = parsedRows.map(r=>({
+    company_id: co,
+    order_id:   r.orderNo,
+    channel_group: channelGroup,
+    paid_date:  r.paymentDate||null,
+    order_date: r.orderDate||null,
+    gross:      r.gross||0,
+    seller_discount: r.sellerDiscount||0,
+    fee_total:  r.feeTotal||0,
+    fee_breakdown: r.feeBreakdown&&r.feeBreakdown.length ? r.feeBreakdown : null,
+    net_received: r.net||0,
+    source_file: r._sourceFile||null,
+    created_by: AUTH.user&&AUTH.user.id||null
+  }));
+  let ok=0, fail=0;
+  const CHUNK=500;
+  for(let i=0;i<toUpsert.length;i+=CHUNK){
+    const chunk=toUpsert.slice(i,i+CHUNK);
+    const { error } = await sb.from("sales_income_rows")
+      .upsert(chunk,{onConflict:"company_id,order_id,channel_group",ignoreDuplicates:false});
+    if(error){ console.warn("incIngest",error); fail+=chunk.length; } else ok+=chunk.length;
+  }
+  return {ok,fail};
+}
+
+function incUploadIncome(){
+  const inp = document.createElement("input");
+  inp.type="file"; inp.accept=".xlsx,.xls"; inp.multiple=true;
+  inp.onchange = async (e) => {
+    const d = incGet();
+    d.incBusy=true; renderToolSalesIncome();
+    try{
+      for(const f of e.target.files){
+        const buf = await f.arrayBuffer();
+        const wb = XLSX.read(buf,{type:"array"});
+        const book = { names:wb.SheetNames, sheets:{} };
+        for(const sn of wb.SheetNames)
+          book.sheets[sn] = XLSX.utils.sheet_to_json(wb.Sheets[sn],{header:1,defval:""});
+        const plat = detectPlatform(f, book);
+        let parsed=null, channelGroup='';
+        if(plat.kind==="SP"){
+          parsed = parseShopeeIncome(book).rows;
+          channelGroup = 'shopee';
+        } else if(plat.kind==="TT"){
+          parsed = parseTikTokIncome(book).rows;
+          channelGroup = 'tiktok';
+        } else {
+          alert(`ไม่รู้จักรูปแบบ "${f.name}" — รองรับ Shopee Income / TikTok Income XLSX`);
+          continue;
+        }
+        parsed.forEach(r=>r._sourceFile=f.name);
+        const res = await incIngestRows(parsed, channelGroup);
+        alert(`"${f.name}" (${channelGroup}): บันทึก ${res.ok} ออเดอร์${res.fail?` · ล้มเหลว ${res.fail}`:""}`);
+      }
+      await incLoadRows(d);
+    } catch(err){ alert("เกิดข้อผิดพลาด: "+String(err)); }
+    finally { d.incBusy=false; renderToolSalesIncome(); }
+  };
+  inp.click();
 }
 
 /* === Stage 3-4: Coming soon placeholders === */

@@ -9507,14 +9507,12 @@ function apoNum(v){
 
 /* 8 ประเภท AP — ตามทะเบียนของผู้ใช้ */
 const APO_CATEGORIES = [
-  "เงินมัดจำ/เงินเบิกล่วงหน้า",
-  "เงินสำรองจ่าย",
-  "เงินสดย่อย",
-  "เจ้าหนี้การค้า",
-  "ค่าใช้จ่ายประจำ",
-  "เงินกู้ยืมและดอกเบี้ย",
   "เงินเดือนและค่าที่ปรึกษา",
-  "ประมาณการเงินสำรองจ่าย"
+  "ค่าใช้จ่ายประจำ",
+  "เงินมัดจำ/เงินเบิกล่วงหน้า",
+  "เงินสำรองจ่าย/เงินสดย่อย",
+  "เงินกู้ยืมและดอกเบี้ย",
+  "เจ้าหนี้การค้า"
 ];
 
 /* classify จาก remark + vendor name + invoice_no */
@@ -9522,10 +9520,8 @@ function apoClassify(remark, vendor, invNo){
   const t = ((remark||"") + " " + (vendor||"") + " " + (invNo||"")).toLowerCase();
   if(/เงินกู้|กู้ยืม|ดอกเบี้ย|loan|interest/.test(t)) return "เงินกู้ยืมและดอกเบี้ย";
   if(/เงินเดือน|salary|ที่ปรึกษา|consult|payroll/.test(t)) return "เงินเดือนและค่าที่ปรึกษา";
-  if(/เงินสดย่อย|petty/.test(t)) return "เงินสดย่อย";
+  if(/เงินสดย่อย|petty|สำรองจ่าย|สำรองเงิน|reserve|ประมาณการ.*สำรอง|forecast/.test(t)) return "เงินสำรองจ่าย/เงินสดย่อย";
   if(/มัดจำ|เบิกล่วงหน้า|เบิกทดรอง|ทดรอง|advance|deposit/.test(t)) return "เงินมัดจำ/เงินเบิกล่วงหน้า";
-  if(/ประมาณการ.*สำรอง|forecast/.test(t)) return "ประมาณการเงินสำรองจ่าย";
-  if(/สำรองจ่าย|สำรองเงิน|reserve/.test(t)) return "เงินสำรองจ่าย";
   if(/ค่าโทร|อินเตอร์เน็ต|truemove|true\b|ais|dtac|ค่าน้ำ|ค่าไฟ|ค่าเช่า|ภาษี|สรรพากร|ประกันสังคม|sso|กองทุน.*สำรอง|กบช|รายเดือน|subscription|license/.test(t)) return "ค่าใช้จ่ายประจำ";
   return "เจ้าหนี้การค้า";  // default
 }
@@ -10393,7 +10389,7 @@ function recOpenForm(existing){
         <label><div style="font-size:12px;font-weight:700;color:var(--ink-2);margin-bottom:4px">หมวด *</div><select id="recCat" class="input" style="width:100%">
           ${[
             "เงินเดือนและค่าที่ปรึกษา","ค่าใช้จ่ายประจำ","เงินมัดจำ/เงินเบิกล่วงหน้า",
-            "เงินสำรองจ่าย","เงินกู้ยืมและดอกเบี้ย","เจ้าหนี้การค้า"
+            "เงินสำรองจ่าย/เงินสดย่อย","เงินกู้ยืมและดอกเบี้ย","เจ้าหนี้การค้า"
           ].map(c=>`<option value="${esc(c)}" ${v.category===c?'selected':''}>${esc(c)}</option>`).join("")}
         </select></label>
         <label><div style="font-size:12px;font-weight:700;color:var(--ink-2);margin-bottom:4px">ยอดประมาณ *</div><input id="recAmt" type="number" step="0.01" min="0.01" class="input" style="width:100%" value="${v.expected_amount||""}"></label>
@@ -11382,7 +11378,7 @@ function cffCompute(){
 function cffISO(x){ const p=n=>String(n).padStart(2,"0"); return `${x.getFullYear()}-${p(x.getMonth()+1)}-${p(x.getDate())}`; }
 /* map รหัสหมวดค่าใช้จ่ายประจำ → ป้ายไทย (ใช้จัดกลุ่มใน pivot) */
 function cffRecurCat(c){
-  const THAI_CATS = ["เงินเดือนและค่าที่ปรึกษา","ค่าใช้จ่ายประจำ","เงินมัดจำ/เงินเบิกล่วงหน้า","เงินสำรองจ่าย","เงินกู้ยืมและดอกเบี้ย","เจ้าหนี้การค้า"];
+  const THAI_CATS = ["เงินเดือนและค่าที่ปรึกษา","ค่าใช้จ่ายประจำ","เงินมัดจำ/เงินเบิกล่วงหน้า","เงินสำรองจ่าย/เงินสดย่อย","เงินกู้ยืมและดอกเบี้ย","เจ้าหนี้การค้า"];
   if(THAI_CATS.includes(c)) return c;
   return ({ payroll:"เงินเดือนและค่าที่ปรึกษา", rent:"ค่าใช้จ่ายประจำ", utility:"ค่าใช้จ่ายประจำ", subscription:"ค่าใช้จ่ายประจำ",
     insurance:"ค่าใช้จ่ายประจำ", provident_fund:"ค่าใช้จ่ายประจำ", social_security:"ค่าใช้จ่ายประจำ",
@@ -11851,7 +11847,7 @@ function cffStaffComputeReport(d, dt){
     byCat[p.category].items.push(p);
   }
   for(const c of Object.values(byCat)) c.items.sort(cffItemCmp);
-  const CFF_CAT_ORDER = ["เงินเดือนและค่าที่ปรึกษา","ค่าใช้จ่ายประจำ","เงินมัดจำ/เงินเบิกล่วงหน้า","เงินสำรองจ่าย","เงินกู้ยืมและดอกเบี้ย","เจ้าหนี้การค้า"];
+  const CFF_CAT_ORDER = ["เงินเดือนและค่าที่ปรึกษา","ค่าใช้จ่ายประจำ","เงินมัดจำ/เงินเบิกล่วงหน้า","เงินสำรองจ่าย/เงินสดย่อย","เงินกู้ยืมและดอกเบี้ย","เจ้าหนี้การค้า"];
   const cats = Object.entries(byCat).sort((a,b) => {
     const ia = CFF_CAT_ORDER.indexOf(a[0]), ib = CFF_CAT_ORDER.indexOf(b[0]);
     if(ia !== -1 && ib !== -1) return ia - ib;
@@ -12067,7 +12063,7 @@ async function renderToolCashflowStaff(){
     byCat[p.category].items.push(p);
   }
   for(const c of Object.values(byCat)) c.items.sort(cffItemCmp);  // ★ ผู้ขายเดียวกันอยู่ติดกัน
-  const CFF_CAT_ORDER2 = ["เงินเดือนและค่าที่ปรึกษา","ค่าใช้จ่ายประจำ","เงินมัดจำ/เงินเบิกล่วงหน้า","เงินสำรองจ่าย","เงินกู้ยืมและดอกเบี้ย","เจ้าหนี้การค้า"];
+  const CFF_CAT_ORDER2 = ["เงินเดือนและค่าที่ปรึกษา","ค่าใช้จ่ายประจำ","เงินมัดจำ/เงินเบิกล่วงหน้า","เงินสำรองจ่าย/เงินสดย่อย","เงินกู้ยืมและดอกเบี้ย","เจ้าหนี้การค้า"];
   const cats = Object.entries(byCat).sort((a,b) => {
     const ia = CFF_CAT_ORDER2.indexOf(a[0]), ib = CFF_CAT_ORDER2.indexOf(b[0]);
     if(ia !== -1 && ib !== -1) return ia - ib;

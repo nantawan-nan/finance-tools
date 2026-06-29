@@ -2742,6 +2742,343 @@ async function ivrLoadBatches(){
   }catch(e){ console.warn("ivrLoadBatches",e); d.ivrec.batches=[]; }
 }
 
+/* ============================================================
+   ระบบงานขาย (Sales Pipeline) — Phase 1
+   Stage 1: คำสั่งซื้อ × 3 channel (Shopee/TikTok/Lazada)
+   - อ่านจาก order_ledger เดิม · filter ตาม channel_group
+   - KPI 5 ใบ uniform · filter status · search · Export Excel
+   - Stage 2-4 = placeholder (เร็วๆ นี้)
+   ============================================================ */
+const SALES_CH = [
+  { id:"shopee", name:"Shopee", color:"#ee4d2d", icon:"shopping-bag" },
+  { id:"tiktok", name:"TikTok", color:"#000000", icon:"music" },
+  { id:"lazada", name:"Lazada", color:"#0f136d", icon:"package" }
+];
+function salesGet(){
+  if(!state.sales) state.sales = {};
+  const co = state.company;
+  if(!state.sales[co]) state.sales[co] = { channel:"shopee", fStatus:"all", q:"" };
+  return state.sales[co];
+}
+function salesSet(k, v){
+  const s = salesGet(); s[k] = v;
+  if(k==="q"){
+    const cur = (document.getElementById("salQ")||{}).selectionStart;
+    renderToolSalesOrders();
+    requestAnimationFrame(()=>{
+      const n = document.getElementById("salQ");
+      if(n){ n.focus(); if(cur!=null) try{ n.setSelectionRange(cur,cur); }catch(e){} }
+    });
+  } else renderToolSalesOrders();
+}
+function salesFmt(n){ return Number(n||0).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function salesFmtInt(n){ return Number(n||0).toLocaleString("en-US"); }
+/* KPI 5 ใบ uniform ต่อ channel — ใช้ order_ledger ที่โหลดมาแล้ว */
+function salesKpis(rows, ch){
+  const list = (rows||[]).filter(o => String(o.channel_group||"").toLowerCase() === ch);
+  let cntAll=0, cntCancel=0, cntRet=0, sumNet=0, sumShip=0, sumGross=0;
+  for(const o of list){
+    cntAll++;
+    if(o.status==="cancelled") cntCancel++;
+    if(o.is_returned) cntRet++;
+    if(o.status!=="cancelled" && !o.is_returned){
+      sumNet   += Number(o.order_total||0);
+      sumShip  += Number(o.shipping_fee||0);
+      sumGross += Number(o.gross_total||o.order_total||0);
+    }
+  }
+  const vat = sumNet * 7/107;   // ฐานภาษีรวม VAT แล้ว → 7/107
+  return { cntAll, cntCancel, cntRet, sumNet, sumShip, sumGross, vat, list };
+}
+
+async function renderToolSalesOrders(){
+  const main = document.getElementById("main");
+  const co = COMPANIES.find(c=>c.id===state.company);
+  const s = salesGet();
+  const d = ordGet();    // ★ share order_ledger data กับหน้า orders/bigseller (ไม่โหลดซ้ำ)
+  ordInjectStyle(); salInjectStyle();
+  if(!d.loaded && !d.busy){
+    main.innerHTML = `<div class="ord-page sal-page"><div class="sal-empty"><i data-lucide="loader-2"></i><div class="t">กำลังโหลดคำสั่งซื้อ…</div></div></div>`;
+    if(window.lucide) try{ lucide.createIcons(); }catch(e){}
+    d.busy = true;
+    try{ await ordLoad(); }catch(e){ console.warn(e); }
+    d.busy = false;
+  }
+  const k = salesKpis(d.rows||[], s.channel);
+  const chCfg = SALES_CH.find(x=>x.id===s.channel) || SALES_CH[0];
+  const cntActive = (k.list||[]).filter(o => o.status!=="cancelled" && !o.is_returned).length;
+  // filter table
+  let tableRows = (k.list||[]).slice();
+  if(s.fStatus==="active")    tableRows = tableRows.filter(o => o.status!=="cancelled" && !o.is_returned);
+  if(s.fStatus==="cancelled") tableRows = tableRows.filter(o => o.status==="cancelled");
+  if(s.fStatus==="returned")  tableRows = tableRows.filter(o => o.is_returned);
+  if(s.q){
+    const q = s.q.toLowerCase();
+    tableRows = tableRows.filter(o => `${o.order_id||""} ${o.products||""} ${o.sku_list||""} ${o.iv_no||""}`.toLowerCase().includes(q));
+  }
+  tableRows.sort((a,b)=>(b.order_date||"").localeCompare(a.order_date||""));
+  main.innerHTML = `
+    <div class="ord-page sal-page">
+      <div class="sal-hero" style="background:linear-gradient(135deg,var(--brand),var(--brand-dark))">
+        <div class="sal-hero-l">
+          <div class="sal-hero-ttl">ระบบงานขาย · 1. คำสั่งซื้อ</div>
+          <div class="sal-hero-sub">นำเข้ารายงานคำสั่งซื้อจากหลังบ้าน Shopee / TikTok / Lazada — เก็บออเดอร์เข้า ledger เดียวกัน · ส่งต่อขั้นถัดไป (รับชำระ → กระเป๋าเงิน → กระทบยอด)</div>
+        </div>
+        <div class="sal-hero-r">
+          <div class="sal-hero-co">${esc(co.name)}</div>
+          <div class="sal-hero-stat">${salesFmtInt(k.cntAll)} ออเดอร์ · ${salesFmt(k.sumNet)} บาท</div>
+        </div>
+      </div>
+
+      <div class="sal-chip-row">
+        ${SALES_CH.map(c => {
+          const cnt = (d.rows||[]).filter(o => String(o.channel_group||"").toLowerCase()===c.id).length;
+          const active = c.id===s.channel;
+          return `<button class="sal-chip ${active?'active':''}" onclick="salesSet('channel','${c.id}')" style="${active?`--ch:${c.color}`:''}">
+            <i data-lucide="${c.icon}"></i><span class="n">${esc(c.name)}</span><span class="c">${salesFmtInt(cnt)}</span>
+          </button>`;
+        }).join("")}
+        <div style="margin-left:auto;display:flex;gap:8px;flex-wrap:wrap">
+          <button class="ord-btn" onclick="salesUpload()"><i data-lucide="upload"></i> อัปไฟล์ ${esc(chCfg.name)}</button>
+          <button class="ord-btn" onclick="salesReload()"><i data-lucide="refresh-cw"></i> Refresh</button>
+          <button class="ord-btn" onclick="salesExport()"><i data-lucide="file-spreadsheet"></i> Export Excel</button>
+          <button class="ord-btn" onclick="setTool('bigseller')"><i data-lucide="history"></i> ประวัติส่งออก IV</button>
+        </div>
+      </div>
+
+      <div class="sal-kpi-row">
+        <div class="sal-kpi"><div class="lbl">ออเดอร์รวม</div><div class="v">${salesFmtInt(k.cntAll)}</div><div class="sub">${esc(chCfg.name)} · ${salesFmtInt(cntActive)} ขายสำเร็จ</div></div>
+        <div class="sal-kpi g"><div class="lbl">ยอดขายสุทธิ</div><div class="v">${salesFmt(k.sumNet)}</div><div class="sub">รวม VAT · ไม่นับยกเลิก/คืน</div></div>
+        <div class="sal-kpi b"><div class="lbl">ค่าขนส่ง</div><div class="v">${salesFmt(k.sumShip)}</div><div class="sub">ที่ผู้ซื้อจ่าย</div></div>
+        <div class="sal-kpi p"><div class="lbl">VAT การขาย</div><div class="v">${salesFmt(k.vat)}</div><div class="sub">7/107 จากยอดขายสุทธิ</div></div>
+        <div class="sal-kpi r"><div class="lbl">ยกเลิก / คืน</div><div class="v">${salesFmtInt(k.cntCancel + k.cntRet)}</div><div class="sub">${salesFmtInt(k.cntCancel)} ยกเลิก · ${salesFmtInt(k.cntRet)} คืน</div></div>
+      </div>
+
+      <div class="sal-filter-row">
+        <button class="sal-fchip ${s.fStatus==='all'?'active':''}" onclick="salesSet('fStatus','all')">ทั้งหมด <span class="c">${salesFmtInt(k.cntAll)}</span></button>
+        <button class="sal-fchip ${s.fStatus==='active'?'active':''}" onclick="salesSet('fStatus','active')">ขายสำเร็จ <span class="c">${salesFmtInt(cntActive)}</span></button>
+        <button class="sal-fchip ${s.fStatus==='cancelled'?'active':''}" onclick="salesSet('fStatus','cancelled')">ยกเลิก <span class="c">${salesFmtInt(k.cntCancel)}</span></button>
+        <button class="sal-fchip ${s.fStatus==='returned'?'active':''}" onclick="salesSet('fStatus','returned')">คืน <span class="c">${salesFmtInt(k.cntRet)}</span></button>
+        <div style="margin-left:auto">
+          <input id="salQ" type="text" placeholder="ค้นหา order id / สินค้า / SKU / IV…" value="${esc(s.q||'')}" oninput="salesSet('q',this.value)" class="sal-search">
+        </div>
+      </div>
+
+      <div class="sal-table-wrap">
+        ${tableRows.length===0 ? `
+          <div class="sal-empty">
+            ${(k.list||[]).length===0 ? `
+              <i data-lucide="package-open"></i>
+              <div class="t">ยังไม่มีคำสั่งซื้อใน ${esc(chCfg.name)}</div>
+              <div class="s">กดปุ่ม <b>อัปไฟล์ ${esc(chCfg.name)}</b> ด้านบนเพื่อนำเข้ารายงานคำสั่งซื้อจากหลังบ้าน</div>
+            ` : `
+              <i data-lucide="filter-x"></i>
+              <div class="t">ไม่มีรายการตรงกับเงื่อนไขกรอง</div>
+              <div class="s">ลองเปลี่ยน filter หรือล้างคำค้น</div>
+            `}
+          </div>
+        ` : `
+          <div style="overflow-x:auto">
+          <table class="sal-table">
+            <thead><tr>
+              <th>เลขคำสั่งซื้อ</th><th>วันที่</th><th>สินค้า</th>
+              <th class="r">จำนวน</th><th class="r">ยอดขาย</th>
+              <th class="r">ส่วนลด</th><th class="r">ค่าขนส่ง</th>
+              <th>สถานะ</th>
+            </tr></thead>
+            <tbody>
+              ${tableRows.slice(0,500).map(o => {
+                const isCanc = o.status==="cancelled";
+                const isRet  = o.is_returned;
+                const statusLbl = isCanc ? `<span class="sal-bd r">ยกเลิก</span>` : isRet ? `<span class="sal-bd w">คืน</span>` : `<span class="sal-bd g">ขายสำเร็จ</span>`;
+                const ivBadge = o.iv_no ? `<span class="sal-iv-mini">IV ${esc(String(o.iv_no))}</span>` : '';
+                return `<tr>
+                  <td class="mono">${esc(o.order_id||'')}${ivBadge}</td>
+                  <td class="tnum">${esc(o.order_date||'')}</td>
+                  <td class="trunc" title="${esc(o.products||'')}">${esc(o.products||'')}</td>
+                  <td class="tnum r">${salesFmtInt(o.item_count||0)}</td>
+                  <td class="tnum r">${salesFmt(o.order_total||0)}</td>
+                  <td class="tnum r">${salesFmt(o.seller_discount||0)}</td>
+                  <td class="tnum r">${salesFmt(o.shipping_fee||0)}</td>
+                  <td>${statusLbl}</td>
+                </tr>`;
+              }).join("")}
+            </tbody>
+          </table>
+          </div>
+          ${tableRows.length > 500 ? `<div class="sal-truncated">แสดง 500 รายการแรกจากทั้งหมด ${salesFmtInt(tableRows.length)} · ใช้ filter/search ช่วยจำกัด</div>` : ''}
+        `}
+      </div>
+    </div>
+  `;
+  if(window.lucide) lucide.createIcons();
+}
+
+async function salesUpload(){
+  const s = salesGet();
+  if(typeof brecCanWrite==="function" && !brecCanWrite()){ alert("ไม่มีสิทธิ์อัปไฟล์"); return; }
+  const co = await fopCompanyId(); if(!co){ alert("หา company_id ไม่เจอ"); return; }
+  const chCfg = SALES_CH.find(x=>x.id===s.channel);
+  const files = await new Promise(res=>{
+    const i=document.createElement("input"); i.type="file"; i.accept=".xlsx,.xls,.csv"; i.multiple=true;
+    i.onchange=()=>res([...i.files]); i.click();
+  });
+  if(!files||!files.length) return;
+  const d = ordGet();
+  let totAdd=0, totUpd=0, failTotal=0, wrong=[];
+  try{
+    for(const file of files){
+      let rows;
+      if(/\.csv$/i.test(file.name)){
+        const text = new TextDecoder("utf-8").decode(await file.arrayBuffer());
+        rows = bmpParseCsvText(text);
+      } else {
+        const wb = XLSX.read(await file.arrayBuffer(), { type:"array", cellDates:false });
+        rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header:1, defval:"", raw:false });
+      }
+      const parsed = ordParseSalesFile(rows);
+      if(!parsed){ wrong.push(`${file.name}: ไม่รู้จักฟอร์แมต`); continue; }
+      if(parsed.channel !== s.channel){
+        wrong.push(`${file.name}: เป็นไฟล์ ${parsed.channel} (กำลังอัปลง ${s.channel}) — ข้าม`); continue;
+      }
+      const r = await ordIngestChannelOrders(co, parsed, `sales/${s.channel}/${file.name}`);
+      totAdd += r.added||0; totUpd += r.updated||0; failTotal += r.failN||0;
+    }
+    d.loaded = false; await ordLoad();
+  }catch(e){ console.error(e); alert("ผิดพลาด: "+(e.message||e)); }
+  renderToolSalesOrders();
+  alert([
+    `✓ ${chCfg.name} นำเข้าเสร็จ`,
+    `เพิ่ม: ${totAdd}`, `อัปเดต: ${totUpd}`,
+    failTotal ? `ผิดพลาด: ${failTotal}` : "",
+    wrong.length ? `\n⚠️ ข้าม ${wrong.length} ไฟล์:\n${wrong.join("\n")}` : ""
+  ].filter(Boolean).join(" · "));
+}
+
+async function salesReload(){
+  const d = ordGet(); d.loaded=false;
+  await renderToolSalesOrders();
+}
+
+function salesExport(){
+  const s = salesGet();
+  const d = ordGet();
+  const k = salesKpis(d.rows||[], s.channel);
+  const chCfg = SALES_CH.find(x=>x.id===s.channel);
+  if(!k.list.length){ alert("ยังไม่มีข้อมูล"); return; }
+  const wb = XLSX.utils.book_new();
+  const data = [["เลขคำสั่งซื้อ","วันที่","สินค้า","SKU","จำนวน","ยอดขาย (สุทธิ)","ยอดขาย (ก่อนหัก)","ส่วนลดผู้ขาย","ค่าขนส่ง","สถานะ","IV"]];
+  k.list.forEach(o => {
+    data.push([
+      o.order_id||"", o.order_date||"", o.products||"", o.sku_list||"",
+      o.item_count||0, Number(o.order_total||0), Number(o.gross_total||0),
+      Number(o.seller_discount||0), Number(o.shipping_fee||0),
+      o.status==="cancelled"?"ยกเลิก":(o.is_returned?"คืน":"ขายสำเร็จ"),
+      o.iv_no || ""
+    ]);
+  });
+  const ws = XLSX.utils.aoa_to_sheet(data);
+  ws["!cols"] = [{wch:18},{wch:11},{wch:40},{wch:14},{wch:7},{wch:13},{wch:13},{wch:11},{wch:11},{wch:11},{wch:14}];
+  XLSX.utils.book_append_sheet(wb, ws, chCfg.name);
+  XLSX.writeFile(wb, `Sales_${chCfg.name}_${state.company}_${new Date().toISOString().slice(0,10)}.xlsx`);
+}
+
+/* CSS scoped under .sal-page */
+function salInjectStyle(){
+  if(document.getElementById("salStyle")) return;
+  const s = document.createElement("style"); s.id="salStyle";
+  s.textContent = `
+    .sal-page{padding:0;display:flex;flex-direction:column;gap:14px}
+    .sal-hero{border-radius:18px;padding:22px 26px;color:#fff;display:flex;justify-content:space-between;align-items:center;gap:20px;box-shadow:0 6px 24px rgba(0,0,0,.10);position:relative;overflow:hidden}
+    .sal-hero-l{flex:1;min-width:0}
+    .sal-hero-ttl{font-size:22px;font-weight:800;letter-spacing:-.3px;margin-bottom:5px}
+    .sal-hero-sub{font-size:13px;opacity:.92;line-height:1.6;max-width:760px}
+    .sal-hero-r{text-align:right;flex-shrink:0}
+    .sal-hero-co{font-size:11px;font-weight:600;opacity:.85;text-transform:uppercase;letter-spacing:.5px}
+    .sal-hero-stat{font-size:18px;font-weight:800;margin-top:2px}
+    .sal-chip-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+    .sal-chip{display:inline-flex;gap:8px;align-items:center;border:1.5px solid #e2e8f0;background:#fff;color:#475569;border-radius:10px;padding:8px 14px;font-weight:600;font-size:13px;cursor:pointer;transition:.15s}
+    .sal-chip i{width:16px;height:16px;stroke-width:2}
+    .sal-chip .c{background:#f1f5f9;color:#475569;font-size:11px;padding:1px 7px;border-radius:999px;font-weight:700}
+    .sal-chip:hover{border-color:var(--brand);color:var(--brand-dark)}
+    .sal-chip.active{border-color:var(--ch,var(--brand));color:var(--ch,var(--brand-dark));background:rgba(0,0,0,.02);box-shadow:0 0 0 3px rgba(0,0,0,.04)}
+    .sal-chip.active .c{background:var(--ch,var(--brand));color:#fff}
+    .sal-kpi-row{display:grid;grid-template-columns:repeat(5,1fr);gap:12px}
+    .sal-kpi{background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:14px 16px;border-top:3px solid var(--brand)}
+    .sal-kpi.g{border-top-color:#10b981}
+    .sal-kpi.b{border-top-color:#3b82f6}
+    .sal-kpi.p{border-top-color:#8b5cf6}
+    .sal-kpi.r{border-top-color:#ef4444}
+    .sal-kpi .lbl{font-size:11.5px;color:#64748b;font-weight:600;margin-bottom:5px}
+    .sal-kpi .v{font-size:22px;font-weight:800;color:#0f172a;letter-spacing:-.5px;font-variant-numeric:tabular-nums}
+    .sal-kpi .sub{font-size:11px;color:#94a3b8;margin-top:3px}
+    .sal-filter-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:10px 12px}
+    .sal-fchip{border:1px solid #e2e8f0;background:#fff;color:#475569;border-radius:7px;padding:5px 11px;font-weight:600;font-size:12px;cursor:pointer;transition:.12s;display:inline-flex;align-items:center;gap:6px}
+    .sal-fchip .c{background:#f1f5f9;color:#475569;font-size:10px;padding:1px 6px;border-radius:999px;font-weight:700}
+    .sal-fchip:hover{border-color:var(--brand);color:var(--brand-dark)}
+    .sal-fchip.active{background:var(--brand);color:#fff;border-color:var(--brand)}
+    .sal-fchip.active .c{background:rgba(255,255,255,.25);color:#fff}
+    .sal-search{border:1px solid #e2e8f0;border-radius:7px;padding:6px 11px;font-size:12.5px;width:280px;outline:none}
+    .sal-search:focus{border-color:var(--brand);box-shadow:0 0 0 3px rgba(var(--brand-rgb),.12)}
+    .sal-table-wrap{background:#fff;border:1px solid #e2e8f0;border-radius:14px;overflow:hidden}
+    .sal-table{width:100%;border-collapse:collapse;font-size:12.5px}
+    .sal-table th{background:#f8fafc;color:#475569;font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:.4px;padding:11px 12px;text-align:left;border-bottom:1px solid #e2e8f0;position:sticky;top:0;z-index:1}
+    .sal-table th.r{text-align:right}
+    .sal-table td{padding:10px 12px;border-bottom:1px solid #f1f5f9;color:#0f172a;vertical-align:middle}
+    .sal-table td.mono{font-family:"IBM Plex Mono",monospace;font-size:11.5px}
+    .sal-table td.tnum{font-variant-numeric:tabular-nums}
+    .sal-table td.r{text-align:right}
+    .sal-table td.trunc{max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .sal-table tbody tr:hover{background:#f8fafc}
+    .sal-bd{display:inline-block;padding:2px 9px;font-size:10.5px;font-weight:700;border-radius:999px}
+    .sal-bd.g{background:#dcfce7;color:#166534}
+    .sal-bd.r{background:#fee2e2;color:#991b1b}
+    .sal-bd.w{background:#fef3c7;color:#92400e}
+    .sal-iv-mini{display:inline-block;background:rgba(var(--brand-rgb),.10);color:var(--brand-dark);font-size:10px;font-weight:700;padding:1px 6px;border-radius:5px;font-family:"IBM Plex Mono",monospace;margin-left:6px}
+    .sal-empty{text-align:center;padding:50px 30px;color:#64748b}
+    .sal-empty i{width:48px;height:48px;color:#cbd5e1;margin-bottom:12px;stroke-width:1.5;display:inline-block}
+    .sal-empty .t{font-size:15px;font-weight:700;color:#334155;margin-bottom:5px}
+    .sal-empty .s{font-size:12.5px;color:#64748b;max-width:480px;margin:0 auto;line-height:1.6}
+    .sal-truncated{padding:10px 16px;font-size:11.5px;color:#94a3b8;background:#f8fafc;border-top:1px solid #f1f5f9;text-align:center}
+    @media (max-width:1100px){
+      .sal-kpi-row{grid-template-columns:repeat(3,1fr)}
+      .sal-hero{flex-direction:column;align-items:flex-start}
+      .sal-hero-r{text-align:left}
+    }
+  `;
+  document.head.appendChild(s);
+}
+
+/* === Stage 2-4: Coming soon placeholders === */
+function renderToolSalesIncome(){ return salesPlaceholder("2. รับชำระเงิน","credit-card","อัปรายงาน Income / รับชำระจากหลังบ้าน · แยกรายได้ → ขนส่ง → ค่าธรรมเนียม → สุทธิ · เห็นทุกค่าใช้จ่ายที่โดนหักรายออเดอร์ · ส่งออก RE ไปคีย์ในระบบบัญชี"); }
+function renderToolSalesWallet(){ return salesPlaceholder("3. กระเป๋าเงิน","wallet","อัปรายงาน Wallet / Balance · ดู running balance · แยกเงินเข้า / เงินออก / ปรับปรุง · เห็นยอดในกระเป๋าก่อนถอนเข้าธนาคาร"); }
+function renderToolSalesRecon(){  return salesPlaceholder("4. กระทบยอด","git-compare","กระทบยอด 4 ทาง · Order × Income × Wallet × ธนาคาร · ตรวจครบ / ขาด / ส่วนต่าง · ส่งออก BQ (ผ่านเช็คเข้าธนาคาร) ไปคีย์ในระบบบัญชี · ย้ายของ \"ถอน Marketplace\" จาก Bank Reconciliation มาที่นี่"); }
+function salesPlaceholder(title, icon, desc){
+  ordInjectStyle(); salInjectStyle();
+  const co = COMPANIES.find(c=>c.id===state.company);
+  document.getElementById("main").innerHTML = `
+    <div class="ord-page sal-page">
+      <div class="sal-hero" style="background:linear-gradient(135deg,var(--brand),var(--brand-dark))">
+        <div class="sal-hero-l">
+          <div class="sal-hero-ttl">ระบบงานขาย · ${esc(title)}</div>
+          <div class="sal-hero-sub">${esc(desc)}</div>
+        </div>
+        <div class="sal-hero-r">
+          <div class="sal-hero-co">${esc(co.name)}</div>
+          <div class="sal-hero-stat" style="opacity:.7;font-size:14px">เร็วๆ นี้</div>
+        </div>
+      </div>
+      <div class="sal-empty" style="background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:60px 30px">
+        <i data-lucide="${icon}" style="width:54px;height:54px;color:var(--brand);margin-bottom:16px;stroke-width:1.4"></i>
+        <div class="t" style="font-size:17px">กำลังพัฒนา</div>
+        <div class="s" style="margin-top:8px">${esc(desc)}</div>
+        <div style="margin-top:24px"><button class="ord-btn" onclick="setTool('sales_orders')"><i data-lucide="arrow-left"></i> กลับไปที่ "1. คำสั่งซื้อ"</button></div>
+      </div>
+    </div>
+  `;
+  if(window.lucide) lucide.createIcons();
+}
+
 /* ---- Main entry ---- */
 async function renderToolBigSeller(){
   const t = TOOLS.find(x=>x.id===state.tool);
@@ -15874,13 +16211,13 @@ function ordChannelDetail(o){
 }
 /* ★ marketplace 3 ช่อง — โชว์เสมอ · มี recon ฝั่งแพลตฟอร์ม */
 const ORD_BOARD_CHANS_MP = [
-  {k:"shopee", l:"Shopee", c:"#ee4d2d", dom:"shopee.com", isMP:true},
-  {k:"tiktok", l:"TikTok", c:"#000000", dom:"tiktok.com", isMP:true},
-  {k:"lazada", l:"Lazada", c:"#3f3bcc", dom:"lazada.com", isMP:true}
+  {k:"shopee", l:"Shopee", c:"#ee4d2d", img:"logo%20platfrom/Shopee_Myads_MOST2414_01.webp", isMP:true},
+  {k:"tiktok", l:"TikTok", c:"#111111", img:"logo%20platfrom/images%20(2).png", isMP:true},
+  {k:"lazada", l:"Lazada", c:"#0F146D", img:"logo%20platfrom/logo-lazada.jpg", isMP:true}
 ];
 /* ★ ขายตรง 3 ช่อง — ยุบเป็น "อื่นๆ" 1 คอลัมน์ default · คลิกขยายดู 3 ช่องแยก */
 const ORD_BOARD_CHANS_OTHER = [
-  {k:"face",   l:"FACE",   c:"#8b5cf6", dom:"facebook.com", isMP:false},
+  {k:"face",   l:"FACE",   c:"#1877f2", dom:"facebook.com", isMP:false},
   {k:"line",   l:"LINE",   c:"#06c755", dom:"line.me",      isMP:false},
   {k:"dealer", l:"Dealer", c:"#0f766e", dom:"",             isMP:false}
 ];
@@ -16911,17 +17248,18 @@ function ordRenderBoard(d){
     ? [...ORD_BOARD_CHANS_MP, ...ORD_BOARD_CHANS_OTHER]
     : [...ORD_BOARD_CHANS_MP, {k:"_oth", l:"อื่นๆ", c:"#64748b", isMP:false, isOther:true}];
 
-  // ----- header cell — โลโก้จริง (Clearbit) + ไม่มี subtitle -----
+  // ----- header cell — โลโก้ local file / Clearbit + ไม่มี subtitle -----
   const headCell=c=>{
     // ★ "อื่นๆ" คลิก toggle expand · เปิด/ปิดได้
     const clickAttr = c.isOther
       ? `onclick="ordBoardOtherToggle()" style="cursor:pointer" title="คลิกเพื่อดูแยก FACE/LINE/Dealer"`
       : '';
-    // logo: marketplace + LINE = ใช้ Clearbit · อื่น = badge ตัวอักษร
-    const useLogo = !!c.dom;
-    const logoHtml = useLogo
-      ? `<img src="https://logo.clearbit.com/${c.dom}" alt="${esc(c.l)}" style="width:100%;height:100%;object-fit:contain;padding:4px;box-sizing:border-box" onerror="this.outerHTML='<span style=\\'color:${c.c};font:800 16px/1 inherit\\'>${esc(c.l[0])}</span>'">`
-      : `<span style="color:${c.c};font:800 16px/1 inherit">${c.isOther?'⋯':esc(c.l[0])}</span>`;
+    // logo: local file → Clearbit CDN → badge letter
+    const logoHtml = c.img
+      ? `<img src="${c.img}" alt="${esc(c.l)}" style="width:100%;height:100%;object-fit:contain;padding:3px;box-sizing:border-box" onerror="this.outerHTML='<span style=\\'color:${c.c};font:800 16px/1 inherit\\'>${esc(c.l[0])}</span>'">`
+      : c.dom
+        ? `<img src="https://logo.clearbit.com/${c.dom}" alt="${esc(c.l)}" style="width:100%;height:100%;object-fit:contain;padding:4px;box-sizing:border-box" onerror="this.outerHTML='<span style=\\'color:${c.c};font:800 16px/1 inherit\\'>${esc(c.l[0])}</span>'">`
+        : `<span style="color:${c.c};font:800 16px/1 inherit">${c.isOther?'⋯':esc(c.l[0])}</span>`;
     // expand/collapse hint badge
     const expandHint = c.isOther
       ? `<span style="position:absolute;top:6px;right:6px;background:rgba(255,255,255,.28);color:#fff;font:700 9.5px/1 inherit;padding:3px 6px;border-radius:999px;letter-spacing:.04em">▸ ขยาย</span>`
@@ -16937,7 +17275,7 @@ function ordRenderBoard(d){
     opts=opts||{};
     return `<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:13px 8px;${opts.bg?`background:${opts.bg};`:''}${opts.click?'cursor:pointer;transition:.15s':''}" ${opts.click?`onclick="${opts.click}" onmouseover="this.style.background='${opts.hoverBg||'#fef2f2'}'" onmouseout="this.style.background='${opts.bg||'transparent'}'"`:''}>
       <div class="tnum" style="font:800 22px/1.1 inherit;color:${opts.col||'#0f172a'};letter-spacing:-.02em">${n.toLocaleString('th-TH')}</div>
-      <div class="tnum" style="font:500 11.5px/1.3 inherit;color:${opts.subCol||'#64748b'};margin-top:3px">${sum!=null?fmt(sum)+' บ.':''}</div>
+      <div class="tnum" style="font:600 12.5px/1.3 inherit;color:${opts.subCol||'#334155'};margin-top:3px">${sum!=null?fmt(sum)+' บ.':''}</div>
     </div>`;
   };
   const dashCell=()=>`<div style="display:flex;align-items:center;justify-content:center;padding:13px 8px;color:#cbd5e1;font:600 14px/1 inherit">—</div>`;
@@ -16958,7 +17296,9 @@ function ordRenderBoard(d){
     return { bs:M[c.k].bs, beShow:c.isMP, diffShow:c.isMP };
   };
 
-  const gridCols=`grid-template-columns: 200px repeat(${displayCH.length}, minmax(120px,1fr))`;
+  const labelW = otherOpen ? '160px' : '200px';
+  const colMin  = otherOpen ? '110px' : '130px';
+  const gridCols=`grid-template-columns: ${labelW} repeat(${displayCH.length}, minmax(${colMin},1fr))`;
   const matrixHtml=`
     <div class="ord-card" style="padding:0;overflow:hidden;border-radius:16px">
       <div style="display:grid;${gridCols};background:#f8fafc;border-bottom:1px solid #e2e8f0">

@@ -17077,6 +17077,8 @@ function ordRunRecon(backendOrders){
   const bsByOid=new Map(bsScoped.map(o=>[o.order_id,o]));
   const results=[];
   for(const be of backendOrders){
+    // ★ ออเดอร์ที่ถูกยกเลิกก่อน BigSeller ดึง → หลังบ้านมี/BigSeller ไม่มี = ปกติ ไม่นับเป็น only_be
+    if(be.status==='cancelled') continue;
     const bs=bsByOid.get(be.order_id);
     if(!bs){ results.push({order_no:be.order_id, channel:be.channel_group, date:be.order_date, status:'only_be', be, bs:null}); continue; }
     const diffs=ordReconDiffs(bs,be);

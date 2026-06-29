@@ -1391,12 +1391,20 @@ function parseShopeeIncome(book){
   if(cNet<0) cNet=header.findIndex(h=>h.includes("จำนวนเงิน")&&h.includes("฿")&&!h.includes("คืน")&&!h.includes("ค่า"));
   const cGross=find(["สินค้าราคาปกติ","ราคาขายค้าปลีก","ราคาตั้ง"]);
   const cSellerDisc=find(["ส่วนลดสินค้าจากผู้ขาย","ส่วนลดจากผู้ขาย","ส่วนลดเงินราคาจากผู้ขาย"]);
+  // fee columns จาก Income sheet เพิ่ม/แทนที่ Service Fee sheet (ครบกว่า)
+  const SP_FEE_KW=["ค่าคอมมิชชั่น","ค่าบริการ","ค่าธรรมเนียม","ค่าจัดส่งสินค้า","ค่าจัดส่งที่ Shopee"];
+  const spFeeCols=header.map((h,i)=>SP_FEE_KW.some(k=>h.includes(k.slice(0,5)))?{name:h,idx:i}:null).filter(Boolean);
+  const spUsed=new Set([cOrder,cPaidDate,cOrderDate,cNet,cGross,cSellerDisc]);
   const out=[];
   for(let i=headerIdx+1;i<rows.length;i++){
-    const r=rows[i];
+    const r=rows[i]; if(!r) continue;
     const o=String(r[cOrder]||"").trim();
     if(!o) continue;
     const grossVal=num(r[cGross]); const netVal=num(r[cNet]);
+    // รวม fee จาก Service Fee sheet + fee columns ใน Income sheet (dedup ด้วย name)
+    const sfFees=feeMap.get(o)||[];
+    const sfNames=new Set(sfFees.map(f=>f.name));
+    const incFees=spFeeCols.filter(f=>!spUsed.has(f.idx)&&num(r[f.idx])!==0&&!sfNames.has(f.name)).map(f=>({name:f.name,amount:num(r[f.idx])}));
     out.push({
       orderNo:o,
       paymentDate:parseDate(r[cPaidDate]),
@@ -1405,7 +1413,7 @@ function parseShopeeIncome(book){
       gross:grossVal,
       sellerDiscount: cSellerDisc>=0 ? num(r[cSellerDisc]) : 0,
       feeTotal: Math.max(0, grossVal-netVal),
-      feeBreakdown: feeMap.get(o)||[]
+      feeBreakdown: [...sfFees, ...incFees]
     });
   }
   return { rows:out, seller };
@@ -1413,30 +1421,6 @@ function parseShopeeIncome(book){
 
 /* ---------- Parser: TikTok Income ---------- */
 function parseTikTokIncome(book){
-  // --- Fee description map → orderNo → [{name, amount}] ---
-  const feeDescName = book.names.find(n => n.includes("คำอธิบาย")||n.includes("ค่าธรรมเนียม"));
-  const feeMap = new Map();
-  if(feeDescName){
-    const fs = book.sheets[feeDescName]||[];
-    if(fs.length>1){
-      const fh=(fs[0]||[]).map(h=>String(h||""));
-      const fcOrder=fh.findIndex(h=>h.includes("หมายเลขคำสั่งซื้อ"));
-      const fcName=fh.findIndex(h=>h.includes("ประเภท")||h.includes("ชื่อ"));
-      const fcAmt=fh.findIndex(h=>h.includes("จำนวน")||h.includes("ยอด"));
-      if(fcOrder>=0&&fcAmt>=0){
-        for(let i=1;i<fs.length;i++){
-          const r=fs[i]||[];
-          const oNo=String(r[fcOrder]||"").trim();
-          if(!oNo) continue;
-          const name=fcName>=0?String(r[fcName]||"").trim():"ค่าธรรมเนียม";
-          const amt=num(r[fcAmt]);
-          if(amt===0) continue;
-          const ex=feeMap.get(oNo)||[];
-          ex.push({name,amount:amt}); feeMap.set(oNo,ex);
-        }
-      }
-    }
-  }
   // --- Order detail sheet ---
   const detailName = book.names.find(n => n.includes("รายละเอียดคำสั่งซื้อ")) || book.names[0];
   const rows=book.sheets[detailName]||[];
@@ -1452,14 +1436,19 @@ function parseTikTokIncome(book){
   const cNet=find(["จำนวนเงินที่ชำระทั้งหมด","จำนวนเงินที่จะถึง"]);
   const cGross=find(["รายได้รวม","มูลค่าสั่ง"]);
   const cSellerDisc=find(["ส่วนลดจากผู้ขาย","ส่วนลดจากร้านค้า"]);
-  const cFeeTotal=find(["ค่าธรรมเนียมรวมทั้งหมด","ค่าธรรมเนียมรวม"]);
+  const cFeeTotal=find(["ค่าธรรมเนียมทั้งหมด","ค่าธรรมเนียมรวมทั้งหมด","ค่าธรรมเนียมรวม"]);
+  // fee breakdown จาก column ในชีทนี้โดยตรง (คำอธิบายค่าธรรมเนียม เป็น glossary ไม่ใช่ per-order)
+  const FEE_KW=["ค่าธรรมเนียมคำสั่งซื้อ","ค่าคอมมิชชั่น","การผ่อนชำระ","ยอดรวมค่าจัดส่งที่ร้านค้า","ค่าธรรมเนียมการจัดส่งจริง","ส่วนลดค่าธรรมเนียมการจัดส่ง","ค่าธรรมเนียมการจัดส่งของลูกค้า","ค่าธรรมเนียมการจัดส่งสินค้าคืน","เงินคืนสำหรับค่าจัดส่ง","เงินสนับสนุนการจัดส่ง"];
+  const feeCols=header.map((h,i)=>FEE_KW.some(k=>h.includes(k.slice(0,6)))?{name:h,idx:i}:null).filter(Boolean);
+  const usedIdx=new Set([cOrder,cClose,cCreate,cNet,cGross,cSellerDisc,cFeeTotal]);
   const out=[];
   for(let i=1;i<rows.length;i++){
-    const r=rows[i];
+    const r=rows[i]; if(!r) continue;
     const o=String(r[cOrder]||"").trim();
     if(!o) continue;
     const grossVal=num(r[cGross]); const netVal=num(r[cNet]);
     const feeTotalVal=cFeeTotal>=0?Math.abs(num(r[cFeeTotal])):Math.max(0,grossVal-netVal);
+    const feeBreakdown=feeCols.filter(f=>!usedIdx.has(f.idx)&&num(r[f.idx])!==0).map(f=>({name:f.name,amount:num(r[f.idx])}));
     out.push({
       orderNo:o,
       paymentDate:parseDate(r[cClose])||parseDate(r[cCreate]),
@@ -1468,7 +1457,7 @@ function parseTikTokIncome(book){
       gross:grossVal,
       sellerDiscount: cSellerDisc>=0 ? num(r[cSellerDisc]) : 0,
       feeTotal: feeTotalVal,
-      feeBreakdown: feeMap.get(o)||[]
+      feeBreakdown
     });
   }
   return { rows:out, seller:"" };
@@ -3614,8 +3603,13 @@ function incUploadIncome(){
         const buf = await f.arrayBuffer();
         const wb = XLSX.read(buf,{type:"array"});
         const book = { names:wb.SheetNames, sheets:{} };
-        for(const sn of wb.SheetNames)
-          book.sheets[sn] = XLSX.utils.sheet_to_json(wb.Sheets[sn],{header:1,defval:""});
+        for(const sn of wb.SheetNames){
+          const ws=wb.Sheets[sn];
+          // บางไฟล์ (TikTok) ประกาศ !ref ผิด (max_row=2) แต่ data จริงอยู่ล่าง → expand !ref ก่อน
+          const ck=Object.keys(ws).filter(k=>k[0]!=='!');
+          if(ck.length&&ws['!ref']){const r=XLSX.utils.decode_range(ws['!ref']);ck.forEach(k=>{const c=XLSX.utils.decode_cell(k);if(c.r>r.e.r)r.e.r=c.r;if(c.c>r.e.c)r.e.c=c.c;});ws['!ref']=XLSX.utils.encode_range(r);}
+          book.sheets[sn]=XLSX.utils.sheet_to_json(ws,{header:1,defval:""});
+        }
         const plat = detectPlatform(f, book);
         let parsed=null, channelGroup='';
         if(plat.kind==="SP"){

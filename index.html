@@ -3496,12 +3496,15 @@ function ivrRenderHistoryModal(d){
 }
 
 /* ---- Actions ---- */
-function ivrSetTab(t){ const d=ordGet(); if(!d.ivrec) d.ivrec=ivrInitState(); d.ivrec.tab=t; renderToolBigSeller(); }
-function ivrBoardFilter(f){ const d=ordGet(); if(!d.ivrec) d.ivrec=ivrInitState(); d.ivrec.tab='board'; d.ivrec.board.filter=f; renderToolBigSeller(); }
-function ivrSetRange(k){ const d=ordGet(); d.ivrec.exp.range=k; renderToolBigSeller(); }
-function ivrSetDate(k,v){ const d=ordGet(); d.ivrec.exp[k]=v||''; renderToolBigSeller(); }
-function ivrToggleChannel(ch){ const d=ordGet(); const s=d.ivrec.exp.channels; if(s.has(ch)) s.delete(ch); else s.add(ch); renderToolBigSeller(); }
-function ivrChannelAll(on){ const d=ordGet(); const all=['shopee','tiktok','lazada','offline','other']; d.ivrec.exp.channels = on ? new Set(all) : new Set(); renderToolBigSeller(); }
+/* ★ route ตาม state.tool — ให้ ivr* callbacks ใช้บนทั้ง bigseller + sales_orders ได้ */
+function ivrRerender(){ if(state.tool==='sales_orders') return renderToolSalesOrders(); return renderToolBigSeller(); }
+function ivrSetTab(t){ const d=ordGet(); if(!d.ivrec) d.ivrec=ivrInitState(); d.ivrec.tab=t; ivrRerender(); }
+function ivrBoardFilter(f){ const d=ordGet(); if(!d.ivrec) d.ivrec=ivrInitState(); d.ivrec.tab='board'; d.ivrec.board.filter=f; ivrRerender(); }
+function ivrSetRange(k){ const d=ordGet(); d.ivrec.exp.range=k; ivrRerender(); }
+function ivrSetDate(k,v){ const d=ordGet(); d.ivrec.exp[k]=v||''; ivrRerender(); }
+function ivrToggleChannel(ch){ const d=ordGet(); const s=d.ivrec.exp.channels; if(s.has(ch)) s.delete(ch); else s.add(ch); ivrRerender(); }
+function ivrChannelAll(on){ const d=ordGet(); const all=['shopee','tiktok','lazada','offline','other']; d.ivrec.exp.channels = on ? new Set(all) : new Set(); ivrRerender(); }
+function ivrToggleIncludeKeyed(){ const d=ordGet(); d.ivrec.exp.includeKeyed = !d.ivrec.exp.includeKeyed; ivrRerender(); }
 function ivrSetStartIv(v){
   const d=ordGet(); const clean = String(v||'').replace(/[^\d]/g,'').slice(0,10);
   d.ivrec.exp.startIv = clean; d.ivrec.exp.startIvDirty = true;

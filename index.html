@@ -9793,10 +9793,26 @@ async function apoHandleXml(file){
             </tr>`;
           }).join("")}
           ${newCount+updateCount===0?`<tr><td colspan="9" style="text-align:center;padding:24px;color:var(--ink-3)">ทุกบิลมีในระบบและยอดไม่เปลี่ยน — ไม่มีอะไรต้องนำเข้า</td></tr>`:''}</tbody>
+          ${sameCount>0?`<tbody id="apoSameRows" style="display:none">
+            <tr><td colspan="9" style="background:#f8fafc;padding:6px 10px;font:600 11px/1.4 inherit;color:#64748b;border-top:2px dashed #e2e8f0">รายการที่มีในระบบแล้ว (ยอดเท่าเดิม) — ไม่ได้เลือกไว้</td></tr>
+            ${tagged.filter(it=>it._status==='same').map(it=>`<tr style="opacity:0.5;background:#f8fafc">
+              <td><input type="checkbox" class="apo-x-cb" data-i="${it._origIdx}"></td>
+              <td><span style="background:#f1f5f9;color:#94a3b8;font-size:10px;padding:1px 6px;border-radius:8px">ซ้ำ/ไม่เปลี่ยน</span></td>
+              <td><b>${esc(it.vendor_name)}</b> ${it.vendor_code?`<span style="color:var(--ink-3);font-size:10px">/${esc(it.vendor_code)}</span>`:""}</td>
+              <td><code style="font-size:11px">${esc(it.invoice_no)}</code></td>
+              <td>${fopDate(it.invoice_date)}</td>
+              <td>${fopDate(it.due_date)}</td>
+              <td style="text-align:right">${fopFmt(it.amount_total)}</td>
+              <td style="text-align:right;color:var(--ink-3)">${fopFmt(it.amount_outstanding)}</td>
+              <td><select class="apo-x-cat" data-i="${it._origIdx}" style="font-size:11px;padding:3px 6px;border:1px solid var(--line);border-radius:6px;background:#fff;min-width:130px">
+                ${APO_CATEGORIES.map(c=>`<option value="${esc(c)}" ${c===it.category?'selected':''}>${esc(c)}</option>`).join("")}
+              </select></td>
+            </tr>`).join("")}
+          </tbody>`:''}
         </table>
       </div>
       <div style="display:flex;gap:8px;margin-top:14px;justify-content:space-between;align-items:center">
-        <div style="font-size:11.5px;color:var(--ink-3)">${sameCount>0?`ซ่อน ${sameCount} บิลที่มีในระบบแล้ว (ยอดเท่าเดิม) ·`:''} เลือกทั้งหมด ${newCount+updateCount} รายการไว้ให้แล้ว</div>
+        <div style="font-size:11.5px;color:var(--ink-3)">${sameCount>0?`<span id="apoSameToggle" style="cursor:pointer;text-decoration:underline;color:var(--brand)" onclick="(()=>{const h=document.getElementById('apoSameRows');const t=document.getElementById('apoSameToggle');if(h.style.display==='none'){h.style.display='';t.textContent='ซ่อนรายการที่ไม่เปลี่ยน'}else{h.style.display='none';t.textContent='แสดง ${sameCount} บิลที่มีในระบบแล้ว (ยอดเท่าเดิม)'}})()">แสดง ${sameCount} บิลที่มีในระบบแล้ว (ยอดเท่าเดิม)</span> ·`:''} เลือกทั้งหมด ${newCount+updateCount} รายการไว้ให้แล้ว</div>
         <div style="display:flex;gap:8px">
           <button onclick="document.getElementById('fopModal').remove()" class="btn ghost btn sm">ยกเลิก</button>
           <button id="apoXBtn" class="btn">นำเข้าทั้งหมดที่ติ๊ก</button>

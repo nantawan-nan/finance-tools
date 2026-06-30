@@ -3779,30 +3779,55 @@ async function incLoadRows(d){
 }
 
 async function incIngestRows(parsedRows, channelGroup){
-  const co = await fopCompanyId(); if(!co) return {ok:0,fail:0};
-  const toUpsert = parsedRows.map(r=>({
-    company_id: co,
-    order_id:   r.orderNo,
-    channel_group: channelGroup,
-    paid_date:  r.paymentDate||null,
-    order_date: r.orderDate||null,
-    gross:      r.gross||0,
-    seller_discount: r.sellerDiscount||0,
-    fee_total:  r.feeTotal||0,
-    fee_breakdown: r.feeBreakdown&&r.feeBreakdown.length ? r.feeBreakdown : null,
-    net_received: r.net||0,
-    source_file: r._sourceFile||null,
-    created_by: AUTH.user&&AUTH.user.id||null
-  }));
-  let ok=0, fail=0;
+  const co = await fopCompanyId(); if(!co) return {ok:0,fail:0,dups:0,err:null};
+  // ★ dedup ตาม order_id ภายในไฟล์ก่อน upsert — TikTok มีแถว "คำสั่งซื้อ" + "คืนเงิน/ปรับ" order เดียวกัน
+  //   ถ้าปล่อย order_id ซ้ำใน batch → Postgres upsert error "affect row a second time" → ทั้ง chunk ตาย
+  //   วิธีแก้: รวมยอด (gross/fee/net/disc) ของ order เดียวกัน → ได้ยอดเงินเข้าสุทธิจริงต่อออเดอร์
+  const map = new Map(); let dups=0;
+  for(const r of (parsedRows||[])){
+    const oid = String(r.orderNo||"").trim(); if(!oid) continue;
+    const ex = map.get(oid);
+    if(ex){
+      dups++;
+      ex.gross += r.gross||0; ex.fee_total += r.feeTotal||0;
+      ex.net_received += r.net||0; ex.seller_discount += r.sellerDiscount||0;
+      if(r.feeBreakdown && r.feeBreakdown.length) ex.fee_breakdown = [...(ex.fee_breakdown||[]), ...r.feeBreakdown];
+      if(r.paymentDate && (!ex.paid_date || r.paymentDate > ex.paid_date)) ex.paid_date = r.paymentDate;
+    } else {
+      map.set(oid, {
+        company_id: co, order_id: oid, channel_group: channelGroup,
+        paid_date: r.paymentDate||null, order_date: r.orderDate||null,
+        gross: r.gross||0, seller_discount: r.sellerDiscount||0,
+        fee_total: r.feeTotal||0,
+        fee_breakdown: (r.feeBreakdown && r.feeBreakdown.length) ? [...r.feeBreakdown] : null,
+        net_received: r.net||0, source_file: r._sourceFile||null,
+        created_by: AUTH.user&&AUTH.user.id||null
+      });
+    }
+  }
+  const toUpsert = [...map.values()];
+  for(const u of toUpsert){
+    u.gross=round2(u.gross); u.fee_total=round2(u.fee_total);
+    u.net_received=round2(u.net_received); u.seller_discount=round2(u.seller_discount);
+    if(u.fee_breakdown && !u.fee_breakdown.length) u.fee_breakdown=null;
+  }
+  let ok=0, fail=0, err=null;
   const CHUNK=500;
   for(let i=0;i<toUpsert.length;i+=CHUNK){
     const chunk=toUpsert.slice(i,i+CHUNK);
     const { error } = await sb.from("sales_income_rows")
       .upsert(chunk,{onConflict:"company_id,order_id,channel_group",ignoreDuplicates:false});
-    if(error){ console.warn("incIngest",error); fail+=chunk.length; } else ok+=chunk.length;
+    if(error){
+      // fallback ทีละแถว — กัน 1 แถวเสียลาก batch ตาย + เก็บ error จริงไว้แสดง
+      console.warn("incIngest chunk", error);
+      for(const row of chunk){
+        const { error:e2 } = await sb.from("sales_income_rows")
+          .upsert([row],{onConflict:"company_id,order_id,channel_group",ignoreDuplicates:false});
+        if(e2){ fail++; if(!err) err=e2.message||String(e2); } else ok++;
+      }
+    } else ok+=chunk.length;
   }
-  return {ok,fail};
+  return {ok,fail,dups,err};
 }
 
 function incUploadIncome(){
@@ -3837,7 +3862,9 @@ function incUploadIncome(){
         }
         parsed.forEach(r=>r._sourceFile=f.name);
         const res = await incIngestRows(parsed, channelGroup);
-        alert(`"${f.name}" (${channelGroup}): บันทึก ${res.ok} ออเดอร์${res.fail?` · ล้มเหลว ${res.fail}`:""}`);
+        alert(`"${f.name}" (${channelGroup}): บันทึก ${res.ok} ออเดอร์`
+          + (res.dups?` · รวมแถวซ้ำ/คืนเงิน ${res.dups}`:"")
+          + (res.fail?` · ล้มเหลว ${res.fail}${res.err?`\n\nสาเหตุ: ${res.err}`:""}`:""));
       }
       await incLoadRows(d);
     } catch(err){ alert("เกิดข้อผิดพลาด: "+String(err)); }

@@ -3539,6 +3539,11 @@ function incReCandidates(d){
   //   (อัปในแท็บ "ตรวจการคีย์ IV" หน้าคำสั่งซื้อ → เก็บใน ordGet().ivCheck.results)
   const ivc = ordGet().ivCheck; const ivCustMap = {};
   if(ivc && ivc.results) for(const x of ivc.results){ if(x.iv_no && x.customer) ivCustMap[x.iv_no] = x.customer; }
+  // ★ รหัสลูกค้า Benya = รหัสตามช่องทาง×แบรนด์ (SHOPEE BE / TIKTOK QI / LAZADA QI ...) — ตรงกับที่คีย์ขายจริง
+  const custCodeBenya = (channel, brand)=>{
+    const ch={SP:"SHOPEE",TT:"TIKTOK",LZ:"LAZADA"}[channel]; const br={BT:"BE",QI:"QI"}[brand];
+    return (ch&&br) ? `${ch} ${br}` : "";
+  };
   const out=[];
   for(const r of (d.incRows||[])){
     const ord = ordByOrder[r.order_id];
@@ -3551,7 +3556,7 @@ function incReCandidates(d){
       arDate: ord.iv_date||null, arIv: ord.iv_no, actualBrand: incBrandOf(ord),
       arOutstanding: outstanding, orderNo: r.order_id, channel, channelGroup: r.channel_group||"",
       paymentDate: r.paid_date||null, paidISO: parseDate(r.paid_date||""), netAmount: net, diff: round2(outstanding-net),
-      arCustCode: ivCustMap[ord.iv_no] || ord.customer || r.channel_group || "", bankCode: bankCodeOf(channel, incBrandOf(ord)),
+      arCustCode: (state.company!=="mbark" ? custCodeBenya(channel, incBrandOf(ord)) : "") || ivCustMap[ord.iv_no] || ord.customer || r.channel_group || "", bankCode: bankCodeOf(channel, incBrandOf(ord)),
       re_no: ord.re_no||null, inReport191,
       warning: !ord.iv_date ? "ไม่มีวันที่ IV" : (outstanding<=0 ? "ไม่มียอด IV ในระบบ" : "")
     });

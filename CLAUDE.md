@@ -177,6 +177,16 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-06-30 — Sales Pipeline ขั้นตอน 2 (รับชำระเงิน): เปิดใช้ + เพิ่มแท็บ "ส่งออก RE → AutoKey"
+- **เปิด `sales_income` (เมนู "2. รับชำระเงิน") จาก `soon` → `live`** — เดิมสร้าง `renderToolSalesIncome` + `inc*` ไว้แล้ว (commit 4f7b616/35b24cb) แต่ status soon → เข้าไม่ถึง (เจ้าของหา "กระบวนการรับชำระ" ไม่เจอ)
+- **แท็บ "ส่งออก RE → AutoKey" เดิมเป็น stub "กำลังพัฒนา" → เขียนจริง** (`incRenderExport` + `incExportRE` + helper `incSetReSeed`/`incBrandOf`/`incReCandidates`/`incReRow`)
+  - **จับคู่ income × order_ledger ด้วย `order_id`** → เอาเฉพาะออเดอร์ที่ **คีย์ IV แล้ว** (`ord.iv_no`) · ตัดที่มี `re_no` แล้วออก (คีย์ RE ไปแล้ว) · ต้องโหลดทะเบียน (ขั้นตอน 1) ก่อน
+  - **สูตร:** ยอด IV (`ord.sale_amount`) − ค่าธรรมเนียม = เงินเข้าสุทธิ (`inc.net_received`) · diff = ค่าธรรมเนียม = "ส่วนต่างที่ต้องบันทึก" (ตรงที่เจ้าของสอน: IV − จ่ายล่วงหน้า = เข้ากระเป๋าสุทธิ)
+  - **reuse format AutoKey RE จาก armap ทั้งดุ้น**: `A_HEAD` (19 คอลัมน์) · `armapRunRE(seed,i)` (รันเลข RE +1) · `bankDownCmd(brand,channel)` (Benya BT/QI × SP/TT) / `mbarkBankDownByCust`+`mbarkCheckCode` (M Bark ตามรหัสลูกค้า) · `forceTextCells([1,3,6,12])` กัน Excel ตัดเลขยาว · ส่งออก xlsx + csv (BOM)
+  - **brand เดาจาก** `ord.shop/customer/products` (Betra→BT · Qi→QI) — ใช้เลือก bank ฝั่ง Benya · เตือนถ้าแมพ bank ไม่ได้
+- **กระทบหน้าอื่น = 0** — ใช้ helper armap ที่เป็น global · ทะเบียนรับชำระ (`incRenderList`) + ตรวจ 1.9.1 (`incRenderVerify`, tag `re_no` เข้า order_ledger) ที่มีอยู่แล้วไม่แตะ
+- **ยังไม่ทำ:** Lazada income parser (เฟส 2 · ไฟล์ "Income Overview" โครงสร้างต่าง · ตอนนี้ `incUploadIncome` รับแค่ SP/TT) · จัดการแถวคืนเงิน/ปรับของ TikTok · cross-check ด้วย IV (ตอนนี้ key=order_id อย่างเดียว)
+
 ### 2026-06-27 — รื้อหน้า BigSeller → "บันทึกขายเชื่อในระบบบัญชี (IV)" + ยุบ expressmatch/exportkey
 - **เปลี่ยน module `bigseller`** จาก "อัปไฟล์ BigSeller → เทมเพลตคีย์" เป็นหน้าบันทึกขายเชื่อ (IV) ที่เกาะ `order_ledger` ตรง · 3 แท็บ: **🚦 สรุปสถานะการคีย์** · **📤 ส่งออกคีย์ IV (wizard)** · **🔍 ตรวจการคีย์ (141.RWT)**
 - **ยุบ `expressmatch` + `exportkey` ออกจาก sidebar** — `renderToolExpressMatch`/`renderToolExportKey` ยังอยู่ในไฟล์ (dead code) · เพิ่ม redirect ใน `renderTool()`: `state.tool` เป็น expressmatch/exportkey → set เป็น 'bigseller' · กัน TOOLS.find=undefined ด้วย fallback 'home'

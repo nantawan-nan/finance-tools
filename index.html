@@ -3410,6 +3410,10 @@ function incBrandOf(ord){
 function incReCandidates(d){
   const ordRows = ordGet().rows || [];
   const ordByOrder = {}; for(const o of ordRows) if(o.order_id) ordByOrder[o.order_id]=o;
+  // ★ กันส่งซ้ำ: ชุด IV/ออเดอร์ที่ "คีย์ RE แล้ว" จากไฟล์ 1.9.1 ที่อัปไว้ (แม้ยังไม่กด Tag)
+  const vrows = (d.verify && d.verify.rows) || [];
+  const keyedIv = new Set(), keyedOrder = new Set();
+  for(const vr of vrows){ if(vr.iv_no) keyedIv.add(vr.iv_no); if(vr.order_ref) keyedOrder.add(vr.order_ref); }
   const out=[];
   for(const r of (d.incRows||[])){
     const ord = ordByOrder[r.order_id];
@@ -3417,16 +3421,42 @@ function incReCandidates(d){
     const channel = r.channel_group==='shopee'?'SP':r.channel_group==='tiktok'?'TT':r.channel_group==='lazada'?'LZ':'';
     const outstanding = Number(ord.sale_amount)||0;
     const net = Number(r.net_received)||0;
+    const inReport191 = (ord.iv_no && keyedIv.has(ord.iv_no)) || keyedOrder.has(r.order_id);
     out.push({
       arDate: ord.iv_date||null, arIv: ord.iv_no, actualBrand: incBrandOf(ord),
-      arOutstanding: outstanding, orderNo: r.order_id, channel,
-      paymentDate: r.paid_date||null, netAmount: net, diff: round2(outstanding-net),
+      arOutstanding: outstanding, orderNo: r.order_id, channel, channelGroup: r.channel_group||"",
+      paymentDate: r.paid_date||null, paidISO: parseDate(r.paid_date||""), netAmount: net, diff: round2(outstanding-net),
       arCustCode: ord.customer || r.channel_group || "", bankCode:"",
-      re_no: ord.re_no||null,
+      re_no: ord.re_no||null, inReport191,
       warning: !ord.iv_date ? "ไม่มีวันที่ IV" : (outstanding<=0 ? "ไม่มียอด IV ในระบบ" : "")
     });
   }
   return out;
+}
+/* setters ฟิลเตอร์ส่งออก RE */
+function incSetExpCh(v){ const d=incGet(); d.expCh=(d.expCh===v?"":v); renderToolSalesIncome(); }
+function incSetExpDate(k,v){ incGet()[k]=v||""; renderToolSalesIncome(); }
+function incToggleExpClean(){ const d=incGet(); d.expClean=!d.expClean; renderToolSalesIncome(); }
+/* รวม candidate + ใช้ฟิลเตอร์ → ใช้ทั้ง render + export (ให้ตรงกันเป๊ะ) */
+function incExportView(d){
+  const company = state.company;
+  const cands = incReCandidates(d);
+  const ready = cands.filter(r=> !r.re_no && !r.inReport191);     // ยังไม่คีย์ RE + ไม่พบใน 1.9.1
+  const done  = cands.filter(r=> r.re_no || r.inReport191);       // คีย์ RE แล้ว / พบใน 1.9.1
+  const probOf = (r)=>{
+    if(company!=="mbark" && r.channel && !bankDownCmd(r.actualBrand,r.channel)) return "เลือก bank ไม่ได้ (ไม่รู้แบรนด์)";
+    if(!(Number(r.arOutstanding)>0)) return "ไม่มียอด IV ในระบบ";
+    if(!(Number(r.netAmount)>0))     return "เงินเข้า ≤ 0 (อาจเป็นคืนเงิน)";
+    if(r.warning) return r.warning;
+    return "";
+  };
+  const chF=d.expCh||"", from=d.expFrom||"", to=d.expTo||"", cleanOnly=!!d.expClean;
+  let view = ready.map(r=>({...r, _prob:probOf(r)}));
+  if(chF)  view = view.filter(r=>r.channelGroup===chF);
+  if(from) view = view.filter(r=>r.paidISO && r.paidISO>=from);
+  if(to)   view = view.filter(r=>r.paidISO && r.paidISO<=to);
+  if(cleanOnly) view = view.filter(r=>!r._prob);
+  return { cands, ready, done, view };
 }
 /* สร้าง 1 แถว RE (mirror aRowOf ของ armap แต่ใช้ seed ของหน้า income) */
 function incReRow(r,i,company){
@@ -3444,11 +3474,10 @@ function incReRow(r,i,company){
 function incRenderExport(d){
   const company = state.company;
   const ordLoaded = ordGet().loaded;
-  const cands = incReCandidates(d);
-  const ready = cands.filter(r=>!r.re_no);   // ยังไม่มี RE → พร้อมส่งออก
-  const done  = cands.filter(r=>r.re_no);    // มี RE แล้ว (คีย์ไปแล้ว)
+  const { ready, done, view } = incExportView(d);
   const seed = d.reSeed || "";
   const seedValid = /^\D*\d+$/.test(seed);
+  const canExport = view.length>0 && seedValid;
 
   if(!d.incRows || !d.incRows.length){
     return `<div class="sal-empty" style="padding:56px 30px;text-align:center;background:#fff;border:1px solid #e2e8f0;border-radius:14px;margin-top:2px">
@@ -3459,42 +3488,54 @@ function incRenderExport(d){
     </div>`;
   }
 
-  const warnLoad = !ordLoaded ? `<div style="background:#fef3c7;border:1px solid #fcd34d;border-radius:8px;padding:8px 12px;font-size:12px;color:#92400e;margin-bottom:10px">⚠️ ทะเบียนคำสั่งซื้อยังไม่โหลด — ไปที่ "1. คำสั่งซื้อ" ก่อน แล้วกลับมา (ระบบต้องรู้ว่า order ไหน = IV ไหน ถึงจะออก RE ได้)</div>` : "";
-
-  // เตือนแบรนด์/bank ที่แมพไม่ได้ (เฉพาะ Benya ใช้ brand×channel)
-  let warnBank = "";
-  if(company!=="mbark"){
-    const miss=[...new Set(ready.filter(r=>r.channel && !bankDownCmd(r.actualBrand,r.channel)).map(r=>`${r.actualBrand||'(ไม่รู้แบรนด์)'}/${r.channel}`))];
-    if(miss.length) warnBank=`<div style="background:#fef3c7;border:1px solid #fcd34d;border-radius:8px;padding:8px 12px;font-size:12px;color:#92400e;margin-bottom:10px">⚠️ เลือก bank ไม่ได้สำหรับ: <b>${esc(miss.join(", "))}</b> — คอลัมน์ "เลือก Bank" จะว่าง ตรวจชื่อร้าน/แบรนด์ก่อนคีย์</div>`;
-  }
+  const warnLoad = !ordLoaded ? `<div style="background:#fef3c7;border:1px solid #fcd34d;border-radius:8px;padding:8px 12px;font-size:12px;color:#92400e;margin-bottom:10px">⚠️ ทะเบียนคำสั่งซื้อยังไม่โหลด — ไปที่ "1. คำสั่งซื้อ" ก่อน แล้วกลับมา</div>` : "";
+  const probCount = view.filter(r=>r._prob).length;
 
   const kpiHtml = `<div class="sal-kpi-row" style="grid-template-columns:repeat(4,1fr);margin-bottom:14px">
     <div class="sal-kpi"><div class="n">${ready.length}</div><div class="l">พร้อมออก RE</div></div>
-    <div class="sal-kpi" style="--kc:#16a34a"><div class="n">${done.length}</div><div class="l">คีย์ RE แล้ว</div></div>
-    <div class="sal-kpi" style="--kc:#0369a1"><div class="n">${salesFmt(ready.reduce((s,r)=>s+r.netAmount,0))}</div><div class="l">เงินเข้าสุทธิ (บาท)</div></div>
-    <div class="sal-kpi" style="--kc:#dc2626"><div class="n">${salesFmt(ready.reduce((s,r)=>s+r.diff,0))}</div><div class="l">ค่าธรรมเนียมรวม</div></div>
+    <div class="sal-kpi" style="--kc:#16a34a"><div class="n">${done.length}</div><div class="l">คีย์แล้ว / พบใน 1.9.1</div></div>
+    <div class="sal-kpi" style="--kc:var(--brand)"><div class="n">${view.length}</div><div class="l">กำลังจะส่งออก (ตามฟิลเตอร์)</div></div>
+    <div class="sal-kpi" style="--kc:#0369a1"><div class="n">${salesFmt(view.reduce((s,r)=>s+r.netAmount,0))}</div><div class="l">เงินเข้าสุทธิ (บาท)</div></div>
+  </div>`;
+
+  // ★ ฟิลเตอร์ส่งออก: ช่องทาง · ช่วงวันรับเงิน · เฉพาะไม่ติดปัญหา
+  const chip = (val,label)=>`<button class="ord-chip${(d.expCh||'')===val?' active':''}" onclick="incSetExpCh('${val}')">${label}</button>`;
+  const filterHtml = `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px;background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:10px 14px">
+    <span style="font-size:12px;font-weight:600;color:#334155">ช่องทาง:</span>
+    ${chip('shopee','Shopee')} ${chip('tiktok','TikTok')} ${chip('lazada','Lazada')}
+    <span style="width:6px"></span>
+    <span style="font-size:12px;font-weight:600;color:#334155">วันรับเงิน:</span>
+    <input type="date" value="${esc(d.expFrom||'')}" onchange="incSetExpDate('expFrom',this.value)" style="font-size:12px;padding:5px 8px;border:1px solid #e2e8f0;border-radius:7px">
+    <span style="color:#94a3b8">–</span>
+    <input type="date" value="${esc(d.expTo||'')}" onchange="incSetExpDate('expTo',this.value)" style="font-size:12px;padding:5px 8px;border:1px solid #e2e8f0;border-radius:7px">
+    <span style="width:6px"></span>
+    <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:#334155;cursor:pointer">
+      <input type="checkbox" ${d.expClean?'checked':''} onchange="incToggleExpClean()"> เฉพาะที่ไม่ติดปัญหา${probCount?` <span style="color:#b45309">(ซ่อน ${probCount})</span>`:''}
+    </label>
+    ${(d.expCh||d.expFrom||d.expTo||d.expClean)?`<button class="ord-chip" onclick="incSetExpDate('expFrom','');incSetExpDate('expTo','');var dd=incGet();dd.expCh='';dd.expClean=false;renderToolSalesIncome()" style="margin-left:auto">ล้างฟิลเตอร์</button>`:''}
   </div>`;
 
   const seedHtml = `<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:12px;background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:12px 16px">
     <div style="font-size:13px;color:#334155;font-weight:600">เลข RE เริ่มต้น</div>
     <input id="incReSeed" value="${esc(seed)}" oninput="incSetReSeed(this.value)" placeholder="เช่น 2606000001" style="font-family:monospace;font-size:14px;padding:7px 12px;border:2px solid ${seed?(seedValid?'#16a34a':'#dc2626'):'#e2e8f0'};border-radius:8px;width:180px;outline:none">
-    <span style="font-size:12px;color:#94a3b8">${seed?(seedValid?`✓ รันต่อ ${ready.length} ใบ → ลงท้าย ${esc(armapRunRE(seed, Math.max(0,ready.length-1)))}`:'รูปแบบไม่ถูก (ต้องลงท้ายด้วยตัวเลข)'):'ระบบจะรัน +1 ทุกแถว เหมือน IV AutoKey'}</span>
+    <span style="font-size:12px;color:#94a3b8">${seed?(seedValid?`✓ รันต่อ ${view.length} ใบ → ลงท้าย ${esc(armapRunRE(seed, Math.max(0,view.length-1)))}`:'รูปแบบไม่ถูก (ต้องลงท้ายด้วยตัวเลข)'):'ระบบจะรัน +1 ทุกแถว เหมือน IV AutoKey'}</span>
     <div style="flex:1"></div>
-    <button class="ord-btn" ${(!ready.length||!seedValid)?'disabled':''} style="${(!ready.length||!seedValid)?'opacity:.5':'background:var(--brand);color:#fff;border-color:var(--brand)'}" onclick="incExportRE('xlsx')"><i data-lucide="file-spreadsheet"></i> ส่งออก Excel (${ready.length})</button>
-    <button class="ord-btn" ${(!ready.length||!seedValid)?'disabled':''} style="${(!ready.length||!seedValid)?'opacity:.5':''}" onclick="incExportRE('csv')"><i data-lucide="download"></i> CSV</button>
+    <button class="ord-btn" ${canExport?'':'disabled'} style="${canExport?'background:var(--brand);color:#fff;border-color:var(--brand)':'opacity:.5'}" onclick="incExportRE('xlsx')"><i data-lucide="file-spreadsheet"></i> ส่งออก Excel (${view.length})</button>
+    <button class="ord-btn" ${canExport?'':'disabled'} style="${canExport?'':'opacity:.5'}" onclick="incExportRE('csv')"><i data-lucide="download"></i> CSV</button>
   </div>`;
 
   let body;
-  if(!ready.length){
+  if(!view.length){
     body = `<div class="sal-empty" style="padding:44px 30px;text-align:center;background:#fff;border:1px solid #e2e8f0;border-radius:14px">
       <i data-lucide="check-circle-2" style="width:44px;height:44px;color:#16a34a;margin-bottom:10px"></i>
-      <div style="font-size:15px;font-weight:600;color:#1e293b">ไม่มีรายการที่พร้อมออก RE</div>
-      <div style="color:#64748b;font-size:13px;margin-top:6px">${done.length?`มี ${done.length} ใบที่คีย์ RE ไปแล้ว`:'ออเดอร์ที่มีเงินเข้าต้องคีย์ IV ในขั้นตอน 1 ก่อน'}</div>
+      <div style="font-size:15px;font-weight:600;color:#1e293b">ไม่มีรายการตามฟิลเตอร์</div>
+      <div style="color:#64748b;font-size:13px;margin-top:6px">${ready.length?'ลองปรับ/ล้างฟิลเตอร์':(done.length?`มี ${done.length} ใบที่คีย์ RE ไปแล้ว/พบใน 1.9.1`:'ออเดอร์ที่มีเงินเข้าต้องคีย์ IV ในขั้นตอน 1 ก่อน')}</div>
     </div>`;
   } else {
-    const rowsHtml = ready.slice(0,300).map((r,i)=>{
+    const rowsHtml = view.slice(0,400).map((r,i)=>{
       const a=incReRow(r,i,company);
-      return `<tr class="${r.warning?'warning-row':''}" style="border-bottom:1px solid #f1f5f9">
+      const note = r._prob || a.warning;
+      return `<tr class="${note?'warning-row':''}" style="border-bottom:1px solid #f1f5f9${note?';background:#fffbeb':''}">
         <td style="padding:6px 8px">${a.ลำดับ}</td>
         <td style="padding:6px 8px;font-family:monospace;color:${a.doc_no?'#475569':'#94a3b8'}">${esc(a.doc_no||'(ว่าง)')}</td>
         <td style="padding:6px 8px;white-space:nowrap">${esc(a.iv_date)}</td>
@@ -3507,7 +3548,7 @@ function incRenderExport(d){
         <td style="padding:6px 8px;text-align:right;font-weight:600;color:#16a34a;font-variant-numeric:tabular-nums">${salesFmt(a.net)}</td>
         <td style="padding:6px 8px;text-align:right;color:#dc2626;font-variant-numeric:tabular-nums">${salesFmt(a.diff)}</td>
         <td style="padding:6px 8px;font-family:monospace;font-size:10.5px;color:${a.bank_down?'#475569':'#dc2626'};white-space:nowrap">${esc(a.bank_down||'(?)')}</td>
-        <td style="padding:6px 8px;font-size:11px;color:#b45309">${esc(a.warning)}</td>
+        <td style="padding:6px 8px;font-size:11px;color:#b45309">${esc(note)}</td>
       </tr>`;
     }).join("");
     body = `<div style="overflow-x:auto;border:1px solid #e2e8f0;border-radius:10px;background:#fff">
@@ -3523,16 +3564,17 @@ function incRenderExport(d){
         </tr></thead><tbody>${rowsHtml}</tbody>
       </table>
     </div>
-    <div style="color:#94a3b8;font-size:11px;margin-top:8px">แสดง ${Math.min(ready.length,300)}/${ready.length} แถว · ยอด IV − ค่าธรรมเนียม = เงินเข้าสุทธิ · ไฟล์ส่งออกมี 19 คอลัมน์ตรงเทมเพลต AutoKey RE (เลขที่เอกสารรันให้แล้ว)</div>`;
+    <div style="color:#94a3b8;font-size:11px;margin-top:8px">แสดง ${Math.min(view.length,400)}/${view.length} แถว · แถวเหลือง = ติดปัญหา (เช่น "?" เลือก bank ไม่ได้ / ไม่มียอด IV / คืนเงิน) · ติ๊ก "เฉพาะที่ไม่ติดปัญหา" เพื่อซ่อนก่อนส่งออก</div>`;
   }
 
-  return `<div style="padding:16px 0 0">${warnLoad}${warnBank}${kpiHtml}${seedHtml}${body}</div>`;
+  return `<div style="padding:16px 0 0">${warnLoad}${kpiHtml}${filterHtml}${seedHtml}${body}</div>`;
 }
 /* ส่งออกไฟล์ AutoKey RE (xlsx/csv) — 19 คอลัมน์ตรงเทมเพลต armap */
 function incExportRE(fmt){
   const d = incGet(); const company = state.company;
-  const ready = incReCandidates(d).filter(r=>!r.re_no);
-  if(!ready.length){ alert("ไม่มีรายการที่พร้อมออก RE"); return; }
+  const { view } = incExportView(d);   // ★ ใช้ชุดเดียวกับที่โชว์ (ผ่านฟิลเตอร์ + ตัดที่คีย์แล้ว/พบใน 1.9.1)
+  const ready = view;
+  if(!ready.length){ alert("ไม่มีรายการที่พร้อมออก RE (ตามฟิลเตอร์)"); return; }
   if(!/^\D*\d+$/.test(d.reSeed||"")){ alert("กรอกเลข RE เริ่มต้นให้ถูกก่อน (ลงท้ายด้วยตัวเลข)"); return; }
   const aoa = [A_HEAD].concat(ready.map((r,i)=>{
     const a = incReRow(r,i,company);

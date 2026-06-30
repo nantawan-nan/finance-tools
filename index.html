@@ -3535,6 +3535,10 @@ function incReCandidates(d){
   const vrows = (d.verify && d.verify.rows) || [];
   const keyedIv = new Set(), keyedOrder = new Set();
   for(const vr of vrows){ if(vr.iv_no) keyedIv.add(vr.iv_no); if(vr.order_ref) keyedOrder.add(vr.order_ref); }
+  // ★ รหัสลูกค้า: ดึงจาก 141.RWT (รายงาน IV) ตามเลข IV — ให้ตรงกับที่คีย์ขายจริง
+  //   (อัปในแท็บ "ตรวจการคีย์ IV" หน้าคำสั่งซื้อ → เก็บใน ordGet().ivCheck.results)
+  const ivc = ordGet().ivCheck; const ivCustMap = {};
+  if(ivc && ivc.results) for(const x of ivc.results){ if(x.iv_no && x.customer) ivCustMap[x.iv_no] = x.customer; }
   const out=[];
   for(const r of (d.incRows||[])){
     const ord = ordByOrder[r.order_id];
@@ -3547,7 +3551,7 @@ function incReCandidates(d){
       arDate: ord.iv_date||null, arIv: ord.iv_no, actualBrand: incBrandOf(ord),
       arOutstanding: outstanding, orderNo: r.order_id, channel, channelGroup: r.channel_group||"",
       paymentDate: r.paid_date||null, paidISO: parseDate(r.paid_date||""), netAmount: net, diff: round2(outstanding-net),
-      arCustCode: ord.customer || r.channel_group || "", bankCode: bankCodeOf(channel, incBrandOf(ord)),
+      arCustCode: ivCustMap[ord.iv_no] || ord.customer || r.channel_group || "", bankCode: bankCodeOf(channel, incBrandOf(ord)),
       re_no: ord.re_no||null, inReport191,
       warning: !ord.iv_date ? "ไม่มีวันที่ IV" : (outstanding<=0 ? "ไม่มียอด IV ในระบบ" : "")
     });

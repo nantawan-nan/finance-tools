@@ -1189,6 +1189,14 @@ function parseDate(v){
     if(y>=2500) y-=543;
     return `${y}-${pad2(m[2])}-${pad2(m[1])}`;
   }
+  // "28 Jun 2026" / "Jun 28, 2026" (Lazada ใช้ชื่อเดือนอังกฤษ)
+  let mm=s.match(/^(\d{1,2})\s+([A-Za-z]{3,})\.?\s+(\d{4})/);
+  if(!mm){ const a=s.match(/^([A-Za-z]{3,})\.?\s+(\d{1,2}),?\s+(\d{4})/); if(a) mm=[a[0],a[2],a[1],a[3]]; }
+  if(mm){
+    const MO={jan:1,feb:2,mar:3,apr:4,may:5,jun:6,jul:7,aug:8,sep:9,oct:10,nov:11,dec:12};
+    const mo=MO[mm[2].slice(0,3).toLowerCase()];
+    if(mo){ let y=parseInt(mm[3],10); if(y>=2500) y-=543; return `${y}-${pad2(mo)}-${pad2(mm[1])}`; }
+  }
   return s;
 }
 function fmtDateDDMMYYYY(iso){
@@ -1463,12 +1471,53 @@ function parseTikTokIncome(book){
   return { rows:out, seller:"" };
 }
 
+/* ---------- Parser: Lazada Income (บัญชีรายการธุรกรรม — หลายบรรทัด/ออเดอร์ → จัดกลุ่ม) ---------- */
+function parseLazadaIncome(book){
+  const name = book.names.find(n=>/income overview/i.test(n))
+            || book.names.find(n=> (book.sheets[n]||[]).some(row=>(row||[]).some(c=>String(c||"").includes("ชื่อรายการธุรกรรม"))))
+            || book.names[0];
+  const rows = book.sheets[name]||[];
+  let hi=-1;
+  for(let i=0;i<Math.min(10,rows.length);i++){ if((rows[i]||[]).some(c=>String(c||"").includes("หมายเลขคำสั่งซื้อ"))){ hi=i; break; } }
+  if(hi<0) return { rows:[], seller:"" };
+  const header=rows[hi].map(h=>String(h||""));
+  const find=keys=>{ for(const k of keys){ const i=header.findIndex(h=>h.includes(k)); if(i>=0) return i; } return -1; };
+  const cOrder=find(["หมายเลขคำสั่งซื้อ"]);
+  const cType=find(["ชื่อรายการธุรกรรม"]);
+  const cAmt=find(["จำนวนเงิน"]);            // จำนวนเงิน(รวมภาษี) — มีเครื่องหมาย +/-
+  const cSettle=find(["วันที่ปรับปรุงเข้ายอด","วันที่ทำรายการ"]);
+  const cOrderDate=find(["วันที่สร้างคำสั่งซื้อ"]);
+  const cName=find(["ชื่อสินค้า"]);
+  if(cOrder<0||cType<0||cAmt<0) return { rows:[], seller:"" };
+  const map=new Map();
+  for(let i=hi+1;i<rows.length;i++){
+    const r=rows[i]; if(!r) continue;
+    const o=String(r[cOrder]||"").trim(); if(!o) continue;
+    const type=String(r[cType]||"").trim();
+    const amt=num(r[cAmt]);
+    let g=map.get(o);
+    if(!g){ g={ orderNo:o, paymentDate:parseDate(cSettle>=0?r[cSettle]:""), orderDate:parseDate(cOrderDate>=0?r[cOrderDate]:""),
+               net:0, gross:0, sellerDiscount:0, feeTotal:0, feeBreakdown:[], productName:(cName>=0?String(r[cName]||"").trim():"") }; map.set(o,g); }
+    g.net += amt;                                            // รวมทุกบรรทัด = เงินเข้าสุทธิจริง
+    if(/ยอดรวมค่าสินค้า|ค่าสินค้า/.test(type)) g.gross += amt;          // ราคาขาย
+    else if(/คูปอง.*ผู้ขาย|ส่วนลด.*ผู้ขาย/.test(type)){ g.sellerDiscount += Math.abs(amt); g.feeBreakdown.push({name:type,amount:amt}); }
+    else g.feeBreakdown.push({name:type,amount:amt});        // ค่าธรรมเนียม/หักต่าง ๆ
+  }
+  const out=[...map.values()].map(g=>{
+    g.net=round2(g.net); g.gross=round2(g.gross); g.sellerDiscount=round2(g.sellerDiscount);
+    g.feeTotal=round2(Math.max(0, g.gross - g.net));
+    return g;
+  });
+  return { rows:out, seller:"" };
+}
+
 /* ---------- Detect platform kind + brand ---------- */
 function detectPlatform(file, book){
   const nm=file.name.toLowerCase();
   const seller=(detectSeller(book)||"").toLowerCase();
   let kind="";
   if(/tiktok|รายละเอียดคำสั่งซื้อ/i.test(nm) || book.names.some(n=>/รายละเอียดคำสั่งซื้อ/.test(n))) kind="TT";
+  else if(/lazada/i.test(nm) || book.names.some(n=>/income overview/i.test(n))) kind="LZ";  // ★ ก่อน Shopee เพราะชื่อไฟล์มี "income"
   else if(/shopee|income/i.test(nm) || book.names.some(n=>/^income$/i.test(n))) kind="SP";
   let brand="";
   const all=(nm+" "+seller);
@@ -3856,8 +3905,11 @@ function incUploadIncome(){
         } else if(plat.kind==="TT"){
           parsed = parseTikTokIncome(book).rows;
           channelGroup = 'tiktok';
+        } else if(plat.kind==="LZ"){
+          parsed = parseLazadaIncome(book).rows;
+          channelGroup = 'lazada';
         } else {
-          alert(`ไม่รู้จักรูปแบบ "${f.name}" — รองรับ Shopee Income / TikTok Income XLSX`);
+          alert(`ไม่รู้จักรูปแบบ "${f.name}" — รองรับ Shopee / TikTok / Lazada Income XLSX`);
           continue;
         }
         parsed.forEach(r=>r._sourceFile=f.name);

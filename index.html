@@ -3570,6 +3570,7 @@ function incExportView(d){
       return r.actualBrand ? `ยังไม่ตั้ง bank ช่อง ${r.channel} (${r.actualBrand})` : "เดาแบรนด์ Betra/Qi ไม่ออก";
     if(!(Number(r.arOutstanding)>0)) return "ไม่มียอด IV ในระบบ";
     if(!(Number(r.netAmount)>0))     return "เงินเข้า ≤ 0 (อาจเป็นคืนเงิน)";
+    if(Number(r.netAmount) > Number(r.arOutstanding) + 0.01) return "เงินเข้าสุทธิ > ยอด IV (ผิดปกติ)";
     if(r.warning) return r.warning;
     return "";
   };

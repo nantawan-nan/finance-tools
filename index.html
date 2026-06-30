@@ -19422,8 +19422,14 @@ function ordIvAnalyze(salesData, rows){
   const activeRows = (rows||[]).filter(o => o.status !== 'cancelled');
   const byOrderId = new Map(), byIvNo = new Map();
   for(const o of activeRows){
-    if(o.order_id) byOrderId.set(o.order_id, o);
-    if(o.iv_no)    byIvNo.set(o.iv_no, o);
+    if(o.order_id){
+      // ★ ออเดอร์อาจมีแถวซ้ำ (อัป BigSeller ซ้ำ) → เลือกแถวที่ "มีเลข IV แล้ว" ไว้ก่อน
+      //   กัน false conflict: ถ้าแถวที่คีย์ IV แล้วโดนแถวซ้ำ (ไม่มี iv) ทับใน map → จะถูกมองเป็น
+      //   misassigned ผิด ๆ ทั้งที่ออเดอร์นี้คีย์ถูกแล้ว (IV อยู่บน order_id เดียวกัน)
+      const ex = byOrderId.get(o.order_id);
+      if(!ex || (!ex.iv_no && o.iv_no)) byOrderId.set(o.order_id, o);
+    }
+    if(o.iv_no) byIvNo.set(o.iv_no, o);
   }
   // ★ Smart match: Express CSV ตัด 1 digit ออกจาก order_id ยาว
   //   เคสที่เจอ: TT 17 → DB 18 (ตัด pos กลาง) · Lazada 15 → DB 16 (ตัด pos ก่อนสุดท้าย)

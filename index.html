@@ -19507,7 +19507,7 @@ function ordIvAnalyze(salesData, rows){
     const ord = smartLookup(iv.ref_order_id, iv.ref_order_id_raw);
     if(!ord){
       const ordByIv = byIvNo.get(iv.doc_no);
-      if(ordByIv){ const cc=orderCurrent(ordByIv); r.orderRowId=ordByIv.id; r.currentIv=ordByIv.iv_no; r.currentTotal=cc.total; r.currentBase=cc.base; r.currentShip=cc.ship; r.currentDisc=cc.disc; r.currentFromSale=cc.fromSale; r.status="conflict"; r.diffAmount=+(r.total-(r.currentTotal||0)).toFixed(2); r.platform=ordChannelGroup(ordByIv.channel||iv.channel, ordByIv.products||iv.customer); }
+      if(ordByIv){ const cc=orderCurrent(ordByIv); r.orderRowId=ordByIv.id; r.currentIv=ordByIv.iv_no; r.currentTotal=cc.total; r.currentBase=cc.base; r.currentShip=cc.ship; r.currentDisc=cc.disc; r.currentFromSale=cc.fromSale; r.status="conflict"; r.conflictKind="noorder"; r.diffAmount=+(r.total-(r.currentTotal||0)).toFixed(2); r.platform=ordChannelGroup(ordByIv.channel||iv.channel, ordByIv.products||iv.customer); }
       else { r.status = "orphan"; r.platform = ordChannelGroup(iv.channel, iv.customer); }
       results.push(r); continue;
     }
@@ -19522,7 +19522,7 @@ function ordIvAnalyze(salesData, rows){
     if(!ord.iv_no){
       // อาจมี iv_no นี้อยู่ในออเดอร์อื่น (race) — ถ้า taken ระบุ conflict
       const ordByIv = byIvNo.get(iv.doc_no);
-      if(ordByIv && ordByIv.id !== ord.id){ r.status="conflict"; r.diffAmount=+(r.total - r.currentTotal).toFixed(2); results.push(r); continue; }
+      if(ordByIv && ordByIv.id !== ord.id){ r.status="conflict"; r.conflictKind="misassigned"; r.conflictOtherId=ordByIv.id; r.conflictOtherOrderNo=ordByIv.order_id||null; r.diffAmount=+(r.total - r.currentTotal).toFixed(2); results.push(r); continue; }
       const diff = +(r.total - r.currentTotal).toFixed(2);
       r.diffAmount = diff;
       // แยก 3 buckets: ตรง (พร้อม tag) · ยอด 0/0 (รอตัดสินใจ) · ยอดต่าง
@@ -19538,7 +19538,7 @@ function ordIvAnalyze(salesData, rows){
       results.push(r); continue;
     }
     // ord มี iv อื่นอยู่แล้ว — IV ใน 723-5 นี้จะทับ → conflict
-    r.status = "conflict"; r.diffAmount = +(r.total - r.currentTotal).toFixed(2);
+    r.status = "conflict"; r.conflictKind = "rekey"; r.diffAmount = +(r.total - r.currentTotal).toFixed(2);
     results.push(r);
   }
   // coverage check
@@ -20115,6 +20115,9 @@ function ordRenderIv(d){
   const needReview = (c.diff||0) + (c.conflict||0) + (c.orphan||0);
   // ★ conflict ที่แก้ได้แบบ re-key: มีเลข IV เดิม + เลขใหม่ในไฟล์ต่างจากเดิม (141.RWT = ตัวจริง → ทับได้)
   const conflictResolvable = res.filter(r => r.status==="conflict" && r.orderRowId && r.currentIv && r.currentIv !== r.iv_no).length;
+  // ★ แยกประเภท conflict (อ่านอย่างเดียว) — รู้ว่าแต่ละแบบมีกี่ตัว
+  const cfl = { rekey:0, misassigned:0, noorder:0, other:0 };
+  res.forEach(r => { if(r.status==="conflict"){ cfl[r.conflictKind||"other"] = (cfl[r.conflictKind||"other"]||0)+1; } });
   const sumTotal = res.reduce((a,r)=>a+(r.voided?0:r.total||0), 0);
   const sumMatch = res.filter(r=>r.status==="new_match").reduce((a,r)=>a+r.total, 0);
   const sumZero  = res.filter(r=>r.status==="new_zero").reduce((a,r)=>a+r.total, 0);
@@ -20257,6 +20260,15 @@ function ordRenderIv(d){
       ${c.diff?`<button class="ord-btn btn-sm" style="padding:5px 10px;font-size:12px" onclick="ordIvApply('fixDiff')"><i data-lucide="refresh-cw"></i> ปรับยอดให้ตรงรายงาน (${c.diff})</button>`:''}
       ${conflictResolvable?`<button class="ord-btn btn-sm" style="padding:5px 10px;font-size:12px;color:var(--dg-700);border-color:var(--dg-100)" onclick="ordIvApply('resolveConflict')" title="ออเดอร์ที่มีเลข IV เดิม + ไฟล์ 141.RWT มีเลขใหม่ — ทับเลขเดิมด้วยเลขจากไฟล์"><i data-lucide="git-merge"></i> อัปเดตเลข IV ตามไฟล์ (${conflictResolvable})</button>`:''}
     </div>
+
+    ${c.conflict ? `<div class="ord-card" style="padding:11px 16px;margin-bottom:12px;border-left:4px solid var(--dg,#dc2626);background:var(--dg-50,#fef2f2)">
+      <div style="font:700 12.5px/1.4 inherit;color:var(--dg-700,#b91c1c);margin-bottom:4px">⛔ แยกประเภท "IV ทับเลขเดิม" ${c.conflict.toLocaleString("th-TH")} รายการ</div>
+      <div style="font:500 12px/1.7 inherit;color:var(--n-700)">
+        🔁 <b>เลข IV เปลี่ยน</b> (ออเดอร์มีเลขเดิม · ไฟล์มีเลขใหม่) = <b class="tnum">${(cfl.rekey||0).toLocaleString("th-TH")}</b> ·
+        ⤴ <b>IV ผูกผิดออเดอร์</b> (เลขในไฟล์ไปเกาะออเดอร์อื่นอยู่) = <b class="tnum">${(cfl.misassigned||0).toLocaleString("th-TH")}</b> ·
+        ❓ <b>หาออเดอร์ตามไฟล์ไม่เจอ</b> = <b class="tnum">${(cfl.noorder||0).toLocaleString("th-TH")}</b>${cfl.other?` · อื่นๆ <b class="tnum">${cfl.other.toLocaleString("th-TH")}</b>`:''}
+      </div>
+    </div>` : ''}
 
     ${list.length ? `<div class="ord-card">
       <div style="max-height:60vh;overflow-y:auto">

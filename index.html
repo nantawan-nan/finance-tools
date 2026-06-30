@@ -1342,6 +1342,27 @@ function parseExpressSales(text){
 }
 
 /* ---------- Parser: Shopee Income ---------- */
+/* จัดหมวดค่าใช้จ่าย — รวมชื่อเรียกต่างกันของแต่ละแพลตฟอร์มเป็นหมวดเดียวกัน
+   คืน {key, label} · ใช้ทั้ง Shopee/TikTok/Lazada */
+function incFeeCategory(name){
+  const s = String(name||"").toLowerCase();
+  if(/คอมมิชชั่น|commission|ค่าธรรมเนียมการขาย|ขายสินค้า/.test(s)) return {key:"commission", label:"ค่าคอมมิชชั่น / ค่าธรรมเนียมการขาย"};
+  if(/โฆษณา|ads|advert|affiliate|พันธมิตร|การตลาด/.test(s))       return {key:"ads",        label:"ค่าโฆษณา / การตลาด"};
+  if(/ขนส่ง|จัดส่ง|shipping|freight/.test(s))                     return {key:"shipping",   label:"ค่าขนส่ง (ผู้ขายชำระ)"};
+  if(/ธุรกรรม|ชำระเงิน|payment|transaction|เกตเวย์|gateway/.test(s)) return {key:"transaction",label:"ค่าธุรกรรม / การชำระเงิน"};
+  if(/บริการ|service|โครงสร้างพื้นฐาน|platform|แพลตฟอร์ม/.test(s))  return {key:"service",    label:"ค่าบริการ / แพลตฟอร์ม"};
+  if(/ภาษี|vat|wht|หัก ณ ที่จ่าย/.test(s))                        return {key:"tax",        label:"ภาษี / หัก ณ ที่จ่าย"};
+  return {key:"other", label:"อื่นๆ"};
+}
+const INC_FEE_CATS = [
+  {key:"commission", label:"ค่าคอมมิชชั่น/ขาย"},
+  {key:"transaction",label:"ค่าธุรกรรม"},
+  {key:"service",    label:"ค่าบริการ/แพลตฟอร์ม"},
+  {key:"shipping",   label:"ค่าขนส่ง"},
+  {key:"ads",        label:"ค่าโฆษณา"},
+  {key:"tax",        label:"ภาษี/หัก ณ ที่จ่าย"},
+  {key:"other",      label:"อื่นๆ"}
+];
 function parseShopeeIncome(book){
   // --- Service Fee Details map → orderNo → [{name, amount}] ---
   const feeSheetName = book.names.find(n => /service fee/i.test(n));
@@ -1399,6 +1420,7 @@ function parseShopeeIncome(book){
   if(cNet<0) cNet=header.findIndex(h=>h.includes("จำนวนเงิน")&&h.includes("฿")&&!h.includes("คืน")&&!h.includes("ค่า"));
   const cGross=find(["สินค้าราคาปกติ","ราคาขายค้าปลีก","ราคาตั้ง"]);
   const cSellerDisc=find(["ส่วนลดสินค้าจากผู้ขาย","ส่วนลดจากผู้ขาย","ส่วนลดเงินราคาจากผู้ขาย"]);
+  const cBuyerShip=find(["ค่าจัดส่งที่ชำระโดยผู้ซื้อ"]);   // ค่าส่งที่ผู้ซื้อจ่าย → เข้าฐานภาษี
   // fee columns จาก Income sheet เพิ่ม/แทนที่ Service Fee sheet (ครบกว่า)
   const SP_FEE_KW=["ค่าคอมมิชชั่น","ค่าบริการ","ค่าธรรมเนียม","ค่าจัดส่งสินค้า","ค่าจัดส่งที่ Shopee"];
   const spFeeCols=header.map((h,i)=>SP_FEE_KW.some(k=>h.includes(k.slice(0,5)))?{name:h,idx:i}:null).filter(Boolean);
@@ -1413,14 +1435,19 @@ function parseShopeeIncome(book){
     const sfFees=feeMap.get(o)||[];
     const sfNames=new Set(sfFees.map(f=>f.name));
     const incFees=spFeeCols.filter(f=>!spUsed.has(f.idx)&&num(r[f.idx])!==0&&!sfNames.has(f.name)).map(f=>({name:f.name,amount:num(r[f.idx])}));
+    const sdVal = cSellerDisc>=0 ? num(r[cSellerDisc]) : 0;     // เก็บเป็นค่าจริง (มักติดลบ)
+    const bShip = cBuyerShip>=0 ? num(r[cBuyerShip]) : 0;
+    const taxBase = round2(grossVal + sdVal + bShip);           // ฐานภาษี = ราคา − ส่วนลดผู้ขาย + ค่าส่งผู้ซื้อ
     out.push({
       orderNo:o,
       paymentDate:parseDate(r[cPaidDate]),
       orderDate:parseDate(r[cOrderDate]),
       net:netVal,
       gross:grossVal,
-      sellerDiscount: cSellerDisc>=0 ? num(r[cSellerDisc]) : 0,
-      feeTotal: Math.max(0, grossVal-netVal),
+      sellerDiscount: sdVal,
+      buyerShipping: bShip,
+      taxBase,
+      feeTotal: Math.max(0, taxBase-netVal),                    // รายจ่าย = ฐานภาษี − สุทธิ (reconcile)
       feeBreakdown: [...sfFees, ...incFees]
     });
   }
@@ -1442,8 +1469,9 @@ function parseTikTokIncome(book){
   const cClose=find(["เวลาที่ชำระคำสั่งซื้อ","เวลาที่ปิดคำสั่งซื้อ"]);
   const cCreate=find(["เวลาที่สร้างคำสั่งซื้อ"]);
   const cNet=find(["จำนวนเงินที่ชำระทั้งหมด","จำนวนเงินที่จะถึง"]);
-  const cGross=find(["รายได้รวม","มูลค่าสั่ง"]);
+  const cGross=find(["รายได้รวม","มูลค่าสั่ง"]);   // = ราคาสินค้าหลังหักส่วนลดผู้ขาย
   const cSellerDisc=find(["ส่วนลดจากผู้ขาย","ส่วนลดจากร้านค้า"]);
+  const cBuyerShip=find(["ค่าจัดส่งที่ลูกค้าชำระ","ค่าขนส่งที่ลูกค้าชำระ","ค่าจัดส่งที่ผู้ซื้อชำระ"]);
   const cFeeTotal=find(["ค่าธรรมเนียมทั้งหมด","ค่าธรรมเนียมรวมทั้งหมด","ค่าธรรมเนียมรวม"]);
   // fee breakdown จาก column ในชีทนี้โดยตรง (คำอธิบายค่าธรรมเนียม เป็น glossary ไม่ใช่ per-order)
   const FEE_KW=["ค่าธรรมเนียมคำสั่งซื้อ","ค่าคอมมิชชั่น","การผ่อนชำระ","ยอดรวมค่าจัดส่งที่ร้านค้า","ค่าธรรมเนียมการจัดส่งจริง","ส่วนลดค่าธรรมเนียมการจัดส่ง","ค่าธรรมเนียมการจัดส่งของลูกค้า","ค่าธรรมเนียมการจัดส่งสินค้าคืน","เงินคืนสำหรับค่าจัดส่ง","เงินสนับสนุนการจัดส่ง"];
@@ -1455,7 +1483,8 @@ function parseTikTokIncome(book){
     const o=String(r[cOrder]||"").trim();
     if(!o) continue;
     const grossVal=num(r[cGross]); const netVal=num(r[cNet]);
-    const feeTotalVal=cFeeTotal>=0?Math.abs(num(r[cFeeTotal])):Math.max(0,grossVal-netVal);
+    const bShip = cBuyerShip>=0 ? num(r[cBuyerShip]) : 0;
+    const taxBase = round2(grossVal + bShip);   // รายได้รวม(หลังหักส่วนลดผู้ขาย) + ค่าส่งผู้ซื้อ
     const feeBreakdown=feeCols.filter(f=>!usedIdx.has(f.idx)&&num(r[f.idx])!==0).map(f=>({name:f.name,amount:num(r[f.idx])}));
     out.push({
       orderNo:o,
@@ -1464,7 +1493,9 @@ function parseTikTokIncome(book){
       net:netVal,
       gross:grossVal,
       sellerDiscount: cSellerDisc>=0 ? num(r[cSellerDisc]) : 0,
-      feeTotal: feeTotalVal,
+      buyerShipping: bShip,
+      taxBase,
+      feeTotal: Math.max(0, round2(taxBase-netVal)),   // รายจ่าย = ฐานภาษี − สุทธิ (reconcile)
       feeBreakdown
     });
   }
@@ -1497,15 +1528,17 @@ function parseLazadaIncome(book){
     const amt=num(r[cAmt]);
     let g=map.get(o);
     if(!g){ g={ orderNo:o, paymentDate:parseDate(cSettle>=0?r[cSettle]:""), orderDate:parseDate(cOrderDate>=0?r[cOrderDate]:""),
-               net:0, gross:0, sellerDiscount:0, feeTotal:0, feeBreakdown:[], productName:(cName>=0?String(r[cName]||"").trim():"") }; map.set(o,g); }
+               net:0, gross:0, sellerDiscount:0, buyerShipping:0, taxBase:0, feeTotal:0, feeBreakdown:[], productName:(cName>=0?String(r[cName]||"").trim():"") }; map.set(o,g); }
     g.net += amt;                                            // รวมทุกบรรทัด = เงินเข้าสุทธิจริง
-    if(/ยอดรวมค่าสินค้า|ค่าสินค้า/.test(type)) g.gross += amt;          // ราคาขาย
-    else if(/คูปอง.*ผู้ขาย|ส่วนลด.*ผู้ขาย/.test(type)){ g.sellerDiscount += Math.abs(amt); g.feeBreakdown.push({name:type,amount:amt}); }
-    else g.feeBreakdown.push({name:type,amount:amt});        // ค่าธรรมเนียม/หักต่าง ๆ
+    if(/ยอดรวมค่าสินค้า|ค่าสินค้า/.test(type)) g.gross += amt;          // ราคาขาย (หลังหักส่วนลดแพลตฟอร์ม)
+    else if(/คูปอง.*ผู้ขาย|ส่วนลด.*ผู้ขาย/.test(type)) g.sellerDiscount += Math.abs(amt);  // ส่วนลดผู้ขาย → เข้าฐานภาษี (ไม่ใช่รายจ่าย)
+    else if(/ค่าขนส่ง|ค่าจัดส่ง/.test(type) && amt>0) g.buyerShipping += amt;               // ค่าส่งผู้ซื้อจ่าย → ฐานภาษี
+    else g.feeBreakdown.push({name:type,amount:amt});        // ค่าธรรมเนียม/หักต่าง ๆ = รายจ่าย
   }
   const out=[...map.values()].map(g=>{
-    g.net=round2(g.net); g.gross=round2(g.gross); g.sellerDiscount=round2(g.sellerDiscount);
-    g.feeTotal=round2(Math.max(0, g.gross - g.net));
+    g.net=round2(g.net); g.gross=round2(g.gross); g.sellerDiscount=round2(g.sellerDiscount); g.buyerShipping=round2(g.buyerShipping);
+    g.taxBase=round2(g.gross - g.sellerDiscount + g.buyerShipping);   // ฐานภาษี = ราคา − ส่วนลดผู้ขาย + ค่าส่งผู้ซื้อ
+    g.feeTotal=round2(Math.max(0, g.taxBase - g.net));               // รายจ่าย = ฐานภาษี − สุทธิ
     return g;
   });
   return { rows:out, seller:"" };
@@ -3344,35 +3377,44 @@ async function renderToolSalesIncome(){
   if(window.lucide) lucide.createIcons();
 }
 
+/* รวมค่าใช้จ่ายของ 1 ออเดอร์เป็นหมวด — balance ให้รวม = รายจ่าย (tax_base − net) เสมอ */
+function incRowFeeCats(r){
+  const cats={}; INC_FEE_CATS.forEach(c=>cats[c.key]=0);
+  for(const f of (r.fee_breakdown||[])){ const c=incFeeCategory(f.name); cats[c.key]=(cats[c.key]||0)+Math.abs(num(f.amount)); }
+  const total=Math.abs(r.fee_total||0);
+  const sum=Object.values(cats).reduce((a,b)=>a+b,0);
+  const diff=round2(total-sum);
+  if(Math.abs(diff)>=0.01) cats.other=round2((cats.other||0)+diff);   // ส่วนที่แตกไม่ออก → อื่นๆ
+  return cats;
+}
+function incTaxBaseOf(r){ return r.tax_base!=null ? Number(r.tax_base) : Number(r.gross||0); }
+function incToggleFeeDetail(){ const d=incGet(); d.incShowFeeDetail=!d.incShowFeeDetail; renderToolSalesIncome(); }
+
 function incRenderList(d){
   const rows = d.incRows || [];
   const filter = d.incFilter || '';
-  const ordD = ordGet();
-  const ordByOrderId = {};
-  for(const o of (ordD.rows||[])) if(o.order_id) ordByOrderId[o.order_id] = o;
-
   const filtered = filter ? rows.filter(r=>r.channel_group===filter) : rows;
-  const sumGross = filtered.reduce((s,r)=>s+(r.gross||0), 0);
-  const sumFee   = filtered.reduce((s,r)=>s+(r.fee_total||0), 0);
-  const sumNet   = filtered.reduce((s,r)=>s+(r.net_received||0), 0);
+  const showDetail = !!d.incShowFeeDetail;
+
+  const sumTax = filtered.reduce((s,r)=>s+incTaxBaseOf(r), 0);
+  const sumFee = filtered.reduce((s,r)=>s+(r.fee_total||0), 0);
+  const sumNet = filtered.reduce((s,r)=>s+(r.net_received||0), 0);
   const chCounts = {shopee:0, tiktok:0, lazada:0};
   for(const r of rows){ if(r.channel_group in chCounts) chCounts[r.channel_group]++; }
 
-  const chipBtn = (val, label) => {
-    const active = val===filter;
-    return `<button class="ord-chip${active?' active':''}" onclick="incSetIncFilter('${val}')">${label}</button>`;
-  };
+  const chipBtn = (val,label)=>`<button class="ord-chip${val===filter?' active':''}" onclick="incSetIncFilter('${val}')">${label}</button>`;
 
   const kpiHtml = `<div class="sal-kpi-row" style="grid-template-columns:repeat(4,1fr);margin-bottom:14px">
-    <div class="sal-kpi"><div class="n">${filtered.length}</div><div class="l">ออเดอร์ที่รับ</div></div>
-    <div class="sal-kpi" style="--kc:#1e293b"><div class="n">${salesFmt(sumGross)}</div><div class="l">Gross (บาท)</div></div>
-    <div class="sal-kpi" style="--kc:#dc2626"><div class="n">${salesFmt(sumFee)}</div><div class="l">ค่าธรรมเนียม</div></div>
-    <div class="sal-kpi" style="--kc:#16a34a"><div class="n">${salesFmt(sumNet)}</div><div class="l">สุทธิ (บาท)</div></div>
+    <div class="sal-kpi"><div class="n">${filtered.length}</div><div class="l">ออเดอร์</div></div>
+    <div class="sal-kpi" style="--kc:#1e293b"><div class="n">${salesFmt(sumTax)}</div><div class="l">ฐานภาษีรวม (= มูลค่า IV)</div></div>
+    <div class="sal-kpi" style="--kc:#dc2626"><div class="n">${salesFmt(sumFee)}</div><div class="l">รายจ่ายรวม</div></div>
+    <div class="sal-kpi" style="--kc:#16a34a"><div class="n">${salesFmt(sumNet)}</div><div class="l">เงินเข้าสุทธิรวม</div></div>
   </div>`;
 
   const actionHtml = `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
     <button class="ord-btn" onclick="incUploadIncome()"><i data-lucide="upload"></i> อัปรายงาน Income (XLSX)</button>
     <button class="ord-btn" onclick="incLoadRows(incGet()).then(()=>renderToolSalesIncome())"><i data-lucide="refresh-cw"></i></button>
+    <button class="ord-btn ${showDetail?'':''}" style="${showDetail?'background:var(--brand);color:#fff;border-color:var(--brand)':''}" onclick="incToggleFeeDetail()"><i data-lucide="${showDetail?'eye-off':'eye'}"></i> ${showDetail?'ซ่อนดีเทลรายจ่าย':'แสดงดีเทลรายจ่าย'}</button>
     <span style="color:#e2e8f0">|</span>
     ${chipBtn('','ทั้งหมด ('+rows.length+')')}
     ${chipBtn('shopee','Shopee ('+chCounts.shopee+')')}
@@ -3385,60 +3427,54 @@ function incRenderList(d){
       <div style="background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:52px 30px;text-align:center">
         <i data-lucide="receipt" style="width:48px;height:48px;color:var(--brand);margin-bottom:12px;stroke-width:1.4"></i>
         <div style="font-size:16px;font-weight:600;color:#1e293b;margin-bottom:8px">ยังไม่มีข้อมูลรับชำระ</div>
-        <div style="color:#64748b;font-size:13px">อัปรายงาน Income จาก Shopee / TikTok / Lazada (ไฟล์ XLSX จากหลังบ้านแพลตฟอร์ม)</div>
-      </div>
-    </div>`;
+        <div style="color:#64748b;font-size:13px">อัปรายงาน Income จาก Shopee / TikTok / Lazada (ไฟล์ XLSX จากหลังบ้าน)</div>
+      </div></div>`;
   }
 
-  const tableRows = filtered.map(r=>{
-    const ord = ordByOrderId[r.order_id];
-    const ivBadge = ord && ord.iv_no
-      ? `<span class="ord-bd" style="background:#dcfce7;color:#166534;font-size:11px">${esc(ord.iv_no)}</span>`
-      : ord ? `<span class="ord-bd" style="background:#fef3c7;color:#92400e">รอ IV</span>`
-      : `<span style="color:#cbd5e1;font-size:11px">—</span>`;
-    const reBadge = ord && ord.re_no
-      ? `<span class="ord-bd" style="background:#dcfce7;color:#166534;font-size:11px">${esc(ord.re_no)}</span>`
-      : ord ? `<span class="ord-bd" style="background:#fef3c7;color:#92400e">รอ RE</span>`
-      : `<span style="color:#cbd5e1;font-size:11px">—</span>`;
+  // ★ หมวดค่าใช้จ่ายที่ "มีจริง" ในชุดที่กรอง — โชว์เฉพาะคอลัมน์ที่ไม่เป็น 0 ทั้งหมด
+  const catActive = {};
+  if(showDetail){ for(const r of filtered){ const c=incRowFeeCats(r); for(const k in c) if(Math.abs(c[k])>=0.01) catActive[k]=true; } }
+  const detailCats = INC_FEE_CATS.filter(c=>catActive[c.key]);
+
+  const tableRows = filtered.map((r,i)=>{
     const chColor = r.channel_group==='shopee'?'#ee4d2d':r.channel_group==='tiktok'?'#161823':'#1a0dab';
     const chLabel = r.channel_group==='shopee'?'Shopee':r.channel_group==='tiktok'?'TikTok':r.channel_group==='lazada'?'Lazada':r.channel_group||'—';
-    const hasFee = r.fee_breakdown && r.fee_breakdown.length>0;
-    const isExpanded = d.incExpandedOrder===r.order_id;
-    return `<tr style="border-bottom:1px solid #f1f5f9;cursor:${hasFee?'pointer':'default'}" onclick="${hasFee?'incToggleFeeRow(\''+esc(r.order_id||'')+'\')':''}">
+    const tb = incTaxBaseOf(r);
+    const cats = showDetail ? incRowFeeCats(r) : null;
+    const catCells = showDetail ? detailCats.map(c=>`<td style="padding:7px 8px;text-align:right;font-variant-numeric:tabular-nums;font-size:11.5px;color:${cats[c.key]>=0.01?'#dc2626':'#cbd5e1'}">${cats[c.key]>=0.01?'−'+salesFmt(cats[c.key]):'–'}</td>`).join("") : "";
+    return `<tr style="border-bottom:1px solid #f1f5f9">
+      <td style="padding:7px 8px;color:#94a3b8;font-size:11.5px">${i+1}</td>
+      <td style="padding:7px 6px"><span style="font-size:11px;padding:2px 7px;border-radius:4px;background:${chColor}18;color:${chColor};border:1px solid ${chColor}35;font-weight:600">${chLabel}</span></td>
       <td style="padding:7px 10px;font-family:monospace;font-size:11.5px;white-space:nowrap;color:#334155">${esc(r.order_id||'')}</td>
       <td style="padding:7px 10px;white-space:nowrap;font-size:12px">${r.paid_date?salIncomeFmtDate(r.paid_date):''}</td>
-      <td style="padding:7px 6px"><span style="font-size:11px;padding:2px 7px;border-radius:4px;background:${chColor}18;color:${chColor};border:1px solid ${chColor}35;font-weight:600">${chLabel}</span></td>
-      <td style="padding:7px 10px;text-align:right;font-variant-numeric:tabular-nums;font-size:12px">${salesFmt(r.gross||0)}</td>
+      <td style="padding:7px 10px;text-align:right;font-weight:600;font-variant-numeric:tabular-nums;font-size:12px;color:#1e293b">${salesFmt(tb)}</td>
+      ${catCells}
       <td style="padding:7px 10px;text-align:right;color:#dc2626;font-variant-numeric:tabular-nums;font-size:12px">−${salesFmt(r.fee_total||0)}</td>
       <td style="padding:7px 10px;text-align:right;font-weight:600;font-variant-numeric:tabular-nums;font-size:12px;color:#16a34a">${salesFmt(r.net_received||0)}</td>
-      <td style="padding:7px 10px">${ivBadge}</td>
-      <td style="padding:7px 10px">${reBadge}</td>
-      <td style="padding:7px 6px;color:#94a3b8;font-size:11px">${hasFee?(isExpanded?'▴':'▾ รายละเอียด'):''}</td>
-    </tr>${isExpanded&&hasFee?`<tr><td colspan="9" style="padding:0 16px 10px 52px;background:#f8fafc">
-      <div style="border-left:3px solid var(--brand);padding:6px 12px;font-size:12px">
-        ${r.fee_breakdown.map(f=>`<div style="display:flex;justify-content:space-between;max-width:340px;padding:2px 0"><span style="color:#475569">${esc(f.name||'')}</span><span style="font-family:monospace;color:#dc2626">${salesFmt(f.amount)}</span></div>`).join("")}
-      </div></td></tr>`:''}`;
+    </tr>`;
   }).join("");
+
+  const catHeads = showDetail ? detailCats.map(c=>`<th style="padding:9px 8px;text-align:right;white-space:nowrap;font-size:11px;color:#64748b">${esc(c.label)}</th>`).join("") : "";
 
   return `<div style="padding:16px 0 0">
     ${kpiHtml}${actionHtml}
+    <div style="font-size:11.5px;color:#64748b;margin-bottom:8px">📌 <b>GROSS = ฐานภาษี</b> (ราคา − ส่วนลดผู้ขาย + ค่าส่งผู้ซื้อ · = มูลค่าที่จะคีย์ IV) · <b>ฐานภาษี − รายจ่าย = เงินเข้าสุทธิ</b>${showDetail?' · คอลัมน์ค่าใช้จ่ายรวมกัน = รายจ่าย':''}</div>
     <div style="overflow-x:auto;border:1px solid #e2e8f0;border-radius:10px;background:#fff">
       <table style="width:100%;border-collapse:collapse;font-size:12.5px">
         <thead><tr style="background:#f8fafc;border-bottom:2px solid #e2e8f0">
-          <th style="padding:9px 10px;text-align:left;font-weight:600;white-space:nowrap">เลขออเดอร์</th>
-          <th style="padding:9px 10px;text-align:left;white-space:nowrap">วันที่รับ</th>
-          <th style="padding:9px 10px;text-align:left">ช่องทาง</th>
-          <th style="padding:9px 10px;text-align:right;white-space:nowrap">Gross (฿)</th>
-          <th style="padding:9px 10px;text-align:right;white-space:nowrap">ค่าธรรมเนียม</th>
-          <th style="padding:9px 10px;text-align:right;white-space:nowrap">สุทธิ (฿)</th>
-          <th style="padding:9px 10px;text-align:left;white-space:nowrap">IV</th>
-          <th style="padding:9px 10px;text-align:left;white-space:nowrap">RE</th>
-          <th style="padding:9px 10px"></th>
+          <th style="padding:9px 8px;text-align:left;font-weight:600">#</th>
+          <th style="padding:9px 8px;text-align:left">แพลตฟอร์ม</th>
+          <th style="padding:9px 10px;text-align:left;white-space:nowrap">เลขที่ออเดอร์</th>
+          <th style="padding:9px 10px;text-align:left;white-space:nowrap">วันรับเงิน</th>
+          <th style="padding:9px 10px;text-align:right;white-space:nowrap">GROSS (ฐานภาษี)</th>
+          ${catHeads}
+          <th style="padding:9px 10px;text-align:right;white-space:nowrap">รายจ่าย</th>
+          <th style="padding:9px 10px;text-align:right;white-space:nowrap">เงินเข้าสุทธิ</th>
         </tr></thead>
         <tbody>${tableRows}</tbody>
       </table>
     </div>
-    <div style="color:#94a3b8;font-size:11px;margin-top:8px">แสดง ${filtered.length} รายการ · สุทธิรวม ${salesFmt(sumNet)} บาท</div>
+    <div style="color:#94a3b8;font-size:11px;margin-top:8px">แสดง ${filtered.length} รายการ · ฐานภาษีรวม ${salesFmt(sumTax)} − รายจ่ายรวม ${salesFmt(sumFee)} = สุทธิรวม ${salesFmt(sumNet)} บาท</div>
   </div>`;
 }
 /* ตั้งเลข RE เริ่มต้น (ผู้ใช้กรอก) — restore focus/caret หลัง re-render */
@@ -3840,6 +3876,7 @@ async function incIngestRows(parsedRows, channelGroup){
       dups++;
       ex.gross += r.gross||0; ex.fee_total += r.feeTotal||0;
       ex.net_received += r.net||0; ex.seller_discount += r.sellerDiscount||0;
+      ex.buyer_shipping += r.buyerShipping||0; ex.tax_base += (r.taxBase!=null?r.taxBase:(r.gross||0));
       if(r.feeBreakdown && r.feeBreakdown.length) ex.fee_breakdown = [...(ex.fee_breakdown||[]), ...r.feeBreakdown];
       if(r.paymentDate && (!ex.paid_date || r.paymentDate > ex.paid_date)) ex.paid_date = r.paymentDate;
     } else {
@@ -3847,6 +3884,7 @@ async function incIngestRows(parsedRows, channelGroup){
         company_id: co, order_id: oid, channel_group: channelGroup,
         paid_date: r.paymentDate||null, order_date: r.orderDate||null,
         gross: r.gross||0, seller_discount: r.sellerDiscount||0,
+        buyer_shipping: r.buyerShipping||0, tax_base: (r.taxBase!=null?r.taxBase:(r.gross||0)),
         fee_total: r.feeTotal||0,
         fee_breakdown: (r.feeBreakdown && r.feeBreakdown.length) ? [...r.feeBreakdown] : null,
         net_received: r.net||0, source_file: r._sourceFile||null,
@@ -3858,6 +3896,9 @@ async function incIngestRows(parsedRows, channelGroup){
   for(const u of toUpsert){
     u.gross=round2(u.gross); u.fee_total=round2(u.fee_total);
     u.net_received=round2(u.net_received); u.seller_discount=round2(u.seller_discount);
+    u.buyer_shipping=round2(u.buyer_shipping); u.tax_base=round2(u.tax_base);
+    // ★ รายจ่าย = ฐานภาษี − สุทธิ (reconcile เสมอ ไม่ว่า fee breakdown จะครบไหม)
+    u.fee_total=round2(Math.max(0, u.tax_base - u.net_received));
     if(u.fee_breakdown && !u.fee_breakdown.length) u.fee_breakdown=null;
   }
   let ok=0, fail=0, err=null;

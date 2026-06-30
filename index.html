@@ -3392,6 +3392,35 @@ function incRowFeeCats(r){
 }
 function incTaxBaseOf(r){ return r.tax_base!=null ? Number(r.tax_base) : Number(r.gross||0); }
 function incToggleFeeDetail(){ const d=incGet(); d.incShowFeeDetail=!d.incShowFeeDetail; renderToolSalesIncome(); }
+/* ส่งออก Excel — ทะเบียนรับชำระ (ตามฟิลเตอร์ + คอลัมน์เดียวกับที่โชว์ · เปิดดีเทล = มีคอลัมน์หมวด) */
+function incExportListXlsx(){
+  const d=incGet(); const rows=d.incRows||[]; const filter=d.incFilter||'';
+  const filtered = filter ? rows.filter(r=>r.channel_group===filter) : rows;
+  if(!filtered.length){ alert("ไม่มีข้อมูลให้ส่งออก"); return; }
+  const showDetail=!!d.incShowFeeDetail;
+  let detailCats=[];
+  if(showDetail){ const act={}; for(const r of filtered){ const c=incRowFeeCats(r); for(const k in c) if(Math.abs(c[k])>=0.01) act[k]=true; } detailCats=INC_FEE_CATS.filter(c=>act[c.key]); }
+  const chLabel=g=>g==='shopee'?'Shopee':g==='tiktok'?'TikTok':g==='lazada'?'Lazada':(g||'');
+  const head=['ลำดับ','แพลตฟอร์ม','เลขที่ออเดอร์','วันรับเงิน','GROSS (ฐานภาษี)', ...detailCats.map(c=>c.label), 'รายจ่าย','เงินเข้าสุทธิ'];
+  const aoa=[head];
+  filtered.forEach((r,i)=>{
+    const cats = showDetail ? incRowFeeCats(r) : null;
+    const catVals = showDetail ? detailCats.map(c=>round2(cats[c.key]||0)) : [];
+    aoa.push([ i+1, chLabel(r.channel_group), String(r.order_id||''), r.paid_date?salIncomeFmtDate(r.paid_date):'',
+               round2(incTaxBaseOf(r)), ...catVals, round2(r.fee_total||0), round2(r.net_received||0) ]);
+  });
+  const sumTax=round2(filtered.reduce((s,r)=>s+incTaxBaseOf(r),0));
+  const sumFee=round2(filtered.reduce((s,r)=>s+(r.fee_total||0),0));
+  const sumNet=round2(filtered.reduce((s,r)=>s+(r.net_received||0),0));
+  const catSums = showDetail ? detailCats.map(c=>round2(filtered.reduce((s,r)=>s+(incRowFeeCats(r)[c.key]||0),0))) : [];
+  aoa.push(['','','','รวม', sumTax, ...catSums, sumFee, sumNet]);
+  const ws=XLSX.utils.aoa_to_sheet(aoa);
+  forceTextCells(ws,[2]);   // เลขออเดอร์ = text กัน Excel ตัดเลขยาว
+  const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,"รับชำระ");
+  const co=COMPANIES.find(c=>c.id===state.company);
+  const stamp=(new Date().toISOString().slice(0,10)).replace(/-/g,"");
+  XLSX.writeFile(wb, `รับชำระ_${(co&&co.code)||state.company}${filter?'_'+filter:''}_${stamp}.xlsx`);
+}
 
 function incRenderList(d){
   const rows = d.incRows || [];
@@ -3418,6 +3447,7 @@ function incRenderList(d){
     <button class="ord-btn" onclick="incUploadIncome()"><i data-lucide="upload"></i> อัปรายงาน Income (XLSX)</button>
     <button class="ord-btn" onclick="incLoadRows(incGet()).then(()=>renderToolSalesIncome())"><i data-lucide="refresh-cw"></i></button>
     <button class="ord-btn ${showDetail?'':''}" style="${showDetail?'background:var(--brand);color:#fff;border-color:var(--brand)':''}" onclick="incToggleFeeDetail()"><i data-lucide="${showDetail?'eye-off':'eye'}"></i> ${showDetail?'ซ่อนดีเทลรายจ่าย':'แสดงดีเทลรายจ่าย'}</button>
+    <button class="ord-btn" onclick="incExportListXlsx()"><i data-lucide="file-spreadsheet"></i> ส่งออก Excel</button>
     <span style="color:#e2e8f0">|</span>
     ${chipBtn('','ทั้งหมด ('+rows.length+')')}
     ${chipBtn('shopee','Shopee ('+chCounts.shopee+')')}

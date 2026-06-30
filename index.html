@@ -20019,6 +20019,18 @@ async function ordIvApply(mode){
   } else if(mode === "fixDiff"){
     picks = ic.results.filter(r => r.status==="diff" && r.orderRowId);
     label = `จะอัปเดต sale_amount ของ ${picks.length} ออเดอร์ให้ตรงกับยอดใน 723-5 — ดำเนินการต่อ?`;
+  } else if(mode === "resolveConflict"){
+    // ★ conflict แบบ re-key: ออเดอร์มีเลข IV เดิมอยู่แล้ว + เลขในไฟล์ 141.RWT ต่างจากเดิม
+    //   141.RWT = source of truth → ทับเลข IV เดิม (+ sale_amount ตามไฟล์ ถ้ายอดต่างด้วย)
+    picks = ic.results.filter(r => r.status==="conflict" && r.orderRowId && r.currentIv && r.currentIv !== r.iv_no);
+    const nOk = picks.filter(r=>Math.abs(r.diffAmount||0) < 0.01).length;
+    const nAmt = picks.length - nOk;
+    const sample = picks.slice(0,8).map(r=>`  • ${r.currentIv} → ${r.iv_no}  (ยอด ${(r.total||0).toLocaleString("th-TH")}${Math.abs(r.diffAmount||0)>=0.01?` · เดิม ${(r.currentTotal||0).toLocaleString("th-TH")}`:''})`).join("\n");
+    label = `จะอัปเดต "เลข IV" ของ ${picks.length} ออเดอร์ให้ตรงกับไฟล์ 141.RWT (ทับเลขเดิม)\n`
+          + `  • ยอดตรงอยู่แล้ว: ${nOk}\n`
+          + (nAmt?`  • ยอดต่างด้วย (จะทับ sale_amount ตามไฟล์): ${nAmt}\n`:'')
+          + `\nตัวอย่าง (เลขเดิม → เลขใหม่):\n${sample}${picks.length>8?`\n  • ... และอีก ${picks.length-8} รายการ`:''}\n`
+          + `\n141.RWT = ข้อมูลตัวจริง · เลขเดิมจะถูกทับ — ดำเนินการต่อ?`;
   }
   if(!picks.length){ alert("ไม่มีรายการให้ดำเนินการ"); return; }
   if(!confirm(label)) return;
@@ -20037,6 +20049,9 @@ async function ordIvApply(mode){
       } else if(mode === "cancelVoided"){
         upd.status = "cancelled"; upd.sale_src = src;
       } else if(mode === "fixDiff"){
+        upd.sale_amount = r.total; upd.sale_keyed_at = now; upd.sale_src = src;
+      } else if(mode === "resolveConflict"){
+        upd.iv_no = r.iv_no; upd.iv_date = r.doc_date || null;
         upd.sale_amount = r.total; upd.sale_keyed_at = now; upd.sale_src = src;
       }
       try{
@@ -20098,6 +20113,8 @@ function ordRenderIv(d){
   const c = { new_match:0, new_zero:0, new_diff:0, matched:0, diff:0, conflict:0, voided:0, orphan:0 };
   res.forEach(r => { c[r.status] = (c[r.status]||0)+1; });
   const needReview = (c.diff||0) + (c.conflict||0) + (c.orphan||0);
+  // ★ conflict ที่แก้ได้แบบ re-key: มีเลข IV เดิม + เลขใหม่ในไฟล์ต่างจากเดิม (141.RWT = ตัวจริง → ทับได้)
+  const conflictResolvable = res.filter(r => r.status==="conflict" && r.orderRowId && r.currentIv && r.currentIv !== r.iv_no).length;
   const sumTotal = res.reduce((a,r)=>a+(r.voided?0:r.total||0), 0);
   const sumMatch = res.filter(r=>r.status==="new_match").reduce((a,r)=>a+r.total, 0);
   const sumZero  = res.filter(r=>r.status==="new_zero").reduce((a,r)=>a+r.total, 0);
@@ -20238,6 +20255,7 @@ function ordRenderIv(d){
       <button class="ord-btn primary btn-sm" style="padding:5px 12px;font-size:12.5px" onclick="ordIvApply('tagSelected')" ${totalCheckedN?'':'disabled'}><i data-lucide="tag"></i> บันทึก Tag IV ที่เลือก (${totalCheckedN.toLocaleString("th-TH")})</button>
       ${c.voided?`<button class="ord-btn btn-sm" style="padding:5px 10px;font-size:12px;color:var(--wn-700);border-color:var(--wn-100)" onclick="ordIvApply('cancelVoided')"><i data-lucide="ban"></i> ยกเลิกออเดอร์ที่ Voided (${c.voided})</button>`:''}
       ${c.diff?`<button class="ord-btn btn-sm" style="padding:5px 10px;font-size:12px" onclick="ordIvApply('fixDiff')"><i data-lucide="refresh-cw"></i> ปรับยอดให้ตรงรายงาน (${c.diff})</button>`:''}
+      ${conflictResolvable?`<button class="ord-btn btn-sm" style="padding:5px 10px;font-size:12px;color:var(--dg-700);border-color:var(--dg-100)" onclick="ordIvApply('resolveConflict')" title="ออเดอร์ที่มีเลข IV เดิม + ไฟล์ 141.RWT มีเลขใหม่ — ทับเลขเดิมด้วยเลขจากไฟล์"><i data-lucide="git-merge"></i> อัปเดตเลข IV ตามไฟล์ (${conflictResolvable})</button>`:''}
     </div>
 
     ${list.length ? `<div class="ord-card">

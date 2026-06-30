@@ -19776,9 +19776,29 @@ function ordIvDetailPanel(r, d){
     </tr>`;
   }
 
+  // ★ orphan note — อธิบายว่าทำไม "ไม่มีออเดอร์ match" ทั้งที่ยอดอาจตรง
+  //   เหตุหลัก: ordIvAnalyze ตัดออเดอร์ status='cancelled' ออกจากการ match (ดู activeRows)
+  let orphanNote = '';
+  if(r.status === 'orphan'){
+    const amtTxt = bs ? ` · ยอด IV ${fmt(iv.total)} = BigSeller ${fmt(bs.total)} (ตรงกัน)` : '';
+    if(bsOrd && bsOrd.status === 'cancelled'){
+      orphanNote = `<div style="padding:13px 16px;background:var(--wn-50);border:1px solid var(--wn-100);border-left:4px solid var(--wn-700);border-radius:10px;margin-bottom:12px;font:500 12.5px/1.6 inherit;color:var(--n-700)">
+        ⚠ <b style="color:var(--wn-700)">ออเดอร์นี้ถูกตั้งสถานะ "ยกเลิก" ใน BigSeller</b> — ระบบตรวจ IV จึงไม่นับว่าแมตช์ แม้ยอดจะตรง${amtTxt}<br>
+        แปลว่า: BigSeller บอกว่าออเดอร์นี้ <b>ยกเลิกแล้ว</b> แต่ Express ยังมี IV <code style="background:var(--n-100);padding:1px 6px;border-radius:4px">${esc(r.iv_no)}</code> เปิดอยู่ (ไม่ได้ void)<br>
+        <b>ต้องเลือกทำอย่างใดอย่างหนึ่ง:</b><br>
+        • ถ้าขายจริง (ไม่ได้ยกเลิก) → แก้สถานะออเดอร์ใน BigSeller กลับเป็น "ไม่ยกเลิก" แล้วอัปไฟล์/กด "วิเคราะห์ใหม่" → จะกลายเป็น ✓ ตรงแล้ว<br>
+        • ถ้ายกเลิกจริง → ไป <b>void IV ${esc(r.iv_no)}</b> ในระบบบัญชี (Express) ให้ตรงกัน</div>`;
+    } else {
+      orphanNote = `<div style="padding:13px 16px;background:var(--wn-50);border:1px solid var(--wn-100);border-left:4px solid var(--wn-700);border-radius:10px;margin-bottom:12px;font:500 12.5px/1.6 inherit;color:var(--n-700)">
+        ⚠ <b style="color:var(--wn-700)">หาออเดอร์ตาม ref ในทะเบียนไม่เจอ</b> — IV <code style="background:var(--n-100);padding:1px 6px;border-radius:4px">${esc(r.iv_no)}</code> อ้างถึงออเดอร์ <b>${esc(r.ref_order_id||'(ว่าง)')}</b> ที่ไม่มีในระบบ${amtTxt}<br>
+        อาจเพราะ: ยังไม่ได้อัปไฟล์ BigSeller ที่ครอบออเดอร์นี้ · เลขออเดอร์ไม่ตรง · หรืออยู่คนละบริษัท</div>`;
+    }
+  }
+
   // ★ Diff equation card — โชว์ชัดๆ ว่า IV − ที่ควรเป็น = ส่วนต่าง (ใช้แทน verdict box เก่า)
+  //   ★ ไม่โชว์กล่องเขียว "ตรงกัน" ตอน orphan — กันสับสน (ออเดอร์ยกเลิก/หาไม่เจอ แม้ยอดตรงก็ยัง match ไม่ได้)
   let diffCard = '';
-  if(compareWith != null && iv.total != null){
+  if(compareWith != null && iv.total != null && r.status !== 'orphan'){
     const dx = +(iv.total - compareWith).toFixed(2);
     const matched = Math.abs(dx) < 0.01;
     const targetLbl = re ? `${chLabel} (หลังบ้าน)` : 'BigSeller';
@@ -19886,11 +19906,12 @@ function ordIvDetailPanel(r, d){
     <table style="width:100%;border-collapse:separate;border-spacing:0;background:#fff;border:1px solid var(--n-100);border-radius:8px;overflow:hidden;margin-bottom:12px">
       <thead><tr>${th('แหล่งข้อมูล','170px')}${th('รหัสสินค้า','')}${th('จำนวน','60px','right')}${th('ราคา/หน่วย','100px','right')}${th('ส่วนลด','90px','right')}${th('ราคาสุทธิ','100px','right')}${th('ค่าส่ง','80px','right')}${th('รวม','100px','right')}</tr></thead>
       <tbody>
-        ${rowHtml('BigSeller', 'var(--p-700,#0d9488)', bs, '#d1fae5', bsOrd?`${esc(bsOrd.order_id||'')}${bsOrd.order_date?' · '+esc(bsOrd.order_date):''}`:'')}
+        ${rowHtml('BigSeller', 'var(--p-700,#0d9488)', bs, '#d1fae5', bsOrd?`${esc(bsOrd.order_id||'')}${bsOrd.order_date?' · '+esc(bsOrd.order_date):''}${bsOrd.status==='cancelled'?' · <b style="color:var(--wn-700)">ยกเลิก</b>':''}`:'')}
         ${rowHtml(chLabel + ' (หลังบ้าน)', 'var(--wn-700)', re, '#fef3c7', reOrd?`${esc(reOrd.order_id||'')}${reOrd.order_date?' · '+esc(reOrd.order_date):''}`:'')}
         ${ivRow}
       </tbody>
     </table>
+    ${orphanNote}
     ${diffCard}
     ${actionSteps}
     ${recVerdict}

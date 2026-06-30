@@ -3276,6 +3276,16 @@ async function renderToolSalesIncome(){
     return;
   }
 
+  // ★ auto-load ทะเบียนคำสั่งซื้อ (order_ledger) — ทุกแท็บใช้จับคู่ IV/RE/ออเดอร์
+  //   กันเคส: เปิดขั้นตอน 2 ตรง ๆ โดยไม่ผ่านขั้นตอน 1 → order_ledger ว่าง → จับคู่ไม่เจอทั้งหมด
+  if(!ordGet().loaded && !d._ordLoading){
+    d._ordLoading = true;
+    main.innerHTML = `<div class="ord-page sal-page">${heroHtml}${tabHtml}<div style="padding:60px;text-align:center"><i data-lucide="loader-2" style="width:36px;height:36px;color:var(--brand)"></i><div style="margin-top:12px;color:#64748b">กำลังโหลดทะเบียนคำสั่งซื้อ (เพื่อจับคู่ IV/ออเดอร์)...</div></div></div>`;
+    if(window.lucide) lucide.createIcons();
+    ordLoad().then(()=>{ d._ordLoading=false; renderToolSalesIncome(); }).catch(()=>{ d._ordLoading=false; renderToolSalesIncome(); });
+    return;
+  }
+
   let bodyHtml = '';
   if(subtab === 'list')        bodyHtml = incRenderList(d);
   else if(subtab === 'export') bodyHtml = incRenderExport(d);
@@ -3568,21 +3578,24 @@ function incRenderVerify(d){
   }
 
   // คำนวณ KPI — match กับ order_ledger (ถ้าโหลดแล้ว)
+  // ★ จับคู่ 2 ทาง: เลข IV ก่อน → ถ้าไม่เจอใช้ "เลขออเดอร์" (order_ref จาก 1.9.1) เป็น fallback
   const ordRows = ordGet().rows || [];
-  const ivMap = {};
-  for(const o of ordRows) if(o.iv_no) ivMap[o.iv_no] = o;
+  const ivMap = {}, ordByOrder = {};
+  for(const o of ordRows){ if(o.iv_no) ivMap[o.iv_no]=o; if(o.order_id) ordByOrder[o.order_id]=o; }
   const ordLoaded = ordGet().loaded;
+  const matchOf = (r)=> (r.iv_no && ivMap[r.iv_no]) || (r.order_ref && ordByOrder[r.order_ref]) || null;
 
   let cntNew=0, cntTagged=0, cntNoOrder=0, cntNoIv=0, sumNet=0, sumFee=0;
   for(const r of rows){
-    if(!r.iv_no)              cntNoIv++;
-    else if(!ivMap[r.iv_no])  cntNoOrder++;
-    else if(ivMap[r.iv_no].re_no) cntTagged++;
+    const ord = matchOf(r);
+    if(!r.iv_no && !r.order_ref) cntNoIv++;
+    else if(!ord)             cntNoOrder++;
+    else if(ord.re_no)        cntTagged++;
     else                      cntNew++;
     sumNet += r.net_amount;
     sumFee += r.fee;
   }
-  const newRows = rows.filter(r => r.iv_no && ivMap[r.iv_no] && !ivMap[r.iv_no].re_no);
+  const newRows = rows.filter(r => { const o=matchOf(r); return o && !o.re_no; });
 
   const kpiHtml = `<div class="sal-kpi-row" style="grid-template-columns:repeat(5,1fr);margin-bottom:16px">
     <div class="sal-kpi"><div class="n">${rows.length}</div><div class="l">RE ทั้งหมด</div></div>
@@ -3602,12 +3615,14 @@ function incRenderVerify(d){
   </div>`;
 
   const tableRows = rows.map(r => {
-    const ord = ivMap[r.iv_no];
+    const ord = matchOf(r);
+    const viaOrder = ord && !(r.iv_no && ivMap[r.iv_no]);   // เจอผ่านเลขออเดอร์ (ไม่ใช่เลข IV)
     let statusBadge = '';
-    if(!r.iv_no)      statusBadge = `<span class="ord-bd" style="background:#fef3c7;color:#92400e">ไม่มีเลข IV</span>`;
-    else if(!ord)     statusBadge = `<span class="ord-bd" style="background:#fee2e2;color:#991b1b">ไม่พบออเดอร์</span>`;
+    if(!r.iv_no && !r.order_ref) statusBadge = `<span class="ord-bd" style="background:#fef3c7;color:#92400e">ไม่มีเลข IV/ออเดอร์</span>`;
+    else if(!ord && !ordLoaded)  statusBadge = `<span class="ord-bd" style="background:#fef3c7;color:#92400e">ทะเบียนยังไม่โหลด</span>`;
+    else if(!ord)     statusBadge = `<span class="ord-bd" style="background:#fee2e2;color:#991b1b">ไม่มีในระบบ</span>`;
     else if(ord.re_no)statusBadge = `<span class="ord-bd" style="background:#dcfce7;color:#166534">Tag แล้ว · ${esc(ord.re_no)}</span>`;
-    else              statusBadge = `<span class="ord-bd" style="background:rgba(var(--brand-rgb),.12);color:var(--brand-dark)">พร้อม Tag</span>`;
+    else              statusBadge = `<span class="ord-bd" style="background:rgba(var(--brand-rgb),.12);color:var(--brand-dark)">พร้อม Tag${viaOrder?' (ผ่านเลขออเดอร์)':''}</span>`;
     const chBadge = r.channel_group ? `<span style="font-size:11px;padding:1px 5px;border-radius:4px;background:${r.channel_group==='shopee'?'#fee2d5':r.channel_group==='tiktok'?'#f1f5f9':'#ede9fe'}">${r.channel_group}</span> ` : '';
     return `<tr style="border-bottom:1px solid #f1f5f9">
       <td style="padding:7px 10px;font-family:monospace;font-size:12px;white-space:nowrap">${esc(r.re_no)}</td>
@@ -3679,24 +3694,26 @@ function incVerifyClear(){
 async function incVerifyTagAll(){
   const d = incGet(); const v = d.verify;
   const ordD = ordGet();
-  const ivMap = {};
-  for(const o of (ordD.rows||[])) if(o.iv_no) ivMap[o.iv_no] = o;
+  const ivMap = {}, ordByOrder = {};
+  for(const o of (ordD.rows||[])){ if(o.iv_no) ivMap[o.iv_no]=o; if(o.order_id) ordByOrder[o.order_id]=o; }
+  const matchOf = (r)=> (r.iv_no && ivMap[r.iv_no]) || (r.order_ref && ordByOrder[r.order_ref]) || null;
 
-  const toTag = v.rows.filter(r => r.iv_no && ivMap[r.iv_no] && !ivMap[r.iv_no].re_no);
+  const toTag = v.rows.filter(r => { const o=matchOf(r); return o && !o.re_no; });
   if(!toTag.length){ alert("ไม่มีรายการที่ต้อง Tag"); return; }
-  if(!confirm(`บันทึก RE No. ลงทะเบียน ${toTag.length} รายการ?\n\nตัวอย่าง:\n${toTag.slice(0,3).map(r=>`${r.re_no} → IV ${r.iv_no}`).join("\n")}`)) return;
+  if(!confirm(`บันทึก RE No. ลงทะเบียน ${toTag.length} รายการ?\n\nตัวอย่าง:\n${toTag.slice(0,3).map(r=>`${r.re_no} → IV ${r.iv_no||r.order_ref}`).join("\n")}`)) return;
 
   v.applying = true; renderToolSalesIncome();
   let ok=0, fail=0;
   const now = new Date().toISOString();
   for(const r of toTag){
     try{
-      const ord = ivMap[r.iv_no];
-      const { error } = await sb.from("order_ledger")
-        .update({ re_no: r.re_no, re_date: r.re_date || null, re_keyed_at: now, updated_at: now, updated_by: AUTH.user && AUTH.user.id })
-        .eq("id", ord.id);
+      const ord = matchOf(r);
+      const upd = { re_no: r.re_no, re_date: r.re_date || null, re_keyed_at: now, updated_at: now, updated_by: AUTH.user && AUTH.user.id };
+      // ★ ถ้าจับคู่ได้ผ่านเลขออเดอร์ แต่ order_ledger ยังไม่มี iv_no → เติม iv_no จาก 1.9.1 ให้ด้วย
+      if(!ord.iv_no && r.iv_no){ upd.iv_no = r.iv_no; if(r.iv_date) upd.iv_date = r.iv_date; }
+      const { error } = await sb.from("order_ledger").update(upd).eq("id", ord.id);
       if(error) throw error;
-      ord.re_no = r.re_no; ord.re_date = r.re_date;
+      ord.re_no = r.re_no; ord.re_date = r.re_date; if(upd.iv_no) ord.iv_no = upd.iv_no;
       ok++;
     } catch(err){ console.warn("incVerifyTag", r.re_no, err); fail++; }
   }

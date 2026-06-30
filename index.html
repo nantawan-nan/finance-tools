@@ -19473,7 +19473,8 @@ function ordIvAnalyze(salesData, rows){
       // ไม่มี items → fallback ลง logic เดิม
     }
     const base = Number(o.order_total||0), ship = Number(o.shipping_fee||0), disc = Number(o.seller_discount||0);
-    return { total:+(base+ship).toFixed(2), base, ship, disc, fromSale:false };
+    // manual/offline: ส่วนลดผู้ขายเป็น "ส่วนลดจริง" ที่ลูกค้าได้รับ → IV หักออก (ต่างจาก marketplace ที่ platform ชดเชยคืน)
+    return { total:+(base - disc + ship).toFixed(2), base, ship, disc, fromSale:false };
   };
   const results = [];
   const seenIv = new Set();

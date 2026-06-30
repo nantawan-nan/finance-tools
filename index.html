@@ -20117,7 +20117,16 @@ function ordRenderIv(d){
   const conflictResolvable = res.filter(r => r.status==="conflict" && r.orderRowId && r.currentIv && r.currentIv !== r.iv_no).length;
   // ★ แยกประเภท conflict (อ่านอย่างเดียว) — รู้ว่าแต่ละแบบมีกี่ตัว
   const cfl = { rekey:0, misassigned:0, noorder:0, other:0 };
-  res.forEach(r => { if(r.status==="conflict"){ cfl[r.conflictKind||"other"] = (cfl[r.conflictKind||"other"]||0)+1; } });
+  // misassigned แยกย่อย: ออเดอร์เดียวกัน (แถวซ้ำ) vs คนละออเดอร์จริง
+  let cflMisSame = 0, cflMisDiff = 0;
+  res.forEach(r => {
+    if(r.status!=="conflict") return;
+    cfl[r.conflictKind||"other"] = (cfl[r.conflictKind||"other"]||0)+1;
+    if(r.conflictKind==="misassigned"){
+      const same = r.conflictOtherOrderNo && r.ref_order_id && String(r.conflictOtherOrderNo)===String(r.ref_order_id);
+      if(same) cflMisSame++; else cflMisDiff++;
+    }
+  });
   const sumTotal = res.reduce((a,r)=>a+(r.voided?0:r.total||0), 0);
   const sumMatch = res.filter(r=>r.status==="new_match").reduce((a,r)=>a+r.total, 0);
   const sumZero  = res.filter(r=>r.status==="new_zero").reduce((a,r)=>a+r.total, 0);
@@ -20265,7 +20274,7 @@ function ordRenderIv(d){
       <div style="font:700 12.5px/1.4 inherit;color:var(--dg-700,#b91c1c);margin-bottom:4px">⛔ แยกประเภท "IV ทับเลขเดิม" ${c.conflict.toLocaleString("th-TH")} รายการ</div>
       <div style="font:500 12px/1.7 inherit;color:var(--n-700)">
         🔁 <b>เลข IV เปลี่ยน</b> (ออเดอร์มีเลขเดิม · ไฟล์มีเลขใหม่) = <b class="tnum">${(cfl.rekey||0).toLocaleString("th-TH")}</b> ·
-        ⤴ <b>IV ผูกผิดออเดอร์</b> (เลขในไฟล์ไปเกาะออเดอร์อื่นอยู่) = <b class="tnum">${(cfl.misassigned||0).toLocaleString("th-TH")}</b> ·
+        ⤴ <b>IV ผูกผิดออเดอร์</b> (เลขในไฟล์ไปเกาะออเดอร์อื่นอยู่) = <b class="tnum">${(cfl.misassigned||0).toLocaleString("th-TH")}</b>${cfl.misassigned?` <span style="color:var(--n-500)">(ออเดอร์เดียวกันแต่แถวซ้ำ <b class="tnum">${cflMisSame.toLocaleString("th-TH")}</b> · คนละออเดอร์จริง <b class="tnum">${cflMisDiff.toLocaleString("th-TH")}</b>)</span>`:''} ·
         ❓ <b>หาออเดอร์ตามไฟล์ไม่เจอ</b> = <b class="tnum">${(cfl.noorder||0).toLocaleString("th-TH")}</b>${cfl.other?` · อื่นๆ <b class="tnum">${cfl.other.toLocaleString("th-TH")}</b>`:''}
       </div>
     </div>` : ''}

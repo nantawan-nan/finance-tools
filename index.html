@@ -1588,7 +1588,7 @@ function guessChannelFromCustCode(code){
   return "";
 }
 function bankCodeOf(kind,brand){
-  const map={ "SP|BT":"SB","SP|QI":"SI","TT|BT":"TB","TT|QI":"TQ","SP|MB":"SM","TT|MB":"TM" };
+  const map={ "SP|BT":"SB","SP|QI":"SI","TT|BT":"TB","TT|QI":"TQ","LZ|BT":"LB","LZ|QI":"LQ","SP|MB":"SM","TT|MB":"TM" };
   return map[kind+"|"+brand]||"";
 }
 
@@ -1597,8 +1597,8 @@ function bankCodeOf(kind,brand){
    เบญญา (BT/QI brands):   SB=6, SI=7, TB=9, TQ=10
    M Bark (MB brand):       ยังไม่รู้ — รอแนนบอก  */
 const BANK_DOWN = {
-  BT: { SP:6, TT:9 },     // SHOPEE-BETRA → 6 · TIKTOK-BETRA → 9
-  QI: { SP:7, TT:10 },    // SHOPEE-QI    → 7 · TIKTOK-QI    → 10
+  BT: { SP:6, TT:9,  LZ:1 },  // SHOPEE-BETRA → 6 · TIKTOK-BETRA → 9 · LAZADA-BETRA → 1 (SB/TB/LB)
+  QI: { SP:7, TT:10, LZ:4 },  // SHOPEE-QI    → 7 · TIKTOK-QI    → 10 · LAZADA-QI   → 4 (SI/TQ/LQ)
   MB: { SP:null, TT:null } // M Bark template — TBD
 };
 function bankDownCmd(brand, kind){
@@ -3547,7 +3547,7 @@ function incReCandidates(d){
       arDate: ord.iv_date||null, arIv: ord.iv_no, actualBrand: incBrandOf(ord),
       arOutstanding: outstanding, orderNo: r.order_id, channel, channelGroup: r.channel_group||"",
       paymentDate: r.paid_date||null, paidISO: parseDate(r.paid_date||""), netAmount: net, diff: round2(outstanding-net),
-      arCustCode: ord.customer || r.channel_group || "", bankCode:"",
+      arCustCode: ord.customer || r.channel_group || "", bankCode: bankCodeOf(channel, incBrandOf(ord)),
       re_no: ord.re_no||null, inReport191,
       warning: !ord.iv_date ? "ไม่มีวันที่ IV" : (outstanding<=0 ? "ไม่มียอด IV ในระบบ" : "")
     });

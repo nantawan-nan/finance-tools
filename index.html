@@ -3377,12 +3377,15 @@ async function renderToolSalesIncome(){
   if(window.lucide) lucide.createIcons();
 }
 
-/* รวมค่าใช้จ่ายของ 1 ออเดอร์เป็นหมวด — balance ให้รวม = รายจ่าย (tax_base − net) เสมอ */
+/* รวมค่าใช้จ่ายของ 1 ออเดอร์เป็นหมวด — คิดเครื่องหมาย (หักกลบขาเข้า/ขาออก) → ค่าบวก = รายจ่าย
+   balance ให้รวม = รายจ่าย (tax_base − net) เสมอ */
 function incRowFeeCats(r){
   const cats={}; INC_FEE_CATS.forEach(c=>cats[c.key]=0);
-  for(const f of (r.fee_breakdown||[])){ const c=incFeeCategory(f.name); cats[c.key]=(cats[c.key]||0)+Math.abs(num(f.amount)); }
-  const total=Math.abs(r.fee_total||0);
-  const sum=Object.values(cats).reduce((a,b)=>a+b,0);
+  // ★ รวมแบบมีเครื่องหมาย: ค่าส่งขาเข้า(+)/ขาออก(−) หักกลบกัน · ค่าธรรมเนียมเป็นลบ
+  for(const f of (r.fee_breakdown||[])){ const c=incFeeCategory(f.name); cats[c.key]=round2((cats[c.key]||0)+num(f.amount)); }
+  for(const k in cats) cats[k]=round2(-cats[k]);   // พลิกเป็น "ยอดรายจ่าย" (บวก = หักออก · ลบ = ได้คืน/ชดเชย)
+  const total=round2(r.fee_total||0);
+  const sum=round2(Object.values(cats).reduce((a,b)=>a+b,0));
   const diff=round2(total-sum);
   if(Math.abs(diff)>=0.01) cats.other=round2((cats.other||0)+diff);   // ส่วนที่แตกไม่ออก → อื่นๆ
   return cats;
@@ -3441,7 +3444,10 @@ function incRenderList(d){
     const chLabel = r.channel_group==='shopee'?'Shopee':r.channel_group==='tiktok'?'TikTok':r.channel_group==='lazada'?'Lazada':r.channel_group||'—';
     const tb = incTaxBaseOf(r);
     const cats = showDetail ? incRowFeeCats(r) : null;
-    const catCells = showDetail ? detailCats.map(c=>`<td style="padding:7px 8px;text-align:right;font-variant-numeric:tabular-nums;font-size:11.5px;color:${cats[c.key]>=0.01?'#dc2626':'#cbd5e1'}">${cats[c.key]>=0.01?'−'+salesFmt(cats[c.key]):'–'}</td>`).join("") : "";
+    const catCell = (v)=> v>=0.01 ? `<td style="padding:7px 8px;text-align:right;font-variant-numeric:tabular-nums;font-size:11.5px;color:#dc2626">−${salesFmt(v)}</td>`
+                        : v<=-0.01 ? `<td style="padding:7px 8px;text-align:right;font-variant-numeric:tabular-nums;font-size:11.5px;color:#16a34a" title="ได้คืน/ชดเชย">+${salesFmt(-v)}</td>`
+                        : `<td style="padding:7px 8px;text-align:right;font-size:11.5px;color:#cbd5e1">–</td>`;
+    const catCells = showDetail ? detailCats.map(c=>catCell(cats[c.key])).join("") : "";
     return `<tr style="border-bottom:1px solid #f1f5f9">
       <td style="padding:7px 8px;color:#94a3b8;font-size:11.5px">${i+1}</td>
       <td style="padding:7px 6px"><span style="font-size:11px;padding:2px 7px;border-radius:4px;background:${chColor}18;color:${chColor};border:1px solid ${chColor}35;font-weight:600">${chLabel}</span></td>
@@ -17477,12 +17483,27 @@ async function ordAssignOrder(oidEnc, companyId){
   if(companyId===state.company){ try{ await ordLoad(); }catch(e){} }
   renderToolOrders();
 }
+/* ★ ดึง order_ledger ทั้งหมดแบบแบ่งหน้า — Supabase/PostgREST คืนสูงสุด 1000 แถว/ครั้ง
+   ถ้าไม่แบ่งหน้า ตัวกันซ้ำ (dedup by order_id) จะรู้จักแค่ 1000 ใบแรก → อัปซ้ำแล้วใบที่เกิน 1000 ถูก insert ซ้ำ */
+async function ordFetchAllRows(co, cols, applyFilters){
+  let rows=[], from=0; const sz=1000;
+  while(true){
+    let q = sb.from("order_ledger").select(cols).eq("company_id", co).is("deleted_at", null);
+    if(applyFilters) q = applyFilters(q);
+    const { data, error } = await q.order("id",{ascending:true}).range(from, from+sz-1);
+    if(error){ console.warn("ordFetchAllRows", error); break; }
+    if(!data || !data.length) break;
+    rows = rows.concat(data);
+    if(data.length < sz) break;
+    from += sz;
+  }
+  return rows;
+}
 /* upsert ออเดอร์จากช่องทาง (dedup by order_id) → คืน {added, updated, total} */
 async function ordIngestChannelOrders(co, parsed, srcLabel){
   const orders = parsed.orders || [];
   if(!orders.length) return { added:0, updated:0, total:0 };
-  const { data:existing } = await sb.from("order_ledger").select("id,order_id,status,order_date,order_total,channel_group,items,seller_discount,shipping_fee,seller_voucher,gross_total,source_cols")
-    .eq("company_id", co).is("deleted_at", null);
+  const existing = await ordFetchAllRows(co, "id,order_id,status,order_date,order_total,channel_group,items,seller_discount,shipping_fee,seller_voucher,gross_total,source_cols");
   const byOid = new Map((existing||[]).filter(o=>o.order_id).map(o=>[o.order_id, o]));
   const inserts = [], updates = [];
   const seen = new Set();
@@ -17556,8 +17577,7 @@ async function ordIngestChannelOrders(co, parsed, srcLabel){
 async function ordIngestFromSales(co, salesData, srcLabel){
   const ivs = (salesData?.ivs || []).filter(iv => iv.doc_type === "IV" && iv.doc_no && iv.ref_order_id);
   if(!ivs.length) return { tagged:0, created:0, total:0 };
-  const { data:existing } = await sb.from("order_ledger").select("id,order_id,iv_no,status")
-    .eq("company_id", co).is("deleted_at", null);
+  const existing = await ordFetchAllRows(co, "id,order_id,iv_no,status");
   const byOid = new Map((existing||[]).filter(o=>o.order_id).map(o=>[o.order_id, o]));
   const ivTaken = new Set((existing||[]).filter(o=>o.iv_no).map(o=>o.iv_no));
   const inserts = []; const ivUpd = [];
@@ -17594,8 +17614,7 @@ async function ordIngestFromSales(co, salesData, srcLabel){
 async function ordTagReceipts(co, arData){
   const m = arData && arData.ivToCheque;
   if(!m || !m.size) return 0;
-  const { data:orders } = await sb.from("order_ledger").select("id,iv_no,re_no")
-    .eq("company_id", co).is("deleted_at", null).not("iv_no","is",null);
+  const orders = await ordFetchAllRows(co, "id,iv_no,re_no", q=>q.not("iv_no","is",null));
   let n=0; const now=new Date().toISOString();
   for(const o of (orders||[])){
     const chq = m.get(o.iv_no);
@@ -17616,8 +17635,7 @@ async function ordTagBankFromWithdrawals(co, withdrawals){
     for(const o of (wd.orders||[])){ if(o.order_id) byOid.set(o.order_id, { bq:wd.bq_number, date:wd.withdraw_date, bankAcct:wd.bank_account_no }); }
   }
   if(!byOid.size) return 0;
-  const { data:orders } = await sb.from("order_ledger").select("id,order_id,bq_no")
-    .eq("company_id", co).is("deleted_at", null).not("order_id","is",null);
+  const orders = await ordFetchAllRows(co, "id,order_id,bq_no", q=>q.not("order_id","is",null));
   let n=0;
   for(const o of (orders||[])){
     const info = byOid.get(o.order_id);

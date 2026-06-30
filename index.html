@@ -3558,26 +3558,35 @@ function incReCandidates(d){
 function incSetExpCh(v){ const d=incGet(); d.expCh=(d.expCh===v?"":v); renderToolSalesIncome(); }
 function incSetExpDate(k,v){ incGet()[k]=v||""; renderToolSalesIncome(); }
 function incToggleExpClean(){ const d=incGet(); d.expClean=!d.expClean; renderToolSalesIncome(); }
-/* รวม candidate + ใช้ฟิลเตอร์ → ใช้ทั้ง render + export (ให้ตรงกันเป๊ะ) */
+function incSetExpNote(v){ const d=incGet(); d.expNote=(d.expNote===v?"":v); renderToolSalesIncome(); }
+/* รวม candidate + ใช้ฟิลเตอร์ → ใช้ทั้ง render + export (ให้ตรงกันเป๊ะ) · เรียงตามวันรับเงิน */
 function incExportView(d){
   const company = state.company;
   const cands = incReCandidates(d);
   const ready = cands.filter(r=> !r.re_no && !r.inReport191);     // ยังไม่คีย์ RE + ไม่พบใน 1.9.1
   const done  = cands.filter(r=> r.re_no || r.inReport191);       // คีย์ RE แล้ว / พบใน 1.9.1
   const probOf = (r)=>{
-    if(company!=="mbark" && r.channel && !bankDownCmd(r.actualBrand,r.channel)) return "เลือก bank ไม่ได้ (ไม่รู้แบรนด์)";
+    if(company!=="mbark" && r.channel && !bankDownCmd(r.actualBrand,r.channel))
+      return r.actualBrand ? `ยังไม่ตั้ง bank ช่อง ${r.channel} (${r.actualBrand})` : "เดาแบรนด์ Betra/Qi ไม่ออก";
     if(!(Number(r.arOutstanding)>0)) return "ไม่มียอด IV ในระบบ";
     if(!(Number(r.netAmount)>0))     return "เงินเข้า ≤ 0 (อาจเป็นคืนเงิน)";
     if(r.warning) return r.warning;
     return "";
   };
-  const chF=d.expCh||"", from=d.expFrom||"", to=d.expTo||"", cleanOnly=!!d.expClean;
-  let view = ready.map(r=>({...r, _prob:probOf(r)}));
-  if(chF)  view = view.filter(r=>r.channelGroup===chF);
-  if(from) view = view.filter(r=>r.paidISO && r.paidISO>=from);
-  if(to)   view = view.filter(r=>r.paidISO && r.paidISO<=to);
-  if(cleanOnly) view = view.filter(r=>!r._prob);
-  return { cands, ready, done, view };
+  const chF=d.expCh||"", from=d.expFrom||"", to=d.expTo||"", cleanOnly=!!d.expClean, noteF=d.expNote||"";
+  // base = หลังกรองช่อง/วัน (ใช้นับจำนวนต่อหมายเหตุ)
+  let base = ready.map(r=>({...r, _prob:probOf(r)}));
+  if(chF)  base = base.filter(r=>r.channelGroup===chF);
+  if(from) base = base.filter(r=>r.paidISO && r.paidISO>=from);
+  if(to)   base = base.filter(r=>r.paidISO && r.paidISO<=to);
+  const noteCounts = {};
+  for(const r of base){ const k=r._prob||"__clean"; noteCounts[k]=(noteCounts[k]||0)+1; }
+  let view = base;
+  if(noteF)        view = view.filter(r=> noteF==="__clean" ? !r._prob : r._prob===noteF);
+  else if(cleanOnly) view = view.filter(r=>!r._prob);
+  // ★ เรียงตามวันรับเงิน ก่อน-หลัง → เลข RE รันตามลำดับวันด้วย
+  view = view.slice().sort((a,b)=> String(a.paidISO||"9999-99-99").localeCompare(String(b.paidISO||"9999-99-99")));
+  return { cands, ready, done, view, noteCounts };
 }
 /* สร้าง 1 แถว RE (mirror aRowOf ของ armap แต่ใช้ seed ของหน้า income) */
 function incReRow(r,i,company){
@@ -3595,7 +3604,7 @@ function incReRow(r,i,company){
 function incRenderExport(d){
   const company = state.company;
   const ordLoaded = ordGet().loaded;
-  const { ready, done, view } = incExportView(d);
+  const { ready, done, view, noteCounts } = incExportView(d);
   const seed = d.reSeed || "";
   const seedValid = /^\D*\d+$/.test(seed);
   const canExport = view.length>0 && seedValid;
@@ -3633,8 +3642,18 @@ function incRenderExport(d){
     <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:#334155;cursor:pointer">
       <input type="checkbox" ${d.expClean?'checked':''} onchange="incToggleExpClean()"> เฉพาะที่ไม่ติดปัญหา${probCount?` <span style="color:#b45309">(ซ่อน ${probCount})</span>`:''}
     </label>
-    ${(d.expCh||d.expFrom||d.expTo||d.expClean)?`<button class="ord-chip" onclick="incSetExpDate('expFrom','');incSetExpDate('expTo','');var dd=incGet();dd.expCh='';dd.expClean=false;renderToolSalesIncome()" style="margin-left:auto">ล้างฟิลเตอร์</button>`:''}
+    ${(d.expCh||d.expFrom||d.expTo||d.expClean||d.expNote)?`<button class="ord-chip" onclick="var dd=incGet();dd.expFrom='';dd.expTo='';dd.expCh='';dd.expNote='';dd.expClean=false;renderToolSalesIncome()" style="margin-left:auto">ล้างฟิลเตอร์</button>`:''}
   </div>`;
+
+  // ★ กรองตามหมายเหตุ (ดูทีละสาเหตุได้)
+  const noteKeys = Object.keys(noteCounts).filter(k=>k!=="__clean").sort((a,b)=>noteCounts[b]-noteCounts[a]);
+  const noteChip = (val,label,n,color)=>`<button class="ord-chip${(d.expNote||'')===val?' active':''}" onclick="incSetExpNote('${val.replace(/'/g,"\\'")}')" style="${(d.expNote||'')===val?'':''}border-color:${color||'#e2e8f0'}">${esc(label)} <b>${n}</b></button>`;
+  const noteFilterHtml = (noteKeys.length || noteCounts.__clean) ? `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
+    <span style="font-size:12px;font-weight:600;color:#334155">หมายเหตุ:</span>
+    ${noteChip('','ทั้งหมด', ready.length, '#cbd5e1')}
+    ${noteCounts.__clean?noteChip('__clean','✓ ไม่ติดปัญหา',noteCounts.__clean,'#16a34a'):''}
+    ${noteKeys.map(k=>noteChip(k,k,noteCounts[k],'#f59e0b')).join('')}
+  </div>` : "";
 
   const seedHtml = `<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:12px;background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:12px 16px">
     <div style="font-size:13px;color:#334155;font-weight:600">เลข RE เริ่มต้น</div>
@@ -3688,7 +3707,7 @@ function incRenderExport(d){
     <div style="color:#94a3b8;font-size:11px;margin-top:8px">แสดง ${Math.min(view.length,400)}/${view.length} แถว · แถวเหลือง = ติดปัญหา (เช่น "?" เลือก bank ไม่ได้ / ไม่มียอด IV / คืนเงิน) · ติ๊ก "เฉพาะที่ไม่ติดปัญหา" เพื่อซ่อนก่อนส่งออก</div>`;
   }
 
-  return `<div style="padding:16px 0 0">${warnLoad}${kpiHtml}${filterHtml}${seedHtml}${body}</div>`;
+  return `<div style="padding:16px 0 0">${warnLoad}${kpiHtml}${filterHtml}${noteFilterHtml}${seedHtml}${body}</div>`;
 }
 /* ส่งออกไฟล์ AutoKey RE (xlsx/csv) — 19 คอลัมน์ตรงเทมเพลต armap */
 function incExportRE(fmt){

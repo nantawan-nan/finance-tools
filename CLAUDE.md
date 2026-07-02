@@ -177,6 +177,12 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-02 — User self-service password + เปิด/ปิด user (ban)
+- **User เปลี่ยนรหัสเอง** (`changeOwnPassword`/`doChangeOwnPassword`): ปุ่ม "เปลี่ยนรหัส" บน topbar (ข้างออกจากระบบ) → modal รหัสใหม่+ยืนยัน → `sb.auth.updateUser({password})` (session ตัวเอง ไม่ต้อง service key) · **ซ่อนสำหรับบัญชี present** (บัญชีแชร์)
+- **เปิด/ปิดใช้งาน user** (`usrToggleBan`): ปุ่ม "ปิดใช้/เปิดใช้" ในตารางผู้ใช้ → admin API `ban_duration` (`876000h` = แบน ~100ปี / `none` = ปลดแบน) — บล็อก login โดยไม่ลบข้อมูล · badge "ปิดใช้งาน" + row จางเมื่อ `banned_until` > now
+- **Exec Dashboard ซ่อนปุ่มนำเข้า/ลบ สำหรับ non-admin** (`canEditExec = AUTH.role==='admin'`): ผู้บริหารที่เข้าผ่าน `page_permissions` (execdash) เห็นแค่ ดู/พิมพ์/นำเสนอ — ไม่เห็น "+ อัปไฟล์เพิ่ม" / "ล้าง & เริ่มใหม่"
+- **หมายเหตุ:** สิทธิ์ view-only ของผู้บริหารใช้ระบบ `page_permissions` เดิม (admin ติ๊ก execdash ให้ user) — ไม่ได้เพิ่ม path role=executive แยก (กันชนกับระบบ permission ที่มีอยู่)
+
 ### 2026-07-02 — Bank Recon: auto-match รันเองตอนโหลดหน้า + เด้ง error ตอนอัป (แก้ "ไม่ยอมจับคู่ให้")
 - **อาการ:** แถวที่ วัน+ยอดตรงเป๊ะ (Tier 2) ค้างในแท็บ "รอกระทบยอด" ไม่ยอมจับคู่ — เพราะ auto-match เดิมรันแค่ 2 จังหวะ: ตอนอัปไฟล์เสร็จ + กดปุ่ม ⚡ เอง · **เปิดหน้าเฉย ๆ ไม่ trigger** · ซ้ำ: insert `brec_matches` ล้มเหลวตอนอัปถูกกลืนเงียบ (`if(!me){...}` ไม่มี else)
 - **แก้ 1 — silent auto-match ตอนโหลด:** helper ใหม่ `brecTryAutoMatch(d)` (จับเฉพาะ non-ambiguous · วัน+ยอด(+ref)ตรง · error ไม่ throw แค่ log · คืนจำนวนคู่) · เรียกใน `renderToolBankRec` ก่อน `brecBuildBuckets` · **gate ด้วย signature** `accountId|express.len|bank.len|matches.len` (`d._autoSig`) กันรันซ้ำตอน re-render จาก toggle · ตั้ง sig เป็นสถานะ**หลัง** match กันเข้าลูป · คู่ใหม่ไป pending (status suggested) รอยืนยัน

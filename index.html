@@ -449,6 +449,58 @@ async function authSignOut(){
   renderApp();
 }
 
+/* ---------- User เปลี่ยนรหัสผ่านของตัวเอง (self-service) ---------- */
+function changeOwnPassword(){
+  const wrap = document.createElement("div");
+  wrap.id = "pwdModal";
+  wrap.style.cssText = "position:fixed;inset:0;background:rgba(15,23,42,.5);z-index:1000;display:flex;align-items:center;justify-content:center;padding:20px";
+  wrap.innerHTML = `
+    <div style="background:#fff;border-radius:14px;padding:26px;max-width:400px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.3)">
+      <h3 style="margin:0 0 4px;font-size:16px;font-weight:800">เปลี่ยนรหัสผ่าน</h3>
+      <div style="color:var(--ink-3);font-size:12.5px;margin-bottom:16px;font-family:monospace">${esc(AUTH.email||"")}</div>
+      <div style="display:grid;gap:12px">
+        <div>
+          <div style="font-size:12px;font-weight:700;color:var(--ink-2);margin-bottom:4px">รหัสผ่านใหม่ (อย่างน้อย 8 ตัว)</div>
+          <input id="pwdNew" type="password" autocomplete="new-password"
+            style="width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:8px;font-size:14px;font-family:inherit">
+        </div>
+        <div>
+          <div style="font-size:12px;font-weight:700;color:var(--ink-2);margin-bottom:4px">ยืนยันรหัสผ่านใหม่</div>
+          <input id="pwdConfirm" type="password" autocomplete="new-password"
+            style="width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:8px;font-size:14px;font-family:inherit">
+        </div>
+        <div id="pwdErr" style="color:var(--bad);font-size:13px;display:none;background:#fef2f2;padding:8px 12px;border-radius:7px"></div>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:18px;justify-content:flex-end">
+        <button onclick="document.getElementById('pwdModal').remove()"
+          style="padding:9px 16px;border:1px solid var(--line);background:#fff;border-radius:8px;font-weight:600;cursor:pointer;font-size:13px">ยกเลิก</button>
+        <button id="pwdBtn" class="btn" onclick="doChangeOwnPassword()">บันทึกรหัสใหม่</button>
+      </div>
+    </div>`;
+  document.body.appendChild(wrap);
+  wrap.onclick = e => { if(e.target === wrap) wrap.remove(); };
+  const el = document.getElementById("pwdNew"); if(el) el.focus();
+}
+async function doChangeOwnPassword(){
+  const err = document.getElementById("pwdErr");
+  const btn = document.getElementById("pwdBtn");
+  const p1 = document.getElementById("pwdNew").value;
+  const p2 = document.getElementById("pwdConfirm").value;
+  err.style.display = "none";
+  if(p1.length < 8){ err.textContent = "รหัสผ่านต้องอย่างน้อย 8 ตัว"; err.style.display = ""; return; }
+  if(p1 !== p2){ err.textContent = "รหัสผ่านทั้งสองช่องไม่ตรงกัน"; err.style.display = ""; return; }
+  btn.disabled = true; btn.textContent = "กำลังบันทึก...";
+  try{
+    const { error } = await sb.auth.updateUser({ password: p1 });
+    if(error) throw error;
+    document.getElementById("pwdModal").remove();
+    alert("เปลี่ยนรหัสผ่านเรียบร้อย ✓\nครั้งต่อไปให้ login ด้วยรหัสใหม่");
+  }catch(e){
+    btn.disabled = false; btn.textContent = "บันทึกรหัสใหม่";
+    err.textContent = "เปลี่ยนไม่สำเร็จ: " + (e.message || e); err.style.display = "";
+  }
+}
+
 /* ---------- Login screen ---------- */
 function renderLogin(msg){
   const SVG_EYE = '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>';
@@ -546,6 +598,7 @@ function buildShell(){
       <div class="user">
         <span class="u-email">${esc(AUTH.email||"")}</span>
         <span class="pill">${esc(AUTH.role||"")}</span>
+        ${!AUTH.isPresent() ? `<button class="logout" onclick="changeOwnPassword()" title="เปลี่ยนรหัสผ่านของคุณเอง">เปลี่ยนรหัส</button>` : ""}
         <button class="logout" onclick="authSignOut()">ออกจากระบบ</button>
       </div>
     </div>
@@ -6358,9 +6411,10 @@ async function renderToolUsers(){
                 const acc = usrAccessByUser(u.id);
                 const last = u.last_sign_in_at ? new Date(u.last_sign_in_at).toLocaleString("th-TH",{dateStyle:"short",timeStyle:"short"}) : "—";
                 const name = (u.user_metadata && u.user_metadata.display_name) || (u.email||"").split("@")[0];
+                const banned = u.banned_until && new Date(u.banned_until) > new Date();
                 return `
-                <tr>
-                  <td style="font-family:monospace;font-size:12px">${esc(u.email||"—")}</td>
+                <tr${banned?' style="opacity:.6"':''}>
+                  <td style="font-family:monospace;font-size:12px">${esc(u.email||"—")}${banned?' <span style="font-family:inherit;background:#fee2e2;color:#b91c1c;padding:1px 7px;border-radius:999px;font-size:10.5px;font-weight:700">ปิดใช้งาน</span>':''}</td>
                   <td>${esc(name)}</td>
                   <td>${role==="—"?'<span style="color:var(--ink-3)">—</span>':`<span class="badge">${esc(role)}</span>`}</td>
                   <td>${acc.length===0 ? '<span style="color:var(--ink-3);font-size:12px">ไม่มี</span>' :
@@ -6368,6 +6422,9 @@ async function renderToolUsers(){
                   <td style="font-size:12px;color:var(--ink-3)">${esc(last)}</td>
                   <td style="text-align:right;white-space:nowrap">
                     <button class="btn ghost btn sm" onclick="usrOpenEdit('${u.id}')">แก้ไข</button>
+                    ${banned
+                      ? `<button class="btn ghost btn sm" style="color:#0f766e;border-color:#5eead4" onclick="usrToggleBan('${u.id}',false)" title="เปิดให้ login ได้อีกครั้ง">เปิดใช้</button>`
+                      : `<button class="btn ghost btn sm" style="color:#b45309;border-color:#fcd34d" onclick="usrToggleBan('${u.id}',true)" title="บล็อกไม่ให้ login (ไม่ลบข้อมูล)">ปิดใช้</button>`}
                     <button class="btn ghost btn sm" style="color:var(--bad);border-color:#fca5a5" onclick="usrConfirmDelete('${u.id}', ${JSON.stringify(u.email||"").replace(/"/g,'&quot;')})">ลบ</button>
                   </td>
                 </tr>`;
@@ -6722,6 +6779,34 @@ async function usrConfirmDelete(uid, email){
     renderToolUsers();
   }catch(e){
     alert("ลบไม่สำเร็จ: " + (e.message||e));
+  }
+}
+
+/* ---------- เปิด/ปิดใช้งาน user (ban/unban — บล็อก login โดยไม่ลบข้อมูล) ---------- */
+async function usrToggleBan(uid, disable){
+  const u = (state.users.list||[]).find(x => x.id === uid);
+  const email = u ? (u.email||"") : "";
+  const msg = disable
+    ? `ปิดใช้งาน user "${email}" ?\n\nผู้ใช้จะ login ไม่ได้จนกว่าจะเปิดใหม่ (ข้อมูล + สิทธิ์ไม่ถูกลบ)`
+    : `เปิดใช้งาน user "${email}" ?\n\nผู้ใช้จะกลับมา login ได้ตามปกติ`;
+  if(!confirm(msg)) return;
+  try{
+    const res = await fetch(SUPABASE_URL + "/auth/v1/admin/users/" + uid, {
+      method: "PUT",
+      headers: {
+        apikey: usrSrKey(),
+        Authorization: "Bearer " + usrSrKey(),
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ ban_duration: disable ? "876000h" : "none" })   // ~100 ปี / ยกเลิกแบน
+    });
+    if(!res.ok){
+      const t = await res.text();
+      throw new Error(res.status + " " + t.slice(0,300));
+    }
+    renderToolUsers();
+  }catch(e){
+    alert((disable?"ปิด":"เปิด") + "ใช้งานไม่สำเร็จ: " + (e.message||e));
   }
 }
 
@@ -8443,6 +8528,7 @@ function edRenderDashboard(){
   const d = edState();
   const data = d.data;
   const main = document.getElementById("main");
+  const canEditExec = AUTH.role === "admin";   // ผู้บริหาร (page_permissions) = ดูอย่างเดียว ไม่เห็นปุ่มนำเข้า/ลบ
 
   // กัน scope ค้าง: ถ้าปี/เดือนที่เลือกไม่มีในข้อมูลแล้ว → กลับไป "ทุกปี"
   if(d.monthFilter && d.monthFilter !== "all" && !edScopeMonthKeys(data, d.monthFilter).length){
@@ -8498,8 +8584,9 @@ function edRenderDashboard(){
           <button class="btn ed-hide-present" onclick="edTogglePresent()" style="background:linear-gradient(135deg,#f59e0b,#d97706);border:none" title="โหมดนำเสนอเต็มจอ + ไฮไลต์ตามเมาส์ (กด Esc เพื่อออก)">🖥️ นำเสนอ</button>
           <button class="btn ed-hide-present" onclick="edPrint()" style="background:linear-gradient(135deg,#4F8AF7,#3b82f6);border:none" title="พิมพ์เฉพาะหัวข้อที่เปิดอยู่">พิมพ์ PDF</button>
           <button class="btn ed-hide-present" onclick="edExportFullPDF()" style="background:linear-gradient(135deg,#6366f1,#4f46e5);border:none" title="รวมทั้ง 6 หัวข้อเป็น PDF ไฟล์เดียว">พิมพ์ทั้งรายงาน</button>
+          ${canEditExec ? `
           <button class="btn ed-hide-present" onclick="edAddFile()" style="background:linear-gradient(135deg,#10b981,#059669);border:none" title="อัปไฟล์ปีอื่นเพิ่ม — ปีที่มีอยู่ยังอยู่ครบ (เดือนซ้ำของใหม่ทับ)">+ อัปไฟล์เพิ่ม (รวมปี)</button>
-          <button class="btn ghost btn sm ed-hide-present" onclick="edReset()" title="ล้างข้อมูลทั้งหมดแล้วเริ่มอัปใหม่">ล้าง &amp; เริ่มใหม่</button>
+          <button class="btn ghost btn sm ed-hide-present" onclick="edReset()" title="ล้างข้อมูลทั้งหมดแล้วเริ่มอัปใหม่">ล้าง &amp; เริ่มใหม่</button>` : ""}
         </div>
       </div>
       ${d.mergeMsg ? `<div class="ed-hide-present" style="background:#ecfdf5;color:#065f46;border:1px solid #a7f3d0;padding:9px 14px;border-radius:9px;margin:0 0 12px;font-size:13px;display:flex;justify-content:space-between;align-items:center;gap:10px"><span>✅ ${esc(d.mergeMsg)}</span><button onclick="edState().mergeMsg=null;edRenderDashboard()" style="background:none;border:none;color:#065f46;cursor:pointer;font-size:16px;line-height:1">✕</button></div>` : ""}

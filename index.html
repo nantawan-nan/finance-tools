@@ -15565,6 +15565,27 @@ async function brecUnmatch(id){
     await brecLoad(); brecRefresh();
   }catch(e){ alert("ลบคู่ล้มเหลว: "+(e.message||e)); d.busy=false; brecRefresh(); }
 }
+/* ★ ลบแถวค้างรายตัว (soft-delete) — ใช้ล้างยอดเก่าที่ค้างหลังแก้ตัวเลขแล้วอัปไฟล์ใหม่
+   (โหมด "เพิ่มเข้าของเดิม" เพิ่มแถวใหม่แต่ไม่ลบแถวเก่าที่ยอดเปลี่ยน → เกิด orphan) */
+async function brecDeleteRow(side, id){
+  if(!brecCanWrite()){ alert("ไม่มีสิทธิ์"); return; }
+  const d = brecGet();
+  const tbl = side==="ex" ? "brec_express_rows" : "brec_bank_rows";
+  const row = ((side==="ex"?d.express:d.bank)||[]).find(r=>r.id===id);
+  const amt = row ? brecSignedAmt(row).toLocaleString("th-TH",{minimumFractionDigits:2}) : "";
+  const desc = row ? (side==="ex" ? (row.doc_no||row.mne||"") : (row.tr_desc||row.cheque_no||"")) : "";
+  if(!confirm(`ลบแถวนี้ทิ้ง? (soft-delete — กู้คืนได้จาก DB)\n\n${side==="ex"?"Express":"Bank"}: ${row?row.txn_date:""} · ${desc} · ${amt}\n\nใช้ล้างยอดเก่าที่ค้างหลังแก้ตัวเลขแล้วอัปใหม่`)) return;
+  d.busy=true; brecRefresh();
+  try{
+    const now = new Date().toISOString();
+    const { error } = await sb.from(tbl).update({ deleted_at:now, updated_at:now }).eq("id", id);
+    if(error) throw error;
+    // เผื่อมี match ค้างอ้างแถวนี้ (unmatched ปกติไม่มี — กันไว้ให้สะอาด)
+    const col = side==="ex" ? "express_row_id" : "bank_row_id";
+    await sb.from("brec_matches").update({ deleted_at:now, updated_at:now }).eq(col, id).is("deleted_at", null);
+    await brecLoad(); brecRefresh();
+  }catch(e){ alert("ลบไม่สำเร็จ: "+(e.message||e)); d.busy=false; brecRefresh(); }
+}
 async function brecConfirmSelected(){
   if(!brecCanWrite()){ alert("ไม่มีสิทธิ์"); return; }
   const d = brecGet();
@@ -16345,7 +16366,7 @@ async function renderToolBankRec(){
               <div class="brec-link"><i data-lucide="circle-dashed"></i></div>
               <div class="brec-side empty">— ไม่พบใน Bank —</div>
               <div class="brec-conf"><span class="brec-tag" style="background:#f1f5f9;color:#64748b">ค้าง Express</span><div class="w">ยังไม่ขึ้นเงิน?</div></div>
-              <div class="brec-acts"><button onclick="brecManualLink()"><i data-lucide="link"></i> จับคู่เอง</button></div>
+              <div class="brec-acts"><button onclick="brecManualLink()"><i data-lucide="link"></i> จับคู่เอง</button>${brecCanWrite()?`<button onclick="brecDeleteRow('ex','${r.ex.id}')" style="color:#dc2626;border-color:#fecaca" title="ลบแถวนี้ทิ้ง (เช่น ยอดเก่าที่แก้แล้วอัปใหม่)"><i data-lucide="trash-2"></i></button>`:''}</div>
             </div>`;
           } else {
             const sel = d.sel.bk.has(r.bk.id);
@@ -16355,7 +16376,7 @@ async function renderToolBankRec(){
               <div class="brec-link"><i data-lucide="circle-dashed"></i></div>
               ${brecSideHTML(r.bk,"bk",sel)}
               <div class="brec-conf"><span class="brec-tag" style="background:#dbeafe;color:#1e40af">ค้าง Bank</span><div class="w">ค่าธรรมเนียมยังไม่บันทึก?</div></div>
-              <div class="brec-acts"><button onclick="brecManualLink()"><i data-lucide="link"></i> จับคู่เอง</button></div>
+              <div class="brec-acts"><button onclick="brecManualLink()"><i data-lucide="link"></i> จับคู่เอง</button>${brecCanWrite()?`<button onclick="brecDeleteRow('bk','${r.bk.id}')" style="color:#dc2626;border-color:#fecaca" title="ลบแถวนี้ทิ้ง (เช่น ยอดเก่าที่แก้แล้วอัปใหม่)"><i data-lucide="trash-2"></i></button>`:''}</div>
             </div>`;
           }
         }).join("")}

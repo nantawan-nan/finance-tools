@@ -15880,7 +15880,7 @@ function brecStmFilterRows(d, rows){
     if(f.dir === "in" && !(Number(r.deposit)>0)) return false;
     if(f.dir === "out" && !(Number(r.withdrawal)>0)) return false;
     if(q){
-      const text = `${r.description||""} ${r.tr_desc||""} ${r.ref_note||""} ${r.cheque_no||""}`.toLowerCase();
+      const text = `${r.description||""} ${r.tr_desc||""} ${r.ref_note||""} ${r.cheque_no||""} ${r.user_note||""}`.toLowerCase();
       if(!text.includes(q)) return false;
     }
     return true;
@@ -16167,7 +16167,7 @@ function brecFilterRow(r, f){
   if(f.q){
     const q = String(f.q).toLowerCase().trim();
     if(q){
-      const txt = `${r.txn_date||''} ${r.doc_no||''} ${r.ref_note||''} ${r.cheque_no||''} ${r.mne||''} ${r.remark||''} ${r.cheque_status||''} ${r.description||''} ${r.tr_desc||''} ${amt}`.toLowerCase();
+      const txt = `${r.txn_date||''} ${r.doc_no||''} ${r.ref_note||''} ${r.cheque_no||''} ${r.mne||''} ${r.remark||''} ${r.cheque_status||''} ${r.description||''} ${r.tr_desc||''} ${r.user_note||''} ${amt}`.toLowerCase();
       if(!txt.includes(q)) return false;
     }
   }

@@ -15858,15 +15858,19 @@ function brecStmStats(d){
     if(dep>0){ inN++; inSum+=dep; }
     if(wd>0){ outN++; outSum+=wd; }
   }
-  // ยอดยกมา = balance ของแถวแรก − (เงินเข้าแถวแรก − เงินออกแถวแรก)
-  let opening = null;
+  inSum=+inSum.toFixed(2); outSum=+outSum.toFixed(2);
+  // ยอดยกมา = balance แถวแรก − เงินเข้าแถวแรก + เงินออกแถวแรก · คงเหลือยกไป = balance แถวสุดท้าย
+  let opening = null, closing = null;
   const sorted = rows.filter(r=>r.balance!=null).slice()
     .sort((a,b)=> (a.txn_date||"").localeCompare(b.txn_date||"") || (a.raw_row||0)-(b.raw_row||0));
   if(sorted.length){
     const f = sorted[0];
     opening = +(Number(f.balance||0) - (Number(f.deposit)||0) + (Number(f.withdrawal)||0)).toFixed(2);
+    closing = +Number(sorted[sorted.length-1].balance||0).toFixed(2);
   }
-  return { inN, inSum:+inSum.toFixed(2), outN, outSum:+outSum.toFixed(2), opening, total: rows.length };
+  // fallback: ไฟล์ไม่มี balance ต่อแถว → คำนวณคงเหลือยกไปจาก opening + net (ถ้ารู้ opening)
+  if(closing==null && opening!=null) closing = +(opening + inSum - outSum).toFixed(2);
+  return { inN, inSum, outN, outSum, opening, closing, net:+(inSum-outSum).toFixed(2), hasBal: sorted.length>0, total: rows.length };
 }
 /* ใช้ filter dir + q กับ bank rows */
 function brecStmFilterRows(d, rows){
@@ -15925,6 +15929,23 @@ function brecInjectCSS(){
   .brec-stmbar .stmst.in .v{color:#16a34a}
   .brec-stmbar .stmst.out .v{color:#dc2626}
   .brec-stmbar .stmfilt{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  /* ★ งบงวด Statement — bridge: ยอดยกมา → +รับ → −จ่าย → คงเหลือยกไป */
+  .brec-stmwrap{background:#fff;border:1px solid var(--line,#e2e8f0);border-bottom:none;border-radius:12px 12px 0 0;padding:14px 16px 12px}
+  .brec-stmwrap .stmw-hd{display:flex;align-items:center;gap:7px;font-size:11px;font-weight:800;letter-spacing:.3px;color:var(--ink-3,#94a3b8);text-transform:uppercase;margin-bottom:10px}
+  .brec-stmwrap .stmw-hd i{width:14px;height:14px}
+  .brec-bridge{display:flex;align-items:stretch;gap:0;flex-wrap:wrap}
+  .brec-bridge .bstep{flex:1 1 150px;min-width:130px;display:flex;flex-direction:column;gap:3px;padding:11px 15px;border-radius:11px;background:#f8fafc;border:1px solid #eef2f7}
+  .brec-bridge .bstep .l{font-size:10.5px;font-weight:800;letter-spacing:.2px;color:#94a3b8;text-transform:uppercase}
+  .brec-bridge .bstep .v{font-size:19px;font-weight:800;font-feature-settings:'tnum';color:var(--ink,#0f172a);line-height:1.1}
+  .brec-bridge .bstep .s{font-size:11px;color:#94a3b8;font-weight:600;font-feature-settings:'tnum'}
+  .brec-bridge .bstep.in{background:linear-gradient(135deg,#f0fdf4,#ecfdf5);border-color:#bbf7d0}
+  .brec-bridge .bstep.in .v,.brec-bridge .bstep.in .l{color:#16a34a}
+  .brec-bridge .bstep.out{background:linear-gradient(135deg,#fef2f2,#fff1f2);border-color:#fecaca}
+  .brec-bridge .bstep.out .v,.brec-bridge .bstep.out .l{color:#dc2626}
+  .brec-bridge .bstep.close{background:linear-gradient(135deg,rgba(var(--brand-rgb),.11),rgba(var(--brand-rgb),.04));border:1.5px solid rgba(var(--brand-rgb),.32)}
+  .brec-bridge .bstep.close .v,.brec-bridge .bstep.close .l{color:var(--brand,#0d9488)}
+  .brec-bridge .bop{display:flex;align-items:center;justify-content:center;flex:0 0 34px;font-size:20px;font-weight:800;color:#cbd5e1}
+  @media(max-width:820px){ .brec-bridge{flex-direction:column} .brec-bridge .bop{flex:0 0 22px;transform:rotate(90deg)} }
   .brec-sum{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:14px}
   .brec-sc{background:#fff;border:1px solid var(--line,#e2e8f0);border-radius:12px;padding:12px 14px;position:relative}
   .brec-sc .l{font-size:10.5px;color:var(--ink-3,#94a3b8);font-weight:700;text-transform:uppercase;letter-spacing:.3px}
@@ -16338,13 +16359,21 @@ async function renderToolBankRec(){
       const aD=(a.ex||a.bk||{}).txn_date||'', bD=(b.ex||b.bk||{}).txn_date||'';
       return f.sort==='date_asc' ? aD.localeCompare(bD) : f.sort==='date_desc' ? bD.localeCompare(aD) : 0;
     });
-    const statsBar = `<div class="brec-stmbar">
-      <div class="stmstats">
-        <div class="stmst"><span class="l">ยอดยกมา</span><span class="v">${st.opening!=null?fmt(st.opening):'—'}</span></div>
-        <div class="stmst in"><span class="l">เงินเข้า</span><span class="v">${st.inN} รายการ · ${fmt(st.inSum)}</span></div>
-        <div class="stmst out"><span class="l">เงินออก</span><span class="v">${st.outN} รายการ · ${fmt(st.outSum)}</span></div>
+    const stmMismatch = (st.hasBal && st.opening!=null && st.closing!=null && Math.abs(st.opening+st.net-st.closing)>0.01)
+      ? +(st.closing-(st.opening+st.net)).toFixed(2) : 0;
+    const statsBar = `<div class="brec-stmwrap">
+      <div class="stmw-hd"><i data-lucide="landmark"></i> งบสรุปงวด — Bank Statement · ${st.total} รายการ</div>
+      <div class="brec-bridge">
+        <div class="bstep"><span class="l">ยอดยกมาต้นงวด</span><span class="v">${st.opening!=null?fmt(st.opening):'—'}</span><span class="s">${st.hasBal?'ยอดคงเหลือก่อนรายการแรก':'ไฟล์ไม่มียอดคงเหลือ'}</span></div>
+        <div class="bop">+</div>
+        <div class="bstep in"><span class="l">รับในงวด</span><span class="v">${fmt(st.inSum)}</span><span class="s">${st.inN} รายการ</span></div>
+        <div class="bop">−</div>
+        <div class="bstep out"><span class="l">จ่ายในงวด</span><span class="v">${fmt(st.outSum)}</span><span class="s">${st.outN} รายการ</span></div>
+        <div class="bop">=</div>
+        <div class="bstep close"><span class="l">คงเหลือยกไป</span><span class="v">${st.closing!=null?fmt(st.closing):'—'}</span><span class="s">${st.hasBal?'ยอดคงเหลือแถวสุดท้าย':'= ยกมา + รับ − จ่าย'}</span></div>
       </div>
-      <div class="stmfilt">
+      ${stmMismatch ? `<div style="margin-top:10px;padding:8px 12px;background:#fffbeb;border:1px solid #fde68a;border-radius:9px;font:600 12px/1.4 inherit;color:#92400e;display:flex;align-items:center;gap:7px"><i data-lucide="alert-triangle" style="width:14px;height:14px;flex:none"></i> ยอดคงเหลือแถวสุดท้ายไม่ตรงกับ (ยกมา + รับ − จ่าย) ต่าง ${fmt(stmMismatch)} — งวดนี้อาจมีรายการขาด/ไม่ต่อเนื่อง</div>`:''}
+      <div class="stmfilt" style="margin-top:12px;padding-top:11px;border-top:1px dashed var(--line,#e2e8f0);justify-content:space-between">
         <div class="brec-pmode">
           <button class="${sf.dir==='all'?'active':''}" onclick="brecSetStmFilter('dir','all')">ทั้งหมด</button>
           <button class="${sf.dir==='in'?'active':''}" onclick="brecSetStmFilter('dir','in')">เงินเข้า</button>

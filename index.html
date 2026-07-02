@@ -15279,6 +15279,10 @@ async function brecUpload(kind){
         matchedMsg = `\nจับคู่อัตโนมัติ ${proposed.length} คู่ — ดูในแท็บ "รอยืนยัน"`;
         d.tab = "pending";
         await brecLoad();
+      } else {
+        // ★ เดิม error ถูกกลืนเงียบ ๆ → คู่ที่ควรจับหายไปโดยไม่รู้ตัว · เด้งเตือนให้เห็น
+        console.warn("auto-match insert on upload failed:", me);
+        matchedMsg = `\n⚠ จับคู่อัตโนมัติไม่สำเร็จ (${proposed.length} คู่): ${me.message||me.code||me}\n  → ลองกดปุ่ม "จับคู่อัตโนมัติ" อีกครั้ง`;
       }
     }
     brecRefresh();
@@ -15514,6 +15518,28 @@ async function brecRunAutoMatch(){
     d.busy = false; brecRefresh();
   }
 }
+/* ★ auto-match เงียบ ๆ (ใช้ตอนโหลด/เปลี่ยนบัญชี-งวด) — จับเฉพาะแถว non-ambiguous ที่ วัน+ยอด(+ref) ตรง
+   คืนจำนวนคู่ที่เพิ่ม · error ไม่ throw (แค่ log) กันหน้าเจ๊ง · ไม่มี alert (ให้ banner แสดงแทน) */
+async function brecTryAutoMatch(d){
+  try{
+    const co = d.companyId;
+    if(!co || !d.accountId) return 0;
+    const proposed = brecAutoMatch(
+      (d.express||[]).filter(r=>!r.ambiguous),
+      (d.bank||[]).filter(r=>!r.ambiguous),
+      d.matches
+    );
+    if(!proposed.length) return 0;
+    const inserts = proposed.map(p => ({ ...p, company_id: co, bank_account_id: d.accountId }));
+    const { error } = await sb.from("brec_matches").insert(inserts);
+    if(error){ console.warn("brecTryAutoMatch insert failed:", error.message||error); return 0; }
+    const { from, to } = brecComputePeriod(d);
+    const ids = await brecSiblingAccountIds(d, co, d.accountId);
+    d.matches = await brecLoadMatches(co, ids, from, to);
+    return proposed.length;
+  }catch(e){ console.warn("brecTryAutoMatch:", e); return 0; }
+}
+function brecDismissAutoNote(){ const d=brecGet(); d._autoNote=0; brecRefresh(); }
 async function brecConfirmMatch(id){
   if(!brecCanWrite()) return;
   const d = brecGet();
@@ -16194,6 +16220,19 @@ async function renderToolBankRec(){
     return;
   }
 
+  // ★ Auto-match เงียบ ๆ ตอนโหลด/เปลี่ยนบัญชี-งวด — จับคู่แถวค้างที่ วัน+ยอด(+ref) ตรง อัตโนมัติ
+  //   gate ด้วย signature กันรันซ้ำตอน re-render จาก toggle (express/bank/matches ไม่เปลี่ยน = ข้าม)
+  if(brecCanWrite() && d.accountId && !d.busy){
+    const sig = `${d.accountId}|${d.express.length}|${d.bank.length}|${d.matches.length}`;
+    if(d._autoSig !== sig){
+      d._autoNote = 0;
+      const n = await brecTryAutoMatch(d);
+      // ตั้ง sig เป็นสถานะหลัง match กันรอบถัดไปเข้าซ้ำ (แล้วลบ banner ทิ้ง)
+      d._autoSig = `${d.accountId}|${d.express.length}|${d.bank.length}|${d.matches.length}`;
+      if(n){ d._autoNote = n; return renderToolBankRec(); }
+    }
+  }
+
   const buckets = brecBuildBuckets(d);
   const sumEx = d.express.reduce((s,r)=>s + brecSignedAmt(r), 0);
   const sumBk = d.bank.reduce((s,r)=>s + brecSignedAmt(r), 0);
@@ -16433,6 +16472,13 @@ async function renderToolBankRec(){
           ${d.dupGroups.map(g=>`<div>• ${esc(cffBankName(g[0].bank_code)||g[0].bank_code)} ${esc((brecPickCanonical(g)||g[0]).account_no)} — มี ${g.length} record (รวมแล้วเหลือ 1)</div>`).join('')}
         </div>
         <button class="brec-btn" onclick="brecMergeDupAccounts()" ${brecCanWrite()?'':'disabled'} style="background:#dc2626;color:#fff;border-color:#dc2626;font-weight:700;padding:9px 16px"><i data-lucide="git-merge"></i> รวมเลย</button>
+      </div>` : ''}
+
+      ${d._autoNote ? `<div style="margin-bottom:14px;padding:10px 16px;background:linear-gradient(135deg,#f0fdf4,#ecfdf5);border:1px solid #bbf7d0;border-left:4px solid #16a34a;border-radius:11px;display:flex;align-items:center;gap:10px;font:600 13px/1.4 inherit;color:#166534">
+        <i data-lucide="zap" style="width:16px;height:16px"></i>
+        <span>จับคู่อัตโนมัติเพิ่ม ${d._autoNote} คู่ (วัน+ยอดตรง) — ตรวจและกดยืนยันในแท็บ “รอยืนยัน”</span>
+        <span style="flex:1"></span>
+        <button onclick="brecDismissAutoNote()" style="background:none;border:none;color:#166534;cursor:pointer;font-size:16px;line-height:1;padding:0 4px">✕</button>
       </div>` : ''}
 
       <div class="brec-sum">

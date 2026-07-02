@@ -177,6 +177,21 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-02 — Bank Recon: auto-match รันเองตอนโหลดหน้า + เด้ง error ตอนอัป (แก้ "ไม่ยอมจับคู่ให้")
+- **อาการ:** แถวที่ วัน+ยอดตรงเป๊ะ (Tier 2) ค้างในแท็บ "รอกระทบยอด" ไม่ยอมจับคู่ — เพราะ auto-match เดิมรันแค่ 2 จังหวะ: ตอนอัปไฟล์เสร็จ + กดปุ่ม ⚡ เอง · **เปิดหน้าเฉย ๆ ไม่ trigger** · ซ้ำ: insert `brec_matches` ล้มเหลวตอนอัปถูกกลืนเงียบ (`if(!me){...}` ไม่มี else)
+- **แก้ 1 — silent auto-match ตอนโหลด:** helper ใหม่ `brecTryAutoMatch(d)` (จับเฉพาะ non-ambiguous · วัน+ยอด(+ref)ตรง · error ไม่ throw แค่ log · คืนจำนวนคู่) · เรียกใน `renderToolBankRec` ก่อน `brecBuildBuckets` · **gate ด้วย signature** `accountId|express.len|bank.len|matches.len` (`d._autoSig`) กันรันซ้ำตอน re-render จาก toggle · ตั้ง sig เป็นสถานะ**หลัง** match กันเข้าลูป · คู่ใหม่ไป pending (status suggested) รอยืนยัน
+- **แก้ 2 — banner แจ้ง:** `d._autoNote` = จำนวนคู่ที่จับได้ → banner เขียวเหนือ brec-sum "จับคู่อัตโนมัติเพิ่ม N คู่..." + ปุ่ม ✕ (`brecDismissAutoNote`)
+- **แก้ 3 — error ตอนอัปเด้งเตือน:** `brecUpload` เพิ่ม else — insert match fail → `matchedMsg` เตือน "⚠ จับคู่อัตโนมัติไม่สำเร็จ: {error}" + console.warn (เดิมเงียบ → คู่หายโดยไม่รู้ตัว)
+- **กระทบหน้าอื่น = 0** — เฉพาะ bankrec · upload flow เดิม (explicit auto-match ที่ 15269) ยังทำงาน · gate หลัง upload จะเจอ 0 คู่ใหม่ (จับไปแล้ว) ไม่ double-match
+- **หมายเหตุ diagnostic:** ถ้ายังไม่จับ ให้เช็ค (1) Express/Bank อยู่คนละ `bank_account_id` (auto-match เทียบเฉพาะบัญชีเดียว+siblings เลขเดียวกัน) (2) แถวติด flag `ambiguous` (วัน+ยอด+doc ซ้ำในไฟล์เดียว — ปุ่ม ⚡ รวมให้ แต่ silent ตอนโหลดข้าม)
+
+### 2026-06-30 — Orders: แก้บั๊กออเดอร์ซ้ำ (อัปไฟล์ BigSeller ซ้ำ → นับเกิน ~2 เท่า)
+- **อาการ:** กระดานสรุปภาพรวมโชว์ฝั่ง BigSeller (หน้าบ้าน) เด้งเกือบ 2 เท่า (เช่น Shopee 2,754 ทั้งที่ของจริง ~1,377) แต่ฝั่ง "ระบบหลังบ้าน" (จาก `order_recon`) ปกติ — เพราะ recon สร้างใหม่ทุกรอบ ไม่สะสมซ้ำ
+- **ต้นเหตุ:** `ordIngestChannelOrders` ดึงออเดอร์เดิมมาทำ map กันซ้ำ (`byOid` keyed `order_id`) **แต่ query ไม่แบ่งหน้า** → Supabase/PostgREST คืนสูงสุด 1000 แถว → ตัวกันซ้ำรู้จักแค่ 1000 ใบแรก · ออเดอร์ใบที่เกิน 1000 ตอนอัปไฟล์ซ้ำ → `byOid.get()` ไม่เจอ → **insert ซ้ำ** · ซ้ำร้าย index `(company_id, order_id)` เป็น **non-unique** (orders.sql:117) → DB ไม่บล็อก insert ซ้ำ
+- **แก้โค้ด (ต้นเหตุ):** เพิ่ม helper **`ordFetchAllRows(co, cols, applyFilters)`** ดึง `order_ledger` แบบแบ่งหน้า (`.range()` loop เหมือน `ordLoad`) · เปลี่ยน 4 จุดที่ดึง existing แบบติด cap มาใช้ helper นี้: `ordIngestChannelOrders` (insert/dedup — ตัวก่อบั๊ก) · `ordIngestFromSales` · `ordTagReceipts` · `ordTagBankFromWithdrawals`
+- **แก้ข้อมูลที่ซ้ำไปแล้ว:** `supabase/zz-orders-dedup-cleanup.sql` (idempotent · EXCEPTION-wrapped · prefix `zz-` รันหลังสุด) — soft-delete แถวซ้ำ เก็บ 1 แถว/`order_id` ที่ข้อมูลครบสุด (ลำดับ: มี iv_no > re_no > bq_no > sale_amount > เก่าสุด) · รันซ้ำได้ (รอบถัดไปไม่มีซ้ำ → no-op)
+- **กระทบหน้าอื่น = 0** — `ordLoad`/`homeLoadStats` (display) แบ่งหน้าถูกอยู่แล้ว · แก้เฉพาะ path ที่ดึง existing มากันซ้ำ/แท็ก
+
 ### 2026-06-30 — รับชำระเงิน: GROSS = ฐานภาษี + รายจ่าย reconcile + จัดหมวดค่าใช้จ่าย + Lazada
 - **เจ้าของขอ:** ทะเบียนรับชำระต้องโชว์ **GROSS = ฐานภาษี** (= มูลค่าที่จะคีย์ IV) · รายจ่ายแทร็คได้ว่ามาจากไหน · **ฐานภาษี − รายจ่าย = เงินเข้าสุทธิจริง** · คอลัมน์: ลำดับ/แพลตฟอร์ม/เลขออเดอร์/GROSS/รายจ่าย(toggle ดีเทล)/สุทธิ
 - **ฐานภาษีต่อช่อง** (ตรวจกับไฟล์จริง MM): Shopee=`สินค้าราคาปกติ[11] + ส่วนลดผู้ขาย[12](ติดลบ) + ค่าส่งผู้ซื้อ[19]` · TikTok=`รายได้รวม[6](หลังหักส่วนลดผู้ขายแล้ว) + ค่าส่งผู้ซื้อ` · Lazada=`Σยอดรวมค่าสินค้า − คูปองผู้ขาย + ค่าส่ง` · **ส่วนลดผู้ขาย/ค่าส่งผู้ซื้อ = เข้าฐานภาษี ไม่ใช่รายจ่าย** (แก้บั๊กเดิมที่ Shopee เอา gross−net เป็นค่าธรรมเนียม → ปนส่วนลด เช่นส่วนลด 1058 โชว์ fee 1158 แทนที่จะเป็น 100)

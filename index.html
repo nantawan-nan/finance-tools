@@ -736,6 +736,10 @@ const TOOLS = [
     name:"Executive Cash Flow", desc:"แดชบอร์ดผู้บริหาร",
     long:"อัปไฟล์ \"รายละเอียดเงินรับ-เงินจ่าย\" → 6 แดชบอร์ด: Summary · Activity · Category · Bank · Explorer · Statement",
     multiInput:true, status:"live", adminOnly:true },
+  { id:"cashflow", stage:"ภาพรวม", ic:"~", icon:"waves",
+    name:"Cash Flow Forecast", desc:"Real-time projection + KPI",
+    long:"Opening Cash + Forecast Receipts − Forecast Payments = Projected Cash · KPI 10 ตัว · timeline + drill-down · snapshot mode",
+    multiInput:true, status:"live" },
 
   // ───── 2. การขาย ─────
   { id:"orders", stage:"การขาย", ic:"▦", icon:"package-search",
@@ -807,10 +811,6 @@ const TOOLS = [
     multiInput:true, status:"soon" },
 
   // ───── 6. กระแสเงินสด ─────
-  { id:"cashflow", stage:"กระแสเงินสด", ic:"~", icon:"waves",
-    name:"Cash Flow Forecast", desc:"Real-time projection + KPI",
-    long:"Opening Cash + Forecast Receipts − Forecast Payments = Projected Cash · KPI 10 ตัว · timeline + drill-down · snapshot mode",
-    multiInput:true, status:"live" },
   { id:"bank_balance", stage:"กระแสเงินสด", ic:"$", icon:"landmark",
     name:"ยอดเงินคงเหลือธนาคาร", desc:"บันทึกยอดรายวัน · history",
     long:"กรอกยอดเงินคงเหลือแต่ละบัญชีทุกวัน · เก็บประวัติย้อนหลังครบ · ไม่ทับข้อมูลเดิม (append-only)",

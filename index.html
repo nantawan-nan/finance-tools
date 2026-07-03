@@ -131,6 +131,13 @@
   th{background:rgba(var(--brand-rgb),.07);position:sticky;top:0;font-weight:700;color:var(--brand-dark);font-size:11px;letter-spacing:.4px;text-transform:uppercase}
   tbody tr{transition:background .12s}
   tbody tr:hover{background:rgba(var(--brand-rgb),.05)}
+  /* AP Outstanding — ขยายตัวอักษรในตาราง/ตัวกรอง (คงเลย์เอาต์กว้างเท่าเดิม · ทับ inline font-size ด้วย !important) */
+  .apo-page table{font-size:14px}
+  .apo-page thead th{font-size:12.5px!important}
+  .apo-page tbody td{font-size:13.5px!important;padding-top:10px;padding-bottom:10px}
+  .apo-page tbody td code{font-size:13px!important}
+  .apo-page tbody td input,.apo-page tbody td select{font-size:13px!important}
+  .apo-page .input{font-size:13.5px!important}
   .empty{padding:40px;text-align:center;color:var(--ink-3);font-size:13px}
   .opts{display:flex;gap:16px;flex-wrap:wrap;margin-bottom:8px}
   .opt{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--ink-2)}
@@ -11102,7 +11109,7 @@ async function renderToolApOutstanding(){
       <div class="stat in"><div class="n">${due30.length}</div><div class="l">ครบใน 30 วัน</div></div>
     </div>
 
-    <div class="card">
+    <div class="card apo-page">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px">
         <h3 style="margin:0">เจ้าหนี้คงค้าง <span style="font-size:11px;font-weight:500;color:var(--ink-3)">· หน่วย: บาท</span></h3>
         ${canWrite ? `<div style="display:flex;gap:8px;flex-wrap:wrap">

@@ -177,6 +177,14 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-03 — AP Outstanding: จ่ายชำระหลายรายการพร้อมกัน (bulk pay) + วันที่จ่ายจริง
+- **เจ้าของขอ:** จ่ายเจ้าหนี้ทีละหลายบิลได้ — ติ๊กเลือกหลายรายการ (หรือติ๊กทั้งหมดในตัวกรอง) → ใส่ "วันที่จ่ายจริง" → กด "จ่ายชำระแล้ว"
+- **คอลัมน์ checkbox ใหม่** ใน `apoBuildTable` (คอลัมน์แรก · เฉพาะ `canWrite`): master checkbox หัวตาราง (`apoToggleSelectAll` — เลือกทุกบิลที่ค้างจ่ายในตัวกรองปัจจุบัน · indeterminate เมื่อเลือกบางส่วน) + checkbox รายแถว (เฉพาะบิล `amount_outstanding>0 && status!=='paid'`)
+- **State ใหม่ใน `apoGet()`:** `selected` (Set ของ invoice id · แยกต่อบริษัท · backward-compat guard) + `payActualDate` (string) · เก็บ selection ข้ามการ filter ได้
+- **แถบสรุป `#apoBulkBar`** (ระหว่าง filter bar กับตาราง · โผล่เมื่อเลือก ≥1): "เลือกไว้ N รายการ · รวมคงค้าง X บาท" + input วันที่จ่ายจริง (`apoSetPayActualDate` — ไม่ re-render กัน focus หลุด) + ปุ่ม "✓ จ่ายชำระแล้ว" + "ยกเลิกการเลือก" · `apoUpdateBulkBar()` วาดแถบ + ตั้งสถานะ master checkbox + prune id ที่จ่ายครบแล้วออกจาก set · เรียกท้าย `renderToolApOutstanding` + `apoApplyChanges`
+- **`apoBulkPay()`** — insert `ap_payments` ทีเดียว (array) ต่อบิล: `amount = amount_outstanding` (จ่ายเต็มคงค้าง) · `paid_date = วันที่จ่ายจริง` · `bank_account_id = pay_from_account_id||null` · method transfer · confirm ก่อน (โชว์จำนวน+ยอดรวม+วันที่) → trigger `fn_ap_recompute` อัปเดต `amount_paid`+`status='paid'` อัตโนมัติต่อบิล · สำเร็จ → clear selection + reload
+- **กระทบหน้าอื่น = 0** — reuse `apoEnrich`/`apoFilterAndSort`/`fopFmt`/`fopDate` เดิม · ปุ่ม "จ่าย" รายตัว (`apoOpenPay`) + แบ่งจ่าย ยังทำงานเหมือนเดิม · ไม่มี migration (ใช้ schema `ap_payments` เดิม)
+
 ### 2026-07-02 — User self-service password + เปิด/ปิด user (ban)
 - **User เปลี่ยนรหัสเอง** (`changeOwnPassword`/`doChangeOwnPassword`): ปุ่ม "เปลี่ยนรหัส" บน topbar (ข้างออกจากระบบ) → modal รหัสใหม่+ยืนยัน → `sb.auth.updateUser({password})` (session ตัวเอง ไม่ต้อง service key) · **ซ่อนสำหรับบัญชี present** (บัญชีแชร์)
 - **เปิด/ปิดใช้งาน user** (`usrToggleBan`): ปุ่ม "ปิดใช้/เปิดใช้" ในตารางผู้ใช้ → admin API `ban_duration` (`876000h` = แบน ~100ปี / `none` = ปลดแบน) — บล็อก login โดยไม่ลบข้อมูล · badge "ปิดใช้งาน" + row จางเมื่อ `banned_until` > now

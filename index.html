@@ -10422,9 +10422,12 @@ function apoGet(){
     invoices:null, vendors:null, busy:false,
     filter:{ search:"", colFilters:{}, planned:"all", overdueOnly:false },
     sort:{ key:"due_date", desc:false },
-    openCol:null
+    openCol:null,
+    selected:new Set(), payActualDate:""
   };
   const d = state.apo[state.company];
+  if(!(d.selected instanceof Set)) d.selected = new Set();   // backward-compat (bulk-pay)
+  if(typeof d.payActualDate !== "string") d.payActualDate = "";
   // backward-compat: เก่ามี vendors/categories/ages/statuses arrays → ย้ายเข้า colFilters
   const f = d.filter;
   if(!f.colFilters) f.colFilters = {};
@@ -10792,6 +10795,7 @@ function apoApplyChanges(){
   if(clearBtn) clearBtn.style.display = apoHasAnyFilter() ? "" : "none";
 
   apoUpdateIndeterminate();
+  apoUpdateBulkBar();
 }
 
 /* ตั้ง indeterminate state ของ checkbox "(เลือกทั้งหมด)" */
@@ -10811,6 +10815,100 @@ function apoUpdateIndeterminate(){
       cb.checked = false; cb.indeterminate = true;
     }
   });
+}
+
+/* ============================================================
+   BULK PAY — ติ๊กหลายรายการ (หรือทั้งหมดในตัวกรอง) → จ่ายชำระแล้ว + ใส่วันที่จ่ายจริง
+   ============================================================ */
+/* คืน id (string) ของบิลที่ "ค้างจ่าย" ในตัวกรองปัจจุบัน (payable = คงค้าง>0 และยังไม่จ่ายครบ) */
+function apoPayableFilteredIds(){
+  const d = apoGet();
+  const enriched = apoEnrich(d.invoices || []);
+  const inv = apoFilterAndSort(enriched);
+  return inv.filter(r => Number(r.amount_outstanding) > 0 && r.status !== "paid").map(r => String(r.id));
+}
+/* ติ๊ก/เอาติ๊กออก รายตัว */
+function apoToggleSelect(id, checked){
+  const d = apoGet();
+  if(checked) d.selected.add(String(id)); else d.selected.delete(String(id));
+  apoUpdateBulkBar();
+}
+/* ติ๊กทั้งหมดในตัวกรองปัจจุบัน (หรือเอาออกทั้งหมด) */
+function apoToggleSelectAll(checked){
+  const d = apoGet();
+  const ids = apoPayableFilteredIds();
+  if(checked) ids.forEach(id => d.selected.add(id));
+  else ids.forEach(id => d.selected.delete(id));
+  document.querySelectorAll(".apo-row-cb").forEach(cb => { cb.checked = d.selected.has(String(cb.dataset.id)); });
+  apoUpdateBulkBar();
+}
+function apoClearSelection(){
+  apoGet().selected.clear();
+  document.querySelectorAll(".apo-row-cb").forEach(cb => { cb.checked = false; });
+  apoUpdateBulkBar();
+}
+function apoSetPayActualDate(v){ apoGet().payActualDate = v; }   // ไม่ re-render — กัน focus หลุด
+/* วาดแถบสรุป bulk + ตั้งสถานะ master checkbox */
+function apoUpdateBulkBar(){
+  const d = apoGet();
+  const today = new Date().toISOString().slice(0,10);
+  const enriched = apoEnrich(d.invoices || []);
+  const outById = {}; enriched.forEach(r => { outById[String(r.id)] = Number(r.amount_outstanding||0); });
+  // เก็บเฉพาะ id ที่ยังค้างจ่ายจริง (กันบิลที่จ่ายไปแล้ว/ถูกลบค้างใน set)
+  [...d.selected].forEach(id => { if(!(outById[id] > 0)) d.selected.delete(id); });
+  const selCount = d.selected.size;
+  const selTotal = [...d.selected].reduce((s,id) => s + (outById[id]||0), 0);
+
+  // master checkbox state
+  const sa = document.getElementById("apoSelAll");
+  if(sa){
+    const payable = apoPayableFilteredIds();
+    const selInView = payable.filter(id => d.selected.has(id)).length;
+    if(payable.length && selInView === payable.length){ sa.checked = true; sa.indeterminate = false; }
+    else if(selInView > 0){ sa.checked = false; sa.indeterminate = true; }
+    else { sa.checked = false; sa.indeterminate = false; }
+  }
+
+  const bar = document.getElementById("apoBulkBar");
+  if(!bar) return;
+  if(selCount === 0){ bar.innerHTML = ""; return; }
+  bar.innerHTML = `
+    <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:11px 14px;margin-bottom:10px;background:var(--in-soft,#e7f6f3);border:1px solid var(--in);border-radius:9px">
+      <div style="font-size:13px;font-weight:800;color:var(--in-ink,#0f766e)">✓ เลือกไว้ ${selCount} รายการ <span style="font-weight:600;color:var(--ink-2)">· รวมคงค้าง ${fopFmt(selTotal)} บาท</span></div>
+      <label style="display:flex;align-items:center;gap:7px;font-size:12px;font-weight:700;color:var(--ink-2)">วันที่จ่ายจริง *
+        <input id="apoBulkDate" type="date" class="input" value="${esc(d.payActualDate||today)}" oninput="apoSetPayActualDate(this.value)" style="font-size:12px;padding:4px 8px;width:150px">
+      </label>
+      <button class="btn btn sm" onclick="apoBulkPay()" title="บันทึกจ่ายเต็มยอดคงค้างของทุกรายการที่เลือก">✓ จ่ายชำระแล้ว</button>
+      <button class="btn ghost btn sm" onclick="apoClearSelection()">ยกเลิกการเลือก</button>
+    </div>`;
+}
+/* บันทึกจ่ายเต็มยอดคงค้างให้ทุกรายการที่เลือก ณ วันที่จ่ายจริง */
+async function apoBulkPay(){
+  const d = apoGet();
+  const today = new Date().toISOString().slice(0,10);
+  const dateStr = (document.getElementById("apoBulkDate") && document.getElementById("apoBulkDate").value) || d.payActualDate || today;
+  if(!dateStr){ alert("กรุณาระบุวันที่จ่ายจริง"); return; }
+  const enriched = apoEnrich(d.invoices || []);
+  const rows = enriched.filter(r => d.selected.has(String(r.id)) && Number(r.amount_outstanding) > 0);
+  if(!rows.length){ alert("ไม่มีรายการที่เลือก (หรือจ่ายครบแล้วทั้งหมด)"); return; }
+  const total = rows.reduce((s,r)=>s+Number(r.amount_outstanding||0),0);
+  if(!confirm(`บันทึกจ่ายชำระ ${rows.length} รายการ (รวม ${fopFmt(total)} บาท)\nวันที่จ่ายจริง ${fopDate(dateStr)}?\n\nแต่ละบิลจะถูกบันทึกจ่ายเต็มยอดคงค้าง → สถานะเปลี่ยนเป็น "จ่ายแล้ว"`)) return;
+  try{
+    const cid = await fopCompanyId();
+    const payload = rows.map(r => ({
+      company_id: cid, ap_invoice_id: r.id,
+      paid_date: dateStr, amount: Number(r.amount_outstanding),
+      method: "transfer",
+      bank_account_id: r.pay_from_account_id || null,
+      created_by: AUTH.user ? AUTH.user.id : null
+    }));
+    const { error } = await sb.from("ap_payments").insert(payload);
+    if(error) throw error;
+    alert(`บันทึกจ่ายชำระสำเร็จ ${rows.length} รายการ`);
+    d.selected.clear(); d.payActualDate = "";
+    state.apo[state.company] = null;
+    renderToolApOutstanding();
+  }catch(e){ alert("บันทึกไม่สำเร็จ: " + fopErr(e)); }
 }
 
 /* col-filter dropdown HTML — Excel-style */
@@ -10905,6 +11003,7 @@ function apoBuildTable(inv, enriched, canWrite, today){
   return `<table>
     <thead>
       <tr>
+        ${canWrite ? `<th style="text-align:center;width:32px;vertical-align:middle"><input type="checkbox" id="apoSelAll" onclick="apoToggleSelectAll(this.checked)" title="เลือก/ไม่เลือก ทุกรายการที่ค้างจ่ายในตัวกรองนี้" style="cursor:pointer"></th>` : ""}
         ${th("invoice_no", "เลขที่บิล", { filter: apoColFilter("invoice_no", dInvoice.values, dInvoice.counts) })}
         ${th("vendor_name", "ผู้ขาย", { filter: apoColFilter("vendor_name", dVendor.values, dVendor.counts) })}
         ${th("desc", "คำอธิบาย", { sortable: false })}
@@ -10925,7 +11024,9 @@ function apoBuildTable(inv, enriched, canWrite, today){
       const statusBadge = `<span class="matchchip ${r.status==='paid'?'ok':r.status==='partial'?'warn':'bad'}">${r.status}</span>`;
       const desc = [r.remark, r.internal_note].filter(Boolean).join(" · ") || "—";
       const hasNote = !!r.internal_note;
+      const payable = Number(r.amount_outstanding) > 0 && r.status !== "paid";
       return `<tr ${isOverdue?'class="warning-row"':''}>
+        ${canWrite ? `<td style="text-align:center">${payable ? `<input type="checkbox" class="apo-row-cb" data-id="${esc(String(r.id))}" ${d.selected.has(String(r.id))?'checked':''} onclick="apoToggleSelect('${esc(String(r.id))}',this.checked)" style="cursor:pointer">` : ''}</td>` : ""}
         <td><code style="font-size:11px">${esc(r.invoice_no)}</code></td>
         <td>${esc(r._vendor)}</td>
         <td style="font-size:11px;color:var(--ink-2);max-width:280px;white-space:normal" title="${esc(desc)}">${esc(desc.length>80?desc.slice(0,80)+"…":desc)}${hasNote?' <span style="color:var(--in-ink);font-weight:700">✎</span>':''}</td>
@@ -11034,6 +11135,7 @@ async function renderToolApOutstanding(){
         <div id="apoCount" style="margin-left:auto;font-size:11.5px;color:var(--ink-3)">${inv.length} จาก ${enriched.length} รายการ</div>
       </div>
 
+      <div id="apoBulkBar"></div>
       <div id="apoTableContainer">${apoBuildTable(inv, enriched, canWrite, today)}</div>
 
       <div class="soon-note">
@@ -11045,6 +11147,7 @@ async function renderToolApOutstanding(){
   `;
   if(window.lucide && window.lucide.createIcons){ try{ window.lucide.createIcons(); }catch(e){} }
   apoUpdateIndeterminate();
+  apoUpdateBulkBar();
 }
 
 /* helper: parse ตัวเลขที่มี comma เช่น "500,000.00" → 500000 */

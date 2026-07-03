@@ -1013,6 +1013,14 @@ function renderTool(){
   if(state.tool==="expressmatch" || state.tool==="exportkey") state.tool = "bigseller";
   // ★ กัน state.tool ค้างเป็น id ที่ไม่มีใน TOOLS แล้ว → fallback home
   if(!TOOLS.find(x=>x.id===state.tool)) state.tool = "home";
+  // ★ page_permissions: ถ้า user ไม่มีสิทธิ์เห็นหน้าปัจจุบัน (เช่น ผู้บริหาร default มา "หน้าหลัก") → เด้งไปหน้าแรกที่มีสิทธิ์
+  if(!AUTH.isPresent()){
+    const cur0 = TOOLS.find(x=>x.id===state.tool);
+    if(cur0 && !appToolVisible(cur0)){
+      const firstVisible = TOOLS.find(x => !x.parent && !x.isGroup && appToolVisible(x));
+      if(firstVisible) state.tool = firstVisible.id;
+    }
+  }
   const t = TOOLS.find(x=>x.id===state.tool);
   updateCrumb();
   // ★ nav-group head ไม่มีหน้าตัวเอง — เปิดมาให้ redirect ไป sub-item แรกที่ live · ถ้าไม่มีเลย → home

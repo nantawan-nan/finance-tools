@@ -13867,7 +13867,6 @@ async function renderToolCashflowStaff(){
         <div class="sub">ประมาณการรายรับ-รายจ่าย · ${esc(periodLabel)} · ยอดธนาคาร ณ ${fmtDate(todayISO)} · <span style="color:var(--ink-3)">หน่วย: บาท</span></div>
       </div>
       <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-        <button class="btn ghost btn sm ${detailOpen?'active':''}" onclick="cffToggleStaffDetail()"><i data-lucide="${detailOpen?'eye-off':'sliders-horizontal'}"></i>${detailOpen?'ซ่อนรายละเอียด':'รายละเอียดเพิ่มเติม'}</button>
         <button class="btn ghost btn sm" onclick="cffOpenSnapshotStaff()"><i data-lucide="image"></i>Snapshot</button>
       </div>
     </div>

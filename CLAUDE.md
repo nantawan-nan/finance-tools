@@ -177,6 +177,13 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-03 — แบ่งจ่าย: ติ๊กจ่ายรายงวด (แก้บั๊กติ๊กจ่ายทั้งใบทั้งที่ยังจ่ายไม่ครบ)
+- **ปัญหา:** บิลแบ่งจ่าย (planned_splits) เช่น 214k = 100k(จ่ายแล้ว 30/06) + 114k(รอ) · ติ๊กจ่ายในตาราง AP = จ่ายเต็ม 214k (ต้นเหตุ: `planned_splits` เป็นแค่ "แผน" ไม่มี paid flag · `apoBulkPay` จ่าย `amount_outstanding` เต็ม)
+- **แก้ = ติ๊กจ่ายรายงวดใน pay card (`cffOpenPayCard`):** เพิ่มคอลัมน์ checkbox "จ่ายแล้ว" ต่องวด · `cffToggleSplitPaid(apId,i)` — ติ๊ก → insert `ap_payments` (amount+date ของงวด · pv_no "แบ่งจ่ายงวด N" · bank = pay_from_account_id) → เซฟ `paid`/`payment_id` ลงใน split object (planned_splits jsonb) → trigger `fn_ap_recompute` อัป amount_paid/outstanding/status · ติ๊กออก → soft-delete payment คืนสถานะ
+- งวดที่จ่ายแล้ว = แถวเขียว ล็อกแก้ไข (โชว์วันที่/ยอดเป็น text) · summary ใหม่: "ยอดบิล X · จ่ายแล้ว Y · ยังต้องจ่าย Z" (`window._apoPayCardTotal/ApId/PayAcct`)
+- **`cffStaffPayments`** ข้าม split ที่ `sp.paid` (ไม่เอาเข้าประมาณการ) · **`cffSaveSplits`** เก็บ `paid`/`payment_id` + ตั้ง planned_payment_date = งวดแรกที่ยังไม่จ่าย
+- gotcha: source of truth ของ "จ่ายจริง" = `ap_payments` · `planned_splits.paid` เป็น mirror ไว้โชว์ · ถ้า bulk-pay ยอดคงเหลือของบิล split (จ่ายส่วนที่เหลือ) จะไม่อัป flag ในงวด แต่ invoice paid+ซ่อนอยู่ดี
+
 ### 2026-07-03 — Cash Flow view-only สำหรับผู้บริหาร + Exec period picker แถวของตัวเอง
 - **ผู้บริหาร (view-only) ไม่เห็นดินสอ/แก้ไขในหน้า Cash Flow:** `cffStaffReportInner` รับ `opts.canEdit` (default true) · `renderToolCashflowStaff` ส่ง `canEdit:canWrite` (`fopCanWrite()` — exec/viewer = false) · ดินสอ ✏ + คลิกแก้ AP (`cffOpenPayCard`) + คลิกซ่อน recurring (`cffOpenRecurCard`) gate ด้วย `interactive && canEdit` (เดิม `interactive` อย่างเดียว) · **view interactivity ยังอยู่** (ย่อ/ขยายหมวด `cffToggleCat`/`cffToggleVendor`, chips ระดับการดู, drill pivot) — gate ด้วย `interactive` เหมือนเดิม
 - **Exec Dashboard period picker = แถวของตัวเอง:** ย้าย `edPeriodPicker` ออกจาก flex row เดียวกับปุ่มนำเสนอ/พิมพ์ → ใส่ `<div>` แถวแยกใต้ title (กันแถวเดือนโผล่แล้วดันปุ่มกระโดดไปมา) · ไม่ใส่ `.ed-hide-present` (โชว์ตอนนำเสนอด้วย)

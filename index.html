@@ -12625,6 +12625,9 @@ async function cffOpenPayCard(apId){
   // init globals
   window._apoPayCardSplits = hasSplits ? ap.planned_splits.map(s=>({...s})) : [];
   window._apoPayCardOut = Number(ap.amount_outstanding||0);
+  window._apoPayCardTotal = Number(ap.amount_total||0);
+  window._apoPayCardApId = apId;
+  window._apoPayCardPayAcct = ap.pay_from_account_id || null;
   const initMode = hasSplits ? 'split' : 'single';
 
   const tabStyle = (active) => `border:0;background:transparent;padding:8px 14px;font-size:12.5px;font-weight:700;cursor:pointer;font-family:inherit;border-bottom:2.5px solid ${active?'var(--brand,#0d9488)':'transparent'};color:${active?'var(--brand,#0d9488)':'#94a3b8'};transition:.15s`;
@@ -12704,6 +12707,7 @@ async function cffOpenPayCard(apId){
                 <th style="text-align:left;padding:6px 8px;border-bottom:1px solid #e2e8f0;color:#64748b;font-weight:600">งวด</th>
                 <th style="text-align:left;padding:6px 8px;border-bottom:1px solid #e2e8f0;color:#64748b;font-weight:600">วันที่ชำระ</th>
                 <th style="text-align:right;padding:6px 8px;border-bottom:1px solid #e2e8f0;color:#64748b;font-weight:600">จำนวนเงิน (บาท)</th>
+                <th style="text-align:center;padding:6px 4px;border-bottom:1px solid #e2e8f0;color:#64748b;font-weight:600">จ่ายแล้ว</th>
                 <th style="width:32px;border-bottom:1px solid #e2e8f0"></th>
               </tr></thead>
               <tbody id="cffSplitRows"></tbody>
@@ -12769,38 +12773,96 @@ function apoSplitRemove(i){
 }
 function apoSplitRender(){
   const splits = window._apoPayCardSplits || [];
-  const out = window._apoPayCardOut || 0;
-  const total = splits.reduce((s,sp)=>s+Number(sp.amount||0),0);
-  const remain = out - total;
+  const apId = window._apoPayCardApId || "";
+  const fmtD = s => s ? new Date(s+"T00:00:00").toLocaleDateString('th-TH',{day:'numeric',month:'short',year:'numeric'}) : '—';
+  const fmt = n => Number(n||0).toLocaleString('th-TH',{minimumFractionDigits:2,maximumFractionDigits:2});
   const tbody = document.getElementById('cffSplitRows');
   if(!tbody) return;
-  tbody.innerHTML = splits.map((sp,i)=>`
-    <tr style="border-bottom:1px solid #f1f5f9">
+  tbody.innerHTML = splits.map((sp,i)=>{
+    if(sp.paid){
+      // ★ งวดที่จ่ายแล้ว — ล็อกแก้ไข · เขียว · ติ๊กเพื่อยกเลิกจ่าย
+      return `<tr style="border-bottom:1px solid #f1f5f9;background:#f0fdf4">
+        <td style="padding:5px 8px;color:#16a34a;font-size:12px;font-weight:700">${i+1}</td>
+        <td style="padding:5px 6px;font-size:12px;color:#334155">${fmtD(sp.date)}</td>
+        <td style="padding:5px 6px;text-align:right;font-size:12px;font-weight:700;color:#334155">${fmt(sp.amount)}</td>
+        <td style="padding:5px 4px;text-align:center"><input type="checkbox" checked onchange="cffToggleSplitPaid('${apId}',${i})" style="cursor:pointer;accent-color:#16a34a" title="ติ๊กออกเพื่อยกเลิกการจ่ายงวดนี้"></td>
+        <td style="padding:5px 4px;text-align:center"><span style="font-size:14px" title="จ่ายแล้ว">✓</span></td>
+      </tr>`;
+    }
+    return `<tr style="border-bottom:1px solid #f1f5f9">
       <td style="padding:5px 8px;color:#64748b;font-size:12px;font-weight:600">${i+1}</td>
       <td style="padding:5px 6px"><input type="date" value="${sp.date||''}" onchange="window._apoPayCardSplits[${i}].date=this.value" style="font-size:12px;border:1px solid #e2e8f0;border-radius:7px;padding:5px 7px;font-family:inherit;width:130px;outline:none" onfocus="this.style.borderColor='var(--brand,#0d9488)'" onblur="this.style.borderColor='#e2e8f0'"></td>
       <td style="padding:5px 6px"><input type="text" inputmode="decimal" id="cffSplitAmt_${i}" value="${sp.amount||''}" placeholder="0.00" style="font-size:12px;border:1px solid #e2e8f0;border-radius:7px;padding:5px 7px;font-family:inherit;width:120px;text-align:right;outline:none" onfocus="this.style.borderColor='var(--brand,#0d9488)'" onblur="window._apoPayCardSplits[${i}].amount=this.value;this.style.borderColor='#e2e8f0';apoSplitUpdateRemain()"></td>
+      <td style="padding:5px 4px;text-align:center"><input type="checkbox" onchange="cffToggleSplitPaid('${apId}',${i})" style="cursor:pointer;accent-color:var(--brand,#0d9488)" title="ติ๊กเมื่อจ่ายงวดนี้แล้ว (บันทึกจ่ายตามจำนวน+วันที่งวดนี้)"></td>
       <td style="padding:5px 4px;text-align:center"><button onclick="apoSplitRemove(${i})" style="border:0;background:transparent;color:#cbd5e1;cursor:pointer;font-size:15px;line-height:1;padding:4px" onmouseover="this.style.color='#dc2626'" onmouseout="this.style.color='#cbd5e1'" title="ลบงวดนี้">✕</button></td>
-    </tr>`).join('');
-  const fmt = n => Number(n||0).toLocaleString('th-TH',{minimumFractionDigits:2,maximumFractionDigits:2});
-  const color = Math.abs(remain)<0.01 ? '#16a34a' : remain<0 ? '#dc2626' : '#64748b';
-  const el = document.getElementById('cffSplitRemain');
-  if(el) el.innerHTML = `ยอดคงค้าง <b>${fmt(out)}</b> · ผลรวมงวด <b>${fmt(total)}</b> · คงเหลือ <b style="color:${color}">${fmt(remain)}</b> บาท`;
+    </tr>`;
+  }).join('');
+  apoSplitUpdateRemain();
 }
 function apoSplitUpdateRemain(){
   const splits = window._apoPayCardSplits || [];
-  const out = window._apoPayCardOut || 0;
-  const total = splits.reduce((s,sp)=>s+Number(sp.amount||0),0);
-  const remain = out - total;
+  const billTotal = window._apoPayCardTotal || 0;
+  const planTotal = splits.reduce((s,sp)=>s+Number(sp.amount||0),0);
+  const paidTotal = splits.filter(sp=>sp.paid).reduce((s,sp)=>s+Number(sp.amount||0),0);
+  const remainToPay = billTotal - paidTotal;
+  const diff = billTotal - planTotal;   // แผนควรรวมเท่ายอดบิล
   const fmt = n => Number(n||0).toLocaleString('th-TH',{minimumFractionDigits:2,maximumFractionDigits:2});
-  const color = Math.abs(remain)<0.01 ? '#16a34a' : remain<0 ? '#dc2626' : '#64748b';
   const el = document.getElementById('cffSplitRemain');
-  if(el) el.innerHTML = `ยอดคงค้าง <b>${fmt(out)}</b> · ผลรวมงวด <b>${fmt(total)}</b> · คงเหลือ <b style="color:${color}">${fmt(remain)}</b> บาท`;
+  if(!el) return;
+  const warn = Math.abs(diff) >= 0.01 ? `<div style="color:#dc2626;margin-top:3px">⚠ ผลรวมงวด (${fmt(planTotal)}) ไม่เท่ายอดบิล (${fmt(billTotal)}) — ต่าง ${fmt(diff)}</div>` : "";
+  el.innerHTML = `ยอดบิล <b>${fmt(billTotal)}</b> · จ่ายแล้ว <b style="color:#16a34a">${fmt(paidTotal)}</b> · ยังต้องจ่าย <b style="color:#dc2626">${fmt(remainToPay)}</b> บาท${warn}`;
+}
+/* ★ ติ๊กงวดว่าจ่ายแล้ว/ยกเลิก — บันทึกจ่ายจริงลง ap_payments ตามจำนวน+วันที่ของงวด */
+async function cffToggleSplitPaid(apId, i){
+  const splits = window._apoPayCardSplits || [];
+  const sp = splits[i];
+  if(!sp) return;
+  const amt = Number(sp.amount||0);
+  if(!sp.date || !(amt>0)){ alert('งวดนี้ต้องมีวันที่และจำนวนเงินก่อน จึงจะบันทึกจ่ายได้'); apoSplitRender(); return; }
+  const fmtB = n => Number(n||0).toLocaleString('th-TH',{minimumFractionDigits:2,maximumFractionDigits:2});
+  try{
+    const cid = await fopCompanyId();
+    if(!sp.paid){
+      if(!confirm(`บันทึกจ่ายงวดที่ ${i+1}\nจำนวน ${fmtB(amt)} บาท · วันที่ ${sp.date}\n\nยอดคงค้างของบิลจะลดลงตามจำนวนนี้`)){ apoSplitRender(); return; }
+      const { data, error } = await sb.from('ap_payments').insert({
+        company_id: cid, ap_invoice_id: apId, paid_date: sp.date, amount: amt,
+        method: 'transfer', bank_account_id: window._apoPayCardPayAcct || null,
+        pv_no: `แบ่งจ่ายงวด ${i+1}`, created_by: AUTH.user?AUTH.user.id:null
+      }).select('id').single();
+      if(error) throw error;
+      sp.paid = true; sp.payment_id = data.id;
+    } else {
+      if(!confirm(`ยกเลิกการจ่ายงวดที่ ${i+1} (${fmtB(amt)} บาท)?\nยอดคงค้างจะกลับคืนตามจำนวนนี้`)){ apoSplitRender(); return; }
+      if(sp.payment_id){
+        const { error } = await sb.from('ap_payments')
+          .update({ deleted_at:new Date().toISOString(), deleted_by:AUTH.user?AUTH.user.id:null })
+          .eq('id', sp.payment_id);
+        if(error) throw error;
+      }
+      sp.paid = false; sp.payment_id = null;
+    }
+    // persist planned_splits (คงสถานะ paid/payment_id) — trigger fn_ap_recompute จะอัป amount_paid/status ให้
+    const cleaned = splits.filter(s=>s.date&&Number(s.amount||0)>0)
+      .map(s=>({date:s.date, amount:Number(s.amount), paid:!!s.paid, payment_id:s.payment_id||null}));
+    const { error: upErr } = await sb.from('ap_invoices')
+      .update({ planned_splits: cleaned, updated_by:AUTH.user?AUTH.user.id:null }).eq('id', apId);
+    if(upErr) throw upErr;
+    // refresh caches + เปิดการ์ดใหม่ด้วยข้อมูลล่าสุด + รีเฟรชหน้าเบื้องหลัง
+    const co = state.company;
+    if(state.cff && state.cff[co]) state.cff[co].data = null;
+    if(state.apo && state.apo[co]) state.apo[co] = null;
+    if(state.tool === 'ap_outstanding') renderToolApOutstanding();
+    else renderToolCashflowForecast();
+    cffOpenPayCard(apId);
+  }catch(e){ alert('ไม่สำเร็จ: '+fopErr(e)); apoSplitRender(); }
 }
 async function cffSaveSplits(apId){
   const splits = (window._apoPayCardSplits||[]).filter(sp=>sp.date&&Number(sp.amount||0)>0);
   if(!splits.length){ alert('กรุณาใส่วันที่และจำนวนเงินอย่างน้อย 1 งวด'); return; }
-  const minDate = splits.map(s=>s.date).sort()[0];
-  const cleaned = splits.map(s=>({date:s.date, amount:Number(s.amount)}));
+  // วันชำระถัดไป = งวดแรกที่ยังไม่จ่าย (ถ้าจ่ายครบใช้งวดแรกสุด)
+  const unpaidDates = splits.filter(s=>!s.paid).map(s=>s.date).sort();
+  const minDate = (unpaidDates[0]) || splits.map(s=>s.date).sort()[0];
+  const cleaned = splits.map(s=>({date:s.date, amount:Number(s.amount), paid:!!s.paid, payment_id:s.payment_id||null}));
   try{
     const {error} = await sb.from('ap_invoices')
       .update({planned_splits:cleaned, planned_payment_date:minDate, updated_by:AUTH.user?AUTH.user.id:null})
@@ -13137,6 +13199,7 @@ function cffStaffPayments(dt, d){
       for(let si=0; si<splits.length; si++){
         const sp = splits[si];
         if(!sp.date || Number(sp.amount||0)<=0) continue;
+        if(sp.paid) continue;   // ★ งวดที่จ่ายแล้ว → ไม่นับเข้าประมาณการอีก
         payments.push({...base, due_date: sp.date, amount: Number(sp.amount),
           detail: ap.invoice_no + (splits.length>1 ? ` (งวด ${si+1}/${splits.length})` : ""),
           isSplit: true});

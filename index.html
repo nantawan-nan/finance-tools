@@ -10781,6 +10781,8 @@ function apoFilterAndSort(enriched){
   if(f.planned === "set")   inv = inv.filter(r => !!r.planned_payment_date);
   if(f.planned === "unset") inv = inv.filter(r => !r.planned_payment_date);
   if(f.overdueOnly)         inv = inv.filter(r => r.due_date < today && Number(r.amount_outstanding) > 0);
+  // ★ ซ่อนบิลที่จ่ายครบแล้ว (paid) เป็นค่าเริ่มต้น — เว้นแต่เปิด "แสดงที่จ่ายแล้ว" หรือกรองสถานะเองที่หัวคอลัมน์
+  if(!f.showPaid && !Array.isArray((f.colFilters||{}).status)) inv = inv.filter(r => r.status !== "paid");
 
   // sort — เงินกู้ยืม/ดอกเบี้ย จมล่างสุดเสมอ (ไม่ว่าจะ sort คอลัมน์ไหน) กันรกหัวตาราง
   const s = d.sort;
@@ -10869,18 +10871,25 @@ function apoClearSelection(){
   apoUpdateBulkBar();
 }
 function apoSetPayActualDate(v){ apoGet().payActualDate = v; }   // ไม่ re-render — กัน focus หลุด
-/* วาดแถบสรุป bulk + ตั้งสถานะ master checkbox */
+/* วาดแถบสรุป bulk + ตั้งสถานะ master checkbox · รองรับทั้ง จ่ายชำระ (ค้าง) และ ยกเลิกจ่าย (paid) */
 function apoUpdateBulkBar(){
   const d = apoGet();
   const today = new Date().toISOString().slice(0,10);
   const enriched = apoEnrich(d.invoices || []);
-  const outById = {}; enriched.forEach(r => { outById[String(r.id)] = Number(r.amount_outstanding||0); });
-  // เก็บเฉพาะ id ที่ยังค้างจ่ายจริง (กันบิลที่จ่ายไปแล้ว/ถูกลบค้างใน set)
-  [...d.selected].forEach(id => { if(!(outById[id] > 0)) d.selected.delete(id); });
-  const selCount = d.selected.size;
-  const selTotal = [...d.selected].reduce((s,id) => s + (outById[id]||0), 0);
+  const rowById = {}; enriched.forEach(r => { rowById[String(r.id)] = r; });
+  // prune: เก็บเฉพาะ id ที่ยัง "ทำอะไรได้จริง" (ค้างจ่าย หรือ จ่ายแล้ว) — กัน id ที่หาย/ถูกลบ
+  [...d.selected].forEach(id => {
+    const r = rowById[id];
+    if(!(r && (Number(r.amount_outstanding) > 0 || r.status === "paid"))) d.selected.delete(id);
+  });
+  const selIds = [...d.selected];
+  const unpaidIds = selIds.filter(id => Number(rowById[id].amount_outstanding) > 0 && rowById[id].status !== "paid");
+  const paidIds   = selIds.filter(id => rowById[id].status === "paid");
+  const selCount = selIds.length;
+  const unpaidTotal = unpaidIds.reduce((s,id)=> s + Number(rowById[id].amount_outstanding||0), 0);
+  const paidTotal   = paidIds.reduce((s,id)=> s + Number(rowById[id].amount_total||0), 0);
 
-  // master checkbox state
+  // master checkbox state (นับเฉพาะแถวที่ค้างจ่าย)
   const sa = document.getElementById("apoSelAll");
   if(sa){
     const payable = apoPayableFilteredIds();
@@ -10893,13 +10902,19 @@ function apoUpdateBulkBar(){
   const bar = document.getElementById("apoBulkBar");
   if(!bar) return;
   if(selCount === 0){ bar.innerHTML = ""; return; }
-  bar.innerHTML = `
-    <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:11px 14px;margin-bottom:10px;background:var(--in-soft,#e7f6f3);border:1px solid var(--in);border-radius:9px">
-      <div style="font-size:13px;font-weight:800;color:var(--in-ink,#0f766e)">✓ เลือกไว้ ${selCount} รายการ <span style="font-weight:600;color:var(--ink-2)">· รวมคงค้าง ${fopFmt(selTotal)} บาท</span></div>
+  const payBlock = unpaidIds.length ? `
+      <span style="font-size:12px;color:var(--ink-2)">ค้างจ่าย ${unpaidIds.length} · ${fopFmt(unpaidTotal)}</span>
       <label style="display:flex;align-items:center;gap:7px;font-size:12px;font-weight:700;color:var(--ink-2)">วันที่จ่ายจริง *
         <input id="apoBulkDate" type="date" class="input" value="${esc(d.payActualDate||today)}" oninput="apoSetPayActualDate(this.value)" style="font-size:12px;padding:4px 8px;width:150px">
       </label>
-      <button class="btn btn sm" onclick="apoBulkPay()" title="บันทึกจ่ายเต็มยอดคงค้างของทุกรายการที่เลือก">✓ จ่ายชำระแล้ว</button>
+      <button class="btn btn sm" onclick="apoBulkPay()" title="บันทึกจ่ายเต็มยอดคงค้างของรายการค้างจ่ายที่เลือก">✓ จ่ายชำระแล้ว (${unpaidIds.length})</button>` : "";
+  const unpayBlock = paidIds.length ? `
+      <span style="font-size:12px;color:var(--ink-2)">จ่ายแล้ว ${paidIds.length} · ${fopFmt(paidTotal)}</span>
+      <button class="btn ghost btn sm" style="color:var(--out-ink);border-color:var(--out)" onclick="apoBulkUnpay()" title="ยกเลิกการจ่ายของรายการที่จ่ายแล้วที่เลือก → กลับเป็นค้างจ่าย">↩ ยกเลิกการจ่าย (${paidIds.length})</button>` : "";
+  bar.innerHTML = `
+    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:11px 14px;margin-bottom:10px;background:var(--in-soft,#e7f6f3);border:1px solid var(--in);border-radius:9px">
+      <div style="font-size:13px;font-weight:800;color:var(--in-ink,#0f766e)">✓ เลือกไว้ ${selCount} รายการ</div>
+      ${payBlock}${unpayBlock}
       <button class="btn ghost btn sm" onclick="apoClearSelection()">ยกเลิกการเลือก</button>
     </div>`;
 }
@@ -10930,6 +10945,26 @@ async function apoBulkPay(){
     state.apo[state.company] = null;
     renderToolApOutstanding();
   }catch(e){ alert("บันทึกไม่สำเร็จ: " + fopErr(e)); }
+}
+/* ยกเลิกการจ่าย (bulk) — soft-delete ap_payments ของรายการที่จ่ายแล้วที่เลือก → trigger คืนสถานะเป็นค้างจ่าย */
+async function apoBulkUnpay(){
+  const d = apoGet();
+  const enriched = apoEnrich(d.invoices || []);
+  const rows = enriched.filter(r => d.selected.has(String(r.id)) && r.status === "paid");
+  if(!rows.length){ alert("ไม่มีรายการที่จ่ายแล้วถูกเลือก"); return; }
+  const total = rows.reduce((s,r)=>s+Number(r.amount_total||0),0);
+  if(!confirm(`ยกเลิกการจ่าย ${rows.length} รายการ (รวม ${fopFmt(total)} บาท)?\n\nยอดคงค้างจะกลับเป็นยอดเต็ม · สถานะกลับเป็น "ค้างจ่าย" (audit log เก็บไว้)`)) return;
+  try{
+    const ids = rows.map(r => r.id);
+    const { error } = await sb.from("ap_payments")
+      .update({ deleted_at: new Date().toISOString(), deleted_by: AUTH.user?AUTH.user.id:null })
+      .in("ap_invoice_id", ids).is("deleted_at", null);
+    if(error) throw error;
+    alert(`ยกเลิกการจ่ายสำเร็จ ${rows.length} รายการ`);
+    d.selected.clear();
+    state.apo[state.company] = null;
+    renderToolApOutstanding();
+  }catch(e){ alert("ยกเลิกไม่สำเร็จ: " + fopErr(e)); }
 }
 
 /* col-filter dropdown HTML — Excel-style */
@@ -11046,8 +11081,10 @@ function apoBuildTable(inv, enriched, canWrite, today){
       const desc = [r.remark, r.internal_note].filter(Boolean).join(" · ") || "—";
       const hasNote = !!r.internal_note;
       const payable = Number(r.amount_outstanding) > 0 && r.status !== "paid";
+      const isPaid = r.status === "paid";
+      const selectable = payable || isPaid;   // จ่ายได้ (ค้าง) หรือ ยกเลิกจ่ายได้ (paid)
       return `<tr ${isOverdue?'class="warning-row"':''}>
-        ${canWrite ? `<td style="text-align:center">${payable ? `<input type="checkbox" class="apo-row-cb" data-id="${esc(String(r.id))}" ${d.selected.has(String(r.id))?'checked':''} onclick="apoToggleSelect('${esc(String(r.id))}',this.checked)" style="cursor:pointer">` : ''}</td>` : ""}
+        ${canWrite ? `<td style="text-align:center">${selectable ? `<input type="checkbox" class="apo-row-cb" data-id="${esc(String(r.id))}" data-paid="${isPaid?1:0}" ${d.selected.has(String(r.id))?'checked':''} onclick="apoToggleSelect('${esc(String(r.id))}',this.checked)" style="cursor:pointer" title="${isPaid?'ติ๊กเพื่อยกเลิกการจ่าย':'ติ๊กเพื่อจ่ายชำระ'}">` : ''}</td>` : ""}
         <td><code style="font-size:11px">${esc(r.invoice_no)}</code></td>
         <td>${esc(r._vendor)}</td>
         <td style="font-size:11px;color:var(--ink-2);max-width:280px;white-space:normal" title="${esc(desc)}">${esc(desc.length>80?desc.slice(0,80)+"…":desc)}${hasNote?' <span style="color:var(--in-ink);font-weight:700">✎</span>':''}</td>
@@ -11152,6 +11189,7 @@ async function renderToolApOutstanding(){
           <option value="unset" ${f.planned==='unset'?'selected':''}>ยังไม่กำหนด</option>
         </select>
         <label class="opt" style="font-size:12px"><input type="checkbox" ${f.overdueOnly?'checked':''} onchange="apoSetFilter('overdueOnly', this.checked)">เฉพาะเกินกำหนด</label>
+        <label class="opt" style="font-size:12px" title="เปิดเพื่อดูบิลที่จ่ายครบแล้ว (ปกติซ่อนไว้) · ในโหมดนี้ติ๊กเพื่อยกเลิกการจ่ายได้"><input type="checkbox" ${f.showPaid?'checked':''} onchange="apoSetFilter('showPaid', this.checked)">แสดงที่จ่ายแล้ว</label>
         <button id="apoClearBtn" class="btn ghost btn sm" onclick="apoClearFilter()" style="${apoHasAnyFilter()?'':'display:none'}">ล้างตัวกรองทั้งหมด</button>
         <div id="apoCount" style="margin-left:auto;font-size:11.5px;color:var(--ink-3)">${inv.length} จาก ${enriched.length} รายการ</div>
       </div>

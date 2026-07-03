@@ -182,6 +182,11 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 - **ปิดมุมมอง "ผู้บริหาร" ในหน้า Cash Flow Forecast (ชั่วคราว):** `renderToolCashflowForecast` บังคับ `return renderToolCashflowStaff()` เสมอ (เดิม dispatch ตาม `d.viewMode`) · ถอดปุ่มสลับ 📋 พนักงาน / 📊 ผู้บริหาร ออกจาก toolbar หน้าพนักงาน · **`renderToolCashflowExec` + `cffSetView` ยังอยู่ในไฟล์ (dead) เปิดคืนได้ภายหลัง**
 - **Exec Cash Flow — เลือกเดือนได้:** `edPeriodPicker` เพิ่ม "แถวเดือน" (โผล่เมื่อเลือกปีแล้ว · ต่อจากแถวไตรมาส) — ปุ่มเดือนไทยย่อ (ม.ค.–ธ.ค.) เฉพาะเดือนที่มีข้อมูลในปีนั้น → `edSetMonth("YYYY.MM")` (backend `edScopeMonthKeys`/`edTxsInScope` รองรับ single-month อยู่แล้ว · เดิมมีแค่ปี→ไตรมาส)
 
+### 2026-07-03 — AP Outstanding: ซ่อนบิลที่จ่ายแล้ว + ยกเลิกจ่ายหลายรายการ
+- **ซ่อนบิล `status='paid'` เป็นค่าเริ่มต้น** (`apoFilterAndSort`: `if(!f.showPaid && !colFilters.status) filter(status!=='paid')`) — เดิมโชว์ทุกสถานะ เจ้าหนี้คงค้างเลยรก · partial (ค้างบางส่วน) ยังโชว์
+- **toggle "แสดงที่จ่ายแล้ว"** (`f.showPaid`) ข้าง "เฉพาะเกินกำหนด" → เปิดเพื่อดู/จัดการบิลที่จ่ายแล้ว
+- **ยกเลิกจ่ายหลายรายการ:** checkbox โผล่บนแถว paid ด้วย (`selectable = outstanding>0 || paid` · `data-paid`) · `apoUpdateBulkBar` แยก unpaidIds/paidIds → โชว์ปุ่ม "จ่ายชำระแล้ว" (ค้าง) + "↩ ยกเลิกการจ่าย" (paid) พร้อมกันได้ · `apoBulkUnpay` soft-delete `ap_payments` ของ id ที่เลือก → trigger `fn_ap_recompute` คืนสถานะ · **prune ใน bulkbar เปลี่ยนเป็นเก็บทั้ง payable+paid** (เดิมตัด paid ออกจาก selection)
+
 ### 2026-07-03 — AP Outstanding: จ่ายชำระหลายรายการพร้อมกัน (bulk pay) + วันที่จ่ายจริง
 - **เจ้าของขอ:** จ่ายเจ้าหนี้ทีละหลายบิลได้ — ติ๊กเลือกหลายรายการ (หรือติ๊กทั้งหมดในตัวกรอง) → ใส่ "วันที่จ่ายจริง" → กด "จ่ายชำระแล้ว"
 - **คอลัมน์ checkbox ใหม่** ใน `apoBuildTable` (คอลัมน์แรก · เฉพาะ `canWrite`): master checkbox หัวตาราง (`apoToggleSelectAll` — เลือกทุกบิลที่ค้างจ่ายในตัวกรองปัจจุบัน · indeterminate เมื่อเลือกบางส่วน) + checkbox รายแถว (เฉพาะบิล `amount_outstanding>0 && status!=='paid'`)

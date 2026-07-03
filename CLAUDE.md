@@ -177,6 +177,13 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-03 — Bank Recon: ปุ่มแก้ไขแถว Express (แก้ยอด/วันที่ inline แล้วจับคู่ใหม่)
+- **เคส:** Express ยอดพิมพ์ผิด (เช่น 1,105.**81** ควรเป็น 1,105.**82** ตาม Bank) → ต่าง 0.01 ไม่ auto-match · เดิมต้องไปแก้บัญชี+อัป XML ใหม่ → เกิดแถวเก่าค้าง (orphan)
+- **`brecOpenEditRow(side,id)` + `brecSaveEditRow(side,id)`** — modal แก้ วันที่/ทิศทาง(เข้า-ออก)/จำนวนเงิน/เลขเอกสาร(doc_no)/หมายเหตุ(remark) · update `brec_express_rows` แล้ว `brecLoad()`+`brecRefresh()` → auto-match รันใหม่ตอนโหลด (ถ้าตรงเด้งไป "รอยืนยัน")
+- ปุ่ม ✏️ (pencil สีแบรนด์) เพิ่มใน `.brec-acts` ของแถว Express (unex) ในแท็บ "รอกระทบยอด" · ข้าง 🔗 จับคู่เอง + 🗑 ลบ · เฉพาะ `brecCanWrite()`
+- ฟังก์ชัน generic รับ side (`ex`/`bk`) — ตอนนี้ wire เฉพาะ Express (Bank = statement ต้นทาง ไม่ควรแก้) · เปิด Bank ได้ภายหลังถ้าต้องการ
+- gotcha: แก้ยอดชน stable-key unique index (date+withdrawal+deposit+doc_no) กับแถวอื่นได้ (rare) → catch แจ้ง error
+
 ### 2026-07-03 — แบ่งจ่าย: ติ๊กจ่ายรายงวด (แก้บั๊กติ๊กจ่ายทั้งใบทั้งที่ยังจ่ายไม่ครบ)
 - **ปัญหา:** บิลแบ่งจ่าย (planned_splits) เช่น 214k = 100k(จ่ายแล้ว 30/06) + 114k(รอ) · ติ๊กจ่ายในตาราง AP = จ่ายเต็ม 214k (ต้นเหตุ: `planned_splits` เป็นแค่ "แผน" ไม่มี paid flag · `apoBulkPay` จ่าย `amount_outstanding` เต็ม)
 - **แก้ = ติ๊กจ่ายรายงวดใน pay card (`cffOpenPayCard`):** เพิ่มคอลัมน์ checkbox "จ่ายแล้ว" ต่องวด · `cffToggleSplitPaid(apId,i)` — ติ๊ก → insert `ap_payments` (amount+date ของงวด · pv_no "แบ่งจ่ายงวด N" · bank = pay_from_account_id) → เซฟ `paid`/`payment_id` ลงใน split object (planned_splits jsonb) → trigger `fn_ap_recompute` อัป amount_paid/outstanding/status · ติ๊กออก → soft-delete payment คืนสถานะ

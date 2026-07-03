@@ -15920,6 +15920,77 @@ async function brecDeleteRow(side, id){
     await brecLoad(); brecRefresh();
   }catch(e){ alert("ลบไม่สำเร็จ: "+(e.message||e)); d.busy=false; brecRefresh(); }
 }
+/* ★ แก้ไขแถว Express (หรือ Bank) — วัน/ทิศทาง/ยอด/เลขเอกสาร/หมายเหตุ → บันทึกแล้วจับคู่ใหม่อัตโนมัติ
+   ใช้เคส Express ยอดพิมพ์ผิด (เช่น 1,105.81 ควรเป็น 1,105.82) แก้ตรงนี้เลย ไม่ต้องอัปไฟล์ใหม่ให้เกิดแถวซ้ำ */
+function brecOpenEditRow(side, id){
+  if(!brecCanWrite()){ alert("ไม่มีสิทธิ์"); return; }
+  const d = brecGet();
+  const row = ((side==="ex"?d.express:d.bank)||[]).find(r=>r.id===id);
+  if(!row){ alert("ไม่พบแถว"); return; }
+  const inAmt = Math.abs(Number(row.deposit)||0), outAmt = Math.abs(Number(row.withdrawal)||0);
+  const isIn = inAmt >= outAmt;
+  const curAmt = isIn ? inAmt : outAmt;
+  const refVal = side==="ex" ? (row.doc_no||"") : (row.cheque_no||"");
+  const dsVal  = side==="ex" ? (row.remark||"") : (row.description||row.tr_desc||"");
+  const sideLbl = side==="ex" ? "Express" : "Bank";
+  const radio = "flex:1;display:flex;align-items:center;justify-content:center;gap:6px;border:1.5px solid #e2e8f0;border-radius:9px;padding:8px;cursor:pointer;font-size:12.5px;font-weight:700";
+  const lbl = "font-size:12px;font-weight:700;color:#475569;margin-bottom:4px";
+  document.getElementById('brecEditModal')?.remove();
+  const m = document.createElement('div');
+  m.id='brecEditModal';
+  m.style.cssText='position:fixed;inset:0;background:rgba(15,23,42,.5);z-index:1200;display:flex;align-items:center;justify-content:center;padding:20px';
+  m.onclick = e=>{ if(e.target===m) m.remove(); };
+  m.innerHTML = `
+    <div style="background:#fff;border-radius:16px;padding:22px;max-width:430px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.28)">
+      <div style="font-size:11px;color:#94a3b8;font-weight:700;letter-spacing:.5px">แก้ไขรายการ ${sideLbl}</div>
+      <div style="font-size:15px;font-weight:800;color:#1e293b;margin:2px 0 14px">${esc(row.txn_date||'')} · ${esc(refVal||dsVal||'—')}</div>
+      <div style="display:grid;gap:11px">
+        <label><div style="${lbl}">วันที่</div><input id="brecEdDate" type="date" value="${esc(row.txn_date||'')}" class="input" style="width:100%"></label>
+        <div>
+          <div style="${lbl}">ทิศทาง</div>
+          <div style="display:flex;gap:8px">
+            <label style="${radio}"><input type="radio" name="brecEdDir" value="in" ${isIn?'checked':''}>เงินเข้า (+)</label>
+            <label style="${radio}"><input type="radio" name="brecEdDir" value="out" ${!isIn?'checked':''}>เงินออก (−)</label>
+          </div>
+        </div>
+        <label><div style="${lbl}">จำนวนเงิน</div><input id="brecEdAmt" type="text" inputmode="decimal" value="${curAmt.toFixed(2)}" class="input" style="width:100%;text-align:right;font-weight:700"></label>
+        <label><div style="${lbl}">${side==="ex"?"เลขที่เอกสาร":"เลขเช็ค / อ้างอิง"}</div><input id="brecEdRef" value="${esc(refVal)}" class="input" style="width:100%"></label>
+        <label><div style="${lbl}">รายละเอียด / หมายเหตุ</div><input id="brecEdDs" value="${esc(dsVal)}" class="input" style="width:100%"></label>
+      </div>
+      <div style="display:flex;gap:9px;margin-top:16px;justify-content:flex-end">
+        <button onclick="document.getElementById('brecEditModal').remove()" class="btn ghost btn sm">ยกเลิก</button>
+        <button class="btn btn sm" onclick="brecSaveEditRow('${side}','${id}')">บันทึก</button>
+      </div>
+      <div style="font-size:11px;color:#94a3b8;margin-top:10px;line-height:1.5">💡 แก้แล้วระบบจะลองจับคู่ใหม่ให้อัตโนมัติ · ถ้าตรงกับฝั่งตรงข้าม (วัน+ยอด) จะเด้งไปแท็บ "รอยืนยัน"</div>
+    </div>`;
+  document.body.appendChild(m);
+}
+async function brecSaveEditRow(side, id){
+  if(!brecCanWrite()){ alert("ไม่มีสิทธิ์"); return; }
+  const date = ((document.getElementById('brecEdDate')||{}).value||"").trim();
+  const dir  = (document.querySelector('input[name="brecEdDir"]:checked')||{}).value || 'in';
+  const amt  = Math.abs(parseFloat(String((document.getElementById('brecEdAmt')||{}).value||"").replace(/[, ]/g,"")));
+  const refVal = ((document.getElementById('brecEdRef')||{}).value||"").trim();
+  const dsVal  = ((document.getElementById('brecEdDs')||{}).value||"").trim();
+  if(!date || !(amt>0)){ alert("กรุณากรอกวันที่ + จำนวนเงิน (มากกว่า 0)"); return; }
+  const d = brecGet();
+  const tbl = side==="ex" ? "brec_express_rows" : "brec_bank_rows";
+  const patch = {
+    txn_date: date,
+    deposit:    dir==='in'  ? amt : 0,
+    withdrawal: dir==='out' ? amt : 0,
+    updated_at: new Date().toISOString()
+  };
+  if(side==="ex"){ patch.doc_no = refVal||null; patch.remark = dsVal||null; }
+  else { patch.cheque_no = refVal||null; patch.description = dsVal||null; }
+  document.getElementById('brecEditModal')?.remove();
+  d.busy=true; brecRefresh();
+  try{
+    const { error } = await sb.from(tbl).update(patch).eq("id", id);
+    if(error) throw error;
+    await brecLoad(); brecRefresh();
+  }catch(e){ alert("บันทึกไม่สำเร็จ: "+(e.message||e)+"\n(ถ้าแจ้งซ้ำ อาจมีแถวยอด/วันเดียวกันอยู่แล้ว)"); d.busy=false; brecRefresh(); }
+}
 async function brecConfirmSelected(){
   if(!brecCanWrite()){ alert("ไม่มีสิทธิ์"); return; }
   const d = brecGet();
@@ -16767,7 +16838,7 @@ async function renderToolBankRec(){
               <div class="brec-side empty">— ไม่พบใน Bank —</div>
               <div class="brec-conf"><span class="brec-tag" style="background:#f1f5f9;color:#64748b">ค้าง Express</span></div>
               ${noteCell('ex', r.ex.id, r.ex.user_note)}
-              <div class="brec-acts"><button onclick="brecManualLink()" title="จับคู่เอง"><i data-lucide="link"></i></button>${brecCanWrite()?`<button onclick="brecDeleteRow('ex','${r.ex.id}')" style="color:#dc2626;border-color:#fecaca" title="ลบแถวนี้ทิ้ง (เช่น ยอดเก่าที่แก้แล้วอัปใหม่)"><i data-lucide="trash-2"></i></button>`:''}</div>
+              <div class="brec-acts"><button onclick="brecManualLink()" title="จับคู่เอง"><i data-lucide="link"></i></button>${brecCanWrite()?`<button onclick="brecOpenEditRow('ex','${r.ex.id}')" style="color:#0d9488;border-color:#99f6e4" title="แก้ไขรายการ Express (วัน / ยอด / เลขเอกสาร) แล้วจับคู่ใหม่"><i data-lucide="pencil"></i></button>`:''}${brecCanWrite()?`<button onclick="brecDeleteRow('ex','${r.ex.id}')" style="color:#dc2626;border-color:#fecaca" title="ลบแถวนี้ทิ้ง (เช่น ยอดเก่าที่แก้แล้วอัปใหม่)"><i data-lucide="trash-2"></i></button>`:''}</div>
             </div>`;
           } else {
             const sel = d.sel.bk.has(r.bk.id);

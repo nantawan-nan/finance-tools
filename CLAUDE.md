@@ -177,6 +177,10 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-03 — Cash Flow view-only สำหรับผู้บริหาร + Exec period picker แถวของตัวเอง
+- **ผู้บริหาร (view-only) ไม่เห็นดินสอ/แก้ไขในหน้า Cash Flow:** `cffStaffReportInner` รับ `opts.canEdit` (default true) · `renderToolCashflowStaff` ส่ง `canEdit:canWrite` (`fopCanWrite()` — exec/viewer = false) · ดินสอ ✏ + คลิกแก้ AP (`cffOpenPayCard`) + คลิกซ่อน recurring (`cffOpenRecurCard`) gate ด้วย `interactive && canEdit` (เดิม `interactive` อย่างเดียว) · **view interactivity ยังอยู่** (ย่อ/ขยายหมวด `cffToggleCat`/`cffToggleVendor`, chips ระดับการดู, drill pivot) — gate ด้วย `interactive` เหมือนเดิม
+- **Exec Dashboard period picker = แถวของตัวเอง:** ย้าย `edPeriodPicker` ออกจาก flex row เดียวกับปุ่มนำเสนอ/พิมพ์ → ใส่ `<div>` แถวแยกใต้ title (กันแถวเดือนโผล่แล้วดันปุ่มกระโดดไปมา) · ไม่ใส่ `.ed-hide-present` (โชว์ตอนนำเสนอด้วย)
+
 ### 2026-07-03 — Cash Flow: ปิดมุมมองผู้บริหาร (ชั่วคราว) + Exec Dashboard เลือกเดือนได้
 - **ย้าย Cash Flow Forecast → กลุ่ม "ภาพรวม" อันดับ 3** (หลัง Executive Cash Flow) — เปลี่ยน `stage` ของ tool `cashflow` เป็น `"ภาพรวม"` · 2 หน้าที่ผู้บริหารดู (execdash+cashflow) อยู่กลุ่มเดียวกัน · `PRESENT_TOOLS`/`page_permissions` คุมด้วย tool id ไม่กระทบ
 - **ปิดมุมมอง "ผู้บริหาร" ในหน้า Cash Flow Forecast (ชั่วคราว):** `renderToolCashflowForecast` บังคับ `return renderToolCashflowStaff()` เสมอ (เดิม dispatch ตาม `d.viewMode`) · ถอดปุ่มสลับ 📋 พนักงาน / 📊 ผู้บริหาร ออกจาก toolbar หน้าพนักงาน · **`renderToolCashflowExec` + `cffSetView` ยังอยู่ในไฟล์ (dead) เปิดคืนได้ภายหลัง**

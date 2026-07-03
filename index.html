@@ -8597,7 +8597,6 @@ function edRenderDashboard(){
           </div>
         </div>
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-          ${edPeriodPicker(data, d.monthFilter)}
           <select class="ed-hide-present" onchange="edState().pdfOrient=this.value" title="แนวกระดาษ PDF (งบกระแสเงินสด=แนวนอนเสมอ · ทรานแซกชัน=หลายหน้า)" style="padding:7px 10px;border:1px solid #c3dafe;border-radius:8px;font-size:13px;background:#fff;font-family:inherit;color:#0f172a">
             <option value="landscape" ${d.pdfOrient!=='portrait'?'selected':''}>📄 แนวนอน (หลายหน้า)</option>
             <option value="portrait" ${d.pdfOrient==='portrait'?'selected':''}>📐 แนวตั้ง (ย่อ 1 หน้า)</option>
@@ -8610,6 +8609,8 @@ function edRenderDashboard(){
           <button class="btn ghost btn sm ed-hide-present" onclick="edReset()" title="ล้างข้อมูลทั้งหมดแล้วเริ่มอัปใหม่">ล้าง &amp; เริ่มใหม่</button>` : ""}
         </div>
       </div>
+      <!-- ★ ตัวเลือกช่วงเวลา = แถวของตัวเอง (กันดันปุ่มนำเสนอ/พิมพ์ เวลาแถวเดือนโผล่) -->
+      <div style="margin:2px 0 14px">${edPeriodPicker(data, d.monthFilter)}</div>
       ${d.mergeMsg ? `<div class="ed-hide-present" style="background:#ecfdf5;color:#065f46;border:1px solid #a7f3d0;padding:9px 14px;border-radius:9px;margin:0 0 12px;font-size:13px;display:flex;justify-content:space-between;align-items:center;gap:10px"><span>✅ ${esc(d.mergeMsg)}</span><button onclick="edState().mergeMsg=null;edRenderDashboard()" style="background:none;border:none;color:#065f46;cursor:pointer;font-size:16px;line-height:1">✕</button></div>` : ""}
 
       <div class="ed-tabs">
@@ -13632,6 +13633,7 @@ function cffStaffComputeReport(d, dt){
 function cffStaffReportInner(co, dt, R, opts){
   opts = opts || {};
   const interactive = !!opts.interactive;
+  const canEdit = opts.canEdit !== false;   // ★ ผู้บริหาร/view-only (canWrite=false) → ไม่โชว์ดินสอ + กดแก้/ซ่อนไม่ได้
   const catOpen = opts.catOpen || {};
   const venOpen = opts.venOpen || {};
   const groupLevel = opts.groupLevel || "vendor";   // cat | vendor | doc (สำหรับไฮไลต์ปุ่มระดับการดู)
@@ -13740,21 +13742,21 @@ function cffStaffReportInner(co, dt, R, opts){
                 // ★ เวนเดอร์รายการเดียว → 1 บรรทัด (ชื่อ + ยอด) · คำอธิบายโผล่เฉพาะตอนกาง (ตามเอกสาร)
                 if(vinfo.items.length === 1){
                   const p = vinfo.items[0]; const sub = vOpen ? subLine(p, ven) : "";
-                  const apClick = (interactive && p.type==="ap" && p.apId) ? `onclick="cffOpenPayCard('${p.apId}')" title="คลิกดูรายละเอียด / แก้วันชำระ"` : "";
-                  const recClick = (interactive && p.type==="recurring" && p.recurringId) ? `onclick="cffOpenRecurCard('${p.recurringId}','${p.original_due}',${p.amount},${JSON.stringify(ven).replace(/"/g,'&quot;')})" title="คลิกเพื่อแก้ไข / ซ่อนออกจากงวดนี้"` : "";
+                  const apClick = (interactive && canEdit && p.type==="ap" && p.apId) ? `onclick="cffOpenPayCard('${p.apId}')" title="คลิกดูรายละเอียด / แก้วันชำระ"` : "";
+                  const recClick = (interactive && canEdit && p.type==="recurring" && p.recurringId) ? `onclick="cffOpenRecurCard('${p.recurringId}','${p.original_due}',${p.amount},${JSON.stringify(ven).replace(/"/g,'&quot;')})" title="คลิกเพื่อแก้ไข / ซ่อนออกจากงวดนี้"` : "";
                   const rowClick = apClick || recClick;
-                  const isClickable = interactive && (p.type==='ap' || (p.type==='recurring'&&p.recurringId));
-                  return `<tr ${rowClick} style="border-top:1px solid #eef2f7${isClickable?';cursor:pointer;transition:background .12s':''}" onmouseover="${isClickable?"this.style.background='#f0f9ff'":''}" onmouseout="${isClickable?"this.style.background=''":''}"><td style="padding:7px 10px 7px 22px"><div style="font-weight:600;color:#334155">${esc(ven)}${(interactive&&(p.type==='ap'||(p.type==='recurring'&&p.recurringId)))?` <span style="font-size:10px;color:#94a3b8">✏</span>`:''}</div>${sub?`<div style="font-size:10.5px;color:#64748b;margin-top:2px;line-height:1.4">${sub}</div>`:''}</td><td style="padding:7px 10px;color:#475569;font-size:11px;white-space:nowrap">${esc(fmtDate(p.original_due))}</td><td style="padding:7px 10px;text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;font-weight:600;color:#334155">${nf(p.amount)}</td></tr>`;
+                  const isClickable = interactive && canEdit && (p.type==='ap' || (p.type==='recurring'&&p.recurringId));
+                  return `<tr ${rowClick} style="border-top:1px solid #eef2f7${isClickable?';cursor:pointer;transition:background .12s':''}" onmouseover="${isClickable?"this.style.background='#f0f9ff'":''}" onmouseout="${isClickable?"this.style.background=''":''}"><td style="padding:7px 10px 7px 22px"><div style="font-weight:600;color:#334155">${esc(ven)}${(interactive&&canEdit&&(p.type==='ap'||(p.type==='recurring'&&p.recurringId)))?` <span style="font-size:10px;color:#94a3b8">✏</span>`:''}</div>${sub?`<div style="font-size:10.5px;color:#64748b;margin-top:2px;line-height:1.4">${sub}</div>`:''}</td><td style="padding:7px 10px;color:#475569;font-size:11px;white-space:nowrap">${esc(fmtDate(p.original_due))}</td><td style="padding:7px 10px;text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;font-weight:600;color:#334155">${nf(p.amount)}</td></tr>`;
                 }
                 // ★ เวนเดอร์หลายรายการ → หัวเวนเดอร์ (ชื่อ + จำนวน + ยอดรวม) · กางถึงเห็นรายการเอกสาร
                 const venHead = `<tr style="${interactive?'cursor:pointer;':''}border-top:1px solid #eef2f7" ${interactive?`onclick="cffToggleVendor(${JSON.stringify(cat).replace(/"/g,'&quot;')},${JSON.stringify(ven).replace(/"/g,'&quot;')})"`:''}><td style="padding:7px 10px 7px 9px;color:#334155" colspan="2">${interactive?`<span style="display:inline-block;width:13px;color:var(--brand);font-size:9px">${vOpen?'▾':'▸'}</span>`:''}<span style="font-weight:600">${esc(ven)}</span></td><td style="padding:7px 10px;text-align:right;font-weight:600;color:#334155">${nf(vinfo.total)}</td></tr>`;
                 const items = vOpen ? vinfo.items.map(p => {
                   const sub = subLine(p, ven) || esc(cffDocCode(p));
-                  const apClick2 = (interactive && p.type==="ap" && p.apId) ? `onclick="cffOpenPayCard('${p.apId}')" title="คลิกดูรายละเอียด / แก้วันชำระ"` : "";
-                  const recClick2 = (interactive && p.type==="recurring" && p.recurringId) ? `onclick="cffOpenRecurCard('${p.recurringId}','${p.original_due}',${p.amount},${JSON.stringify(ven).replace(/"/g,'&quot;')})" title="คลิกเพื่อแก้ไข / ซ่อนออกจากงวดนี้"` : "";
+                  const apClick2 = (interactive && canEdit && p.type==="ap" && p.apId) ? `onclick="cffOpenPayCard('${p.apId}')" title="คลิกดูรายละเอียด / แก้วันชำระ"` : "";
+                  const recClick2 = (interactive && canEdit && p.type==="recurring" && p.recurringId) ? `onclick="cffOpenRecurCard('${p.recurringId}','${p.original_due}',${p.amount},${JSON.stringify(ven).replace(/"/g,'&quot;')})" title="คลิกเพื่อแก้ไข / ซ่อนออกจากงวดนี้"` : "";
                   const rowClick2 = apClick2 || recClick2;
-                  const isClickable2 = interactive && (p.type==='ap' || (p.type==='recurring'&&p.recurringId));
-                  return `<tr ${rowClick2} style="${isClickable2?'cursor:pointer;transition:background .12s':''}" onmouseover="${isClickable2?"this.style.background='#f0f9ff'":''}" onmouseout="${isClickable2?"this.style.background=''":''}"><td style="padding:5px 10px 5px 38px;color:#475569;font-size:11px">${sub}${(interactive&&(p.type==='ap'||(p.type==='recurring'&&p.recurringId)))?` <span style="color:#94a3b8;font-size:10px">✏</span>`:''}</td><td style="padding:5px 10px;color:#475569;font-size:11px;white-space:nowrap">${esc(fmtDate(p.original_due))}</td><td style="padding:5px 10px;text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap">${nf(p.amount)}</td></tr>`;
+                  const isClickable2 = interactive && canEdit && (p.type==='ap' || (p.type==='recurring'&&p.recurringId));
+                  return `<tr ${rowClick2} style="${isClickable2?'cursor:pointer;transition:background .12s':''}" onmouseover="${isClickable2?"this.style.background='#f0f9ff'":''}" onmouseout="${isClickable2?"this.style.background=''":''}"><td style="padding:5px 10px 5px 38px;color:#475569;font-size:11px">${sub}${(interactive&&canEdit&&(p.type==='ap'||(p.type==='recurring'&&p.recurringId)))?` <span style="color:#94a3b8;font-size:10px">✏</span>`:''}</td><td style="padding:5px 10px;color:#475569;font-size:11px;white-space:nowrap">${esc(fmtDate(p.original_due))}</td><td style="padding:5px 10px;text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap">${nf(p.amount)}</td></tr>`;
                 }).join("") : "";
                 return venHead + items;
               }).join("");
@@ -14095,7 +14097,7 @@ async function renderToolCashflowStaff(){
 
     <!-- ★ รายงานสะอาด (เลย์เอาต์เดียวกับ snapshot) — เต็มความกว้างหน้า -->
     <div id="cffStaffReportSheet" style="background:#fff;border-radius:14px;box-shadow:0 6px 28px rgba(15,23,42,.08);border:1px solid var(--glass-border);overflow:hidden;margin:4px 0 0;font-family:'IBM Plex Sans Thai','IBM Plex Sans',sans-serif;color:#0f172a">
-      ${cffStaffReportInner(co, dt, { cats, bankDue, bankCat, openingCash, totalDue, netCash, periodLabel: reportPeriodLabel }, { interactive:true, catOpen:d.catOpen||{}, venOpen:d.venOpen||{}, groupLevel:(d.staffGroupLevel||"vendor") })}
+      ${cffStaffReportInner(co, dt, { cats, bankDue, bankCat, openingCash, totalDue, netCash, periodLabel: reportPeriodLabel }, { interactive:true, canEdit:canWrite, catOpen:d.catOpen||{}, venOpen:d.venOpen||{}, groupLevel:(d.staffGroupLevel||"vendor") })}
     </div>
 
     ${(canWrite && dt.recSkips && dt.recSkips.length) ? `

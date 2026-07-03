@@ -177,6 +177,14 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-03 — ★ Bank Recon: แก้บั๊กข้อมูลหาย — รายการซ้ำจริง (740 เข้า 2 ยอดวันเดียว) ถูกลบทุก push
+- **อาการ:** เงินเข้ายอดเท่ากันวันเดียวกัน 2 รายการจริง (คนละคนโอน · sender อยู่ใน `description` ไม่อยู่ใน stable key) → นำเข้าครบตอนแรก แต่หายไป 1 ยอด
+- **ต้นเหตุ (ร้ายแรง):** `supabase/bankrec-phase-a-stable-key.sql` มี DO block cleanup ที่ soft-delete แถว stable-key ซ้ำ (rn>1) **โดยไม่ยกเว้น `ambiguous`** — migrate workflow รัน SQL ทุกไฟล์**ทุก push** → cleanup รันซ้ำทุกครั้ง → ลบ 1 ใน 2 รายการ ambiguous ที่ถูกต้องทิ้ง (unique index ยกเว้น ambiguous แต่ cleanup ไม่ยกเว้น)
+- **แก้ 1 (หยุดลบ):** เพิ่ม `AND ambiguous = false` ใน ranked CTE ทั้ง 4 จุดของ cleanup (ex/bk × migrate-match/soft-delete) → cleanup แตะเฉพาะ non-ambiguous (ตรงกับเงื่อนไข unique index)
+- **แก้ 2 (คืนที่หาย + กัน re-upload ซ้ำ):** `brecUpload` เปลี่ยน dedup ของ ambiguous เป็น **นับจำนวน** — query active rows ทั้งหมด (รวม ambiguous) นับต่อ key (`dbCountByKey`) → insert เฉพาะส่วนขาด `need = fileCount − dbActiveCount` (เดิม insert ทุกแถว ambiguous ทุกครั้ง → re-upload บวมซ้ำ) · fresh=insert ครบ · re-upload(ครบ)=0 · recovery(ขาด1)=insert 1
+- **วิธีกู้คืนของ user:** หลัง deploy → **อัป statement ไฟล์เดิมซ้ำ** → รายการ 740 ที่หายจะกลับมา (นับจำนวนเติมส่วนที่ขาด ไม่บวมเกิน)
+- **gotcha:** `existSig` (dup check ของ non-ambiguous) เปลี่ยนมา filter จาก query เดียว (เดิม query `.eq('ambiguous',false)`) · ambiguous rows ไม่เคยอยู่ใน existSig — คุมด้วย count แทน
+
 ### 2026-07-03 — Bank Recon: ปุ่มแก้ไขแถว Express (แก้ยอด/วันที่ inline แล้วจับคู่ใหม่)
 - **เคส:** Express ยอดพิมพ์ผิด (เช่น 1,105.**81** ควรเป็น 1,105.**82** ตาม Bank) → ต่าง 0.01 ไม่ auto-match · เดิมต้องไปแก้บัญชี+อัป XML ใหม่ → เกิดแถวเก่าค้าง (orphan)
 - **`brecOpenEditRow(side,id)` + `brecSaveEditRow(side,id)`** — modal แก้ วันที่/ทิศทาง(เข้า-ออก)/จำนวนเงิน/เลขเอกสาร(doc_no)/หมายเหตุ(remark) · update `brec_express_rows` แล้ว `brecLoad()`+`brecRefresh()` → auto-match รันใหม่ตอนโหลด (ถ้าตรงเด้งไป "รอยืนยัน")

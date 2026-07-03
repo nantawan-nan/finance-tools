@@ -15483,27 +15483,32 @@ async function brecUpload(kind){
     parsed.rows.forEach(r => { const k = brecRowSig(r, src); fileKeyCount.set(k, (fileKeyCount.get(k)||0)+1); });
     const ambigKeys = new Set([...fileKeyCount.entries()].filter(([,n])=>n>1).map(([k])=>k));
 
-    // 2) Query existing rows (non-ambiguous + non-deleted) for stable key comparison
+    // 2) Query existing ACTIVE rows (รวม ambiguous) — ใช้ทั้ง dup check (non-ambiguous) + นับจำนวนต่อ key
     const sigCols = src === "express"
       ? "txn_date,withdrawal,deposit,doc_no"
       : "txn_date,withdrawal,deposit,cheque_no,ref_note";
     const { data:existRows } = await sb.from(rowTable).select(sigCols+",ambiguous")
-      .eq("bank_account_id", acctId).is("deleted_at", null).eq("ambiguous", false).limit(100000);
-    const existSig = new Set((existRows||[]).map(r => brecRowSig(r, src)));
+      .eq("bank_account_id", acctId).is("deleted_at", null).limit(100000);
+    const existSig = new Set((existRows||[]).filter(r=>!r.ambiguous).map(r => brecRowSig(r, src)));
+    const dbCountByKey = new Map();   // นับทุกแถว active (รวม ambiguous) ต่อ stable key
+    (existRows||[]).forEach(r => { const k = brecRowSig(r, src); dbCountByKey.set(k, (dbCountByKey.get(k)||0)+1); });
 
     // 3) Categorize each parsed row
     let dupCount = 0, newCount = 0, ambigCount = 0;
     const toInsert = [];
+    const insByKey = new Map();
     for(const r of parsed.rows){
       const key = brecRowSig(r, src);
       const isAmbig = ambigKeys.has(key);
-      const isDup = existSig.has(key);
       if(isAmbig){
-        // ambiguous within file → insert all with ambiguous=true (user reviews)
-        toInsert.push({ ...r, ambiguous: true });
-        ambigCount++;
-      } else if(isDup){
-        dupCount++;  // skip
+        // ★ รายการซ้ำจริง (วัน+ยอดตรง หลายแถว เช่น 740 เข้า 2 ยอดวันเดียว) → เก็บให้ครบตามไฟล์
+        //   insert เฉพาะส่วนที่ยังขาด = จำนวนในไฟล์ − จำนวน active ใน DB (กัน re-upload เพิ่มซ้ำ · แต่คืนที่หายได้)
+        const need = Math.max(0, (fileKeyCount.get(key)||0) - (dbCountByKey.get(key)||0));
+        const done = insByKey.get(key)||0;
+        if(done < need){ toInsert.push({ ...r, ambiguous: true }); insByKey.set(key, done+1); ambigCount++; }
+        else dupCount++;  // มีครบแล้วใน DB
+      } else if(existSig.has(key)){
+        dupCount++;  // ซ้ำเดิม (non-ambiguous) → ข้าม
       } else {
         toInsert.push({ ...r, ambiguous: false });
         newCount++;

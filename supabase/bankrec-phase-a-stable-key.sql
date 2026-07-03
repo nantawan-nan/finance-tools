@@ -38,7 +38,7 @@ BEGIN
                       created_at ASC
            ) AS rn
       FROM brec_express_rows e
-     WHERE deleted_at IS NULL
+     WHERE deleted_at IS NULL AND ambiguous = false   -- ★ อย่าแตะแถว ambiguous (รายการซ้ำจริงที่ user ต้องเก็บทั้งคู่)
   ),
   winners AS (
     SELECT bank_account_id, txn_date, withdrawal, deposit, k, id AS winner_id FROM ranked WHERE rn = 1
@@ -63,7 +63,7 @@ BEGIN
                       created_at ASC
            ) AS rn
       FROM brec_express_rows e
-     WHERE deleted_at IS NULL
+     WHERE deleted_at IS NULL AND ambiguous = false   -- ★ อย่าแตะแถว ambiguous (รายการซ้ำจริงที่ user ต้องเก็บทั้งคู่)
   )
   UPDATE brec_express_rows
      SET deleted_at = now(), updated_at = now()
@@ -79,7 +79,7 @@ BEGIN
                       created_at ASC
            ) AS rn
       FROM brec_bank_rows b
-     WHERE deleted_at IS NULL
+     WHERE deleted_at IS NULL AND ambiguous = false   -- ★ อย่าแตะแถว ambiguous (รายการซ้ำจริงที่ user ต้องเก็บทั้งคู่)
   ),
   winners AS (
     SELECT bank_account_id, txn_date, withdrawal, deposit, c, rf, id AS winner_id FROM ranked WHERE rn = 1
@@ -103,7 +103,7 @@ BEGIN
                       created_at ASC
            ) AS rn
       FROM brec_bank_rows b
-     WHERE deleted_at IS NULL
+     WHERE deleted_at IS NULL AND ambiguous = false   -- ★ อย่าแตะแถว ambiguous (รายการซ้ำจริงที่ user ต้องเก็บทั้งคู่)
   )
   UPDATE brec_bank_rows
      SET deleted_at = now(), updated_at = now()

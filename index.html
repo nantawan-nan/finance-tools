@@ -13075,7 +13075,7 @@ function cffOpenRecurCard(recurringId, dueDate, amount, name){
   m.onclick = e => { if(e.target===m) m.remove(); };
   m.innerHTML = `
     <div style="background:#fff;border-radius:16px;padding:24px;max-width:400px;width:90%;box-shadow:0 20px 60px rgba(0,0,0,.3)">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px">
         <div>
           <div style="font-size:11px;color:#94a3b8;font-weight:600;letter-spacing:.5px;margin-bottom:3px">ค่าใช้จ่ายประจำ</div>
           <div style="font-size:16px;font-weight:800;color:#1e293b">${esc(name||'—')}</div>
@@ -13083,10 +13083,14 @@ function cffOpenRecurCard(recurringId, dueDate, amount, name){
         </div>
         <button onclick="document.getElementById('cffRecurCardModal').remove()" style="border:0;background:#f1f5f9;border-radius:50%;width:28px;height:28px;cursor:pointer;font-size:15px;color:#64748b;display:flex;align-items:center;justify-content:center">×</button>
       </div>
-      <button onclick="cffSkipRecurringFromModal('${recurringId}','${dueDate}',${amount})" style="width:100%;padding:11px 16px;background:#fff;border:2px solid #e2e8f0;border-radius:10px;cursor:pointer;font-family:inherit;font-size:13px;font-weight:700;color:#475569;text-align:left;transition:.15s" onmouseover="this.style.borderColor='var(--brand,#0d9488)';this.style.color='var(--brand,#0d9488)'" onmouseout="this.style.borderColor='#e2e8f0';this.style.color='#475569'">
-        📤 นำออกจากงวดนี้ — ได้รับเอกสารตั้งหนี้แล้ว
-        <div style="font-size:11px;font-weight:400;color:#94a3b8;margin-top:3px">รายการนี้จะหายออกจากประมาณการ · คืนค่าได้ภายหลัง</div>
-      </button>
+      <div style="background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:12px 14px;margin-bottom:16px">
+        <div style="font-size:13px;font-weight:700;color:#92400e">ซ่อนรายการนี้ออกจากงวดนี้ใช่หรือไม่?</div>
+        <div style="font-size:11.5px;color:#b45309;margin-top:4px;line-height:1.5">ใช้เมื่อได้รับเอกสารตั้งหนี้แล้ว (มีในเจ้าหนี้ AP แล้ว) เพื่อไม่ให้ยอดซ้ำ · รายการจะหายจากประมาณการเฉพาะวันนี้ · คืนค่าได้ภายหลัง</div>
+      </div>
+      <div style="display:flex;gap:10px">
+        <button onclick="document.getElementById('cffRecurCardModal').remove()" style="flex:1;padding:11px 16px;background:#fff;border:2px solid #e2e8f0;border-radius:10px;cursor:pointer;font-family:inherit;font-size:13px;font-weight:700;color:#64748b;transition:.15s" onmouseover="this.style.borderColor='#cbd5e1'" onmouseout="this.style.borderColor='#e2e8f0'">ยกเลิก</button>
+        <button onclick="cffSkipRecurringFromModal('${recurringId}','${dueDate}',${amount})" style="flex:1.4;padding:11px 16px;background:var(--brand,#0d9488);border:2px solid var(--brand,#0d9488);border-radius:10px;cursor:pointer;font-family:inherit;font-size:13px;font-weight:800;color:#fff;transition:.15s;box-shadow:0 4px 12px rgba(13,148,136,.25)" onmouseover="this.style.opacity='.9'" onmouseout="this.style.opacity='1'">📤 ยืนยันซ่อน</button>
+      </div>
     </div>`;
   document.body.appendChild(m);
 }
@@ -13571,20 +13575,20 @@ function cffStaffReportInner(co, dt, R, opts){
                 if(vinfo.items.length === 1){
                   const p = vinfo.items[0]; const sub = vOpen ? subLine(p, ven) : "";
                   const apClick = (interactive && p.type==="ap" && p.apId) ? `onclick="cffOpenPayCard('${p.apId}')" title="คลิกดูรายละเอียด / แก้วันชำระ"` : "";
-                  const recClick = (interactive && p.type==="recurring" && p.recurringId) ? `onclick="cffOpenRecurCard('${p.recurringId}','${p.original_due}',${p.amount},${JSON.stringify(ven).replace(/"/g,'&quot;')})" title="คลิกดูตัวเลือก"` : "";
+                  const recClick = (interactive && p.type==="recurring" && p.recurringId) ? `onclick="cffOpenRecurCard('${p.recurringId}','${p.original_due}',${p.amount},${JSON.stringify(ven).replace(/"/g,'&quot;')})" title="คลิกเพื่อแก้ไข / ซ่อนออกจากงวดนี้"` : "";
                   const rowClick = apClick || recClick;
                   const isClickable = interactive && (p.type==='ap' || (p.type==='recurring'&&p.recurringId));
-                  return `<tr ${rowClick} style="border-top:1px solid #eef2f7${isClickable?';cursor:pointer;transition:background .12s':''}" onmouseover="${isClickable?"this.style.background='#f0f9ff'":''}" onmouseout="${isClickable?"this.style.background=''":''}"><td style="padding:7px 10px 7px 22px"><div style="font-weight:600;color:#334155">${esc(ven)}${(interactive&&p.type==='ap')?` <span style="font-size:10px;color:#94a3b8">✏</span>`:''}</div>${sub?`<div style="font-size:10.5px;color:#64748b;margin-top:2px;line-height:1.4">${sub}</div>`:''}</td><td style="padding:7px 10px;color:#475569;font-size:11px;white-space:nowrap">${esc(fmtDate(p.original_due))}</td><td style="padding:7px 10px;text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;font-weight:600;color:#334155">${nf(p.amount)}</td></tr>`;
+                  return `<tr ${rowClick} style="border-top:1px solid #eef2f7${isClickable?';cursor:pointer;transition:background .12s':''}" onmouseover="${isClickable?"this.style.background='#f0f9ff'":''}" onmouseout="${isClickable?"this.style.background=''":''}"><td style="padding:7px 10px 7px 22px"><div style="font-weight:600;color:#334155">${esc(ven)}${(interactive&&(p.type==='ap'||(p.type==='recurring'&&p.recurringId)))?` <span style="font-size:10px;color:#94a3b8">✏</span>`:''}</div>${sub?`<div style="font-size:10.5px;color:#64748b;margin-top:2px;line-height:1.4">${sub}</div>`:''}</td><td style="padding:7px 10px;color:#475569;font-size:11px;white-space:nowrap">${esc(fmtDate(p.original_due))}</td><td style="padding:7px 10px;text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;font-weight:600;color:#334155">${nf(p.amount)}</td></tr>`;
                 }
                 // ★ เวนเดอร์หลายรายการ → หัวเวนเดอร์ (ชื่อ + จำนวน + ยอดรวม) · กางถึงเห็นรายการเอกสาร
                 const venHead = `<tr style="${interactive?'cursor:pointer;':''}border-top:1px solid #eef2f7" ${interactive?`onclick="cffToggleVendor(${JSON.stringify(cat).replace(/"/g,'&quot;')},${JSON.stringify(ven).replace(/"/g,'&quot;')})"`:''}><td style="padding:7px 10px 7px 9px;color:#334155" colspan="2">${interactive?`<span style="display:inline-block;width:13px;color:var(--brand);font-size:9px">${vOpen?'▾':'▸'}</span>`:''}<span style="font-weight:600">${esc(ven)}</span></td><td style="padding:7px 10px;text-align:right;font-weight:600;color:#334155">${nf(vinfo.total)}</td></tr>`;
                 const items = vOpen ? vinfo.items.map(p => {
                   const sub = subLine(p, ven) || esc(cffDocCode(p));
                   const apClick2 = (interactive && p.type==="ap" && p.apId) ? `onclick="cffOpenPayCard('${p.apId}')" title="คลิกดูรายละเอียด / แก้วันชำระ"` : "";
-                  const recClick2 = (interactive && p.type==="recurring" && p.recurringId) ? `onclick="cffOpenRecurCard('${p.recurringId}','${p.original_due}',${p.amount},${JSON.stringify(ven).replace(/"/g,'&quot;')})" title="คลิกดูตัวเลือก"` : "";
+                  const recClick2 = (interactive && p.type==="recurring" && p.recurringId) ? `onclick="cffOpenRecurCard('${p.recurringId}','${p.original_due}',${p.amount},${JSON.stringify(ven).replace(/"/g,'&quot;')})" title="คลิกเพื่อแก้ไข / ซ่อนออกจากงวดนี้"` : "";
                   const rowClick2 = apClick2 || recClick2;
                   const isClickable2 = interactive && (p.type==='ap' || (p.type==='recurring'&&p.recurringId));
-                  return `<tr ${rowClick2} style="${isClickable2?'cursor:pointer;transition:background .12s':''}" onmouseover="${isClickable2?"this.style.background='#f0f9ff'":''}" onmouseout="${isClickable2?"this.style.background=''":''}"><td style="padding:5px 10px 5px 38px;color:#475569;font-size:11px">${sub}${(interactive&&p.type==='ap')?` <span style="color:#94a3b8;font-size:10px">✏</span>`:''}</td><td style="padding:5px 10px;color:#475569;font-size:11px;white-space:nowrap">${esc(fmtDate(p.original_due))}</td><td style="padding:5px 10px;text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap">${nf(p.amount)}</td></tr>`;
+                  return `<tr ${rowClick2} style="${isClickable2?'cursor:pointer;transition:background .12s':''}" onmouseover="${isClickable2?"this.style.background='#f0f9ff'":''}" onmouseout="${isClickable2?"this.style.background=''":''}"><td style="padding:5px 10px 5px 38px;color:#475569;font-size:11px">${sub}${(interactive&&(p.type==='ap'||(p.type==='recurring'&&p.recurringId)))?` <span style="color:#94a3b8;font-size:10px">✏</span>`:''}</td><td style="padding:5px 10px;color:#475569;font-size:11px;white-space:nowrap">${esc(fmtDate(p.original_due))}</td><td style="padding:5px 10px;text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap">${nf(p.amount)}</td></tr>`;
                 }).join("") : "";
                 return venHead + items;
               }).join("");

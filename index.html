@@ -7846,12 +7846,26 @@ function edPeriodPicker(data, mf){
     </div>`;
   }
 
+  // ★ แถวเดือน (เมื่อเลือกปีแล้ว) — เลือกเดือนเดียวได้ (mf = "YYYY.MM")
+  let mRow = "";
+  if(actYear){
+    const TH_MON_SHORT = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
+    const mList = [...new Set((data.months||[]).filter(m => m.key.slice(0,4)===actYear).map(m => Number(m.key.slice(5,7))))].sort((a,b)=>a-b);
+    if(mList.length){
+      mRow = `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:7px">
+        <span style="font-size:11.5px;color:var(--ink-3);font-weight:600">เดือน ปี ${Number(actYear)+543}</span>
+        ${mList.map(m => { const key = actYear+'.'+String(m).padStart(2,'0'); return btn(mf===key, key, TH_MON_SHORT[m-1]); }).join("")}
+      </div>`;
+    }
+  }
+
   return `<div style="display:flex;flex-direction:column;gap:0;align-items:flex-start">
     <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
       <span style="font-size:11.5px;color:var(--ink-3);font-weight:600;margin-right:2px">ช่วงเวลา</span>
       ${yearBtns}
     </div>
     ${qRow}
+    ${mRow}
   </div>`;
 }
 
@@ -13524,8 +13538,9 @@ function renderToolLoans(){
 /* router: staff (daily LINE) หรือ executive (30d) */
 async function renderToolCashflowForecast(){
   const d = cffGet();
-  if(d.viewMode === "staff") return renderToolCashflowStaff();
-  return renderToolCashflowExec();
+  // ★ มุมมอง "ผู้บริหาร" ปิดชั่วคราว (เจ้าของสั่งเอาออกก่อน) — บังคับใช้หน้า "พนักงาน" เสมอ
+  //   (renderToolCashflowExec ยังอยู่ในไฟล์แต่ไม่ถูกเรียก · เปิดคืนได้ภายหลัง)
+  return renderToolCashflowStaff();
 }
 
 /* ============================
@@ -13852,10 +13867,6 @@ async function renderToolCashflowStaff(){
         <div class="sub">ประมาณการรายรับ-รายจ่าย · ${esc(periodLabel)} · ยอดธนาคาร ณ ${fmtDate(todayISO)} · <span style="color:var(--ink-3)">หน่วย: บาท</span></div>
       </div>
       <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-        <div class="cf-chips" style="background:rgba(var(--brand-rgb),.08);padding:3px;border-radius:9px">
-          <button class="${d.viewMode==='staff'?'active':''}" onclick="cffSetView('staff')">📋 พนักงาน</button>
-          <button class="${d.viewMode==='executive'?'active':''}" onclick="cffSetView('executive')">📊 ผู้บริหาร</button>
-        </div>
         <button class="btn ghost btn sm ${detailOpen?'active':''}" onclick="cffToggleStaffDetail()"><i data-lucide="${detailOpen?'eye-off':'sliders-horizontal'}"></i>${detailOpen?'ซ่อนรายละเอียด':'รายละเอียดเพิ่มเติม'}</button>
         <button class="btn ghost btn sm" onclick="cffOpenSnapshotStaff()"><i data-lucide="image"></i>Snapshot</button>
       </div>

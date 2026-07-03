@@ -177,6 +177,11 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-03 — Cash Flow: ปิดมุมมองผู้บริหาร (ชั่วคราว) + Exec Dashboard เลือกเดือนได้
+- **ย้าย Cash Flow Forecast → กลุ่ม "ภาพรวม" อันดับ 3** (หลัง Executive Cash Flow) — เปลี่ยน `stage` ของ tool `cashflow` เป็น `"ภาพรวม"` · 2 หน้าที่ผู้บริหารดู (execdash+cashflow) อยู่กลุ่มเดียวกัน · `PRESENT_TOOLS`/`page_permissions` คุมด้วย tool id ไม่กระทบ
+- **ปิดมุมมอง "ผู้บริหาร" ในหน้า Cash Flow Forecast (ชั่วคราว):** `renderToolCashflowForecast` บังคับ `return renderToolCashflowStaff()` เสมอ (เดิม dispatch ตาม `d.viewMode`) · ถอดปุ่มสลับ 📋 พนักงาน / 📊 ผู้บริหาร ออกจาก toolbar หน้าพนักงาน · **`renderToolCashflowExec` + `cffSetView` ยังอยู่ในไฟล์ (dead) เปิดคืนได้ภายหลัง**
+- **Exec Cash Flow — เลือกเดือนได้:** `edPeriodPicker` เพิ่ม "แถวเดือน" (โผล่เมื่อเลือกปีแล้ว · ต่อจากแถวไตรมาส) — ปุ่มเดือนไทยย่อ (ม.ค.–ธ.ค.) เฉพาะเดือนที่มีข้อมูลในปีนั้น → `edSetMonth("YYYY.MM")` (backend `edScopeMonthKeys`/`edTxsInScope` รองรับ single-month อยู่แล้ว · เดิมมีแค่ปี→ไตรมาส)
+
 ### 2026-07-03 — AP Outstanding: จ่ายชำระหลายรายการพร้อมกัน (bulk pay) + วันที่จ่ายจริง
 - **เจ้าของขอ:** จ่ายเจ้าหนี้ทีละหลายบิลได้ — ติ๊กเลือกหลายรายการ (หรือติ๊กทั้งหมดในตัวกรอง) → ใส่ "วันที่จ่ายจริง" → กด "จ่ายชำระแล้ว"
 - **คอลัมน์ checkbox ใหม่** ใน `apoBuildTable` (คอลัมน์แรก · เฉพาะ `canWrite`): master checkbox หัวตาราง (`apoToggleSelectAll` — เลือกทุกบิลที่ค้างจ่ายในตัวกรองปัจจุบัน · indeterminate เมื่อเลือกบางส่วน) + checkbox รายแถว (เฉพาะบิล `amount_outstanding>0 && status!=='paid'`)

@@ -13178,6 +13178,9 @@ function cffBankDistribute(filtered, balances){
 }
 /* ลบรายการค่าใช้จ่ายประจำออกจากประมาณการ (เฉพาะวันนั้น) → upsert occurrence = skipped */
 function cffOpenRecurCard(recurringId, dueDate, amount, name){
+  // ★ fmtDate/nf เป็น local ใน cffStaffReportInner เท่านั้น — ที่นี่ต้องนิยามเอง (เดิมเรียก global ที่ไม่มี → throw → modal ไม่ขึ้น)
+  const fmtDate = (iso) => iso ? new Date(iso).toLocaleDateString("th-TH",{day:"2-digit",month:"short"}) : "";
+  const nf = (n) => Number(n||0).toLocaleString("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2});
   document.getElementById('cffRecurCardModal')?.remove();
   const m = document.createElement('div');
   m.id = 'cffRecurCardModal';

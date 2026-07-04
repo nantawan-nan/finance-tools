@@ -16314,6 +16314,48 @@ function brecInjectCSS(){
   const s = document.createElement("style"); s.id = "brec-styles";
   s.textContent = `
   .brec-wrap{font-family:inherit}
+  /* ==== CATBOT (จัดหมวด AI) ==== */
+  .cb-intro{background:#fff;border:1px solid var(--line,#e2e8f0);border-radius:14px;padding:28px 24px;text-align:center;display:flex;flex-direction:column;align-items:center;gap:16px}
+  .cb-hero{display:flex;align-items:center;gap:16px;text-align:left;max-width:760px}
+  .cb-hero-ic{flex:none;width:52px;height:52px;border-radius:14px;background:linear-gradient(135deg,var(--brand,#0d9488),color-mix(in srgb,var(--brand,#0d9488) 60%,#fff));display:flex;align-items:center;justify-content:center;color:#fff}
+  .cb-hero-ic i{width:26px;height:26px}
+  .cb-hero-t{font-size:18px;font-weight:800;color:var(--ink,#0f172a)}
+  .cb-hero-s{font-size:13px;color:var(--ink-2,#475569);line-height:1.6;margin-top:3px}
+  .cb-note-sm{font-size:12px;color:var(--ink-3,#94a3b8);max-width:640px;line-height:1.5}
+  .cb-err{background:#fef2f2;border:1px solid #fecaca;color:#b91c1c;border-radius:10px;padding:10px 14px;font-size:13px;font-weight:600;margin-bottom:12px}
+  .cb-ok-banner{background:linear-gradient(135deg,#f0fdf4,#ecfdf5);border:1px solid #bbf7d0;border-left:4px solid #16a34a;color:#166534;border-radius:11px;padding:11px 16px;font-size:13px;font-weight:700;margin-bottom:12px;display:flex;align-items:center;gap:8px}
+  .cb-ok-banner i{width:17px;height:17px}
+  .cb-toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:10px}
+  .cb-chips{display:inline-flex;gap:6px;flex-wrap:wrap}
+  .cb-chip{border:1px solid var(--line,#e2e8f0);background:#fff;border-radius:999px;padding:6px 13px;font:600 12.5px/1 inherit;color:var(--ink-2,#475569);cursor:pointer;display:inline-flex;gap:6px;align-items:center}
+  .cb-chip b{font-weight:800}
+  .cb-chip.active{background:var(--brand,#0d9488);color:#fff;border-color:var(--brand,#0d9488)}
+  .cb-chip.ok.active{background:#16a34a;border-color:#16a34a}
+  .cb-chip.rv.active{background:#d97706;border-color:#d97706}
+  .cb-legend{font-size:12px;color:var(--ink-2,#475569);margin-bottom:10px}
+  .cb-legend b{color:var(--ink,#0f172a);font-weight:800}
+  .cb-table{border:1px solid var(--line,#e2e8f0);border-radius:12px;overflow:hidden;background:#fff}
+  .cb-row{display:grid;grid-template-columns:88px 62px 118px 1fr 300px 96px;align-items:center;gap:10px;padding:8px 14px;border-bottom:1px solid #f1f5f9}
+  .cb-row.head{background:#f8fafc;font:700 11px/1.2 inherit;color:var(--ink-3,#94a3b8);text-transform:uppercase;letter-spacing:.4px;position:sticky;top:0;z-index:2}
+  .cb-row:last-child{border-bottom:none}
+  .cb-row.ok{background:#fbfffe}
+  .cb-row.review{background:#fffdf5}
+  .cb-row.none{background:#fff7f7}
+  .cb-c{font-size:12.5px;color:var(--ink,#0f172a);min-width:0}
+  .cb-c.date{font-variant-numeric:tabular-nums;color:var(--ink-2,#475569)}
+  .cb-c.amt{text-align:right;font-variant-numeric:tabular-nums;font-weight:700}
+  .cb-c.amt.in{color:#0f766e}.cb-c.amt.out{color:#be185d}
+  .cb-dir{font-size:11px;font-weight:700;padding:2px 9px;border-radius:999px}
+  .cb-dir.in{background:#ccfbf1;color:#0f766e}.cb-dir.out{background:#fce7f3;color:#be185d}
+  .cb-c.rem .t{font-size:12.5px;color:var(--ink,#0f172a);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .cb-c.rem .s{font-size:10.5px;color:var(--ink-3,#94a3b8);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .cb-sel{width:100%;border:1px solid var(--line,#e2e8f0);border-radius:8px;padding:5px 8px;font:600 12px/1.2 inherit;background:#fff;color:var(--ink,#0f172a);cursor:pointer}
+  .cb-sel.empty{border-color:#fca5a5;background:#fff1f2}
+  .cb-badge{font-size:11px;font-weight:700;padding:3px 10px;border-radius:999px;white-space:nowrap}
+  .cb-badge.ok{background:#dcfce7;color:#15803d}
+  .cb-badge.rv{background:#fef3c7;color:#b45309}
+  .cb-badge.no{background:#fee2e2;color:#b91c1c}
+  @media(max-width:900px){.cb-row{grid-template-columns:72px 52px 92px 1fr 180px 78px;gap:6px}.cb-c.rem .s{display:none}}
   .brec-toolbar{background:#fff;border:1px solid var(--line);border-radius:14px;padding:12px 16px;display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-bottom:14px;box-shadow:var(--shadow,0 1px 3px rgba(0,0,0,.05))}
   .brec-toolbar .fld{display:flex;flex-direction:column;gap:3px}
   .brec-toolbar label{font-size:10.5px;color:var(--ink-3,#94a3b8);font-weight:700;text-transform:uppercase;letter-spacing:.4px}
@@ -16680,6 +16722,466 @@ function brecConfHTML(m){
   return `<div class="brec-conf"><span class="brec-tag ${cls}">${lbl}</span><div class="w">${esc(m.match_reason||"")}</div></div>`;
 }
 
+// ==== CATBOT (auto-categorize) — inserted block ====
+const CATBOT_CATS = [
+  "รายรับเกี่ยวกับช่องทาง Dealer",
+  "รายรับเกี่ยวกับช่องทาง Social Media",
+  "รายรับเกี่ยวกับโอนเงินระหว่างบัญชี",
+  "รายรับเกี่ยวกับเงินกู้ยืมกรรมการ",
+  "รายรับอื่นๆ",
+  "รายรับเกี่ยวกับเงินกู้ยืมตามสัญญา",
+  "รายรับคืนเงินสดย่อย",
+  "รายจ่ายเกี่ยวกับค่าโทรศัพท์และอินเทอร์เน็ต",
+  "รายจ่ายเกี่ยวกับโอนเงินระหว่างบัญชี",
+  "รายจ่ายเกี่ยวกับค่าธรรมเนียมธนาคาร",
+  "รายจ่ายเกี่ยวกับกองทุนและประกันสังคม",
+  "รายจ่ายเกี่ยวกับค่าอินฟลูเอนเซอร์และค่าโฆษณา",
+  "รายจ่ายเกี่ยวกับค่าขนส่ง",
+  "รายจ่ายเกี่ยวกับค่าธรรมเนียมอื่นๆ",
+  "รายจ่ายเกี่ยวกับค่าเช่า",
+  "รายจ่ายเกี่ยวกับการขายผลิตภัณฑ์",
+  "รายการจ่ายเกี่ยวกับการวิจัยและพัฒนาผลิตภัณฑ์",
+  "รายจ่ายเกี่ยวกับค่าวัสดุ อุปกรณ์สำนักงาน",
+  "รายจ่ายเกี่ยวกับสติ๊กเกอร์และบรรจุภัณฑ์ของผลิตภัณฑ์",
+  "รายจ่ายเกี่ยวกับเงินสดย่อย",
+  "รายจ่ายเกี่ยวกับค่าใช้จ่ายด้านระบบสารสนเทศ / ค่าสมาชิกโปรแกรม",
+  "รายจ่ายเกี่ยวกับภาษี",
+  "รายจ่ายเกี่ยวกับสวัสดิการอื่นๆ พนักงาน",
+  "รายจ่ายเกี่ยวกับค่าขนส่งและบรรจุภัณฑ์ในการจัดส่ง",
+  "รายจ่ายเกี่ยวกับค่าซ่อมแซมอุปกรณ์",
+  "รายจ่ายเกี่ยวกับเงินเดือนและค่าจ้าง",
+  "รายจ่ายเกี่ยวกับค่าอบรมและสัมนา",
+  "รายจ่ายเกี่ยวกับต้นทุนสินค้าและวัตถุดิบ",
+  "รายจ่ายเกี่ยวกับค่าที่พัก ค่าเดินทาง ค่าน้ำมัน",
+  "รายจ่ายเกี่ยวกับค่าใช้อื่น ๆ",
+  "รายจ่ายเกี่ยวกับการซื้อทรัพย์สิน",
+  "รายจ่ายเกี่ยวกับการซื้อทรัพย์สินไม่มีตัวตน",
+  "รายจ่ายเกี่ยวกับค่าทำบัญชีและค่าตรวจสอบบัญชี",
+  "รายจ่ายเกี่ยวกับยานพาหนะ",
+  "รายจ่ายเกี่ยวกับกองทุนเงินกู้ยืมเพื่อการศึกษา (กยศ.-กรอ.)",
+  "รายจ่ายเกี่ยวกับเงินสดย่อย/เงินสำรองจ่ายจ่าย",
+  "รายจ่ายเกี่ยวกับค่าใช้จ่ายในการขาย",
+  "รายจ่ายเกี่ยวกับการเปิดบริษัทฯ ในต่างประเทศ",
+  "รายจ่ายเกี่ยวเงินประกันต่าง ๆ",
+  "รายจ่ายเกี่ยวกับซื้อทรัพย์สินและอุปกรณ์"
+];
+
+const CATBOT_CAT_ACT = {
+  "รายรับเกี่ยวกับช่องทาง Dealer": "กิจกรรมดำเนินงาน",
+  "รายรับเกี่ยวกับช่องทาง Social Media": "กิจกรรมดำเนินงาน",
+  "รายจ่ายเกี่ยวกับค่าโทรศัพท์และอินเทอร์เน็ต": "กิจกรรมดำเนินงาน",
+  "รายจ่ายเกี่ยวกับโอนเงินระหว่างบัญชี": "กิจกรรมดำเนินงาน",
+  "รายจ่ายเกี่ยวกับค่าธรรมเนียมธนาคาร": "กิจกรรมดำเนินงาน",
+  "รายรับเกี่ยวกับโอนเงินระหว่างบัญชี": "กิจกรรมดำเนินงาน",
+  "รายจ่ายเกี่ยวกับกองทุนและประกันสังคม": "กิจกรรมดำเนินงาน",
+  "รายจ่ายเกี่ยวกับค่าอินฟลูเอนเซอร์และค่าโฆษณา": "กิจกรรมดำเนินงาน",
+  "รายจ่ายเกี่ยวกับค่าขนส่ง": "กิจกรรมดำเนินงาน",
+  "รายจ่ายเกี่ยวกับค่าธรรมเนียมอื่นๆ": "กิจกรรมดำเนินงาน",
+  "รายจ่ายเกี่ยวกับค่าเช่า": "กิจกรรมดำเนินงาน",
+  "รายจ่ายเกี่ยวกับการขายผลิตภัณฑ์": "กิจกรรมดำเนินงาน",
+  "รายการจ่ายเกี่ยวกับการวิจัยและพัฒนาผลิตภัณฑ์": "กิจกรรมดำเนินงาน",
+  "รายจ่ายเกี่ยวกับค่าวัสดุ อุปกรณ์สำนักงาน": "กิจกรรมดำเนินงาน",
+  "รายจ่ายเกี่ยวกับสติ๊กเกอร์และบรรจุภัณฑ์ของผลิตภัณฑ์": "กิจกรรมดำเนินงาน",
+  "รายจ่ายเกี่ยวกับเงินสดย่อย": "กิจกรรมดำเนินงาน",
+  "รายจ่ายเกี่ยวกับค่าใช้จ่ายด้านระบบสารสนเทศ / ค่าสมาชิกโปรแกรม": "กิจกรรมดำเนินงาน",
+  "รายจ่ายเกี่ยวกับภาษี": "กิจกรรมดำเนินงาน",
+  "รายรับเกี่ยวกับเงินกู้ยืมกรรมการ": "กิจกรรมจัดหาเงิน",
+  "รายจ่ายเกี่ยวกับสวัสดิการอื่นๆ พนักงาน": "กิจกรรมดำเนินงาน",
+  "รายจ่ายเกี่ยวกับค่าขนส่งและบรรจุภัณฑ์ในการจัดส่ง": "กิจกรรมดำเนินงาน",
+  "รายจ่ายเกี่ยวกับค่าซ่อมแซมอุปกรณ์": "กิจกรรมดำเนินงาน",
+  "รายจ่ายเกี่ยวกับเงินเดือนและค่าจ้าง": "กิจกรรมดำเนินงาน",
+  "รายรับอื่นๆ": "กิจกรรมดำเนินงาน",
+  "รายจ่ายเกี่ยวกับค่าอบรมและสัมนา": "กิจกรรมดำเนินงาน",
+  "รายจ่ายเกี่ยวกับต้นทุนสินค้าและวัตถุดิบ": "กิจกรรมดำเนินงาน",
+  "รายรับเกี่ยวกับเงินกู้ยืมตามสัญญา": "กิจกรรมจัดหาเงิน",
+  "รายจ่ายเกี่ยวกับค่าที่พัก ค่าเดินทาง ค่าน้ำมัน": "กิจกรรมดำเนินงาน",
+  "รายจ่ายเกี่ยวกับค่าใช้อื่น ๆ": "กิจกรรมดำเนินงาน",
+  "รายจ่ายเกี่ยวกับการซื้อทรัพย์สิน": "กิจกรรมลงทุน",
+  "รายจ่ายเกี่ยวกับการซื้อทรัพย์สินไม่มีตัวตน": "กิจกรรมลงทุน",
+  "รายจ่ายเกี่ยวกับค่าทำบัญชีและค่าตรวจสอบบัญชี": "กิจกรรมดำเนินงาน",
+  "รายรับคืนเงินสดย่อย": "กิจกรรมดำเนินงาน",
+  "รายจ่ายเกี่ยวกับยานพาหนะ": "กิจกรรมดำเนินงาน",
+  "รายจ่ายเกี่ยวกับกองทุนเงินกู้ยืมเพื่อการศึกษา (กยศ.-กรอ.)": "กิจกรรมดำเนินงาน",
+  "รายจ่ายเกี่ยวกับเงินสดย่อย/เงินสำรองจ่ายจ่าย": "กิจกรรมดำเนินงาน",
+  "รายจ่ายเกี่ยวกับค่าใช้จ่ายในการขาย": "กิจกรรมดำเนินงาน",
+  "รายจ่ายเกี่ยวกับการเปิดบริษัทฯ ในต่างประเทศ": "กิจกรรมลงทุน",
+  "รายจ่ายเกี่ยวเงินประกันต่าง ๆ": "กิจกรรมลงทุน",
+  "รายจ่ายเกี่ยวกับซื้อทรัพย์สินและอุปกรณ์": "กิจกรรมลงทุน"
+};
+
+const CATBOT_INCOME = new Set(["รายรับเกี่ยวกับช่องทาง Dealer","รายรับเกี่ยวกับช่องทาง Social Media","รายรับเกี่ยวกับโอนเงินระหว่างบัญชี","รายรับเกี่ยวกับเงินกู้ยืมกรรมการ","รายรับอื่นๆ","รายรับเกี่ยวกับเงินกู้ยืมตามสัญญา","รายรับคืนเงินสดย่อย"]);
+
+/* ============================================================================
+   CATBOT — จัดหมวดเงินรับ-เงินจ่ายอัตโนมัติ (Auto-categorize)
+   หน้า Bank Reconciliation แท็บ "จัดหมวด (AI)"
+   อัปงบกระทบยอด (Express XML) ดิบ → เดาหมวด (40 หมวด locked) → รีวิว → ยืนยัน
+   ยืนยัน = เรียนรู้ (upsert catbot_rules) + ส่งออก Excel + ดันเข้า Exec Dashboard
+   ============================================================================ */
+
+// normalize หมายเหตุ — ต้องตรงกับ seed ใน supabase/catbot-rules.sql เป๊ะ
+function catbotNorm(s){
+  s = (s||"").replace(/ /g," ");
+  s = s.replace(/ด\.?\s?\d{1,2}[\/.]\d{2,4}/g,"");
+  s = s.replace(/\d{1,2}[\/.]\d{1,2}[\/.]\d{2,4}/g,"");
+  s = s.replace(/\s+/g," ");
+  return s.trim();
+}
+function catbotVendor(s){
+  s = s||"";
+  return s.indexOf("/")>=0 ? s.split("/").pop().trim() : "";
+}
+function catbotActOf(cat){ return CATBOT_CAT_ACT[cat] || "กิจกรรมดำเนินงาน"; }
+
+// กฎ keyword เฉพาะทาง (ลำดับสำคัญ) — ครอบเคสที่ exact/vendor ยังไม่จำ
+function catbotKeyword(remark, dir){
+  const s = remark||"";
+  const has = (...ks)=> ks.some(k=> s.indexOf(k)>=0);
+  if(has("โอนระหว่างบัญชี","โอนเงินระหว่างบัญชี") ||
+     /โอนมาจาก\s*(SCB|BBL|KBANK|KTB|BAY)/i.test(s) || /ไปเข้า\s*(SCB|BBL|KBANK|KTB|BAY)/i.test(s))
+    return { cat: dir==="in" ? "รายรับเกี่ยวกับโอนเงินระหว่างบัญชี" : "รายจ่ายเกี่ยวกับโอนเงินระหว่างบัญชี", conf:0.95 };
+  if(has("ค่าธรรมเนียมธนาคาร")) return { cat:"รายจ่ายเกี่ยวกับค่าธรรมเนียมธนาคาร", conf:0.95 };
+  if(has("ภาษีถูกหัก ณ ที่จ่าย","ภาษีหัก ณ ที่จ่าย","ภ.ง.ด","ภงด","หัก ณ ที่จ่าย"))
+    return { cat:"รายจ่ายเกี่ยวกับภาษี", conf:0.9 };
+  if(has("กยศ","กู้ยืมเพื่อการศึกษา"))
+    return { cat:"รายจ่ายเกี่ยวกับกองทุนเงินกู้ยืมเพื่อการศึกษา (กยศ.-กรอ.)", conf:0.85 };
+  if(has("ประกันสังคม","ปกส","สมทบกองทุน","กองทุนสำรองเลี้ยงชีพ","กองทุนสํารองเลี้ยงชีพ","สมทบประกันสังคม"))
+    return { cat:"รายจ่ายเกี่ยวกับกองทุนและประกันสังคม", conf:0.9 };
+  if(dir==="in" && has("ดอกเบี้ยรับ","ดอกเบี้ยเงินฝาก","รายได้ดอกเบี้ย"))
+    return { cat:"รายรับอื่นๆ", conf:0.9 };
+  if(has("อินเทอร์เน็ต","อินเตอร์เน็ต","ค่าโทรศัพท์","โทรศัพท์"))
+    return { cat:"รายจ่ายเกี่ยวกับค่าโทรศัพท์และอินเทอร์เน็ต", conf:0.88 };
+  if(has("Google Workspace","ค่าบริการWeb","Google Asia","Microsoft","โปรแกรม"))
+    return { cat:"รายจ่ายเกี่ยวกับค่าใช้จ่ายด้านระบบสารสนเทศ / ค่าสมาชิกโปรแกรม", conf:0.82 };
+  if(has("อินฟลู","ค่าโฆษณา","รีวิว","โฆษณา"))
+    return { cat:"รายจ่ายเกี่ยวกับค่าอินฟลูเอนเซอร์และค่าโฆษณา", conf:0.8 };
+  if(has("ค่าเช่า")) return { cat:"รายจ่ายเกี่ยวกับค่าเช่า", conf:0.82 };
+  if(has("เงินเดือน")) return { cat:"รายจ่ายเกี่ยวกับเงินเดือนและค่าจ้าง", conf:0.82 };
+  if(dir==="in" && has("คืนเงินสดย่อย")) return { cat:"รายรับคืนเงินสดย่อย", conf:0.8 };
+  if(dir==="out" && has("เบิกเงินสดย่อย","เงินสดย่อย")) return { cat:"รายจ่ายเกี่ยวกับเงินสดย่อย", conf:0.75 };
+  if(dir==="in"){
+    if(has("DEALER","Dealer","ตัวแทน","วีไลฟ์","แคร์ คอร์เนอร์"))
+      return { cat:"รายรับเกี่ยวกับช่องทาง Dealer", conf:0.85 };
+    if(/TIKTOK|SHOPEE|LAZADA|FACEBOOK|Facebook|Line|LINE|Zort|ซอร์ท|QI\s*CARE|Qi\s*care|BETRA|Betra/i.test(s))
+      return { cat:"รายรับเกี่ยวกับช่องทาง Social Media", conf:0.85 };
+  }
+  return null;
+}
+
+function catbotBest(bucket){
+  let best=null, bw=-1, sum=0;
+  for(const c in bucket){ sum += bucket[c]; if(bucket[c]>bw){ bw=bucket[c]; best=c; } }
+  return { cat:best, w:bw, share: sum? bw/sum : 0 };
+}
+
+// ทำนาย 1 แถว → { category, activity, conf, method, share }
+function catbotPredict(remark, dir, model){
+  const key = catbotNorm(remark);
+  const ex = model && model.exact[dir+"|"+key];
+  if(ex){ const b=catbotBest(ex); return { category:b.cat, activity:catbotActOf(b.cat), conf:0.99, method:"exact", share:b.share }; }
+  const kw = catbotKeyword(remark, dir);
+  if(kw) return { category:kw.cat, activity:catbotActOf(kw.cat), conf:kw.conf, method:"keyword", share:1 };
+  const ven = catbotVendor(remark);
+  if(ven && ven.length>=3 && model){
+    const vm = model.vendor[dir+"|"+ven];
+    if(vm){ const b=catbotBest(vm); return { category:b.cat, activity:catbotActOf(b.cat), conf:0.5+0.45*b.share, method:"vendor", share:b.share }; }
+  }
+  return { category:"", activity:"", conf:0, method:"none", share:0 };
+}
+// tier: 'ok' = มั่นใจ (เติมให้) · 'review' = ต้องรีวิว · 'none' = เดาไม่ได้
+function catbotTier(p){
+  if(!p.category) return "none";
+  if(p.method==="exact") return "ok";
+  if(p.method==="keyword" && p.conf>=0.85) return "ok";
+  if(p.method==="vendor" && p.share>=0.8) return "ok";
+  return "review";
+}
+
+function catbotGet(d){
+  if(!d.catbot) d.catbot = { accounts:[], model:null, loaded:false, busy:false, filter:"all", note:"", err:"", fileNames:[] };
+  return d.catbot;
+}
+
+// โหลด rules ทั้งหมดของบริษัท → สร้าง model (แบ่งหน้ากัน cap 1000)
+async function catbotLoadModel(){
+  const cid = await edCompanyId();
+  const model = { exact:{}, vendor:{}, cid };
+  if(!cid) return model;
+  let from=0; const PAGE=1000;
+  for(;;){
+    const { data, error } = await sb.from("catbot_rules")
+      .select("dir,match_type,pattern,category,weight")
+      .eq("company_id", cid).range(from, from+PAGE-1);
+    if(error){ console.warn("[catbot] load rules", error); break; }
+    if(!data || !data.length) break;
+    for(const r of data){
+      const bucket = r.match_type==="exact" ? model.exact : (r.match_type==="vendor" ? model.vendor : null);
+      if(!bucket) continue;
+      const k = r.dir+"|"+r.pattern;
+      if(!bucket[k]) bucket[k]={};
+      bucket[k][r.category] = (bucket[k][r.category]||0) + (r.weight||1);
+    }
+    if(data.length<PAGE) break;
+    from += PAGE;
+  }
+  return model;
+}
+
+// อัปโหลดงบกระทบยอด (Express XML) หลายไฟล์ → parse + predict
+function catbotUpload(){
+  const inp = document.createElement("input");
+  inp.type="file"; inp.accept=".xml"; inp.multiple=true;
+  inp.onchange = async e=>{
+    const files = Array.from(e.target.files||[]);
+    if(!files.length) return;
+    const d = brecGet(); const cb = catbotGet(d);
+    cb.busy=true; cb.err=""; cb.note=""; brecRefresh();
+    try{
+      if(!cb.model){ cb.model = await catbotLoadModel(); cb.loaded=true; }
+      for(const f of files){
+        const text = await f.text();
+        let parsed;
+        try{ parsed = brecParseExpressXml(text); }
+        catch(err){ cb.err = "ไฟล์ "+f.name+": "+(err.message||err); continue; }
+        const rws = (parsed.rows||[]).filter(r=> (r.withdrawal||0)>0 || (r.deposit||0)>0);
+        if(!rws.length) continue;
+        const f0 = rws[0];
+        const opening = (f0.balance!=null ? f0.balance - ((f0.deposit||0)-(f0.withdrawal||0)) : 0);
+        const monthKey = ((parsed.periodTo||parsed.periodFrom||rws[rws.length-1].txn_date)||"").slice(0,7).replace("-",".");
+        const rowObjs = rws.map(r=>{
+          const dir = (r.deposit||0)>0 ? "in" : "out";
+          const p = catbotPredict(r.remark, dir, cb.model);
+          return { date:r.txn_date, dir, wd:r.withdrawal||0, dep:r.deposit||0,
+                   amount:(r.deposit||0)>0?r.deposit:r.withdrawal, remark:r.remark||"",
+                   docNo:r.doc_no||"", mne:r.mne||"", cheque:r.cheque_status||"", balance:r.balance,
+                   cat:p.category, act:p.activity||catbotActOf(p.category), method:p.method,
+                   conf:p.conf, share:p.share, tier:catbotTier(p) };
+        });
+        cb.accounts.push({ bank:parsed.bankCode||"", accountNo:parsed.accountNo||"",
+          digits:(parsed.accountNo||"").replace(/\D/g,""), opening, monthKey,
+          from:parsed.periodFrom, to:parsed.periodTo, fileName:f.name, rows:rowObjs });
+        cb.fileNames.push(f.name);
+      }
+      cb.busy=false; brecRefresh();
+    }catch(err){ cb.busy=false; cb.err = String(err.message||err); brecRefresh(); }
+  };
+  inp.click();
+}
+
+function catbotFlatRows(cb){
+  const out=[];
+  cb.accounts.forEach((a,ai)=> a.rows.forEach((r,ri)=> out.push({ r, ai, ri, acct:a })));
+  return out;
+}
+function catbotCounts(cb){
+  const all = catbotFlatRows(cb);
+  return { total:all.length,
+    ok: all.filter(x=>x.r.tier==="ok").length,
+    review: all.filter(x=>x.r.tier==="review").length,
+    none: all.filter(x=>x.r.tier==="none").length };
+}
+function catbotSetCat(ai,ri,val){
+  const cb = catbotGet(brecGet()); const a=cb.accounts[ai]; if(!a) return;
+  const r=a.rows[ri]; if(!r) return;
+  r.cat = val; r.act = catbotActOf(val); r.method="manual"; r.tier = val? "ok":"none"; r.edited=true;
+  brecRefresh();
+}
+function catbotSetFilter(f){ catbotGet(brecGet()).filter=f; brecRefresh(); }
+function catbotClear(){
+  if(!confirm("ล้างรายการที่อัปไว้ทั้งหมด? (ยังไม่ได้บันทึกจะหาย)")) return;
+  const d=brecGet(); d.catbot = { accounts:[], model:(d.catbot||{}).model, loaded:true, busy:false, filter:"all", note:"", err:"", fileNames:[] };
+  brecRefresh();
+}
+
+// สร้าง book { sheets:{ "YYYY.MM": aoa }, names } ตาม layout ที่ edParse อ่าน
+function catbotBuildBook(cb){
+  const co = COMPANIES.find(c=>c.id===state.company);
+  const coName = co? co.name : "";
+  const byMonth = {};
+  cb.accounts.forEach(a=>{ (byMonth[a.monthKey] = byMonth[a.monthKey]||[]).push(a); });
+  const sheets={}, names=[];
+  for(const mk in byMonth){
+    const aoa=[]; let first=true;
+    aoa.push([coName]);
+    for(const a of byMonth[mk]){
+      if(!first) aoa.push([]);
+      first=false;
+      aoa.push(["รายการเคลื่อนไหวบัญชีธนาคาร","","","S/A #"+(a.bank||"")+" "+(a.accountNo||"")]);
+      aoa.push(["","สมุดบัญชีเลขที่","",a.digits||a.accountNo||""]);
+      aoa.push(["วันที่","MNE","เลขที่","ยอดถอน","ยอดฝาก","ยอดคงเหลือ","สถานะเช็ค","หมายเหตุ","หมวดเงินรับ-เงินจ่าย","ประเภทกิจกรรมทางการเงิน"]);
+      aoa.push([" ","","ยอดยกมา"," "," ",a.opening!=null?a.opening:""]);
+      for(const r of a.rows){
+        aoa.push([ new Date(r.date), r.mne, r.docNo,
+          r.wd? r.wd : "", r.dep? r.dep : "", (r.balance!=null?r.balance:""),
+          r.cheque, r.remark, r.cat||"ไม่ระบุหมวด", r.act||catbotActOf(r.cat) ]);
+      }
+    }
+    sheets[mk]=aoa; names.push(mk);
+  }
+  return { sheets, names };
+}
+
+function catbotExportExcel(cb){
+  const book = catbotBuildBook(cb);
+  const wb = XLSX.utils.book_new();
+  for(const mk of book.names){
+    const ws = XLSX.utils.aoa_to_sheet(book.sheets[mk], { cellDates:true });
+    XLSX.utils.book_append_sheet(wb, ws, mk);
+  }
+  const co = COMPANIES.find(c=>c.id===state.company);
+  const fn = (co?co.code:"CO")+"_รายละเอียดเงินรับเงินจ่าย_"+book.names.join("_")+".xlsx";
+  XLSX.writeFile(wb, fn);
+  return fn;
+}
+
+// เรียนรู้ — upsert exact + vendor rules (weight = ของเดิม + จำนวนในรอบนี้)
+async function catbotLearn(cb){
+  const cid = (cb.model && cb.model.cid) || await edCompanyId();
+  if(!cid) return 0;
+  const acc = {};
+  const bump=(dir,mt,pat,cat,act)=>{
+    if(!pat || !cat) return;
+    const k=dir+"|"+mt+"|"+pat+"|"+cat;
+    if(!acc[k]) acc[k]={ dir, match_type:mt, pattern:pat, category:cat, activity:act||catbotActOf(cat), inc:0 };
+    acc[k].inc++;
+  };
+  for(const a of cb.accounts) for(const r of a.rows){
+    if(!r.cat) continue;
+    bump(r.dir,"exact",catbotNorm(r.remark),r.cat,r.act);
+    const v=catbotVendor(r.remark); if(v && v.length>=3) bump(r.dir,"vendor",v,r.cat,r.act);
+  }
+  const model=cb.model||{exact:{},vendor:{}};
+  const payload=[];
+  for(const k in acc){
+    const a=acc[k];
+    const bucket = a.match_type==="exact"?model.exact:model.vendor;
+    const mk=a.dir+"|"+a.pattern;
+    const prev = (bucket[mk] && bucket[mk][a.category]) || 0;
+    const w = prev + a.inc;
+    payload.push({ company_id:cid, dir:a.dir, match_type:a.match_type, pattern:a.pattern,
+      category:a.category, activity:a.activity, weight:w, source:"user",
+      created_by:(AUTH.user&&AUTH.user.id)||null, updated_at:new Date().toISOString() });
+    if(!bucket[mk]) bucket[mk]={};
+    bucket[mk][a.category]=w;
+  }
+  for(let i=0;i<payload.length;i+=500){
+    const chunk=payload.slice(i,i+500);
+    const { error } = await sb.from("catbot_rules").upsert(chunk, { onConflict:"company_id,dir,match_type,pattern,category" });
+    if(error){ console.warn("[catbot] learn upsert", error); throw new Error("บันทึกการเรียนรู้ล้มเหลว: "+(error.message||error)); }
+  }
+  return payload.length;
+}
+
+// ดันเข้า Executive Dashboard (sync cloud ก่อน กันเดือนอื่นหาย → merge → save)
+async function catbotPushExec(cb){
+  await edSyncFromCloud();
+  const nd = edParse(catbotBuildBook(cb));
+  if(!nd.months.length) throw new Error("สร้างข้อมูลสำหรับ Exec Dashboard ไม่สำเร็จ");
+  const dED = edState();
+  dED.data = (dED.data && dED.data.months && dED.data.months.length) ? edMergeData(dED.data, nd) : nd;
+  dED.file = "จัดหมวด (AI) — "+cb.fileNames.join(", ");
+  dED.mergeMsg = null;
+  edSave();
+  await edSaveCloud();
+}
+
+async function catbotConfirm(){
+  const d=brecGet(); const cb=catbotGet(d);
+  const cnt=catbotCounts(cb);
+  const blank = catbotFlatRows(cb).filter(x=>!x.r.cat).length;
+  if(!cnt.total){ alert("ยังไม่มีรายการ — อัปโหลดงบกระทบยอดก่อน"); return; }
+  if(blank && !confirm("มี "+blank+" รายการที่ยังไม่ได้เลือกหมวด — จะบันทึกโดยข้ามรายการเหล่านั้นไว้ก่อน?\n(อัปใหม่แล้วเติมหมวดภายหลังได้)")) return;
+  if(!confirm("ยืนยัน "+ (cnt.total-blank) +" รายการ?\n\n• ระบบจะจำ (เรียนรู้) หมวดเหล่านี้ไว้ใช้เดือนถัดไป\n• ส่งออกไฟล์ Excel หมวดครบ\n• อัปเข้า Executive Dashboard ให้อัตโนมัติ")) return;
+  cb.busy=true; cb.err=""; brecRefresh();
+  try{
+    const learned = await catbotLearn(cb);
+    let fn="";
+    try{ fn = catbotExportExcel(cb); }catch(e){ console.warn("export excel", e); }
+    await catbotPushExec(cb);
+    cb.busy=false;
+    cb.note = "✓ เรียนรู้ "+learned+" รูปแบบ · ส่งออก "+(fn||"Excel")+" · อัปเข้า Executive Dashboard แล้ว";
+    brecRefresh();
+  }catch(err){ cb.busy=false; cb.err=String(err.message||err); brecRefresh(); }
+}
+
+/* ---------------- UI ---------------- */
+function catbotBadge(r){
+  if(r.tier==="ok") return `<span class="cb-badge ok">มั่นใจ</span>`;
+  if(r.tier==="review") return `<span class="cb-badge rv">ควรตรวจ</span>`;
+  return `<span class="cb-badge no">เดาไม่ได้</span>`;
+}
+function catbotMethodLbl(m){
+  return ({exact:"จำประโยคได้", keyword:"กฎคำสำคัญ", vendor:"จำผู้ขายได้", manual:"เลือกเอง", none:"—"})[m]||m;
+}
+function catbotCatOptions(sel){
+  const opts = CATBOT_CATS.map(c=>`<option value="${esc(c)}" ${c===sel?"selected":""}>${esc(c)}</option>`).join("");
+  return `<option value="">— เลือกหมวด —</option>`+opts;
+}
+function catbotRenderTab(d){
+  const cb = catbotGet(d);
+  const fmt=(n)=> (typeof fopFmt==="function"? fopFmt(n): Number(n||0).toLocaleString("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2}));
+  if(cb.busy) return `<div class="brec-empty"><i data-lucide="loader-2"></i><div class="ttl">กำลังประมวลผล…</div></div>`;
+  if(!cb.accounts.length){
+    return `<div class="cb-intro">
+      <div class="cb-hero">
+        <div class="cb-hero-ic"><i data-lucide="sparkles"></i></div>
+        <div>
+          <div class="cb-hero-t">จัดหมวดเงินรับ-เงินจ่ายอัตโนมัติ</div>
+          <div class="cb-hero-s">อัปโหลด "งบกระทบยอด" (Express XML) ดิบ ๆ — ระบบเดาหมวดให้ (เรียนจากไฟล์จริง 2 ปี) แล้วให้ตรวจก่อนยืนยัน · ยืนยันแล้วมันจะจำไว้ ทำให้เดือนถัดไปเดาแม่นขึ้นเรื่อย ๆ</div>
+        </div>
+      </div>
+      ${cb.err?`<div class="cb-err">${esc(cb.err)}</div>`:""}
+      <button class="brec-btn primary" onclick="catbotUpload()"><i data-lucide="upload-cloud"></i> อัปโหลดงบกระทบยอด (เลือกได้หลายไฟล์)</button>
+      <div class="cb-note-sm">รองรับหลายบัญชีพร้อมกัน (เช่น SCB 4889 + SCB 1640 + BBL 0405) · หมวดล็อก 40 หมวดตามไฟล์ตัวอย่าง ไม่มีการสร้างหมวดใหม่</div>
+    </div>`;
+  }
+  const cnt = catbotCounts(cb);
+  const flat = catbotFlatRows(cb);
+  const filt = cb.filter||"all";
+  const shown = flat.filter(x=> filt==="all"?true : filt==="ok"?x.r.tier==="ok" : filt==="review"?(x.r.tier==="review"||x.r.tier==="none") : true);
+  const chip=(v,l,n,cls)=>`<button class="cb-chip ${filt===v?"active":""} ${cls||""}" onclick="catbotSetFilter('${v}')">${l} <b>${n}</b></button>`;
+  const rowsHtml = shown.map(x=>{
+    const r=x.r;
+    const amtCls = r.dir==="in"?"in":"out";
+    return `<div class="cb-row ${r.tier}">
+      <div class="cb-c date">${esc(r.date)}</div>
+      <div class="cb-c dir"><span class="cb-dir ${amtCls}">${r.dir==="in"?"รับ":"จ่าย"}</span></div>
+      <div class="cb-c amt ${amtCls}">${fmt(r.amount)}</div>
+      <div class="cb-c rem"><div class="t">${esc(r.remark||"—")}</div><div class="s">${esc(r.docNo||"")}${r.method&&r.method!=="none"?" · "+catbotMethodLbl(r.method):""}</div></div>
+      <div class="cb-c cat">
+        <select class="cb-sel ${r.cat?"":"empty"}" onchange="catbotSetCat(${x.ai},${x.ri},this.value)">${catbotCatOptions(r.cat)}</select>
+      </div>
+      <div class="cb-c badge">${catbotBadge(r)}</div>
+    </div>`;
+  }).join("");
+  return `
+    ${cb.note?`<div class="cb-ok-banner"><i data-lucide="check-circle-2"></i> ${esc(cb.note)}</div>`:""}
+    ${cb.err?`<div class="cb-err">${esc(cb.err)}</div>`:""}
+    <div class="cb-toolbar">
+      <div class="cb-chips">
+        ${chip("all","ทั้งหมด",cnt.total,"")}
+        ${chip("ok","✅ มั่นใจ",cnt.ok,"ok")}
+        ${chip("review","⚠️ ต้องรีวิว",cnt.review+cnt.none,"rv")}
+      </div>
+      <div class="sp" style="flex:1"></div>
+      <button class="brec-btn" onclick="catbotUpload()"><i data-lucide="plus"></i> เพิ่มไฟล์</button>
+      <button class="brec-btn" onclick="catbotClear()" style="color:#b91c1c"><i data-lucide="trash-2"></i> ล้าง</button>
+      <button class="brec-btn primary" onclick="catbotConfirm()"><i data-lucide="check-check"></i> ยืนยัน & เรียนรู้ (${cnt.total})</button>
+    </div>
+    <div class="cb-legend">
+      <span><b>${cnt.ok}</b> รายการมั่นใจ (เติมให้แล้ว)</span> ·
+      <span><b>${cnt.review+cnt.none}</b> รายการควรตรวจ/เลือกหมวดเอง</span> ·
+      <span style="color:#64748b">ยืนยันแล้ว = เรียนรู้ + ส่งออก Excel + อัปเข้า Executive Dashboard</span>
+    </div>
+    <div class="cb-table">
+      <div class="cb-row head">
+        <div class="cb-c">วันที่</div><div class="cb-c">ทิศทาง</div><div class="cb-c amt">จำนวนเงิน</div>
+        <div class="cb-c">หมายเหตุ / เลขที่</div><div class="cb-c">หมวดเงินรับ-เงินจ่าย</div><div class="cb-c">ความมั่นใจ</div>
+      </div>
+      ${rowsHtml || `<div class="brec-empty"><i data-lucide="filter-x"></i><div class="ttl">ไม่มีรายการในตัวกรองนี้</div></div>`}
+    </div>`;
+}
+
+
 async function renderToolBankRec(){
   const t = TOOLS.find(x=>x.id==="bankrec");
   const co = COMPANIES.find(c=>c.id===state.company);
@@ -16740,12 +17242,15 @@ async function renderToolBankRec(){
     { id:"done",      l:"กระทบแล้ว",    ic:"check-check",   c: buckets.confirmed.length },
     { id:"all",       l:"ทั้งหมด",      ic:"list",          c: d.express.length + d.bank.length },
     { id:"mp",        l:"🛒 ถอน Marketplace", ic:"shopping-bag", c: mpWds.length },
+    { id:"autocat",   l:"🏷️ จัดหมวด (AI)",  ic:"sparkles",     c: catbotCounts(catbotGet(d)).total },
   ];
   const tab = d.tab || "pending";
 
   // body content per tab
   let body = "";
-  if(noAcct){
+  if(tab === "autocat"){
+    body = catbotRenderTab(d);   // ★ ทำงานได้แม้ยังไม่มีบัญชีธนาคาร (ไม่พึ่ง bank_accounts)
+  } else if(noAcct){
     body = `<div class="brec-empty">
       <i data-lucide="upload-cloud"></i>
       <div class="ttl">ยังไม่มีบัญชีธนาคาร</div>

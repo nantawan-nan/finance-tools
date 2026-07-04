@@ -110,7 +110,7 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 | `ar` | `renderToolAr` | live | AR Outstanding |
 | `armap` | `renderToolArmap` | live | Map ลูกหนี้ → เงินเข้า |
 | `settle` | (none — generic) | live | จับยอด Settlement |
-| `bankrec` | `renderToolBankRec` | live | **Full Bank Reconciliation** (Phase 1) — Express XML ↔ Statement (SCB XLSX / BBL XLS) · strict same-date · brec* helpers |
+| `bankrec` | `renderToolBankRec` | live | **Full Bank Reconciliation** (Phase 1) — Express XML ↔ Statement (SCB XLSX / BBL XLS) · strict same-date · brec* helpers · **แท็บ "🏷️ จัดหมวด (AI)"** เดาหมวดเงินรับ-จ่ายอัตโนมัติ (catbot* · self-learning · `catbot_rules`) |
 | `withdraw` | (none) | soon | กระทบยอดถอนเงิน |
 | `ap` | (replaced) | soon (เก่า) | — — |
 | `ap_outstanding` | `renderToolApOutstanding` | live | **AP จริง** (finops phase 1) |
@@ -176,6 +176,21 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 - `phase0-foundation.sql` trigger `trg_sync_user_profile` ต้องเป็น `AFTER INSERT only` (ไม่ใช่ `INSERT OR UPDATE`)
 
 ## Recent changes (chronological)
+
+### 2026-07-04 — ★ Bank Recon แท็บใหม่ "🏷️ จัดหมวด (AI)" — เดาหมวดเงินรับ-จ่ายอัตโนมัติ (self-learning)
+- **เป้าหมาย (เจ้าของขอ):** อัปงบกระทบยอด (Express XML) ดิบ ๆ → ระบบเดา "หมวดเงินรับ-เงินจ่าย" ให้เอง (อ้างอิง 40 หมวดตายตัวจากไฟล์ "รายละเอียดเงินรับเงินจ่าย" · **ห้ามสร้างหมวดใหม่**) → มีให้รีวิว/แก้ก่อนกดยืนยัน → รอบถัดไปฉลาดขึ้น (จำประโยค+ผู้ขาย)
+- **ค้นพบ:** ไฟล์ "รายละเอียดเงินรับเงินจ่าย" = งบกระทบยอด layout เดียวกันเป๊ะ + เติม 2 คอลัมน์ (col8 `หมวดเงินรับ-เงินจ่าย` · col9 `ประเภทกิจกรรมทางการเงิน`) — ตรงกับที่ `edParse` (Executive Dashboard) อ่านอยู่แล้ว
+- **พิสูจน์ความแม่น (train 2025 → test 2026 held-out):** รวม 74% · กลุ่มมั่นใจสูง (exact/keyword/vendor≥0.8) = **94%** · exact-phrase = 100% · ~45% flag รีวิว (ลดลงเร็วเมื่อยืนยันสะสม)
+- **สมองตั้งต้น** `supabase/catbot-rules.sql` (idempotent · seed ON CONFLICT DO NOTHING · ปิด RLS): ตาราง `catbot_rules(company_id,dir,match_type['exact'|'vendor'],pattern,category,activity,weight,source)` + unique `(company_id,dir,match_type,pattern,category)` (non-partial → ON CONFLICT infer ได้) · **seed 857 rules** (616 exact + 241 vendor) เรียนจากไฟล์จริง Benya 1,580 รายการ 2 ปี · company via `(SELECT id FROM companies WHERE code='BENYA')`
+- **Engine (`catbot*` ใน index.html ก่อน `renderToolBankRec`):**
+  - `catbotNorm` (ตัด "ด.05/69"+วันที่ · **ต้องตรงกับ normalize ใน seed SQL เป๊ะ**) · `catbotVendor` (ส่วนหลัง `/`)
+  - `catbotKeyword(remark,dir)` — กฎคำสำคัญเฉพาะทาง 13 กฎ (โอนระหว่างบัญชี/ค่าธรรมเนียม/ภาษี/ปกส/กยศ/ดอกเบี้ย/เน็ต/IT/อินฟลู/เช่า/เงินเดือน/สดย่อย/ช่องทางรายรับ SP-TT-LZ-Dealer) · **transfer ต้องมี token ธนาคาร** กัน "รับเงินโอนจาก-Lazada" หลุดไป transfer
+  - `catbotPredict` ลำดับ: exact memory (0.99) → keyword → vendor memory (share) → none · `catbotTier` = ok(มั่นใจ)/review/none
+  - `catbotLoadModel` โหลด rules ต่อบริษัท (แบ่งหน้า cap 1000) → `{exact,vendor,cid}` map
+- **UI:** แท็บ `autocat` ในหน้า bankrec (ทำงานได้แม้ยังไม่มี bank_accounts — guard `if(tab==='autocat')` ก่อน noAcct) · อัปหลายไฟล์/หลายบัญชีพร้อมกัน · ตารางรีวิว: วันที่·ทิศทาง·ยอด·หมายเหตุ·**dropdown 40 หมวด**·badge มั่นใจ/ควรตรวจ/เดาไม่ได้ · chip filter (ทั้งหมด/มั่นใจ/ต้องรีวิว) · CSS prefix `.cb-*`
+- **ยืนยัน (`catbotConfirm`) ทำ 3 อย่าง:** (1) `catbotLearn` upsert exact+vendor rules (weight = ของเดิม+จำนวนรอบนี้ · source='user' · อัป model ในหน่วยความจำด้วย) (2) `catbotExportExcel` — ส่งออก xlsx format "รายละเอียดเงินรับเงินจ่าย" (sheet=YYYY.MM · reuse `catbotBuildBook`) (3) `catbotPushExec` — `edSyncFromCloud()` (กันเดือนอื่นหาย) → `edParse(catbotBuildBook())` → `edMergeData` → `edSave`+`edSaveCloud`
+- **reuse ล้วน:** `brecParseExpressXml` (parser) · `edParse`/`edMergeData`/`edSaveCloud`/`edCompanyId` (Exec Dashboard ingest — ไม่แตะ render logic) · **กระทบหน้าอื่น = 0** (เพิ่มแท็บ+ฟังก์ชันใหม่ล้วน)
+- **gotcha:** normalize ใน JS (`catbotNorm`) กับ Python seed generator ต้องเหมือนกัน (regex ตัด ด.MM/YY + dd/mm/yy) · MBark ยังไม่มี seed (เรียนจาก 0) — หมวดอาจต่างจาก Benya · ยืนยันไฟล์เดิมซ้ำ = exec merge แทนที่ month key (ไม่ double) แต่ weight เพิ่ม (ไม่กระทบ share มาก)
 
 ### 2026-07-03 — ★ Bank Recon: แก้บั๊กข้อมูลหาย — รายการซ้ำจริง (740 เข้า 2 ยอดวันเดียว) ถูกลบทุก push
 - **อาการ:** เงินเข้ายอดเท่ากันวันเดียวกัน 2 รายการจริง (คนละคนโอน · sender อยู่ใน `description` ไม่อยู่ใน stable key) → นำเข้าครบตอนแรก แต่หายไป 1 ยอด

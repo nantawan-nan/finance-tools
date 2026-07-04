@@ -177,6 +177,15 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-04 — ★ Bank Recon: auto-match "กลุ่มยอดรวม" (same-date equal-sum N:M) — แตกยอด/รวมยอด COD
+- **เจ้าของขอ:** ให้ auto-match จับเคสที่ **วันเดียวกัน ยอดรวมเท่ากัน แต่แตกเป็นหลายรายการ** (เดิม 1:1 จับไม่ได้ ต้องกดจับเอง): (1) **1 Express = หลาย Bank** (ลูกค้าโอนแตกหลายครั้ง เช่น 390 = 290+100) · (2) **หลาย Express = 1 Bank** (aggregator รวมยอด เช่น FLASH PAY COD: 450+900 = 1,350)
+- **Tier 3 อัลกอริทึม** (`brec*` หลัง `brecAutoMatch`): `brecAutoMatchGroups(ex,bk,existingPairs)` — วนต่อวัน×ทิศทาง(sign) · anchor 1 ฝั่ง หา subset อีกฝั่งที่ผลรวมตรง (`brecSubsetsToTarget` DFS ขนาด 2..4 · cents integer กัน float) · **เสนอเฉพาะที่จับได้ทางเดียว (unique)** — กำกวม(หลาย subset)/ข้ามวัน = ข้าม ให้จับเอง · `brecCents`/`MAXPOOL=18`/`MAXK=4`
+- **เก็บเป็น group match:** `brecGroupInserts` สร้าง brec_matches (cartesian ex×bk) ผูก `match_group_id` · status `suggested` confidence `group` (reuse schema เดิมที่ `brecManualLink` ใช้)
+- **ผูกเข้า auto-match ทั้ง 2 จุด:** `brecRunAutoMatch` (ปุ่ม ⚡) + `brecTryAutoMatch` (silent ตอนโหลด) — insert คู่ 1:1 + กลุ่ม พร้อมกัน · นับ `proposed.length + groups.length`
+- **UI แท็บ "รอยืนยัน":** `brecSplitPending` แยกกลุ่ม(match_group_id)/เดี่ยว · กลุ่มโชว์เป็น**การ์ด** (`brecGroupCardHTML` · `.brec-group`/`.bg-*`) — Express stack ซ้าย ↔ Bank stack ขวา + ยอดรวม + ✓ตรง + ปุ่ม "ยืนยันกลุ่ม"/"นำออก" (`brecConfirmGroup`/`brecUnmatchGroup` update by match_group_id) · คู่เดี่ยวยังเป็นตารางเดิม · กลุ่มไม่ผ่าน row-filter (กันยอดรวมเพี้ยน)
+- **คงกฎเดิม:** strict same-date (ยืนยันแล้ว cross-date ไม่จับ · [[feedback_bankrec_date_strict]]) · `brecConfirmAllPending` ยืนยันกลุ่มพร้อมกันได้ (ทุก row เป็น pending)
+- **ทดสอบ:** 4 เคสจากภาพจริงจับครบ (390=290+100 · 661.27=283.79+377.48 · 450+900=1350 · 4360+315=4675) · แถวโดดเดี่ยวไม่จับ · ความกำกวม(3ทาง)ข้าม · ถอนเงินแตกยอดได้ · ข้ามวันไม่จับ · **กระทบหน้าอื่น = 0**
+
 ### 2026-07-04 — ★ Bank Recon แท็บใหม่ "🏷️ จัดหมวด (AI)" — เดาหมวดเงินรับ-จ่ายอัตโนมัติ (self-learning)
 - **เป้าหมาย (เจ้าของขอ):** อัปงบกระทบยอด (Express XML) ดิบ ๆ → ระบบเดา "หมวดเงินรับ-เงินจ่าย" ให้เอง (อ้างอิง 40 หมวดตายตัวจากไฟล์ "รายละเอียดเงินรับเงินจ่าย" · **ห้ามสร้างหมวดใหม่**) → มีให้รีวิว/แก้ก่อนกดยืนยัน → รอบถัดไปฉลาดขึ้น (จำประโยค+ผู้ขาย)
 - **ค้นพบ:** ไฟล์ "รายละเอียดเงินรับเงินจ่าย" = งบกระทบยอด layout เดียวกันเป๊ะ + เติม 2 คอลัมน์ (col8 `หมวดเงินรับ-เงินจ่าย` · col9 `ประเภทกิจกรรมทางการเงิน`) — ตรงกับที่ `edParse` (Executive Dashboard) อ่านอยู่แล้ว

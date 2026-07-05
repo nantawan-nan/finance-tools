@@ -19082,13 +19082,17 @@ function ordItemsTable(o){
     </div>`).join('')}
   </div>`;
 }
-function ordTimeline(o){
+function ordTimeline(o, inc){
   const fmt=(n)=>Number(n||0).toLocaleString("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2});
   const itemsHtml = ordItemsTable(o);
+  // รับชำระ / เงินเข้ากระเป๋า — รวมทั้งเอกสาร RE (order_ledger) และเงินเข้าจริง (sales_income_rows)
+  const reParts=[];
+  if(o.re_no) reParts.push(`RE ${esc(o.re_no)} · เช็ค ${esc(o.cheque_no||'—')} · net ${fmt(o.receipt_net)}${o.receipt_fee!=null?` · fee ${fmt(o.receipt_fee)}`:''}`);
+  if(inc) reParts.push(`💰 เงินเข้าสุทธิ <b>${fmt(inc.net_received)}</b> เข้า ${esc(inc.paid_date||'—')}${inc.fee_total!=null?` · ค่าใช้จ่าย ${fmt(inc.fee_total)}`:''}${inc.tax_base!=null?` · ฐานภาษี ${fmt(inc.tax_base)}`:''}`);
   const steps = [
     { on:!!o.order_date, ic:"shopping-cart", t:"ขาย (หลังบ้าน)", d:`${o.order_date||'—'} · ${esc(o.channel||o.channel_group||'')} · ${fmt(o.order_total)} บาท${o.shipping_fee?` · ค่าส่ง ${fmt(o.shipping_fee)}`:''}${o.seller_discount?` · ส่วนลด ${fmt(o.seller_discount)}`:''}` },
     { on:!!o.iv_no, ic:"file-text", t:"คีย์ IV", d: o.iv_no?`${esc(o.iv_no)} · ${o.iv_date||''} · ยอด ${fmt(o.sale_amount)}`:'ยังไม่คีย์ IV' },
-    { on:!!o.re_no, ic:"hand-coins", t:"รับชำระ (RE)", d: o.re_no?`${esc(o.re_no)} · เช็ค ${esc(o.cheque_no||'')} · net ${fmt(o.receipt_net)}${o.receipt_fee!=null?` · fee ${fmt(o.receipt_fee)}`:''}`:'ยังไม่รับชำระ' },
+    { on:!!(o.re_no||inc), ic:"hand-coins", t:"รับชำระ / เงินเข้ากระเป๋า", d: reParts.length?reParts.join('<br>'):'ยังไม่รับชำระ' },
     { on:!!o.bq_no, ic:"file-check", t:"ฝากเช็ค (BQ)", d: o.bq_no?`${esc(o.bq_no)} · ${o.deposit_date||''}`:'ยังไม่ฝาก' },
     { on:!!o.bank_in_date, ic:"landmark", t:"เงินเข้าแบงค์", d: o.bank_in_date?`${o.bank_in_date}${o.bank_matched?' · ✓ ตรง STM':''}`:'ยังไม่เข้าแบงค์' },
   ];
@@ -20000,12 +20004,41 @@ function ordRenderMonth(d){
 }
 
 /* ค้นหา → การ์ดสรุป + timeline */
+/* ★ โหลด "เงินเข้าจริงต่อออเดอร์" (sales_income_rows) มา join ในหน้าเสิร์ช — lazy + idempotent */
+function ordEnsureIncome(){
+  const d = ordGet();
+  if(d._incomeLoading) return;
+  if(d.incomeByOid instanceof Map) return;   // โหลดแล้ว → ไม่ยิงซ้ำ (กันลูป)
+  d._incomeLoading = true;
+  ordLoadIncomeMap().then(()=>{ d._incomeLoading=false; renderToolOrders(); })
+                    .catch(()=>{ d._incomeLoading=false; });
+}
+async function ordLoadIncomeMap(){
+  const d = ordGet(); const m = new Map();
+  try{
+    const co = await fopCompanyId();
+    if(co){
+      let from=0; const sz=1000;
+      while(true){
+        const { data, error } = await sb.from("sales_income_rows")
+          .select("order_id,channel_group,paid_date,gross,seller_discount,buyer_shipping,tax_base,fee_total,net_received")
+          .eq("company_id",co).is("deleted_at",null).range(from, from+sz-1);
+        if(error || !data || !data.length) break;
+        data.forEach(r=>{ if(r.order_id) m.set(String(r.order_id), r); });
+        if(data.length<sz) break; from+=sz;
+      }
+    }
+  }catch(e){ console.warn("ordLoadIncomeMap", e); }
+  d.incomeByOid = m;   // ตั้งเสมอ (แม้ว่าง) → ordEnsureIncome ไม่ยิงซ้ำ
+}
 function ordRenderSearch(d){
   const fmt=ordFmtMoney;
   const q=(d.q||'').trim().toLowerCase();
+  ordEnsureIncome();
   const res=(d.rows||[]).filter(o=>`${o.order_id||''} ${o.iv_no||''} ${o.re_no||''} ${o.bq_no||''} ${o.cheque_no||''} ${o.products||''} ${o.customer||''}`.toLowerCase().includes(q)).slice(0,20);
   if(!res.length) return `<div class="ord-empty"><i data-lucide="search-x"></i><div class="ttl">ไม่พบ "${esc(d.q)}"</div><div>ลองค้นด้วยเลขออเดอร์ / IV / RE / BQ / เลขเช็ค / ชื่อสินค้า</div></div>`;
   const rmap=ordReconMap(d);
+  const incMap = (d.incomeByOid instanceof Map) ? d.incomeByOid : null;
   // ★ precompute recon result map (full row — มี be ด้วย ถ้าอัป backend แล้ว) เพื่อ build ตารางเทียบ
   const recResMap=new Map(); ((d.recon&&d.recon.results)||[]).forEach(r=>{ if(r.order_no) recResMap.set(String(r.order_no), r); });
   const bdCls=(k)=>{ if(k==='done') return 'ok'; if(k==='recon_diff') return 'danger'; if(k==='wait_iv'||k==='wait_deposit') return 'warn'; if(k==='wait_pay'||k==='wait_re'||k==='wait_bank') return 'info'; return 'mute'; };
@@ -20026,7 +20059,7 @@ function ordRenderSearch(d){
         <div><div class="l">เงินเข้าแบงค์</div><div>${o.bank_in_date||'—'}</div></div>
       </div>
       ${ordReconDetailHtml(rr)}
-      ${ordTimeline(o)}
+      ${ordTimeline(o, incMap ? incMap.get(String(o.order_id)) : null)}
     </div>`; }).join('') + (res.length>=20?`<div style="font:500 12px/1.4 inherit;color:var(--n-500);margin-top:8px">แสดง 20 รายการแรก — พิมพ์ให้เจาะจงขึ้น</div>`:'');
 }
 

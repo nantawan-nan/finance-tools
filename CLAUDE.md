@@ -188,7 +188,13 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 - **UI (`ordRenderIv`):** เพิ่ม `<select>` "ตรวจเทียบใบส่งออก" ใน action bar (โชว์เมื่อมี batch) + banner หลัง coverageWarn · ทั้งคู่ hidden/no-op ถ้าไม่มี/ไม่เลือก batch
 - **tag-back = ของเดิม** (`ordIvApply('tagSelected')` เขียน iv_no/iv_date/sale_amount กลับ order_ledger) — batch cycle แค่ track ครบ/ขาด/เกิน + persist สถานะ ไม่แตะ path เขียนกลับ
 - **กระทบหน้าอื่น = 0** — `ordRenderIv` shared กับ BigSeller (`ivrRenderVerify`) · ทุกฟังก์ชันใหม่ + gated · `renderToolOrders()` มี guard redirect ตาม state.tool อยู่แล้ว
-- **ยังไม่ทำ (ต่อ):** order detail "เห็นครบ" — join `sales_income_rows` (net_received/paid_date/fee) เข้า `ordTimeline`/`ordRenderSearch` + โชว์ "เน็ตต้องตรง" BigSeller↔แพลตฟอร์ม ชัดๆ
+
+### 2026-07-05 — Orders เสิร์ช "เห็นครบ": join เงินเข้าจริง (sales_income_rows) เข้า timeline
+- **เจ้าของขอ:** เสิร์ชออเดอร์แล้วเห็นทุกด้านในที่เดียว — BigSeller↔แพลตฟอร์ม (เน็ตต้องตรง · มีอยู่แล้วใน `ordReconDetailHtml`) + **เงินเข้าสุทธิกี่บาท เข้าวันไหน ค่าใช้จ่ายเท่าไหร่** + เลข IV/RE
+- **`ordEnsureIncome`/`ordLoadIncomeMap`** (lazy · idempotent · `d.incomeByOid` Map by order_id · แบ่งหน้า `.range()`): โหลด `sales_income_rows` (`net_received/paid_date/fee_total/tax_base/gross/seller_discount/buyer_shipping`) ต่อบริษัท (`fopCompanyId` uuid · `deleted_at` null) — guard กันยิงซ้ำเหมือน `ordIvEnsureBatches`
+- **`ordTimeline(o, inc)`** เพิ่ม param `inc` (optional · เรียกที่เดียวใน `ordRenderSearch`) — step "รับชำระ" → "รับชำระ / เงินเข้ากระเป๋า" โชว์ทั้ง RE (เอกสาร) + `💰 เงินเข้าสุทธิ X เข้า <วัน> · ค่าใช้จ่าย Y · ฐานภาษี Z` (จาก income) · `on` เปิดเมื่อมี re_no **หรือ** income
+- **`ordRenderSearch`** เรียก `ordEnsureIncome()` + ส่ง `incMap.get(order_id)` เข้า timeline · เน็ตต้องตรงดูจาก `ordReconDetailHtml` เดิม
+- **กระทบหน้าอื่น = 0** — `ordTimeline` param optional (caller อื่นไม่มี) · loader ใหม่ล้วน · verify: timeline โชว์ income ถูก / ไม่มี income → "ยังไม่รับชำระ"
 
 ### 2026-07-05 — Orders recon: "ใบส่งกลับฝ่ายขาย" (แทนปุ่ม export "คีย์ไม่ครบ" ดิบ)
 - **เจ้าของขอ (workflow):** เวลา recon เจอไม่ตรง ให้ส่งกลับฝ่ายขายเป็นเอกสารที่อ่านง่ายว่า "ออเดอร์วันไหนบ้างไม่ตรง · ต้องแก้อะไร · นัดตรวจซ้ำวันไหน" — ไม่ใช่ใบกระทบยอดเทคนิค (เซลงง)

@@ -177,6 +177,16 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-05 — ★ ตรวจ RE: วงจร Batch (mirror IV) — ส่งออก RE → ตรวจกลับด้วย 1.9.1 ว่าคีย์ครบไหม
+- **เจ้าของขอ:** ส่งออก RE ต้องมีวงจรตรวจเหมือน IV (ดึงรายงานกลับมาเทียบครบไหม) · แก้หน้ารับชำระเดิมได้เลย (ไม่ต้องมีหน้าใหม่)
+- **Migration `supabase/re_export_batches.sql`** (idempotent · RLS ปิด · mirror `iv_export_batches`): ตาราง `re_export_batches` (batch_no/date_from-to/channels/start_re/end_re/order_count/order_ids jsonb/exported_email + verify_status/verified_at/verified_email/verify_result) + unique `(company_id,batch_no)` + index exported_at
+- **Engine (`inc*` ก่อน `incRenderVerify`) — gated ด้วย `d.reBatchId`:**
+  - `incCreateReBatch(company, ready)` — `incExportRE` เรียกหลังส่งออก (fire-and-forget) · batch_no `RE-{CO}-YYYYMMDD-NNN` (query max seq) · order_ids = ready.map(orderNo) · start/end_re จาก `armapRunRE(seed,0/len-1)` · alert batch_no
+  - `incReBatchCoverage(d)` — join batch.order_ids กับ `d.verify.rows` ผ่าน iv_no/order_ref→order → `{expectedN,keyedN,missing[],extra[]}` · **unit test:** ส่ง 3 เจอ 2 → missing=[O3] · extra แยก "นอก batch"(เจอออเดอร์) vs "ไม่พบออเดอร์"(ไม่มีในทะเบียน)
+  - `incReSaveBatchVerify` — update `re_export_batches` verify_status/verify_result · `incReBatchBannerHtml` การ์ด coverage · `incLoadReBatches`/`incEnsureReBatches`/`incSetReBatch`
+- **UI (`incRenderVerify`):** `<select>` "ตรวจเทียบใบส่งออก" ใน action bar + banner หลัง kpiHtml · gated (ไม่มี/ไม่เลือก batch = ตรวจทั้งทะเบียนเหมือนเดิม) · tag-back เดิม (`incVerifyTagAll` เขียน re_no) ไม่แตะ
+- **กระทบหน้าอื่น = 0** — ฟังก์ชันใหม่ล้วน + gated · `incExportRE` เพิ่มแค่ 1 บรรทัดท้าย (สร้าง batch)
+
 ### 2026-07-05 — ★ ตรวจ IV: ผูก "วงจร Batch" — ตรวจการคีย์เทียบใบส่งออก (ไม่ใช่ทั้งทะเบียน) + เก็บผลลง DB
 - **เจ้าของขอ (workflow):** แก้อาการหน้าตรวจ IV "refresh แล้วเด้งให้อัปใหม่/สะสมมั่ว มองไม่ออกว่าครบจากอะไร" · ครบต้องวัดจาก **ใบส่งออก (batch)** — ส่งไป 120 ต้องคีย์กลับ 120 · เรียก 141.RWT เกิน (150) → ตรวจแค่ 120 อีก 30 = "นอกสโคป"
 - **Migration `supabase/iv_export_batches_verify.sql`** (idempotent · guard table exists · sort หลัง `iv_export_batches.sql` เพราะ '.'<'_'): `ALTER TABLE iv_export_batches ADD COLUMN IF NOT EXISTS verify_status/verified_at/verified_email/verify_result(jsonb)` + NOTIFY pgrst

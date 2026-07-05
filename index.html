@@ -3813,10 +3813,129 @@ function incExportRE(fmt){
     const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, "RE พร้อมคีย์");
     XLSX.writeFile(wb, fname+".xlsx");
   }
+  // ★ จำใบส่งออก (batch) → ตรวจกลับด้วย 1.9.1 ว่าคีย์ครบไหม (เหมือน IV)
+  incCreateReBatch(company, ready).catch(e=>console.warn("re batch", e));
+}
+
+/* ===== ★ วงจร Batch RE: จำใบส่งออก RE → ตรวจกลับด้วย 1.9.1 (mirror วงจร IV) =====
+   gated ด้วย d.reBatchId ทั้งหมด — ไม่เลือก batch = ตรวจแบบเดิม (เทียบทั้งทะเบียน) */
+async function incLoadReBatches(){
+  const d = incGet();
+  try{
+    const co = await fopCompanyId(); if(!co){ d.reBatches=[]; return; }
+    const { data, error } = await sb.from("re_export_batches").select("*").eq("company_id",co).is("deleted_at",null).order("exported_at",{ascending:false}).limit(50);
+    if(error){ console.warn("incLoadReBatches",error); d.reBatches=[]; return; }
+    d.reBatches = data || [];
+  }catch(e){ console.warn("incLoadReBatches",e); d.reBatches=[]; }
+}
+function incEnsureReBatches(){
+  const d = incGet();
+  if(d._reBatchesLoading) return;
+  if(Array.isArray(d.reBatches)) return;   // โหลดแล้ว → ไม่ยิงซ้ำ (กันลูป)
+  d._reBatchesLoading = true;
+  incLoadReBatches().then(()=>{ d._reBatchesLoading=false; renderToolSalesIncome(); })
+                    .catch(()=>{ d._reBatchesLoading=false; });
+}
+function incSetReBatch(id){ const d=incGet(); d.reBatchId = id||null; renderToolSalesIncome(); }
+/* coverage: ส่งออก RE กี่ใบ · พบใน 1.9.1 กี่ใบ · ขาด(บัญชียังไม่คีย์) · นอกสโคป */
+function incReBatchCoverage(d){
+  if(!d.reBatchId) return null;
+  const b = (d.reBatches||[]).find(x=>String(x.id)===String(d.reBatchId)); if(!b) return null;
+  const expected = Array.isArray(b.order_ids) ? b.order_ids.map(String) : [];
+  const expSet = new Set(expected);
+  const ordRows = ordGet().rows || [];
+  const ivMap={}, ordByOrder={};
+  for(const o of ordRows){ if(o.iv_no) ivMap[o.iv_no]=o; if(o.order_id) ordByOrder[o.order_id]=o; }
+  const foundSet=new Set(); const extra=[];
+  for(const r of ((d.verify&&d.verify.rows)||[])){
+    const o=(r.iv_no&&ivMap[r.iv_no])||(r.order_ref&&ordByOrder[r.order_ref])||null;
+    const oid=o?String(o.order_id):(r.order_ref?String(r.order_ref):"");
+    if(o && expSet.has(oid)) foundSet.add(oid);
+    else extra.push({ oid: oid||"(ไม่รู้จัก)", re:r.re_no, reason: o?"นอก batch นี้":"ไม่พบออเดอร์" });
+  }
+  const missing = expected.filter(oid=>!foundSet.has(oid));
+  return { batch:b, expectedN:expected.length, keyedN:foundSet.size, missing, extra };
+}
+/* สร้าง RE export batch หลังส่งออก — จำ order_ids + ช่วงเลข RE (fire-and-forget) */
+async function incCreateReBatch(company, ready){
+  try{
+    const co = await fopCompanyId(); if(!co || !ready.length) return;
+    const seed = incGet().reSeed;
+    const startRe = armapRunRE(seed, 0), endRe = armapRunRE(seed, ready.length-1);
+    const dates = ready.map(r=>r.paidISO).filter(Boolean).sort();
+    const channels = [...new Set(ready.map(r=>r.channelGroup).filter(Boolean))];
+    const coCode = (COMPANIES.find(c=>c.id===company)||{}).code || company;
+    const dt = new Date();
+    const ymd = `${dt.getFullYear()}${String(dt.getMonth()+1).padStart(2,"0")}${String(dt.getDate()).padStart(2,"0")}`;
+    let seq = 1;
+    try{
+      const { data } = await sb.from("re_export_batches").select("batch_no").eq("company_id",co).like("batch_no",`RE-${coCode}-${ymd}-%`);
+      if(data && data.length) seq = data.reduce((m,b)=>Math.max(m, parseInt(String(b.batch_no).split("-").pop())||0), 0) + 1;
+    }catch(e){}
+    const batchNo = `RE-${coCode}-${ymd}-${String(seq).padStart(3,"0")}`;
+    const { error } = await sb.from("re_export_batches").insert({
+      company_id: co, batch_no: batchNo,
+      date_from: dates[0]||null, date_to: dates[dates.length-1]||null,
+      channels, start_re: startRe, end_re: endRe, order_count: ready.length,
+      order_ids: ready.map(r=>r.orderNo), exported_email: AUTH.email||null
+    });
+    if(error){ console.warn("incCreateReBatch insert", error); return; }
+    try{ await incLoadReBatches(); }catch(e){}
+    alert(`บันทึกใบส่งออก ${batchNo} (${ready.length} รายการ) แล้ว\nคีย์ RE เสร็จ → ไปแท็บ "ตรวจ 1.9.1" เลือก batch นี้เพื่อตรวจว่าคีย์ครบไหม`);
+    renderToolSalesIncome();
+  }catch(e){ console.warn("incCreateReBatch", e); }
+}
+async function incReSaveBatchVerify(){
+  const d = incGet(); const cov = incReBatchCoverage(d);
+  if(!cov){ alert("เลือกใบส่งออก (batch) ที่จะตรวจก่อน"); return; }
+  const co = await fopCompanyId(); if(!co){ alert("ไม่พบบริษัท — ลอง refresh"); return; }
+  const vstatus = cov.missing.length ? "partial" : "verified";
+  const result = { expected:cov.expectedN, keyed:cov.keyedN,
+    missing: cov.missing.slice(0,500),
+    extra: cov.extra.slice(0,500).map(e=>({ oid:e.oid, re:e.re, reason:e.reason })),
+    checked_at: new Date().toISOString(), checked_by: AUTH.email||null };
+  const { error } = await sb.from("re_export_batches").update({
+    verify_status: vstatus, verified_at: new Date().toISOString(),
+    verified_email: AUTH.email||null, verify_result: result
+  }).eq("id", cov.batch.id).eq("company_id", co);
+  if(error){ alert("บันทึกไม่สำเร็จ: "+(error.message||error)); return; }
+  try{ await incLoadReBatches(); }catch(e){}
+  alert(`✓ บันทึกผลตรวจ ${cov.batch.batch_no} — คีย์ครบ ${cov.keyedN}/${cov.expectedN}` + (cov.missing.length?` · ขาด ${cov.missing.length}`:"") + (cov.extra.length?` · นอกสโคป ${cov.extra.length}`:""));
+  renderToolSalesIncome();
+}
+/* banner coverage ของ batch RE (โชว์เฉพาะเมื่อเลือก batch) */
+function incReBatchBannerHtml(d){
+  const cov = incReBatchCoverage(d); if(!cov) return "";
+  const b = cov.batch;
+  const okAll = cov.missing.length===0;
+  const accent = okAll ? "#16a34a" : "#d97706";
+  const bg = okAll ? "#f0fdf4" : "#fffbeb";
+  const chip = (n,lab,clr)=>`<div style="text-align:center;padding:6px 14px;border-radius:9px;background:#fff;border:1px solid #e2e8f0;min-width:80px"><div style="font:800 20px/1 inherit;color:${clr};font-variant-numeric:tabular-nums">${Number(n).toLocaleString("th-TH")}</div><div style="font:600 11px/1.3 inherit;color:#64748b;margin-top:3px">${lab}</div></div>`;
+  const cap = (arr, render)=> arr.slice(0,30).map(render).join("") + (arr.length>30?`<span style="font:500 12px/1 inherit;color:#64748b"> … และอีก ${arr.length-30}</span>`:"");
+  const missHtml = cov.missing.length ? `<div style="margin-top:10px"><div style="font:700 12px/1.4 inherit;color:#b45309;margin-bottom:5px">⚠ ยังไม่พบใน 1.9.1 (บัญชียังไม่คีย์ RE / คีย์ผิด) — ${cov.missing.length} ใบ</div><div style="display:flex;flex-wrap:wrap;gap:5px">${cap(cov.missing, oid=>`<code style="background:#fef3c7;color:#92400e;padding:2px 7px;border-radius:5px;font:600 11px/1.4 monospace">${esc(oid)}</code>`)}</div></div>` : "";
+  const extraHtml = cov.extra.length ? `<div style="margin-top:10px"><div style="font:700 12px/1.4 inherit;color:#64748b;margin-bottom:5px">นอกสโคป batch นี้ (ของ batch อื่น / ยังไม่ส่งออก) — ${cov.extra.length} ใบ</div><div style="display:flex;flex-wrap:wrap;gap:5px">${cap(cov.extra, e=>`<code style="background:#f1f5f9;color:#64748b;padding:2px 7px;border-radius:5px;font:600 11px/1.4 monospace" title="RE ${esc(e.re||"")} · ${esc(e.reason||"")}">${esc(e.oid)}</code>`)}</div></div>` : "";
+  const vstat = b.verify_status ? `<span style="font:600 11px/1 inherit;padding:3px 9px;border-radius:999px;background:${b.verify_status==='verified'?'#dcfce7':'#fef3c7'};color:${b.verify_status==='verified'?'#15803d':'#92400e'}">${b.verify_status==='verified'?'✓ ตรวจครบแล้ว':'ตรวจบางส่วน'}${b.verified_at?` · ${esc(String(b.verified_at).slice(0,10))}`:''}</span>` : "";
+  return `<div style="padding:16px 18px;margin-bottom:14px;border:1px solid #e2e8f0;border-left:4px solid ${accent};border-radius:12px;background:${bg}">
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px">
+      <i data-lucide="package-check" style="width:18px;height:18px;color:${accent}"></i>
+      <span style="font:800 14px/1.2 inherit">ใบส่งออก ${esc(b.batch_no)}</span>
+      ${vstat}
+      <span style="flex:1"></span>
+      <button class="ord-btn" style="background:var(--brand);color:#fff;border-color:var(--brand)" onclick="incReSaveBatchVerify()"><i data-lucide="save"></i> บันทึกผลตรวจ batch นี้</button>
+    </div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
+      ${chip(cov.expectedN,"ส่งออกไป","#334155")}
+      ${chip(cov.keyedN,"พบใน 1.9.1","#16a34a")}
+      ${chip(cov.missing.length,"ยังไม่คีย์","#d97706")}
+      ${chip(cov.extra.length,"นอกสโคป","#64748b")}
+    </div>
+    ${missHtml}${extraHtml}
+  </div>`;
 }
 
 /* แท็บ "ตรวจการคีย์ (1.9.1)" */
 function incRenderVerify(d){
+  incEnsureReBatches();   // ★ โหลดรายการใบส่งออก RE สำหรับ selector — idempotent
   const v = d.verify;
   const rows = v.rows;
 
@@ -3867,10 +3986,20 @@ function incRenderVerify(d){
 
   const warnBanner = !ordLoaded ? `<div style="background:#fef3c7;border:1px solid #fcd34d;border-radius:8px;padding:8px 12px;font-size:12px;color:#92400e;margin-bottom:10px">⚠️ ทะเบียนคำสั่งซื้อยังไม่โหลด — ไปที่ "1. คำสั่งซื้อ" ก่อนเพื่อโหลดข้อมูล แล้วกลับมาตรวจ RE</div>` : "";
 
+  // ★ ตัวเลือกใบส่งออก RE (batch) — โชว์เมื่อมี batch · ไม่เลือก = ตรวจทั้งทะเบียนเหมือนเดิม
+  const _reBatches = d.reBatches || [];
+  const reBatchSel = _reBatches.length ? `<label style="display:inline-flex;align-items:center;gap:6px;font:600 12px/1 inherit;color:#475569">
+      <i data-lucide="package-check" style="width:14px;height:14px"></i> ตรวจเทียบใบส่งออก:
+      <select onchange="incSetReBatch(this.value)" style="padding:5px 8px;border:1px solid #cbd5e1;border-radius:8px;font:600 12px/1 inherit;max-width:300px">
+        <option value="">— ไม่ผูก batch (เทียบทั้งทะเบียน) —</option>
+        ${_reBatches.map(b=>`<option value="${esc(String(b.id))}" ${String(d.reBatchId||'')===String(b.id)?'selected':''}>${esc(b.batch_no)} · ${b.order_count||0} ใบ${b.verify_status?(b.verify_status==='verified'?' · ✓ตรวจแล้ว':' · ตรวจบางส่วน'):''}</option>`).join('')}
+      </select></label>` : '';
+
   const actionHtml = `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
     <button class="ord-btn" onclick="incVerifyUpload()"><i data-lucide="upload"></i> อัปไฟล์เพิ่ม</button>
     <button class="ord-btn" onclick="incVerifyClear()"><i data-lucide="trash-2"></i> ล้าง</button>
     ${newRows.length ? `<button class="ord-btn" style="background:var(--brand);color:#fff;border-color:var(--brand)" onclick="incVerifyTagAll()"><i data-lucide="tag"></i> บันทึก Tag RE (${newRows.length})</button>` : ""}
+    ${reBatchSel}
     ${v.applying ? `<span style="color:#64748b;font-size:13px">กำลังบันทึก…</span>` : ""}
   </div>`;
 
@@ -3899,7 +4028,7 @@ function incRenderVerify(d){
   }).join("");
 
   return `<div style="padding:16px 0 0">
-    ${warnBanner}${kpiHtml}${actionHtml}
+    ${warnBanner}${kpiHtml}${incReBatchBannerHtml(d)}${actionHtml}
     <div style="overflow-x:auto;border:1px solid #e2e8f0;border-radius:10px;background:#fff">
       <table style="width:100%;border-collapse:collapse;font-size:12.5px">
         <thead><tr style="background:#f8fafc;border-bottom:2px solid #e2e8f0">

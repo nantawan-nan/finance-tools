@@ -3415,10 +3415,13 @@ async function renderToolSalesIncome(){
         <i data-lucide="check-circle-2"></i> ตรวจการคีย์ (1.9.1)
         ${verRows.length ? `<span class="c">${verRows.length}</span>` : ""}
       </button>
+      <button class="sal-stab ${subtab==='fees'?'active':''}" onclick="incSetSubtab('fees')">
+        <i data-lucide="coins"></i> รายงานค่าธรรมเนียม
+      </button>
     </div>`;
 
-  // auto-load income rows on first visit to list tab
-  if(subtab === 'list' && !d.incLoaded && !d.incBusy){
+  // auto-load income rows on first visit to list/fees tab (รายงานค่าธรรมเนียมก็ต้องใช้ incRows)
+  if((subtab === 'list' || subtab === 'fees') && !d.incLoaded && !d.incBusy){
     d.incBusy = true;
     main.innerHTML = `<div class="ord-page sal-page">${heroHtml}${tabHtml}<div style="padding:60px;text-align:center"><i data-lucide="loader-2" style="width:36px;height:36px;color:var(--brand)"></i><div style="margin-top:12px;color:#64748b">กำลังโหลดรายการรับชำระ...</div></div></div>`;
     if(window.lucide) lucide.createIcons();
@@ -3440,6 +3443,7 @@ async function renderToolSalesIncome(){
   if(subtab === 'list')        bodyHtml = incRenderList(d);
   else if(subtab === 'export') bodyHtml = incRenderExport(d);
   else if(subtab === 'verify') bodyHtml = incRenderVerify(d);
+  else if(subtab === 'fees')   bodyHtml = incRenderFeeReport(d);
 
   main.innerHTML = `<div class="ord-page sal-page">${heroHtml}${tabHtml}${bodyHtml}</div>`;
   if(window.lucide) lucide.createIcons();
@@ -3490,6 +3494,124 @@ function incExportListXlsx(){
   XLSX.writeFile(wb, `รับชำระ_${(co&&co.code)||state.company}${filter?'_'+filter:''}_${stamp}.xlsx`);
 }
 
+/* ===== ★ รายงานค่าธรรมเนียมรายเดือน (แยกหมวด) — ให้บัญชีบันทึกล้าง "ค่าธรรมเนียมจ่ายล่วงหน้า" =====
+   ดึงจาก sales_income_rows (มีอยู่แล้ว · ไม่ต้อง migration) · อิงวันเงินเข้า (paid_date) */
+function incFeeChLabel(g){ return {shopee:"Shopee",tiktok:"TikTok",lazada:"Lazada"}[g] || (g||"อื่นๆ"); }
+function incFeeReportMonths(d){
+  const set=new Set();
+  for(const r of (d.incRows||[])){ const iso=parseDate(r.paid_date||""); if(iso) set.add(iso.slice(0,7)); }
+  return [...set].sort().reverse();
+}
+function incSetFeeMonth(v){ const d=incGet(); d.feeMonth=v||""; renderToolSalesIncome(); }
+function incSetFeePlat(v){ const d=incGet(); d.feePlat=(d.feePlat===v?"":v); renderToolSalesIncome(); }
+function incFeeReportData(d){
+  const month=d.feeMonth||"", plat=d.feePlat||"";
+  const ordRows=ordGet().rows||[]; const ordByOrder={};
+  for(const o of ordRows) if(o.order_id) ordByOrder[o.order_id]=o;
+  const rows=[];
+  for(const r of (d.incRows||[])){
+    const iso=parseDate(r.paid_date||""); const m=iso?iso.slice(0,7):"";
+    if(month && m!==month) continue;
+    if(plat && r.channel_group!==plat) continue;
+    const cats=incRowFeeCats(r); const ord=ordByOrder[r.order_id]||null;
+    rows.push({ order_id:r.order_id, iv_no:(ord&&ord.iv_no)||"", channel:r.channel_group||"other",
+      paid_iso:iso, tax_base:incTaxBaseOf(r), net:Number(r.net_received||0),
+      fee_total:round2(r.fee_total||0), cats });
+  }
+  const byCatPlat={}, catTotals={}, platTotals={}; let grand=0;
+  INC_FEE_CATS.forEach(c=>catTotals[c.key]=0);
+  for(const row of rows){
+    const p=row.channel||"other";
+    if(!byCatPlat[p]){ byCatPlat[p]={}; INC_FEE_CATS.forEach(c=>byCatPlat[p][c.key]=0); }
+    for(const c of INC_FEE_CATS){ const v=row.cats[c.key]||0; byCatPlat[p][c.key]=round2(byCatPlat[p][c.key]+v); catTotals[c.key]=round2(catTotals[c.key]+v); }
+    platTotals[p]=round2((platTotals[p]||0)+row.fee_total); grand=round2(grand+row.fee_total);
+  }
+  const activeCats=INC_FEE_CATS.filter(c=>Math.abs(catTotals[c.key])>=0.01);
+  return { rows, byCatPlat, catTotals, platTotals, plats:Object.keys(byCatPlat).sort(), grand, activeCats, month, plat };
+}
+function incRenderFeeReport(d){
+  if(!d.incRows || !d.incRows.length){
+    return `<div class="sal-empty" style="padding:56px 30px;text-align:center;background:#fff;border:1px solid #e2e8f0;border-radius:14px;margin-top:2px">
+      <i data-lucide="coins" style="width:46px;height:46px;color:var(--brand);margin-bottom:12px;stroke-width:1.4"></i>
+      <div style="font-size:16px;font-weight:600;color:#1e293b;margin-bottom:8px">ยังไม่มีข้อมูลรับชำระ</div>
+      <div style="color:#64748b;font-size:13px">ไปแท็บ "ทะเบียนรับชำระ" อัปรายงาน Income ก่อน แล้วกลับมาดูรายงานค่าธรรมเนียม</div>
+      <div style="margin-top:18px"><button class="ord-btn" onclick="incSetSubtab('list')"><i data-lucide="receipt"></i> ไปอัป Income</button></div>
+    </div>`;
+  }
+  const months=incFeeReportMonths(d);
+  const R=incFeeReportData(d);
+  const fmt=salesFmt;
+  const monthOpts=`<option value="">ทุกเดือน</option>`+months.map(m=>`<option value="${m}" ${d.feeMonth===m?'selected':''}>${m}</option>`).join("");
+  const chip=(val,label)=>`<button class="ord-chip${(d.feePlat||'')===val?' active':''}" onclick="incSetFeePlat('${val}')">${label}</button>`;
+  const ctrl=`<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:10px 14px;margin-bottom:14px">
+    <label style="font:600 12px/1 inherit;color:#334155;display:inline-flex;align-items:center;gap:6px">เดือน (วันเงินเข้า):
+      <select onchange="incSetFeeMonth(this.value)" style="padding:5px 8px;border:1px solid #cbd5e1;border-radius:8px;font:600 12px/1 inherit">${monthOpts}</select></label>
+    <span style="width:1px;height:20px;background:#e2e8f0"></span>
+    <span style="font:600 12px/1 inherit;color:#334155">ช่องทาง:</span>
+    ${chip('shopee','Shopee')} ${chip('tiktok','TikTok')} ${chip('lazada','Lazada')}
+    <span style="flex:1"></span>
+    <button class="ord-btn" onclick="incFeeExport()" ${R.rows.length?'':'disabled'}><i data-lucide="file-spreadsheet"></i> ส่งออก Excel</button>
+  </div>`;
+  const kpi=`<div class="sal-kpi-row" style="grid-template-columns:repeat(3,1fr);margin-bottom:14px">
+    <div class="sal-kpi" style="--kc:#dc2626"><div class="n">${fmt(R.grand)}</div><div class="l">ค่าธรรมเนียมรวม (จ่ายล่วงหน้า)</div></div>
+    <div class="sal-kpi"><div class="n">${R.rows.length}</div><div class="l">ออเดอร์ในรอบนี้</div></div>
+    <div class="sal-kpi" style="--kc:#0369a1"><div class="n">${fmt(R.rows.reduce((s,r)=>s+r.net,0))}</div><div class="l">เงินเข้าสุทธิรวม (บาท)</div></div>
+  </div>`;
+  // ① สรุปตามหมวด × แพลตฟอร์ม
+  const th=(t,al)=>`<th style="padding:9px 12px;text-align:${al||'left'};font-weight:700;white-space:nowrap">${t}</th>`;
+  const sumHead=`<tr style="background:#f8fafc;border-bottom:2px solid #e2e8f0">${th('หมวดค่าธรรมเนียม')}${R.plats.map(p=>th(incFeeChLabel(p),'right')).join('')}${th('รวม','right')}</tr>`;
+  const sumBody=INC_FEE_CATS.map(c=>{
+    if(Math.abs(R.catTotals[c.key])<0.01 && !R.plats.some(p=>Math.abs(R.byCatPlat[p][c.key])>=0.01)) return '';
+    return `<tr style="border-bottom:1px solid #f1f5f9">
+      <td style="padding:7px 12px;font-size:12.5px">${c.label}</td>
+      ${R.plats.map(p=>`<td style="padding:7px 12px;text-align:right;font-variant-numeric:tabular-nums;font-size:12.5px">${fmt(R.byCatPlat[p][c.key])}</td>`).join('')}
+      <td style="padding:7px 12px;text-align:right;font-weight:700;font-variant-numeric:tabular-nums;font-size:12.5px">${fmt(R.catTotals[c.key])}</td></tr>`;
+  }).join("");
+  const sumTotal=`<tr style="border-top:2px solid #e2e8f0;background:#f8fafc"><td style="padding:9px 12px;font-weight:800">รวมทั้งหมด</td>${R.plats.map(p=>`<td style="padding:9px 12px;text-align:right;font-weight:800;font-variant-numeric:tabular-nums">${fmt(R.platTotals[p]||0)}</td>`).join('')}<td style="padding:9px 12px;text-align:right;font-weight:800;color:#dc2626;font-variant-numeric:tabular-nums">${fmt(R.grand)}</td></tr>`;
+  const summaryTable=`<div style="font:700 13px/1 inherit;color:#1e293b;margin:4px 0 8px">① สรุปตามหมวด (บัญชีเอาไปบันทึกล้างค่าใช้จ่าย)</div>
+    <div style="overflow-x:auto;border:1px solid #e2e8f0;border-radius:10px;background:#fff;margin-bottom:18px">
+      <table style="width:100%;border-collapse:collapse"><thead>${sumHead}</thead><tbody>${sumBody}${sumTotal}</tbody></table></div>`;
+  // ② รายละเอียดต่อออเดอร์
+  const ac=R.activeCats;
+  const detHead=`<tr style="background:#f8fafc;border-bottom:2px solid #e2e8f0">${th('เลขออเดอร์')}${th('IV')}${th('ช่อง')}${th('วันเงินเข้า')}${th('ยอด IV (ฐานภาษี)','right')}${th('เงินเข้าสุทธิ','right')}${th('ค่าธรรมเนียม (จ่ายล่วงหน้า)','right')}${ac.map(c=>th(c.label,'right')).join('')}</tr>`;
+  const detBody=R.rows.slice().sort((a,b)=>String(a.paid_iso||'').localeCompare(String(b.paid_iso||''))||String(a.order_id).localeCompare(String(b.order_id))).map(r=>`<tr style="border-bottom:1px solid #f1f5f9">
+    <td style="padding:6px 12px;font-family:monospace;font-size:11.5px;white-space:nowrap">${esc(r.order_id||'')}</td>
+    <td style="padding:6px 12px;font-family:monospace;font-size:11.5px;white-space:nowrap">${esc(r.iv_no||'—')}</td>
+    <td style="padding:6px 12px;font-size:11.5px">${incFeeChLabel(r.channel)}</td>
+    <td style="padding:6px 12px;font-size:11.5px;white-space:nowrap">${r.paid_iso||'—'}</td>
+    <td style="padding:6px 12px;text-align:right;font-variant-numeric:tabular-nums;font-size:11.5px">${fmt(r.tax_base)}</td>
+    <td style="padding:6px 12px;text-align:right;font-variant-numeric:tabular-nums;font-size:11.5px">${fmt(r.net)}</td>
+    <td style="padding:6px 12px;text-align:right;font-weight:600;color:#dc2626;font-variant-numeric:tabular-nums;font-size:11.5px">${fmt(r.fee_total)}</td>
+    ${ac.map(c=>`<td style="padding:6px 12px;text-align:right;font-variant-numeric:tabular-nums;font-size:11.5px;color:#64748b">${r.cats[c.key]?fmt(r.cats[c.key]):'—'}</td>`).join('')}</tr>`).join("");
+  const detailTable=`<div style="font:700 13px/1 inherit;color:#1e293b;margin:4px 0 8px">② รายละเอียดต่อออเดอร์ (สาวกลับไปที่ออเดอร์ได้)</div>
+    <div style="overflow-x:auto;border:1px solid #e2e8f0;border-radius:10px;background:#fff">
+      <table style="width:100%;border-collapse:collapse"><thead>${detHead}</thead><tbody>${detBody||`<tr><td colspan="${7+ac.length}" style="padding:24px;text-align:center;color:#94a3b8">ไม่มีรายการในรอบนี้</td></tr>`}</tbody></table></div>
+    <div style="color:#94a3b8;font-size:11px;margin-top:8px">${R.rows.length} ออเดอร์ · ค่าธรรมเนียม = ฐานภาษี − เงินเข้าสุทธิ (ตรงกับที่การเงินตั้ง "จ่ายล่วงหน้า")</div>`;
+  return `<div style="padding:16px 0 0">${ctrl}${kpi}${summaryTable}${detailTable}</div>`;
+}
+function incFeeExport(){
+  const d=incGet(); const R=incFeeReportData(d);
+  if(!R.rows.length){ alert("ไม่มีข้อมูลให้ส่งออก"); return; }
+  const co=COMPANIES.find(c=>c.id===state.company);
+  const tag=(d.feeMonth||"ทุกเดือน")+(d.feePlat?("_"+d.feePlat):"");
+  // sheet 1: สรุปหมวด
+  const s1=[["รายงานค่าธรรมเนียมแพลตฟอร์ม (ค่าธรรมเนียมจ่ายล่วงหน้า)"],
+    [`บริษัท: ${co?co.name:state.company}`,"", `รอบ: ${d.feeMonth||"ทุกเดือน"}`, "", `ช่องทาง: ${d.feePlat?incFeeChLabel(d.feePlat):"ทั้งหมด"}`],
+    [], ["หมวดค่าธรรมเนียม", ...R.plats.map(incFeeChLabel), "รวม"]];
+  INC_FEE_CATS.forEach(c=>{ if(Math.abs(R.catTotals[c.key])<0.01 && !R.plats.some(p=>Math.abs(R.byCatPlat[p][c.key])>=0.01)) return;
+    s1.push([c.label, ...R.plats.map(p=>round2(R.byCatPlat[p][c.key])), round2(R.catTotals[c.key])]); });
+  s1.push(["รวมทั้งหมด", ...R.plats.map(p=>round2(R.platTotals[p]||0)), round2(R.grand)]);
+  // sheet 2: รายละเอียด
+  const ac=R.activeCats;
+  const s2=[["เลขออเดอร์","IV","ช่องทาง","วันเงินเข้า","ยอด IV (ฐานภาษี)","เงินเข้าสุทธิ","ค่าธรรมเนียม (จ่ายล่วงหน้า)", ...ac.map(c=>c.label)]];
+  R.rows.slice().sort((a,b)=>String(a.paid_iso||'').localeCompare(String(b.paid_iso||''))).forEach(r=>{
+    s2.push([r.order_id, r.iv_no, incFeeChLabel(r.channel), r.paid_iso, round2(r.tax_base), round2(r.net), round2(r.fee_total), ...ac.map(c=>round2(r.cats[c.key]||0))]);
+  });
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(s1), "สรุปหมวด");
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(s2), "รายละเอียด");
+  XLSX.writeFile(wb, `ค่าธรรมเนียม_${co?co.code:''}_${tag}.xlsx`);
+}
 function incRenderList(d){
   const rows = d.incRows || [];
   const filter = d.incFilter || '';

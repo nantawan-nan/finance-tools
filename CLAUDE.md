@@ -177,6 +177,16 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-05 — ★ รับชำระ: แท็บใหม่ "รายงานค่าธรรมเนียม" (รายเดือน · แยกหมวด) — ให้บัญชีบันทึกล้าง
+- **เจ้าของขอ:** การเงินรับชำระ IV 150 เงินเข้า 100 → ตั้ง "ค่าธรรมเนียมจ่ายล่วงหน้า 50" · สิ้นเดือนบัญชีต้องดึงรายงานรวมค่าธรรมเนียมทั้งเดือน **แยกหมวด** ไปบันทึกล้างเข้าบัญชีค่าใช้จ่ายจริงตามใบกำกับแพลตฟอร์ม
+- **design ที่ตกลง:** เก็บ**ที่เดียว** (`sales_income_rows` มี `channel_group` อยู่แล้ว · fee ต่างแพลตฟอร์มถูกดูดด้วย `fee_breakdown` jsonb + `incFeeCategory`→7 หมวด) · อิง**วันเงินเข้า (`paid_date`)** · กระทบใบกำกับแพลตฟอร์ม = เฟสหน้า
+- **แท็บใหม่ `fees`** ใน `renderToolSalesIncome` (subtab list/export/verify/**fees**) — **ไม่ต้อง migration** (ดึงจากข้อมูลที่มี):
+  - `incFeeReportData(d)` — กรอง incRows ตามเดือน(paid_date)+แพลตฟอร์ม → aggregate `byCatPlat`/`catTotals`/`platTotals`/`grand` ผ่าน `incRowFeeCats` · join `order_ledger` เอา `iv_no` · **unit test:** grand/หมวด/byPlatform/join IV/filter ถูกครบ
+  - `incRenderFeeReport` — เลือกเดือน(dropdown จาก `incFeeReportMonths`)+ชิปแพลตฟอร์ม · **ตาราง ① สรุป 7 หมวด × แพลตฟอร์ม** (บัญชีบันทึก) + **ตาราง ② รายละเอียดต่อออเดอร์** (order/IV/วันเงินเข้า/ฐานภาษี/สุทธิ/ค่าธรรมเนียมจ่ายล่วงหน้า/แยกหมวด)
+  - `incFeeExport` — xlsx 2 sheet (สรุปหมวด + รายละเอียด) · auto-load incRows เมื่อเข้าแท็บ fees
+- **ค่าธรรมเนียมจ่ายล่วงหน้า/ออเดอร์ = `fee_total` = ฐานภาษี − เงินเข้าสุทธิ** (มีในตารางอยู่แล้ว)
+- **กระทบหน้าอื่น = 0** — subtab + ฟังก์ชันใหม่ล้วน · reuse `incRowFeeCats`/`incFeeCategory`/`INC_FEE_CATS`/`incTaxBaseOf`
+
 ### 2026-07-05 — ★ ตรวจ RE: วงจร Batch (mirror IV) — ส่งออก RE → ตรวจกลับด้วย 1.9.1 ว่าคีย์ครบไหม
 - **เจ้าของขอ:** ส่งออก RE ต้องมีวงจรตรวจเหมือน IV (ดึงรายงานกลับมาเทียบครบไหม) · แก้หน้ารับชำระเดิมได้เลย (ไม่ต้องมีหน้าใหม่)
 - **Migration `supabase/re_export_batches.sql`** (idempotent · RLS ปิด · mirror `iv_export_batches`): ตาราง `re_export_batches` (batch_no/date_from-to/channels/start_re/end_re/order_count/order_ids jsonb/exported_email + verify_status/verified_at/verified_email/verify_result) + unique `(company_id,batch_no)` + index exported_at

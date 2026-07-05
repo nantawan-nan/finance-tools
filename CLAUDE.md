@@ -177,6 +177,13 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-05 — Orders recon: "ใบส่งกลับฝ่ายขาย" (แทนปุ่ม export "คีย์ไม่ครบ" ดิบ)
+- **เจ้าของขอ (workflow):** เวลา recon เจอไม่ตรง ให้ส่งกลับฝ่ายขายเป็นเอกสารที่อ่านง่ายว่า "ออเดอร์วันไหนบ้างไม่ตรง · ต้องแก้อะไร · นัดตรวจซ้ำวันไหน" — ไม่ใช่ใบกระทบยอดเทคนิค (เซลงง)
+- **`ordReconExport` รื้อใหม่** (ปุ่ม "ใบส่งกลับฝ่ายขาย" ในแท็บ recon · เดิมชื่อ "ส่งออก คีย์ไม่ครบ" export only_be ดิบ): ใช้ `ordReconEffStatus` คำนวณสถานะสด แล้วแยก xlsx เป็น **3 หมวด** — ① ยังไม่คีย์ (`only_be`) ② ยอดไม่ตรง (`diff` · โชว์ยอดหลังบ้าน/ยอดที่คีย์/ผลต่าง/จุดที่ต่างจาก `ordReconDiffs`) ③ ต้องเช็คซ้ำ (`only_bs`) · หัวเอกสารมี วันที่ตรวจ + ช่วงข้อมูล + **นัดตรวจซ้ำ** (`prompt` default พรุ่งนี้ via `cffISO`) · ยอดใช้ `ordTaxBase(o,'be'/'bs')` ให้ตรงสูตร recon
+- **cancelled = handled อยู่แล้ว** (ยืนยัน · ไม่แก้): `ordRunRecon` ข้าม `be.status==='cancelled'` (l.20241) + `ordReconUpload` กรอง cancelled ออกก่อน recon (l.20265) → ใบยกเลิกไม่เคยกลายเป็น only_be หลอก
+- **กระทบหน้าอื่น = 0** — แก้เฉพาะ leaf function `ordReconExport` + label ปุ่ม · ไม่มี migration · reuse helper เดิมล้วน
+- **ยังไม่ทำ (คุยไว้):** วงจร batch ตรวจการคีย์ — ผูก `iv_export_batches` เข้าหน้าตรวจ IV (141.RWT เทียบ batch ที่ส่งออก ไม่ใช่ทั้งทะเบียน) + persist ผลตรวจลง DB (แก้อาการ refresh แล้ว state หาย/สะสมมั่ว)
+
 ### 2026-07-04 — ★ Bank Recon: auto-match "กลุ่มยอดรวม" (same-date equal-sum N:M) — แตกยอด/รวมยอด COD
 - **เจ้าของขอ:** ให้ auto-match จับเคสที่ **วันเดียวกัน ยอดรวมเท่ากัน แต่แตกเป็นหลายรายการ** (เดิม 1:1 จับไม่ได้ ต้องกดจับเอง): (1) **1 Express = หลาย Bank** (ลูกค้าโอนแตกหลายครั้ง เช่น 390 = 290+100) · (2) **หลาย Express = 1 Bank** (aggregator รวมยอด เช่น FLASH PAY COD: 450+900 = 1,350)
 - **Tier 3 อัลกอริทึม** (`brec*` หลัง `brecAutoMatch`): `brecAutoMatchGroups(ex,bk,existingPairs)` — วนต่อวัน×ทิศทาง(sign) · anchor 1 ฝั่ง หา subset อีกฝั่งที่ผลรวมตรง (`brecSubsetsToTarget` DFS ขนาด 2..4 · cents integer กัน float) · **เสนอเฉพาะที่จับได้ทางเดียว (unique)** — กำกวม(หลาย subset)/ข้ามวัน = ข้าม ให้จับเอง · `brecCents`/`MAXPOOL=18`/`MAXK=4`

@@ -20292,14 +20292,57 @@ async function ordReconLoad(){
   d.recon=d.recon||{}; Object.assign(d.recon, { results, channels:chans });
   if(!d.recon.expanded) d.recon.expanded=new Set();
 }
+/* ★ ใบส่งกลับฝ่ายขาย — จัดให้ฝ่ายขายอ่านง่าย: ออเดอร์วันไหนไม่ตรง ต้องแก้อะไร นัดตรวจซ้ำวันไหน
+   แยก 3 หมวด: ① ยังไม่คีย์ (only_be) · ② ยอดไม่ตรง (diff) · ③ ต้องเช็คซ้ำ (only_bs) */
 function ordReconExport(){
-  const d=ordGet(); const rec=d.recon||{}; const res=rec.results||[];
-  const only=res.filter(r=>r.status==='only_be');
-  if(!only.length){ alert("ไม่มีออเดอร์ที่หลังบ้านมีแต่ BigSeller ยังไม่มี"); return; }
+  const d=ordGet(); const rec=d.recon||{};
+  const res=(rec.results||[]).map(r=>({...r, status:ordReconEffStatus(r)}));
   const co=COMPANIES.find(c=>c.id===state.company);
-  const data=only.map((r,i)=>({ "No":i+1, "วันที่":r.date||"", "ช่องทาง":r.channel, "เลขออเดอร์":r.order_no, "สินค้า":(r.be&&r.be.products)||"", "ยอดขาย":ordGrossVal(r.be||{}), "ค่าส่ง":Number((r.be&&r.be.shipping_fee)||0) }));
-  const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data), "ฝ่ายขายคีย์ไม่ครบ");
-  XLSX.writeFile(wb, `ออเดอร์คีย์ไม่ครบ_${co.code}_${new Date().toISOString().slice(0,10)}.xlsx`);
+  const missing =res.filter(r=>r.status==='only_be');   // เซลยังไม่คีย์
+  const diffRows=res.filter(r=>r.status==='diff');       // ยอดต่าง
+  const extra   =res.filter(r=>r.status==='only_bs');    // BigSeller มี · หลังบ้านไม่มี
+  if(!missing.length && !diffRows.length && !extra.length){ alert("ไม่มีรายการที่ต้องส่งกลับฝ่ายขาย — ทุกออเดอร์ตรงกันแล้ว 🎉"); return; }
+  const chLab=k=>({shopee:"Shopee",tiktok:"TikTok",lazada:"Lazada",face:"FACE",line:"LINE",dealer:"Dealer"}[k]||k||"");
+  const ds=res.map(r=>r.date).filter(Boolean).sort();
+  const chkFrom=ds[0]||"—", chkTo=ds[ds.length-1]||"—";
+  const today=new Date(); const tISO=cffISO(today);
+  const defRecheck=cffISO(new Date(today.getTime()+86400000));   // พรุ่งนี้
+  const recheck=(prompt("นัดตรวจซ้ำวันที่ (YYYY-MM-DD)\nฝ่ายขายต้องแก้ไขให้ครบก่อนวันนัด — วันนั้นระบบจะตรวจซ้ำ:", defRecheck)||defRecheck).trim();
+  const bySort=(a,b)=>(a.date||"").localeCompare(b.date||"")||(a.order_no||"").localeCompare(b.order_no||"");
+  missing.sort(bySort); diffRows.sort(bySort); extra.sort(bySort);
+  const aoa=[];
+  aoa.push(["ใบแจ้งแก้ไขข้อมูลการขาย (ส่งกลับฝ่ายขาย)"]);
+  aoa.push([`บริษัท: ${co?co.name:state.company}`]);
+  aoa.push([`วันที่ตรวจ: ${tISO}`,"",`ช่วงข้อมูลที่ตรวจ: ${chkFrom} ถึง ${chkTo}`]);
+  aoa.push([`⏰ นัดตรวจซ้ำ: ${recheck}`,"","กรุณาแก้ไขให้ครบก่อนวันนัด — วันนั้นระบบจะตรวจให้อีกครั้ง"]);
+  aoa.push([`สรุป: ยังไม่คีย์ ${missing.length} ใบ · ยอดไม่ตรง ${diffRows.length} ใบ${extra.length?` · ต้องเช็คซ้ำ ${extra.length} ใบ`:""}`]);
+  aoa.push([]);
+  if(missing.length){
+    aoa.push(["① ออเดอร์ที่ยังไม่ได้คีย์ในระบบ — กรุณาคีย์เพิ่ม"]);
+    aoa.push(["วันที่","ช่องทาง","เลขคำสั่งซื้อ","สินค้า","ยอดที่ต้องคีย์ (บาท)","สิ่งที่ต้องทำ"]);
+    missing.forEach(r=>aoa.push([r.date||"", chLab(r.channel), r.order_no, (r.be&&r.be.products)||"", ordTaxBase(r.be||{},'be'), "คีย์ออเดอร์นี้เพิ่มใน BigSeller"]));
+    aoa.push([]);
+  }
+  if(diffRows.length){
+    aoa.push(["② ออเดอร์ที่คีย์ยอดไม่ตรง — กรุณาแก้ยอดให้ตรงหลังบ้าน"]);
+    aoa.push(["วันที่","ช่องทาง","เลขคำสั่งซื้อ","ยอดหลังบ้าน (ที่ถูก)","ยอดที่คีย์ไว้","ผลต่าง","จุดที่ต่าง"]);
+    diffRows.forEach(r=>{
+      const be=ordTaxBase(r.be||{},'be'), bs=ordTaxBase(r.bs||{},'bs');
+      const dl=((r.diffs&&r.diffs.length)?r.diffs:ordReconDiffs(r.bs||{},r.be||{})).map(x=>x.f).join(", ");
+      aoa.push([r.date||"", chLab(r.channel), r.order_no, be, bs, +(bs-be).toFixed(2), dl]);
+    });
+    aoa.push([]);
+  }
+  if(extra.length){
+    aoa.push(["③ ออเดอร์ที่มีใน BigSeller แต่ไม่พบในหลังบ้าน — กรุณาตรวจสอบ"]);
+    aoa.push(["วันที่","ช่องทาง","เลขคำสั่งซื้อ","สินค้า","ยอดที่คีย์ไว้ (บาท)","หมายเหตุ"]);
+    extra.forEach(r=>aoa.push([r.date||"", chLab(r.channel), r.order_no, (r.bs&&r.bs.products)||"", ordTaxBase(r.bs||{},'bs'), "เช็คว่าคีย์ผิดช่องทาง/ผิดวัน หรือเป็นออเดอร์ที่ยกเลิก"]));
+    aoa.push([]);
+  }
+  const ws=XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols']=[{wch:12},{wch:10},{wch:22},{wch:30},{wch:18},{wch:16},{wch:24}];
+  const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, "ส่งกลับฝ่ายขาย");
+  XLSX.writeFile(wb, `ส่งกลับฝ่ายขาย_${co?co.code:''}_${tISO}.xlsx`);
 }
 /* ===== Sales Reconciliation Report — snapshot ล็อก + Excel/PDF + ประวัติ ===== */
 async function ordReconGenReports(dateSet){
@@ -20990,7 +21033,7 @@ function ordRenderRecon(d){
   return `
     <div class="ord-actions">
       ${upBtn}
-      <button class="ord-btn" onclick="ordReconExport()"><i data-lucide="download"></i> ส่งออก "คีย์ไม่ครบ"</button>
+      <button class="ord-btn" onclick="ordReconExport()"><i data-lucide="reply"></i> ใบส่งกลับฝ่ายขาย</button>
       <button class="ord-btn" onclick="ordReconOpenCalendar()" style="color:var(--brand,#0d9488);border-color:color-mix(in srgb,var(--brand,#0d9488) 30%,#fff)"><i data-lucide="calendar-check"></i> สร้างใบกระทบยอด (เลือกวัน)</button>
       <button class="ord-btn" onclick="ordReconToggleHistory()"><i data-lucide="history"></i> ประวัติรายงาน</button>
       <div style="flex:1"></div>

@@ -21776,10 +21776,94 @@ async function ordIvApply(mode){
   }, 5000);
 }
 
+/* ===== ★ วงจร Batch: ตรวจการคีย์เทียบ "ใบส่งออก (batch)" ไม่ใช่ทั้งทะเบียน + เก็บผลลง DB =====
+   gated ด้วย d.ivCheck.batchId ทั้งหมด — ไม่เลือก batch = พฤติกรรมเดิมทุกอย่าง (หน้าอื่นไม่กระทบ) */
+function ordIvEnsureBatches(){
+  const d = ordGet();
+  if(d._ivBatchesLoading) return;
+  if(d.ivrec && Array.isArray(d.ivrec.batches)) return;   // โหลดแล้ว → ไม่ยิงซ้ำ (กันลูป)
+  d._ivBatchesLoading = true;
+  ivrLoadBatches().then(()=>{ d._ivBatchesLoading=false; renderToolOrders(); })
+                  .catch(()=>{ d._ivBatchesLoading=false; });
+}
+function ordIvSetBatch(id){ const d=ordGet(); if(!d.ivCheck) return; d.ivCheck.batchId = id||null; renderToolOrders(); }
+/* coverage ของ batch: ส่งออกกี่ใบ · พบใน 141.RWT กี่ใบ · ขาด(ยังไม่คีย์) · นอกสโคป */
+function ordIvBatchCoverage(d){
+  const ic = d.ivCheck; if(!ic || !ic.batchId) return null;
+  const batches = (d.ivrec && d.ivrec.batches) || [];
+  const b = batches.find(x => String(x.id)===String(ic.batchId)); if(!b) return null;
+  const expected = Array.isArray(b.order_ids) ? b.order_ids.map(String) : [];
+  const expSet = new Set(expected);
+  const rowsById = new Map((d.rows||[]).map(o => [String(o.id), o]));
+  const oidOf = (r)=>{ const o = r.orderRowId ? rowsById.get(String(r.orderRowId)) : null; return String((o && o.order_id) || r.ref_order_id || ""); };
+  const foundSet = new Set(); const extra = [];
+  (ic.results||[]).forEach(r=>{
+    const oid = oidOf(r);
+    if(r.status==="orphan"){ extra.push({ oid: oid||"(ไม่รู้จัก)", iv:r.iv_no, reason:"ไม่พบออเดอร์" }); return; }
+    if(oid && expSet.has(oid)) foundSet.add(oid);
+    else extra.push({ oid: oid||"(ไม่รู้จัก)", iv:r.iv_no, reason: r.voided?"voided":"นอก batch นี้" });
+  });
+  const missing = expected.filter(oid => !foundSet.has(oid));
+  return { batch:b, expectedN:expected.length, keyedN:foundSet.size, missing, extra };
+}
+async function ordIvSaveBatchVerify(){
+  const d = ordGet(); const cov = ordIvBatchCoverage(d);
+  if(!cov){ alert("เลือกใบส่งออก (batch) ที่จะตรวจก่อน"); return; }
+  if(!brecCanWrite()){ alert("ไม่มีสิทธิ์บันทึก"); return; }
+  const co = await fopCompanyId(); if(!co){ alert("ไม่พบบริษัท — ลอง refresh"); return; }
+  const vstatus = cov.missing.length ? "partial" : "verified";
+  const result = { expected:cov.expectedN, keyed:cov.keyedN,
+    missing: cov.missing.slice(0,500),
+    extra: cov.extra.slice(0,500).map(e=>({ oid:e.oid, iv:e.iv, reason:e.reason })),
+    checked_at: new Date().toISOString(), checked_by: AUTH.email||null };
+  const { error } = await sb.from("iv_export_batches").update({
+    verify_status: vstatus, verified_at: new Date().toISOString(),
+    verified_email: AUTH.email||null, verify_result: result
+  }).eq("id", cov.batch.id).eq("company_id", co);
+  if(error){ alert("บันทึกไม่สำเร็จ: "+(error.message||error)); return; }
+  try{ await ivrLoadBatches(); }catch(e){}
+  d.ivCheck.flash = `✓ บันทึกผลตรวจ ${cov.batch.batch_no} — คีย์ครบ ${cov.keyedN}/${cov.expectedN}`
+    + (cov.missing.length?` · ขาด ${cov.missing.length}`:"") + (cov.extra.length?` · นอกสโคป ${cov.extra.length}`:"");
+  d.ivCheck.flashAt = Date.now();
+  renderToolOrders();
+}
+/* banner coverage (โชว์เฉพาะเมื่อเลือก batch) */
+function ordIvBatchBannerHtml(d){
+  const cov = ordIvBatchCoverage(d); if(!cov) return "";
+  const b = cov.batch;
+  const okAll = cov.missing.length===0;
+  const accent = okAll ? "#16a34a" : "#d97706";
+  const bg = okAll ? "#f0fdf4" : "#fffbeb";
+  const chip = (n,lab,clr)=>`<div style="text-align:center;padding:6px 14px;border-radius:9px;background:#fff;border:1px solid var(--n-100);min-width:80px"><div style="font:800 20px/1 inherit;color:${clr}" class="tnum">${Number(n).toLocaleString("th-TH")}</div><div style="font:600 11px/1.3 inherit;color:var(--n-500);margin-top:3px">${lab}</div></div>`;
+  const cap = (arr, render)=> arr.slice(0,30).map(render).join("") + (arr.length>30?`<span style="font:500 12px/1 inherit;color:var(--n-500)"> … และอีก ${arr.length-30}</span>`:"");
+  const missHtml = cov.missing.length ? `<div style="margin-top:10px"><div style="font:700 12px/1.4 inherit;color:#b45309;margin-bottom:5px">⚠ ยังไม่พบใน 141.RWT (บัญชียังไม่คีย์ / คีย์ผิดเลข) — ${cov.missing.length} ใบ</div><div style="display:flex;flex-wrap:wrap;gap:5px">${cap(cov.missing, oid=>`<code style="background:#fef3c7;color:#92400e;padding:2px 7px;border-radius:5px;font:600 11px/1.4 monospace">${esc(oid)}</code>`)}</div></div>` : "";
+  const extraHtml = cov.extra.length ? `<div style="margin-top:10px"><div style="font:700 12px/1.4 inherit;color:var(--n-600);margin-bottom:5px">นอกสโคป batch นี้ (ของ batch อื่น / ยังไม่ส่งออก / voided) — ${cov.extra.length} ใบ</div><div style="display:flex;flex-wrap:wrap;gap:5px">${cap(cov.extra, e=>`<code style="background:var(--n-100);color:var(--n-600);padding:2px 7px;border-radius:5px;font:600 11px/1.4 monospace" title="IV ${esc(e.iv||"")} · ${esc(e.reason||"")}">${esc(e.oid)}</code>`)}</div></div>` : "";
+  const vstat = b.verify_status ? `<span style="font:600 11px/1 inherit;padding:3px 9px;border-radius:999px;background:${b.verify_status==='verified'?'#dcfce7':'#fef3c7'};color:${b.verify_status==='verified'?'#15803d':'#92400e'}">${b.verify_status==='verified'?'✓ ตรวจครบแล้ว':'ตรวจบางส่วน'}${b.verified_at?` · ${esc(String(b.verified_at).slice(0,10))}`:''}</span>` : "";
+  return `<div class="ord-card" style="padding:16px 18px;margin-bottom:14px;border-left:4px solid ${accent};background:${bg}">
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px">
+      <i data-lucide="package-check" style="width:18px;height:18px;color:${accent}"></i>
+      <span style="font:800 14px/1.2 inherit">ใบส่งออก ${esc(b.batch_no)}</span>
+      ${vstat}
+      <span style="flex:1"></span>
+      <button class="ord-btn primary" onclick="ordIvSaveBatchVerify()" ${brecCanWrite()?'':'disabled'}><i data-lucide="save"></i> บันทึกผลตรวจ batch นี้</button>
+    </div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
+      ${chip(cov.expectedN,"ส่งออกไป","var(--n-800)")}
+      ${chip(cov.keyedN,"พบใน 141.RWT","#16a34a")}
+      ${chip(cov.missing.length,"ยังไม่คีย์","#d97706")}
+      ${chip(cov.extra.length,"นอกสโคป","#64748b")}
+    </div>
+    ${missHtml}
+    ${extraHtml}
+    <div style="margin-top:12px;font:500 12px/1.5 inherit;color:var(--n-500)">คีย์ครบแล้วกด <b>บันทึกผลตรวจ</b> เพื่อล็อกสถานะใบส่งออก · การเขียนเลข IV กลับเข้าออเดอร์ใช้ปุ่ม "บันทึก Tag IV ที่เลือก" ด้านล่างตามปกติ</div>
+  </div>`;
+}
+
 /* render: แท็บ "ตรวจ IV" */
 function ordRenderIv(d){
   const fmt = ordFmtMoney;
   const ic = d.ivCheck;
+  ordIvEnsureBatches();   // ★ โหลดรายการใบส่งออก (batch) สำหรับ selector — idempotent
   const upBtn = `<button class="ord-btn primary" onclick="ordIvUpload()" ${brecCanWrite()?'':'disabled'}><i data-lucide="upload"></i> อัปไฟล์รายงานขาย 723-5 (CSV)</button>`;
   if(!ic){
     return `<div class="ord-card" style="padding:36px 24px;text-align:center">
@@ -21866,6 +21950,15 @@ function ordRenderIv(d){
   const arrow = (key)=> sk===key ? (sd==="asc"?" ↑":" ↓") : "";
   const sortH = (key, lab, w, align)=> `<th style="${w?`width:${w};`:''}cursor:pointer;user-select:none${align?`;text-align:${align}`:''}" onclick="ordIvSetSort('${key}')">${lab}${arrow(key)}</th>`;
 
+  // ★ ตัวเลือกใบส่งออก (batch) — โชว์เมื่อมี batch (ไม่มี = ซ่อน · ไม่เลือก = เทียบทั้งทะเบียนเหมือนเดิม)
+  const _batches = (d.ivrec && d.ivrec.batches) || [];
+  const batchSelHtml = _batches.length ? `<label style="display:inline-flex;align-items:center;gap:6px;font:600 12px/1 inherit;color:var(--n-600)">
+      <i data-lucide="package-check" style="width:14px;height:14px"></i> ตรวจเทียบใบส่งออก:
+      <select onchange="ordIvSetBatch(this.value)" style="padding:5px 8px;border:1px solid var(--n-200);border-radius:8px;font:600 12px/1 inherit;max-width:300px">
+        <option value="">— ไม่ผูก batch (เทียบทั้งทะเบียน) —</option>
+        ${_batches.map(b=>`<option value="${esc(String(b.id))}" ${String(ic.batchId||'')===String(b.id)?'selected':''}>${esc(b.batch_no)} · ${b.order_count||0} ใบ${b.verify_status?(b.verify_status==='verified'?' · ✓ตรวจแล้ว':' · ตรวจบางส่วน'):''}</option>`).join('')}
+      </select></label>` : '';
+
   return `
     ${ic.flash ? `<div style="padding:11px 16px;border-radius:10px;background:var(--ok-50);border:1px solid var(--ok-100);color:var(--ok-700);font:600 13px/1.4 inherit;margin-bottom:12px;display:flex;align-items:center;gap:8px"><i data-lucide="check-circle" style="width:16px;height:16px"></i> ${esc(ic.flash)}</div>` : ''}
     <div class="ord-actions">
@@ -21873,6 +21966,7 @@ function ordRenderIv(d){
       <button class="ord-btn" onclick="ordIvReanalyze()" title="วิเคราะห์ใหม่ด้วยข้อมูล order ปัจจุบัน (ไม่ต้องอัปไฟล์)"><i data-lucide="refresh-cw"></i> วิเคราะห์ใหม่</button>
       <button class="ord-btn" onclick="ordIvExport()"><i data-lucide="download"></i> ส่งออก Excel (${list.length})</button>
       <button class="ord-btn" onclick="ordIvClear()"><i data-lucide="x"></i> ล้างผล</button>
+      ${batchSelHtml}
       <div style="flex:1"></div>
       <span style="font:500 12px/1.4 inherit;color:var(--n-500)">
         ไฟล์: <b style="color:var(--n-700)">${esc((ic.fileNames||[]).join(", "))}</b>
@@ -21881,6 +21975,8 @@ function ordRenderIv(d){
     </div>
 
     ${coverageWarn}
+
+    ${ordIvBatchBannerHtml(d)}
 
     ${(()=>{
       const activeOrders = (d.rows||[]).filter(o=>o.status!=='cancelled').length;

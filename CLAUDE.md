@@ -177,6 +177,19 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-05 — ★ ตรวจ IV: ผูก "วงจร Batch" — ตรวจการคีย์เทียบใบส่งออก (ไม่ใช่ทั้งทะเบียน) + เก็บผลลง DB
+- **เจ้าของขอ (workflow):** แก้อาการหน้าตรวจ IV "refresh แล้วเด้งให้อัปใหม่/สะสมมั่ว มองไม่ออกว่าครบจากอะไร" · ครบต้องวัดจาก **ใบส่งออก (batch)** — ส่งไป 120 ต้องคีย์กลับ 120 · เรียก 141.RWT เกิน (150) → ตรวจแค่ 120 อีก 30 = "นอกสโคป"
+- **Migration `supabase/iv_export_batches_verify.sql`** (idempotent · guard table exists · sort หลัง `iv_export_batches.sql` เพราะ '.'<'_'): `ALTER TABLE iv_export_batches ADD COLUMN IF NOT EXISTS verify_status/verified_at/verified_email/verify_result(jsonb)` + NOTIFY pgrst
+- **Engine (`ordIv*` ก่อน `ordRenderIv`) — ทั้งหมด gated ด้วย `d.ivCheck.batchId` (ไม่เลือก batch = พฤติกรรมเดิมเป๊ะ):**
+  - `ordIvEnsureBatches` โหลด `d.ivrec.batches` (reuse `ivrLoadBatches`) แบบ idempotent — guard `d._ivBatchesLoading` + เช็ค array กันลูป (ivrLoadBatches set เป็น [] เสมอแม้ error)
+  - `ordIvBatchCoverage(d)` — join batch.order_ids (order_id หลังบ้าน · เก็บตอน export) กับ `ic.results` ผ่าน `orderRowId→d.rows→order_id` → คืน `{expectedN, keyedN, missing[], extra[]}` · orphan/voided/นอก batch = extra · **verified ด้วย unit test:** ส่ง 3 เจอ 2 → missing=[O3], extra=[orphan, นอก batch]
+  - `ordIvSaveBatchVerify` — update `iv_export_batches` (`verify_status` = verified ถ้า missing=0 ไม่งั้น partial · `verify_result` jsonb เก็บ missing/extra) → refresh batches + flash
+  - `ordIvBatchBannerHtml` — การ์ด coverage (ส่งออก/พบใน 141.RWT/ยังไม่คีย์/นอกสโคป) + list เลขที่ขาด/เกิน + ปุ่ม "บันทึกผลตรวจ batch นี้" + badge สถานะ
+- **UI (`ordRenderIv`):** เพิ่ม `<select>` "ตรวจเทียบใบส่งออก" ใน action bar (โชว์เมื่อมี batch) + banner หลัง coverageWarn · ทั้งคู่ hidden/no-op ถ้าไม่มี/ไม่เลือก batch
+- **tag-back = ของเดิม** (`ordIvApply('tagSelected')` เขียน iv_no/iv_date/sale_amount กลับ order_ledger) — batch cycle แค่ track ครบ/ขาด/เกิน + persist สถานะ ไม่แตะ path เขียนกลับ
+- **กระทบหน้าอื่น = 0** — `ordRenderIv` shared กับ BigSeller (`ivrRenderVerify`) · ทุกฟังก์ชันใหม่ + gated · `renderToolOrders()` มี guard redirect ตาม state.tool อยู่แล้ว
+- **ยังไม่ทำ (ต่อ):** order detail "เห็นครบ" — join `sales_income_rows` (net_received/paid_date/fee) เข้า `ordTimeline`/`ordRenderSearch` + โชว์ "เน็ตต้องตรง" BigSeller↔แพลตฟอร์ม ชัดๆ
+
 ### 2026-07-05 — Orders recon: "ใบส่งกลับฝ่ายขาย" (แทนปุ่ม export "คีย์ไม่ครบ" ดิบ)
 - **เจ้าของขอ (workflow):** เวลา recon เจอไม่ตรง ให้ส่งกลับฝ่ายขายเป็นเอกสารที่อ่านง่ายว่า "ออเดอร์วันไหนบ้างไม่ตรง · ต้องแก้อะไร · นัดตรวจซ้ำวันไหน" — ไม่ใช่ใบกระทบยอดเทคนิค (เซลงง)
 - **`ordReconExport` รื้อใหม่** (ปุ่ม "ใบส่งกลับฝ่ายขาย" ในแท็บ recon · เดิมชื่อ "ส่งออก คีย์ไม่ครบ" export only_be ดิบ): ใช้ `ordReconEffStatus` คำนวณสถานะสด แล้วแยก xlsx เป็น **3 หมวด** — ① ยังไม่คีย์ (`only_be`) ② ยอดไม่ตรง (`diff` · โชว์ยอดหลังบ้าน/ยอดที่คีย์/ผลต่าง/จุดที่ต่างจาก `ordReconDiffs`) ③ ต้องเช็คซ้ำ (`only_bs`) · หัวเอกสารมี วันที่ตรวจ + ช่วงข้อมูล + **นัดตรวจซ้ำ** (`prompt` default พรุ่งนี้ via `cffISO`) · ยอดใช้ `ordTaxBase(o,'be'/'bs')` ให้ตรงสูตร recon

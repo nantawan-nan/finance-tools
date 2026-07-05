@@ -760,9 +760,9 @@ const TOOLS = [
     long:"นำเข้ารายงาน Income/รับชำระจาก SP/TT/LZ · แยกรายได้/ขนส่ง/ค่าธรรมเนียม/สุทธิ · ส่งออก RE",
     multiInput:true, status:"live" },
   { id:"sales_wallet", stage:"การขาย", parent:"sales_pipeline", ic:"3",
-    name:"3. กระเป๋าเงิน", desc:"ยอดในกระเป๋า + ถอนเงิน",
-    long:"นำเข้ารายงาน Wallet/Balance · ดู running balance · เงินเข้า/ออก/ปรับปรุง",
-    multiInput:true, status:"soon" },
+    name:"3. กระเป๋าเงิน", desc:"จับกลุ่มถอน = ออเดอร์ − ค่าธรรมเนียมในกระเป๋า",
+    long:"นำเข้ารายงาน Shopee Balance · จับกลุ่ม 'การถอนเงิน' = ออเดอร์ที่เข้ากระเป๋า − ค่าธรรมเนียมในกระเป๋า (ค่าโฆษณา ฯลฯ) · เห็นแต่ละยอดถอนมาจากออเดอร์ไหน",
+    multiInput:true, status:"live" },
   { id:"sales_recon", stage:"การขาย", parent:"sales_pipeline", ic:"4",
     name:"4. กระทบยอด", desc:"Order × Income × Wallet × แบงค์",
     long:"กระทบยอด 4 ทาง · ตรวจครบ/ขาด/ส่วนต่าง · ส่งออก BQ (ผ่านเช็คเข้าธนาคาร) — ย้ายมาจาก bankrec",
@@ -4351,7 +4351,184 @@ function incUploadIncome(){
 }
 
 /* === Stage 3-4: Coming soon placeholders === */
-function renderToolSalesWallet(){ return salesPlaceholder("3. กระเป๋าเงิน","wallet","อัปรายงาน Wallet / Balance · ดู running balance · แยกเงินเข้า / เงินออก / ปรับปรุง · เห็นยอดในกระเป๋าก่อนถอนเข้าธนาคาร"); }
+/* ===== ★ 3. กระเป๋าเงิน — จับกลุ่ม "การถอนเงิน" = ออเดอร์ที่เข้ากระเป๋า − ค่าธรรมเนียมในกระเป๋า =====
+   reuse bmpParseShopeeBalance (Shopee Balance/Transaction report) · grouping โฟกัสรายงาน */
+function walGet(){
+  if(!state.wallet) state.wallet={};
+  const co=state.company;
+  if(!state.wallet[co]) state.wallet[co]={ loaded:false, busy:false, error:null, groups:[], pending:null, expanded:{}, shopName:null, period:null, fileName:null };
+  return state.wallet[co];
+}
+/* จัดหมวดรายการที่ไม่ใช่ "รายรับจากคำสั่งซื้อ" (ค่าโฆษณา/คืนเงิน/ค่าธรรมเนียม ที่หักในกระเป๋า) */
+function walAdjCat(tx){
+  const s=((tx.desc||"")+" "+(tx.type||"")).toLowerCase();
+  if(/โฆษณา|ads\b|โปรโมท|boost|โฆษณาอัจฉริยะ/.test(s)) return "ค่าโฆษณา";
+  if(/คืนเงิน|refund|คืน|return/.test(s)) return "คืนเงิน/ปรับคืน";
+  if(/ภาษี|tax|vat|wht|หัก ณ/.test(s)) return "ภาษี";
+  if(/ค่าธรรมเนียม|fee|commission|ค่าบริการ|service/.test(s)) return "ค่าธรรมเนียม";
+  if(/ชดเชย|voucher|coin|เหรียญ|โปรโมชั่น/.test(s)) return "ชดเชย/โปรโมชั่น";
+  return "อื่นๆ";
+}
+/* จับกลุ่ม: buffer ทุก txn ตั้งแต่ถอนครั้งก่อน → เจอ "การถอนเงิน" ปิดกลุ่ม
+   กลุ่ม = ออเดอร์ (Σnet) + ค่าธรรมเนียมในกระเป๋า (Σ ติดลบ) ≈ ยอดถอน */
+function walGroupWithdrawals(txns, ordByOrder){
+  const groups=[]; let buf=[];
+  const cancelledOf=(t)=>{ if(!t.order_id||!ordByOrder) return false; const o=ordByOrder[t.order_id]; return !!(o&&o.status==='cancelled'); };
+  for(const tx of (txns||[])){
+    if(tx.type==="การถอนเงิน"){
+      const wd=Math.abs(tx.amount);
+      const orders=buf.filter(t=>t.type==="รายรับจากคำสั่งซื้อ");
+      const fees=buf.filter(t=>t.type!=="รายรับจากคำสั่งซื้อ");
+      const sumOrders=round2(orders.reduce((s,o)=>s+(o.amount||0),0));
+      const sumFees=round2(fees.reduce((s,f)=>s+(f.amount||0),0));   // ปกติติดลบ
+      const byCat={};
+      for(const f of fees){ const c=walAdjCat(f); byCat[c]=round2((byCat[c]||0)+(f.amount||0)); }
+      const cancelledN=buf.filter(cancelledOf).length;
+      groups.push({ date:tx.txn_date, datetime:tx.datetime, withdraw:wd,
+        orders, fees, ordersN:orders.length, sumOrders, sumFees, byCat, cancelledN,
+        expected:round2(sumOrders+sumFees), diff:round2(sumOrders+sumFees-wd),
+        balance_after:tx.balance_after });
+      buf=[];
+    } else buf.push(tx);
+  }
+  const pOrders=buf.filter(t=>t.type==="รายรับจากคำสั่งซื้อ");
+  const pFees=buf.filter(t=>t.type!=="รายรับจากคำสั่งซื้อ");
+  const pending = buf.length ? { txns:buf, ordersN:pOrders.length,
+    sumOrders:round2(pOrders.reduce((s,o)=>s+(o.amount||0),0)),
+    sumFees:round2(pFees.reduce((s,f)=>s+(f.amount||0),0)) } : null;
+  return { groups, pending };
+}
+async function walUpload(){
+  const files=await new Promise(res=>{ const i=document.createElement("input"); i.type="file"; i.accept=".xlsx,.xls"; i.multiple=true; i.onchange=()=>res([...i.files]); i.click(); });
+  if(!files||!files.length) return;
+  const d=walGet(); d.busy=true; d.error=null; renderToolSalesWallet();
+  try{
+    let allTxns=[], shopName=null, pFrom=null, pTo=null; const names=[];
+    for(const f of files){
+      const wb=XLSX.read(await f.arrayBuffer(),{type:"array"});
+      const parsed=bmpParseShopeeBalance(wb);
+      allTxns=allTxns.concat(parsed.txns||[]);
+      shopName=shopName||parsed.shopName; pFrom=pFrom||parsed.periodFrom; pTo=parsed.periodTo||pTo;
+      names.push(f.name);
+    }
+    allTxns.sort((a,b)=>String(a.datetime).localeCompare(String(b.datetime)));
+    if(!ordGet().loaded){ try{ await ordLoad(); }catch(e){} }
+    const ordByOrder={}; for(const o of (ordGet().rows||[])) if(o.order_id) ordByOrder[o.order_id]=o;
+    const g=walGroupWithdrawals(allTxns, ordByOrder);
+    d.groups=g.groups; d.pending=g.pending; d.shopName=shopName; d.period={from:pFrom,to:pTo}; d.fileName=names.join(", "); d.loaded=true; d.expanded={};
+  }catch(e){ d.error="อ่านไฟล์ไม่สำเร็จ: "+(e.message||e)+" — รองรับเฉพาะรายงาน Shopee Balance (ยอดเงินในกระเป๋า) ตอนนี้"; }
+  d.busy=false; renderToolSalesWallet();
+}
+function walToggleGroup(i){ const d=walGet(); d.expanded[i]=!d.expanded[i]; renderToolSalesWallet(); }
+function walClear(){ const d=walGet(); d.loaded=false; d.groups=[]; d.pending=null; d.error=null; d.fileName=null; renderToolSalesWallet(); }
+function walExport(){
+  const d=walGet(); if(!d.groups.length){ alert("ยังไม่มีข้อมูล"); return; }
+  const co=COMPANIES.find(c=>c.id===state.company);
+  const s1=[["กลุ่มถอน (วันที่)","เวลาถอน","ยอดถอน","จำนวนออเดอร์","รวมออเดอร์(สุทธิ)","ค่าธรรมเนียมในกระเป๋า","ผลรวมคาดหวัง","ส่วนต่าง","ออเดอร์ยกเลิกในกลุ่ม","ยอดคงเหลือหลังถอน"]];
+  d.groups.forEach(g=>s1.push([g.date, (g.datetime||'').slice(11,19), round2(g.withdraw), g.ordersN, round2(g.sumOrders), round2(g.sumFees), round2(g.expected), round2(g.diff), g.cancelledN, round2(g.balance_after)]));
+  const s2=[["กลุ่มถอน","ประเภท","วันเวลา","เลขคำสั่งซื้อ","คำอธิบาย","หมวด","จำนวนเงิน","ออเดอร์ยกเลิก?"]];
+  const ordByOrder={}; for(const o of (ordGet().rows||[])) if(o.order_id) ordByOrder[o.order_id]=o;
+  d.groups.forEach(g=>{ [...g.orders,...g.fees].forEach(t=>{
+    const isOrder=t.type==="รายรับจากคำสั่งซื้อ"; const canc=t.order_id&&ordByOrder[t.order_id]&&ordByOrder[t.order_id].status==='cancelled';
+    s2.push([g.date, isOrder?"ออเดอร์":walAdjCat(t), (t.datetime||'').slice(0,19), t.order_id||'', t.desc||'', isOrder?'-':walAdjCat(t), round2(t.amount), canc?'ยกเลิก':'']);
+  }); });
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(s1), "สรุปกลุ่มถอน");
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(s2), "รายละเอียด");
+  XLSX.writeFile(wb, `กระเป๋าเงิน_${co?co.code:''}_${new Date().toISOString().slice(0,10)}.xlsx`);
+}
+function walGroupCardHtml(g, i, expanded){
+  const fmt=salesFmt;
+  const ok=Math.abs(g.diff)<0.01;
+  const diffBadge = ok ? `<span style="font:600 11px/1 inherit;padding:3px 9px;border-radius:999px;background:#dcfce7;color:#15803d">✓ ตรง</span>`
+    : `<span style="font:600 11px/1 inherit;padding:3px 9px;border-radius:999px;background:#fef3c7;color:#92400e">${g.diff>0?'ยกไป':'ขาด'} ${fmt(Math.abs(g.diff))}</span>`;
+  const feeChips=Object.entries(g.byCat).filter(([k,v])=>Math.abs(v)>=0.01)
+    .map(([k,v])=>`<span style="font:600 11px/1.3 inherit;padding:3px 9px;border-radius:7px;background:#fef2f2;color:#b91c1c">${k} ${fmt(Math.abs(v))}</span>`).join(" ");
+  const cancWarn = g.cancelledN ? `<span style="font:600 11px/1 inherit;padding:3px 9px;border-radius:999px;background:#fee2e2;color:#991b1b">⚠ ยกเลิก ${g.cancelledN} ในกลุ่ม</span>` : "";
+  const ordByOrder={}; for(const o of (ordGet().rows||[])) if(o.order_id) ordByOrder[o.order_id]=o;
+  const detail = expanded ? `<div style="margin-top:12px;border-top:1px dashed #e2e8f0;padding-top:10px">
+    <div style="font:700 12px/1 inherit;color:#334155;margin-bottom:6px">ออเดอร์ที่เข้ากระเป๋า (${g.ordersN})</div>
+    <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:11.5px">
+      <thead><tr style="background:#f8fafc"><th style="padding:5px 8px;text-align:left">เลขคำสั่งซื้อ</th><th style="padding:5px 8px;text-align:left">วันเวลา</th><th style="padding:5px 8px;text-align:right">เข้าสุทธิ</th><th style="padding:5px 8px;text-align:left">สถานะ</th></tr></thead>
+      <tbody>${g.orders.map(o=>{ const canc=o.order_id&&ordByOrder[o.order_id]&&ordByOrder[o.order_id].status==='cancelled';
+        return `<tr style="border-bottom:1px solid #f1f5f9"><td style="padding:5px 8px;font-family:monospace">${esc(o.order_id||'—')}</td><td style="padding:5px 8px">${esc((o.datetime||'').slice(0,19))}</td><td style="padding:5px 8px;text-align:right;font-variant-numeric:tabular-nums">${fmt(o.amount)}</td><td style="padding:5px 8px">${canc?'<span style="color:#dc2626">ยกเลิก</span>':'<span style="color:#16a34a">ปกติ</span>'}</td></tr>`; }).join("")}</tbody>
+    </table></div>
+    ${g.fees.length?`<div style="font:700 12px/1 inherit;color:#334155;margin:12px 0 6px">ค่าธรรมเนียม/ปรับปรุงในกระเป๋า (${g.fees.length})</div>
+    <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:11.5px">
+      <thead><tr style="background:#f8fafc"><th style="padding:5px 8px;text-align:left">หมวด</th><th style="padding:5px 8px;text-align:left">คำอธิบาย</th><th style="padding:5px 8px;text-align:left">ออเดอร์</th><th style="padding:5px 8px;text-align:right">จำนวนเงิน</th></tr></thead>
+      <tbody>${g.fees.map(f=>`<tr style="border-bottom:1px solid #f1f5f9"><td style="padding:5px 8px">${walAdjCat(f)}</td><td style="padding:5px 8px">${esc(f.desc||'—')}</td><td style="padding:5px 8px;font-family:monospace">${esc(f.order_id||'—')}</td><td style="padding:5px 8px;text-align:right;font-variant-numeric:tabular-nums;color:#b91c1c">${fmt(f.amount)}</td></tr>`).join("")}</tbody>
+    </table></div>`:''}
+  </div>` : "";
+  return `<div style="border:1px solid #e2e8f0;border-left:4px solid ${ok?'#16a34a':'#d97706'};border-radius:12px;background:#fff;padding:14px 16px">
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <i data-lucide="banknote" style="width:18px;height:18px;color:var(--brand)"></i>
+      <span style="font:800 14px/1 inherit">ถอนวันที่ ${g.date}</span>
+      <span style="font:700 15px/1 inherit;color:var(--brand)">${fmt(g.withdraw)} บาท</span>
+      ${diffBadge}${cancWarn}
+      <span style="flex:1"></span>
+      <button class="ord-btn" style="padding:4px 10px;font-size:12px" onclick="walToggleGroup(${i})">${expanded?'ซ่อน':'ดูรายการ'}</button>
+    </div>
+    <div style="margin-top:8px;font:500 13px/1.6 inherit;color:#475569">
+      <b>${g.ordersN}</b> ออเดอร์ = <b>${fmt(g.sumOrders)}</b> ${g.sumFees?`− ค่าธรรมเนียมในกระเป๋า <b style="color:#b91c1c">${fmt(Math.abs(g.sumFees))}</b>`:''} = <b>${fmt(g.expected)}</b>
+    </div>
+    ${feeChips?`<div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">${feeChips}</div>`:''}
+    ${detail}
+  </div>`;
+}
+function renderToolSalesWallet(){
+  ordInjectStyle(); salInjectStyle();
+  const co=COMPANIES.find(c=>c.id===state.company);
+  const d=walGet(); const fmt=salesFmt;
+  const heroStat = d.loaded ? `${d.groups.length} กลุ่มถอน${d.shopName?` · ${esc(d.shopName)}`:''}` : "อัปรายงาน Shopee Balance";
+  const hero=`<div class="sal-hero" style="background:linear-gradient(135deg,var(--brand),var(--brand-dark))">
+      <div class="sal-hero-l"><div class="sal-hero-ttl">ระบบงานขาย · 3. กระเป๋าเงิน</div>
+        <div class="sal-hero-sub">จับกลุ่ม "การถอนเงิน" = ออเดอร์ที่เข้ากระเป๋า − ค่าธรรมเนียมในกระเป๋า (ค่าโฆษณา ฯลฯ) · เห็นว่าแต่ละยอดถอนมาจากออเดอร์ไหนบ้าง</div></div>
+      <div class="sal-hero-r"><div class="sal-hero-co">${esc(co.name)}</div><div class="sal-hero-stat">${heroStat}</div></div>
+    </div>`;
+  const upBtn=`<button class="ord-btn primary" onclick="walUpload()"><i data-lucide="upload"></i> อัปรายงาน Shopee Balance (.xlsx)</button>`;
+  let body="";
+  if(d.busy){
+    body=`<div class="sal-empty" style="padding:56px;text-align:center;background:#fff;border:1px solid #e2e8f0;border-radius:14px"><i data-lucide="loader-2" style="width:40px;height:40px;color:var(--brand)"></i><div style="margin-top:12px;color:#64748b">กำลังอ่าน + จับกลุ่มถอน…</div></div>`;
+  } else if(d.error && !d.loaded){
+    body=`<div style="background:#fff;border:1px solid #fecaca;border-radius:14px;padding:22px">
+      <div style="color:#b91c1c;font:600 14px/1.5 inherit;margin-bottom:12px">⚠ ${esc(d.error)}</div>${upBtn}</div>`;
+  } else if(!d.loaded){
+    body=`<div class="sal-empty" style="padding:52px 30px;text-align:center;background:#fff;border:1px solid #e2e8f0;border-radius:14px">
+      <i data-lucide="wallet" style="width:52px;height:52px;color:var(--brand);margin-bottom:14px;stroke-width:1.4"></i>
+      <div style="font:700 16px/1.3 inherit;color:#1e293b;margin-bottom:8px">อัปรายงานยอดเงินในกระเป๋า (Shopee Balance)</div>
+      <div style="color:#64748b;font-size:13px;line-height:1.8;max-width:620px;margin:0 auto 22px">
+        ระบบจะเรียงธุรกรรมตามเวลา → จับกลุ่มทุกครั้งที่ "ถอนเงิน" ออกจากกระเป๋า<br>
+        แต่ละกลุ่มถอน = <b>ผลรวมออเดอร์ที่เข้ากระเป๋า − ค่าธรรมเนียมในกระเป๋า</b> (ค่าโฆษณา/คืนเงิน ฯลฯ ที่หักทีหลัง ไม่ได้หักตอนออเดอร์)</div>
+      ${upBtn}
+      <div style="margin-top:10px;color:#94a3b8;font-size:12px">รองรับหลายไฟล์ · ตอนนี้รองรับ Shopee (TikTok/Lazada เฟสถัดไป)</div>
+    </div>`;
+  } else {
+    const totWd=round2(d.groups.reduce((s,g)=>s+g.withdraw,0));
+    const totFee=round2(d.groups.reduce((s,g)=>s+Math.abs(g.sumFees),0));
+    const totOrd=d.groups.reduce((s,g)=>s+g.ordersN,0);
+    const kpi=`<div class="sal-kpi-row" style="grid-template-columns:repeat(4,1fr);margin-bottom:14px">
+      <div class="sal-kpi"><div class="n">${d.groups.length}</div><div class="l">กลุ่มถอน</div></div>
+      <div class="sal-kpi" style="--kc:var(--brand)"><div class="n">${fmt(totWd)}</div><div class="l">ยอดถอนรวม (บาท)</div></div>
+      <div class="sal-kpi" style="--kc:#dc2626"><div class="n">${fmt(totFee)}</div><div class="l">ค่าธรรมเนียมในกระเป๋า (บาท)</div></div>
+      <div class="sal-kpi" style="--kc:#0369a1"><div class="n">${totOrd}</div><div class="l">ออเดอร์ที่เข้ากระเป๋า</div></div>
+    </div>`;
+    const bar=`<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:14px">
+      ${upBtn}
+      <button class="ord-btn" onclick="walExport()"><i data-lucide="file-spreadsheet"></i> ส่งออก Excel</button>
+      <button class="ord-btn" onclick="walClear()"><i data-lucide="x"></i> ล้าง</button>
+      <span style="flex:1"></span>
+      <span style="font:500 12px/1.4 inherit;color:#64748b">ไฟล์: <b style="color:#334155">${esc(d.fileName||'')}</b>${d.period&&d.period.from?` · ${esc(d.period.from)}${d.period.to?` ถึง ${esc(d.period.to)}`:''}`:''}</span>
+    </div>`;
+    const cards=d.groups.map((g,i)=>walGroupCardHtml(g,i,!!d.expanded[i])).join('<div style="height:10px"></div>');
+    const pend=d.pending?`<div style="margin-top:14px;border:1px dashed #cbd5e1;border-radius:12px;background:#f8fafc;padding:14px 16px">
+      <div style="font:700 13px/1 inherit;color:#334155;margin-bottom:6px">💤 ยังอยู่ในกระเป๋า (ยังไม่ถอน)</div>
+      <div style="font:500 13px/1.6 inherit;color:#475569"><b>${d.pending.ordersN}</b> ออเดอร์ = <b>${fmt(d.pending.sumOrders)}</b>${d.pending.sumFees?` − ค่าธรรมเนียม <b style="color:#b91c1c">${fmt(Math.abs(d.pending.sumFees))}</b>`:''} = <b>${fmt(round2(d.pending.sumOrders+d.pending.sumFees))}</b> รอถอนรอบถัดไป</div>
+    </div>`:'';
+    body=`${kpi}${bar}<div style="display:flex;flex-direction:column;gap:10px">${cards}</div>${pend}`;
+  }
+  document.getElementById("main").innerHTML=`<div class="ord-page sal-page">${hero}${body}</div>`;
+  if(window.lucide) lucide.createIcons();
+}
 function renderToolSalesRecon(){  return salesPlaceholder("4. กระทบยอด","git-compare","กระทบยอด 4 ทาง · Order × Income × Wallet × ธนาคาร · ตรวจครบ / ขาด / ส่วนต่าง · ส่งออก BQ (ผ่านเช็คเข้าธนาคาร) ไปคีย์ในระบบบัญชี · ย้ายของ \"ถอน Marketplace\" จาก Bank Reconciliation มาที่นี่"); }
 function salesPlaceholder(title, icon, desc){
   ordInjectStyle(); salInjectStyle();

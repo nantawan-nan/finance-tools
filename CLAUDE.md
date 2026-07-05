@@ -177,6 +177,68 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-05 — ★ 3. กระเป๋าเงิน (sales_wallet): จับกลุ่มถอน = ออเดอร์ − ค่าธรรมเนียมในกระเป๋า
+- **เจ้าของขอ:** จับคู่ยอดที่เข้ากระเป๋า (ออเดอร์วันที่ 1-7) กับการถอน (วันที่ 8) · แต่ละยอดถอนประกอบด้วยออเดอร์กี่ใบ + ค่าธรรมเนียมที่หัก**ในกระเป๋า** (ค่าโฆษณา ฯลฯ ที่ไม่ได้หักตอนออเดอร์) · บางค่าธรรมเนียมออเดอร์อาจถูกยกเลิก → รายงานต้องบอกด้วย
+- **เปิด `sales_wallet` `soon`→`live`** · `renderToolSalesWallet` เดิมเป็น placeholder → เขียนจริง · **reuse `bmpParseShopeeBalance`** (Shopee Balance/Transaction report · stream txn: รายรับจากคำสั่งซื้อ/การถอนเงิน/รายการปรับปรุง)
+- **`walGroupWithdrawals(txns, ordByOrder)`** — buffer txn ตั้งแต่ถอนครั้งก่อน → เจอ "การถอนเงิน" ปิดกลุ่ม · กลุ่ม = ออเดอร์ (Σnet) + ค่าธรรมเนียม (Σ ติดลบ) ≈ ยอดถอน · `diff = Σorders+Σfees − withdraw` (ยกไป/ขาด) · flag ออเดอร์ยกเลิกในกลุ่ม (`ordByOrder[order_id].status==='cancelled'`) · leftover = `pending` (ยังไม่ถอน) · **unit test:** 3 ออเดอร์ 11,000 − ค่าโฆษณา 1,000 = ถอน 10,000 diff 0 · byCat ถูก · cancelledN ถูก
+- **`walAdjCat(tx)`** จัดหมวดค่าธรรมเนียมในกระเป๋า (ค่าโฆษณา/คืนเงิน/ภาษี/ค่าธรรมเนียม/ชดเชย/อื่นๆ) จาก desc+type
+- **UI:** hero + KPI (กลุ่มถอน/ยอดถอนรวม/ค่าธรรมเนียมในกระเป๋า/ออเดอร์) + **การ์ดต่อยอดถอน** (`walGroupCardHtml`: "N ออเดอร์ = X − ค่าธรรมเนียม Y = Z" + chip หมวด + badge ✓ตรง/ยกไป-ขาด + ⚠ยกเลิก + กางดูรายการออเดอร์/ค่าธรรมเนียม) + การ์ด pending · `walExport` xlsx 2 sheet (สรุปกลุ่ม + รายละเอียด)
+- **กระทบหน้าอื่น = 0** — โมดูลใหม่ (`wal*` + `state.wallet[co]`) · reuse `bmpParseShopeeBalance`/`ordLoad`/`salesFmt`
+
+### 2026-07-05 — ★ กระเป๋าเงิน "ครบวง": BQ ต่อกลุ่มถอน + จับกับสเตทเมนต์แบงค์ + tag กลับ order_ledger
+- **เจ้าของขอ:** เชื่อมกระเป๋าเงิน → BQ → เข้าแบงค์ ให้ครบวง (timeline ออเดอร์ติดด่านสุดท้าย)
+- **BQ ต่อกลุ่มถอน** — `walNextBq(seqByDay, iso)` = `YYMMDD+seq` (รันต่อในไฟล์) · ใส่ `g.bq` ใน `walGroupWithdrawals` · **unit test:** 2607080001/2
+- **จับกับแบงค์** — `walLoadBank` โหลด `brec_bank_rows` (deposit>0 · company_id uuid · best-effort) → `walMatchBank(d,g)` จับ deposit ยอดตรง (±0.5) วันตรง→เผื่อ 3 วัน (`walAddDays` via cffISO) · badge "🏦 เข้าแบงค์ <วัน>" / "ยังไม่พบในสเตทเมนต์" · note รวม matchedN/N · **unit test:** พบในกรอบ / นอกกรอบ / ไม่มีสเตทเมนต์
+- **tag กลับ order_ledger** — `walTagBank` map กลุ่ม→`{orders,bq_number,withdraw_date}` แล้วเรียก **`ordTagBankFromWithdrawals(state.company, wds)`** (reuse · เขียน `bq_no/deposit_date/bank_in_date/bank_matched` เฉพาะออเดอร์ที่ยังไม่มี bq_no) → timeline ออเดอร์ติดด่าน "เงินเข้าแบงค์"
+- **การ์ด/Export** เพิ่ม BQ chip + สถานะแบงค์ · `walExport` s1 เพิ่มคอลัมน์ BQ + เข้าแบงค์(วันที่)
+- **กระทบหน้าอื่น = 0** — reuse `ordTagBankFromWithdrawals` (path เขียน bank เดิม) · `walMatchBank` mirror `bmpMatchBank` · **ยังไม่ทำ:** persist กลุ่มถอนลง DB (ตาราง `brec_mp_withdrawals` มีอยู่แต่ผูกกับ bmp) · TikTok/Lazada wallet · account routing (ตอนนี้ bank_account_no=null ตอน tag)
+
+### 2026-07-05 — ★ รับชำระ: แท็บใหม่ "รายงานค่าธรรมเนียม" (รายเดือน · แยกหมวด) — ให้บัญชีบันทึกล้าง
+- **เจ้าของขอ:** การเงินรับชำระ IV 150 เงินเข้า 100 → ตั้ง "ค่าธรรมเนียมจ่ายล่วงหน้า 50" · สิ้นเดือนบัญชีต้องดึงรายงานรวมค่าธรรมเนียมทั้งเดือน **แยกหมวด** ไปบันทึกล้างเข้าบัญชีค่าใช้จ่ายจริงตามใบกำกับแพลตฟอร์ม
+- **design ที่ตกลง:** เก็บ**ที่เดียว** (`sales_income_rows` มี `channel_group` อยู่แล้ว · fee ต่างแพลตฟอร์มถูกดูดด้วย `fee_breakdown` jsonb + `incFeeCategory`→7 หมวด) · อิง**วันเงินเข้า (`paid_date`)** · กระทบใบกำกับแพลตฟอร์ม = เฟสหน้า
+- **แท็บใหม่ `fees`** ใน `renderToolSalesIncome` (subtab list/export/verify/**fees**) — **ไม่ต้อง migration** (ดึงจากข้อมูลที่มี):
+  - `incFeeReportData(d)` — กรอง incRows ตามเดือน(paid_date)+แพลตฟอร์ม → aggregate `byCatPlat`/`catTotals`/`platTotals`/`grand` ผ่าน `incRowFeeCats` · join `order_ledger` เอา `iv_no` · **unit test:** grand/หมวด/byPlatform/join IV/filter ถูกครบ
+  - `incRenderFeeReport` — เลือกเดือน(dropdown จาก `incFeeReportMonths`)+ชิปแพลตฟอร์ม · **ตาราง ① สรุป 7 หมวด × แพลตฟอร์ม** (บัญชีบันทึก) + **ตาราง ② รายละเอียดต่อออเดอร์** (order/IV/วันเงินเข้า/ฐานภาษี/สุทธิ/ค่าธรรมเนียมจ่ายล่วงหน้า/แยกหมวด)
+  - `incFeeExport` — xlsx 2 sheet (สรุปหมวด + รายละเอียด) · auto-load incRows เมื่อเข้าแท็บ fees
+- **ค่าธรรมเนียมจ่ายล่วงหน้า/ออเดอร์ = `fee_total` = ฐานภาษี − เงินเข้าสุทธิ** (มีในตารางอยู่แล้ว)
+- **กระทบหน้าอื่น = 0** — subtab + ฟังก์ชันใหม่ล้วน · reuse `incRowFeeCats`/`incFeeCategory`/`INC_FEE_CATS`/`incTaxBaseOf`
+
+### 2026-07-05 — ★ ตรวจ RE: วงจร Batch (mirror IV) — ส่งออก RE → ตรวจกลับด้วย 1.9.1 ว่าคีย์ครบไหม
+- **เจ้าของขอ:** ส่งออก RE ต้องมีวงจรตรวจเหมือน IV (ดึงรายงานกลับมาเทียบครบไหม) · แก้หน้ารับชำระเดิมได้เลย (ไม่ต้องมีหน้าใหม่)
+- **Migration `supabase/re_export_batches.sql`** (idempotent · RLS ปิด · mirror `iv_export_batches`): ตาราง `re_export_batches` (batch_no/date_from-to/channels/start_re/end_re/order_count/order_ids jsonb/exported_email + verify_status/verified_at/verified_email/verify_result) + unique `(company_id,batch_no)` + index exported_at
+- **Engine (`inc*` ก่อน `incRenderVerify`) — gated ด้วย `d.reBatchId`:**
+  - `incCreateReBatch(company, ready)` — `incExportRE` เรียกหลังส่งออก (fire-and-forget) · batch_no `RE-{CO}-YYYYMMDD-NNN` (query max seq) · order_ids = ready.map(orderNo) · start/end_re จาก `armapRunRE(seed,0/len-1)` · alert batch_no
+  - `incReBatchCoverage(d)` — join batch.order_ids กับ `d.verify.rows` ผ่าน iv_no/order_ref→order → `{expectedN,keyedN,missing[],extra[]}` · **unit test:** ส่ง 3 เจอ 2 → missing=[O3] · extra แยก "นอก batch"(เจอออเดอร์) vs "ไม่พบออเดอร์"(ไม่มีในทะเบียน)
+  - `incReSaveBatchVerify` — update `re_export_batches` verify_status/verify_result · `incReBatchBannerHtml` การ์ด coverage · `incLoadReBatches`/`incEnsureReBatches`/`incSetReBatch`
+- **UI (`incRenderVerify`):** `<select>` "ตรวจเทียบใบส่งออก" ใน action bar + banner หลัง kpiHtml · gated (ไม่มี/ไม่เลือก batch = ตรวจทั้งทะเบียนเหมือนเดิม) · tag-back เดิม (`incVerifyTagAll` เขียน re_no) ไม่แตะ
+- **กระทบหน้าอื่น = 0** — ฟังก์ชันใหม่ล้วน + gated · `incExportRE` เพิ่มแค่ 1 บรรทัดท้าย (สร้าง batch)
+
+### 2026-07-05 — ★ ตรวจ IV: ผูก "วงจร Batch" — ตรวจการคีย์เทียบใบส่งออก (ไม่ใช่ทั้งทะเบียน) + เก็บผลลง DB
+- **เจ้าของขอ (workflow):** แก้อาการหน้าตรวจ IV "refresh แล้วเด้งให้อัปใหม่/สะสมมั่ว มองไม่ออกว่าครบจากอะไร" · ครบต้องวัดจาก **ใบส่งออก (batch)** — ส่งไป 120 ต้องคีย์กลับ 120 · เรียก 141.RWT เกิน (150) → ตรวจแค่ 120 อีก 30 = "นอกสโคป"
+- **Migration `supabase/iv_export_batches_verify.sql`** (idempotent · guard table exists · sort หลัง `iv_export_batches.sql` เพราะ '.'<'_'): `ALTER TABLE iv_export_batches ADD COLUMN IF NOT EXISTS verify_status/verified_at/verified_email/verify_result(jsonb)` + NOTIFY pgrst
+- **Engine (`ordIv*` ก่อน `ordRenderIv`) — ทั้งหมด gated ด้วย `d.ivCheck.batchId` (ไม่เลือก batch = พฤติกรรมเดิมเป๊ะ):**
+  - `ordIvEnsureBatches` โหลด `d.ivrec.batches` (reuse `ivrLoadBatches`) แบบ idempotent — guard `d._ivBatchesLoading` + เช็ค array กันลูป (ivrLoadBatches set เป็น [] เสมอแม้ error)
+  - `ordIvBatchCoverage(d)` — join batch.order_ids (order_id หลังบ้าน · เก็บตอน export) กับ `ic.results` ผ่าน `orderRowId→d.rows→order_id` → คืน `{expectedN, keyedN, missing[], extra[]}` · orphan/voided/นอก batch = extra · **verified ด้วย unit test:** ส่ง 3 เจอ 2 → missing=[O3], extra=[orphan, นอก batch]
+  - `ordIvSaveBatchVerify` — update `iv_export_batches` (`verify_status` = verified ถ้า missing=0 ไม่งั้น partial · `verify_result` jsonb เก็บ missing/extra) → refresh batches + flash
+  - `ordIvBatchBannerHtml` — การ์ด coverage (ส่งออก/พบใน 141.RWT/ยังไม่คีย์/นอกสโคป) + list เลขที่ขาด/เกิน + ปุ่ม "บันทึกผลตรวจ batch นี้" + badge สถานะ
+- **UI (`ordRenderIv`):** เพิ่ม `<select>` "ตรวจเทียบใบส่งออก" ใน action bar (โชว์เมื่อมี batch) + banner หลัง coverageWarn · ทั้งคู่ hidden/no-op ถ้าไม่มี/ไม่เลือก batch
+- **tag-back = ของเดิม** (`ordIvApply('tagSelected')` เขียน iv_no/iv_date/sale_amount กลับ order_ledger) — batch cycle แค่ track ครบ/ขาด/เกิน + persist สถานะ ไม่แตะ path เขียนกลับ
+- **กระทบหน้าอื่น = 0** — `ordRenderIv` shared กับ BigSeller (`ivrRenderVerify`) · ทุกฟังก์ชันใหม่ + gated · `renderToolOrders()` มี guard redirect ตาม state.tool อยู่แล้ว
+
+### 2026-07-05 — Orders เสิร์ช "เห็นครบ": join เงินเข้าจริง (sales_income_rows) เข้า timeline
+- **เจ้าของขอ:** เสิร์ชออเดอร์แล้วเห็นทุกด้านในที่เดียว — BigSeller↔แพลตฟอร์ม (เน็ตต้องตรง · มีอยู่แล้วใน `ordReconDetailHtml`) + **เงินเข้าสุทธิกี่บาท เข้าวันไหน ค่าใช้จ่ายเท่าไหร่** + เลข IV/RE
+- **`ordEnsureIncome`/`ordLoadIncomeMap`** (lazy · idempotent · `d.incomeByOid` Map by order_id · แบ่งหน้า `.range()`): โหลด `sales_income_rows` (`net_received/paid_date/fee_total/tax_base/gross/seller_discount/buyer_shipping`) ต่อบริษัท (`fopCompanyId` uuid · `deleted_at` null) — guard กันยิงซ้ำเหมือน `ordIvEnsureBatches`
+- **`ordTimeline(o, inc)`** เพิ่ม param `inc` (optional · เรียกที่เดียวใน `ordRenderSearch`) — step "รับชำระ" → "รับชำระ / เงินเข้ากระเป๋า" โชว์ทั้ง RE (เอกสาร) + `💰 เงินเข้าสุทธิ X เข้า <วัน> · ค่าใช้จ่าย Y · ฐานภาษี Z` (จาก income) · `on` เปิดเมื่อมี re_no **หรือ** income
+- **`ordRenderSearch`** เรียก `ordEnsureIncome()` + ส่ง `incMap.get(order_id)` เข้า timeline · เน็ตต้องตรงดูจาก `ordReconDetailHtml` เดิม
+- **กระทบหน้าอื่น = 0** — `ordTimeline` param optional (caller อื่นไม่มี) · loader ใหม่ล้วน · verify: timeline โชว์ income ถูก / ไม่มี income → "ยังไม่รับชำระ"
+
+### 2026-07-05 — Orders recon: "ใบส่งกลับฝ่ายขาย" (แทนปุ่ม export "คีย์ไม่ครบ" ดิบ)
+- **เจ้าของขอ (workflow):** เวลา recon เจอไม่ตรง ให้ส่งกลับฝ่ายขายเป็นเอกสารที่อ่านง่ายว่า "ออเดอร์วันไหนบ้างไม่ตรง · ต้องแก้อะไร · นัดตรวจซ้ำวันไหน" — ไม่ใช่ใบกระทบยอดเทคนิค (เซลงง)
+- **`ordReconExport` รื้อใหม่** (ปุ่ม "ใบส่งกลับฝ่ายขาย" ในแท็บ recon · เดิมชื่อ "ส่งออก คีย์ไม่ครบ" export only_be ดิบ): ใช้ `ordReconEffStatus` คำนวณสถานะสด แล้วแยก xlsx เป็น **3 หมวด** — ① ยังไม่คีย์ (`only_be`) ② ยอดไม่ตรง (`diff` · โชว์ยอดหลังบ้าน/ยอดที่คีย์/ผลต่าง/จุดที่ต่างจาก `ordReconDiffs`) ③ ต้องเช็คซ้ำ (`only_bs`) · หัวเอกสารมี วันที่ตรวจ + ช่วงข้อมูล + **นัดตรวจซ้ำ** (`prompt` default พรุ่งนี้ via `cffISO`) · ยอดใช้ `ordTaxBase(o,'be'/'bs')` ให้ตรงสูตร recon
+- **cancelled = handled อยู่แล้ว** (ยืนยัน · ไม่แก้): `ordRunRecon` ข้าม `be.status==='cancelled'` (l.20241) + `ordReconUpload` กรอง cancelled ออกก่อน recon (l.20265) → ใบยกเลิกไม่เคยกลายเป็น only_be หลอก
+- **กระทบหน้าอื่น = 0** — แก้เฉพาะ leaf function `ordReconExport` + label ปุ่ม · ไม่มี migration · reuse helper เดิมล้วน
+- **ยังไม่ทำ (คุยไว้):** วงจร batch ตรวจการคีย์ — ผูก `iv_export_batches` เข้าหน้าตรวจ IV (141.RWT เทียบ batch ที่ส่งออก ไม่ใช่ทั้งทะเบียน) + persist ผลตรวจลง DB (แก้อาการ refresh แล้ว state หาย/สะสมมั่ว)
+
 ### 2026-07-04 — ★ Bank Recon: auto-match "กลุ่มยอดรวม" (same-date equal-sum N:M) — แตกยอด/รวมยอด COD
 - **เจ้าของขอ:** ให้ auto-match จับเคสที่ **วันเดียวกัน ยอดรวมเท่ากัน แต่แตกเป็นหลายรายการ** (เดิม 1:1 จับไม่ได้ ต้องกดจับเอง): (1) **1 Express = หลาย Bank** (ลูกค้าโอนแตกหลายครั้ง เช่น 390 = 290+100) · (2) **หลาย Express = 1 Bank** (aggregator รวมยอด เช่น FLASH PAY COD: 450+900 = 1,350)
 - **Tier 3 อัลกอริทึม** (`brec*` หลัง `brecAutoMatch`): `brecAutoMatchGroups(ex,bk,existingPairs)` — วนต่อวัน×ทิศทาง(sign) · anchor 1 ฝั่ง หา subset อีกฝั่งที่ผลรวมตรง (`brecSubsetsToTarget` DFS ขนาด 2..4 · cents integer กัน float) · **เสนอเฉพาะที่จับได้ทางเดียว (unique)** — กำกวม(หลาย subset)/ข้ามวัน = ข้าม ให้จับเอง · `brecCents`/`MAXPOOL=18`/`MAXK=4`

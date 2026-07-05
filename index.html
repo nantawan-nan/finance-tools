@@ -4371,8 +4371,14 @@ function walAdjCat(tx){
 }
 /* จับกลุ่ม: buffer ทุก txn ตั้งแต่ถอนครั้งก่อน → เจอ "การถอนเงิน" ปิดกลุ่ม
    กลุ่ม = ออเดอร์ (Σnet) + ค่าธรรมเนียมในกระเป๋า (Σ ติดลบ) ≈ ยอดถอน */
+function walNextBq(seqByDay, isoDate){
+  const p=String(isoDate||"").split("-"); if(p.length<3) return "";
+  const key=p[0].slice(2)+p[1]+p[2]; const n=(seqByDay.get(key)||0)+1; seqByDay.set(key,n);
+  return key+String(n).padStart(4,"0");
+}
+function walAddDays(iso, n){ try{ const d=new Date(iso+"T00:00:00"); d.setDate(d.getDate()+n); return cffISO(d); }catch(e){ return iso; } }
 function walGroupWithdrawals(txns, ordByOrder){
-  const groups=[]; let buf=[];
+  const groups=[]; let buf=[]; const seqByDay=new Map();
   const cancelledOf=(t)=>{ if(!t.order_id||!ordByOrder) return false; const o=ordByOrder[t.order_id]; return !!(o&&o.status==='cancelled'); };
   for(const tx of (txns||[])){
     if(tx.type==="การถอนเงิน"){
@@ -4384,7 +4390,7 @@ function walGroupWithdrawals(txns, ordByOrder){
       const byCat={};
       for(const f of fees){ const c=walAdjCat(f); byCat[c]=round2((byCat[c]||0)+(f.amount||0)); }
       const cancelledN=buf.filter(cancelledOf).length;
-      groups.push({ date:tx.txn_date, datetime:tx.datetime, withdraw:wd,
+      groups.push({ date:tx.txn_date, datetime:tx.datetime, withdraw:wd, bq:walNextBq(seqByDay, tx.txn_date),
         orders, fees, ordersN:orders.length, sumOrders, sumFees, byCat, cancelledN,
         expected:round2(sumOrders+sumFees), diff:round2(sumOrders+sumFees-wd),
         balance_after:tx.balance_after });
@@ -4397,6 +4403,41 @@ function walGroupWithdrawals(txns, ordByOrder){
     sumOrders:round2(pOrders.reduce((s,o)=>s+(o.amount||0),0)),
     sumFees:round2(pFees.reduce((s,f)=>s+(f.amount||0),0)) } : null;
   return { groups, pending };
+}
+/* โหลด bank deposit rows ทั้งบริษัท (best-effort) → จับกับยอดถอน */
+async function walLoadBank(){
+  const d=walGet();
+  try{
+    const co=await fopCompanyId(); if(!co){ d.bankRows=[]; return; }
+    const { data } = await sb.from("brec_bank_rows")
+      .select("id,bank_account_id,txn_date,deposit,description,ref_note")
+      .eq("company_id",co).is("deleted_at",null).gt("deposit",0).order("txn_date",{ascending:true}).limit(100000);
+    d.bankRows=data||[];
+  }catch(e){ console.warn("walLoadBank",e); d.bankRows=[]; }
+}
+/* จับ 1 ยอดถอน กับ statement (deposit ยอดตรง · วันตรง → เผื่อ 3 วัน) */
+function walMatchBank(d, g){
+  const rows=d.bankRows||[]; if(!rows.length) return { hasStmt:false, found:false };
+  const amt=Number(g.withdraw||0);
+  let hit=rows.find(r=>String(r.txn_date)===String(g.date) && Math.abs(Number(r.deposit)-amt)<0.5);
+  if(hit) return { found:true, exact:true, row:hit, hasStmt:true };
+  const lo=g.date, hi=walAddDays(g.date,3);
+  hit=rows.find(r=>Math.abs(Number(r.deposit)-amt)<0.5 && String(r.txn_date)>=lo && String(r.txn_date)<=hi);
+  if(hit) return { found:true, exact:false, row:hit, hasStmt:true };
+  return { found:false, hasStmt:true };
+}
+/* tag กลับ order_ledger: bq_no + วันเงินเข้าแบงค์ ให้ออเดอร์ในทุกกลุ่มถอน (reuse ordTagBankFromWithdrawals) */
+async function walTagBank(){
+  const d=walGet(); if(!d.groups.length){ alert("ยังไม่มีข้อมูล"); return; }
+  if(!brecCanWrite()){ alert("ไม่มีสิทธิ์บันทึก"); return; }
+  const totOrders=d.groups.reduce((s,g)=>s+g.ordersN,0);
+  if(!confirm(`บันทึกเข้าแบงค์ให้ ${d.groups.length} กลุ่มถอน (${totOrders} ออเดอร์)\n→ เขียนเลข BQ + วันเงินเข้าแบงค์ กลับเข้าทะเบียนคำสั่งซื้อ (timeline ออเดอร์จะติดด่าน "เงินเข้าแบงค์")\nดำเนินการต่อ?`)) return;
+  const wds=d.groups.map(g=>({ orders:g.orders, bq_number:g.bq, withdraw_date:g.date, bank_account_no:null }));
+  d.busy=true; renderToolSalesWallet();
+  let n=0; try{ n=await ordTagBankFromWithdrawals(state.company, wds); }catch(e){ d.busy=false; alert("บันทึกไม่สำเร็จ: "+(e.message||e)); return; }
+  try{ await ordLoad(); }catch(e){}
+  d.busy=false; renderToolSalesWallet();
+  alert(`✓ บันทึกเข้าแบงค์แล้ว ${n} ออเดอร์ — เปิดหน้าค้นหาออเดอร์จะเห็น timeline ติดด่าน "เงินเข้าแบงค์"`);
 }
 async function walUpload(){
   const files=await new Promise(res=>{ const i=document.createElement("input"); i.type="file"; i.accept=".xlsx,.xls"; i.multiple=true; i.onchange=()=>res([...i.files]); i.click(); });
@@ -4416,6 +4457,7 @@ async function walUpload(){
     const ordByOrder={}; for(const o of (ordGet().rows||[])) if(o.order_id) ordByOrder[o.order_id]=o;
     const g=walGroupWithdrawals(allTxns, ordByOrder);
     d.groups=g.groups; d.pending=g.pending; d.shopName=shopName; d.period={from:pFrom,to:pTo}; d.fileName=names.join(", "); d.loaded=true; d.expanded={};
+    try{ await walLoadBank(); }catch(e){}   // best-effort: จับยอดถอนกับ statement ถ้ามี
   }catch(e){ d.error="อ่านไฟล์ไม่สำเร็จ: "+(e.message||e)+" — รองรับเฉพาะรายงาน Shopee Balance (ยอดเงินในกระเป๋า) ตอนนี้"; }
   d.busy=false; renderToolSalesWallet();
 }
@@ -4424,8 +4466,8 @@ function walClear(){ const d=walGet(); d.loaded=false; d.groups=[]; d.pending=nu
 function walExport(){
   const d=walGet(); if(!d.groups.length){ alert("ยังไม่มีข้อมูล"); return; }
   const co=COMPANIES.find(c=>c.id===state.company);
-  const s1=[["กลุ่มถอน (วันที่)","เวลาถอน","ยอดถอน","จำนวนออเดอร์","รวมออเดอร์(สุทธิ)","ค่าธรรมเนียมในกระเป๋า","ผลรวมคาดหวัง","ส่วนต่าง","ออเดอร์ยกเลิกในกลุ่ม","ยอดคงเหลือหลังถอน"]];
-  d.groups.forEach(g=>s1.push([g.date, (g.datetime||'').slice(11,19), round2(g.withdraw), g.ordersN, round2(g.sumOrders), round2(g.sumFees), round2(g.expected), round2(g.diff), g.cancelledN, round2(g.balance_after)]));
+  const s1=[["เลข BQ","กลุ่มถอน (วันที่)","เวลาถอน","ยอดถอน","จำนวนออเดอร์","รวมออเดอร์(สุทธิ)","ค่าธรรมเนียมในกระเป๋า","ผลรวมคาดหวัง","ส่วนต่าง","ออเดอร์ยกเลิก","เข้าแบงค์ (วันที่)","ยอดคงเหลือหลังถอน"]];
+  d.groups.forEach(g=>{ const m=walMatchBank(d,g); s1.push([g.bq, g.date, (g.datetime||'').slice(11,19), round2(g.withdraw), g.ordersN, round2(g.sumOrders), round2(g.sumFees), round2(g.expected), round2(g.diff), g.cancelledN, (m.found?m.row.txn_date:''), round2(g.balance_after)]); });
   const s2=[["กลุ่มถอน","ประเภท","วันเวลา","เลขคำสั่งซื้อ","คำอธิบาย","หมวด","จำนวนเงิน","ออเดอร์ยกเลิก?"]];
   const ordByOrder={}; for(const o of (ordGet().rows||[])) if(o.order_id) ordByOrder[o.order_id]=o;
   d.groups.forEach(g=>{ [...g.orders,...g.fees].forEach(t=>{
@@ -4437,7 +4479,7 @@ function walExport(){
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(s2), "รายละเอียด");
   XLSX.writeFile(wb, `กระเป๋าเงิน_${co?co.code:''}_${new Date().toISOString().slice(0,10)}.xlsx`);
 }
-function walGroupCardHtml(g, i, expanded){
+function walGroupCardHtml(g, i, expanded, match){
   const fmt=salesFmt;
   const ok=Math.abs(g.diff)<0.01;
   const diffBadge = ok ? `<span style="font:600 11px/1 inherit;padding:3px 9px;border-radius:999px;background:#dcfce7;color:#15803d">✓ ตรง</span>`
@@ -4445,6 +4487,10 @@ function walGroupCardHtml(g, i, expanded){
   const feeChips=Object.entries(g.byCat).filter(([k,v])=>Math.abs(v)>=0.01)
     .map(([k,v])=>`<span style="font:600 11px/1.3 inherit;padding:3px 9px;border-radius:7px;background:#fef2f2;color:#b91c1c">${k} ${fmt(Math.abs(v))}</span>`).join(" ");
   const cancWarn = g.cancelledN ? `<span style="font:600 11px/1 inherit;padding:3px 9px;border-radius:999px;background:#fee2e2;color:#991b1b">⚠ ยกเลิก ${g.cancelledN} ในกลุ่ม</span>` : "";
+  const bqChip = g.bq ? `<span style="font:600 11px/1 inherit;padding:3px 9px;border-radius:7px;background:#eef2ff;color:#4338ca;font-family:monospace">BQ ${esc(g.bq)}</span>` : "";
+  const bankBadge = (!match || !match.hasStmt) ? ""
+    : match.found ? `<span style="font:600 11px/1 inherit;padding:3px 9px;border-radius:999px;background:#dcfce7;color:#15803d">🏦 เข้าแบงค์ ${esc(String(match.row.txn_date))}${match.exact?'':' (คนละวัน)'}</span>`
+    : `<span style="font:600 11px/1 inherit;padding:3px 9px;border-radius:999px;background:#fef3c7;color:#92400e">ยังไม่พบในสเตทเมนต์</span>`;
   const ordByOrder={}; for(const o of (ordGet().rows||[])) if(o.order_id) ordByOrder[o.order_id]=o;
   const detail = expanded ? `<div style="margin-top:12px;border-top:1px dashed #e2e8f0;padding-top:10px">
     <div style="font:700 12px/1 inherit;color:#334155;margin-bottom:6px">ออเดอร์ที่เข้ากระเป๋า (${g.ordersN})</div>
@@ -4464,7 +4510,7 @@ function walGroupCardHtml(g, i, expanded){
       <i data-lucide="banknote" style="width:18px;height:18px;color:var(--brand)"></i>
       <span style="font:800 14px/1 inherit">ถอนวันที่ ${g.date}</span>
       <span style="font:700 15px/1 inherit;color:var(--brand)">${fmt(g.withdraw)} บาท</span>
-      ${diffBadge}${cancWarn}
+      ${bqChip}${diffBadge}${bankBadge}${cancWarn}
       <span style="flex:1"></span>
       <button class="ord-btn" style="padding:4px 10px;font-size:12px" onclick="walToggleGroup(${i})">${expanded?'ซ่อน':'ดูรายการ'}</button>
     </div>
@@ -4512,14 +4558,19 @@ function renderToolSalesWallet(){
       <div class="sal-kpi" style="--kc:#dc2626"><div class="n">${fmt(totFee)}</div><div class="l">ค่าธรรมเนียมในกระเป๋า (บาท)</div></div>
       <div class="sal-kpi" style="--kc:#0369a1"><div class="n">${totOrd}</div><div class="l">ออเดอร์ที่เข้ากระเป๋า</div></div>
     </div>`;
+    const matches=d.groups.map(g=>walMatchBank(d,g));
+    const hasStmt=matches.some(m=>m.hasStmt);
+    const matchedN=matches.filter(m=>m.found).length;
     const bar=`<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:14px">
       ${upBtn}
+      <button class="ord-btn" onclick="walTagBank()" ${brecCanWrite()?'':'disabled'}><i data-lucide="landmark"></i> บันทึกเข้าแบงค์ (tag ออเดอร์)</button>
       <button class="ord-btn" onclick="walExport()"><i data-lucide="file-spreadsheet"></i> ส่งออก Excel</button>
       <button class="ord-btn" onclick="walClear()"><i data-lucide="x"></i> ล้าง</button>
       <span style="flex:1"></span>
       <span style="font:500 12px/1.4 inherit;color:#64748b">ไฟล์: <b style="color:#334155">${esc(d.fileName||'')}</b>${d.period&&d.period.from?` · ${esc(d.period.from)}${d.period.to?` ถึง ${esc(d.period.to)}`:''}`:''}</span>
-    </div>`;
-    const cards=d.groups.map((g,i)=>walGroupCardHtml(g,i,!!d.expanded[i])).join('<div style="height:10px"></div>');
+    </div>
+    ${hasStmt?`<div style="margin:-4px 0 12px;font:500 12.5px/1.5 inherit;color:#475569">🏦 จับยอดถอนกับสเตทเมนต์แบงค์: <b>${matchedN}</b>/${d.groups.length} กลุ่ม${matchedN<d.groups.length?` · ที่เหลือยังไม่พบ (อาจยังไม่อัปสเตทเมนต์งวดนั้น)`:' ✓ ครบ'}</div>`:`<div style="margin:-4px 0 12px;font:500 12px/1.5 inherit;color:#94a3b8">💡 อัปสเตทเมนต์แบงค์ในหน้า Bank Reconciliation ก่อน → ระบบจะจับยอดถอนกับเงินเข้าแบงค์ให้อัตโนมัติ</div>`}`;
+    const cards=d.groups.map((g,i)=>walGroupCardHtml(g,i,!!d.expanded[i],matches[i])).join('<div style="height:10px"></div>');
     const pend=d.pending?`<div style="margin-top:14px;border:1px dashed #cbd5e1;border-radius:12px;background:#f8fafc;padding:14px 16px">
       <div style="font:700 13px/1 inherit;color:#334155;margin-bottom:6px">💤 ยังอยู่ในกระเป๋า (ยังไม่ถอน)</div>
       <div style="font:500 13px/1.6 inherit;color:#475569"><b>${d.pending.ordersN}</b> ออเดอร์ = <b>${fmt(d.pending.sumOrders)}</b>${d.pending.sumFees?` − ค่าธรรมเนียม <b style="color:#b91c1c">${fmt(Math.abs(d.pending.sumFees))}</b>`:''} = <b>${fmt(round2(d.pending.sumOrders+d.pending.sumFees))}</b> รอถอนรอบถัดไป</div>

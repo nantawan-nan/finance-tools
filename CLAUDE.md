@@ -183,7 +183,15 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 - **`walGroupWithdrawals(txns, ordByOrder)`** — buffer txn ตั้งแต่ถอนครั้งก่อน → เจอ "การถอนเงิน" ปิดกลุ่ม · กลุ่ม = ออเดอร์ (Σnet) + ค่าธรรมเนียม (Σ ติดลบ) ≈ ยอดถอน · `diff = Σorders+Σfees − withdraw` (ยกไป/ขาด) · flag ออเดอร์ยกเลิกในกลุ่ม (`ordByOrder[order_id].status==='cancelled'`) · leftover = `pending` (ยังไม่ถอน) · **unit test:** 3 ออเดอร์ 11,000 − ค่าโฆษณา 1,000 = ถอน 10,000 diff 0 · byCat ถูก · cancelledN ถูก
 - **`walAdjCat(tx)`** จัดหมวดค่าธรรมเนียมในกระเป๋า (ค่าโฆษณา/คืนเงิน/ภาษี/ค่าธรรมเนียม/ชดเชย/อื่นๆ) จาก desc+type
 - **UI:** hero + KPI (กลุ่มถอน/ยอดถอนรวม/ค่าธรรมเนียมในกระเป๋า/ออเดอร์) + **การ์ดต่อยอดถอน** (`walGroupCardHtml`: "N ออเดอร์ = X − ค่าธรรมเนียม Y = Z" + chip หมวด + badge ✓ตรง/ยกไป-ขาด + ⚠ยกเลิก + กางดูรายการออเดอร์/ค่าธรรมเนียม) + การ์ด pending · `walExport` xlsx 2 sheet (สรุปกลุ่ม + รายละเอียด)
-- **กระทบหน้าอื่น = 0** — โมดูลใหม่ (`wal*` + `state.wallet[co]`) · reuse `bmpParseShopeeBalance`/`ordLoad`/`salesFmt` · **ยังไม่ทำ:** persist ลง DB · จับ BQ/แบงค์ (bmp มี engine BQ อยู่แล้วในหน้า bankrec) · TikTok/Lazada wallet (format ต่าง)
+- **กระทบหน้าอื่น = 0** — โมดูลใหม่ (`wal*` + `state.wallet[co]`) · reuse `bmpParseShopeeBalance`/`ordLoad`/`salesFmt`
+
+### 2026-07-05 — ★ กระเป๋าเงิน "ครบวง": BQ ต่อกลุ่มถอน + จับกับสเตทเมนต์แบงค์ + tag กลับ order_ledger
+- **เจ้าของขอ:** เชื่อมกระเป๋าเงิน → BQ → เข้าแบงค์ ให้ครบวง (timeline ออเดอร์ติดด่านสุดท้าย)
+- **BQ ต่อกลุ่มถอน** — `walNextBq(seqByDay, iso)` = `YYMMDD+seq` (รันต่อในไฟล์) · ใส่ `g.bq` ใน `walGroupWithdrawals` · **unit test:** 2607080001/2
+- **จับกับแบงค์** — `walLoadBank` โหลด `brec_bank_rows` (deposit>0 · company_id uuid · best-effort) → `walMatchBank(d,g)` จับ deposit ยอดตรง (±0.5) วันตรง→เผื่อ 3 วัน (`walAddDays` via cffISO) · badge "🏦 เข้าแบงค์ <วัน>" / "ยังไม่พบในสเตทเมนต์" · note รวม matchedN/N · **unit test:** พบในกรอบ / นอกกรอบ / ไม่มีสเตทเมนต์
+- **tag กลับ order_ledger** — `walTagBank` map กลุ่ม→`{orders,bq_number,withdraw_date}` แล้วเรียก **`ordTagBankFromWithdrawals(state.company, wds)`** (reuse · เขียน `bq_no/deposit_date/bank_in_date/bank_matched` เฉพาะออเดอร์ที่ยังไม่มี bq_no) → timeline ออเดอร์ติดด่าน "เงินเข้าแบงค์"
+- **การ์ด/Export** เพิ่ม BQ chip + สถานะแบงค์ · `walExport` s1 เพิ่มคอลัมน์ BQ + เข้าแบงค์(วันที่)
+- **กระทบหน้าอื่น = 0** — reuse `ordTagBankFromWithdrawals` (path เขียน bank เดิม) · `walMatchBank` mirror `bmpMatchBank` · **ยังไม่ทำ:** persist กลุ่มถอนลง DB (ตาราง `brec_mp_withdrawals` มีอยู่แต่ผูกกับ bmp) · TikTok/Lazada wallet · account routing (ตอนนี้ bank_account_no=null ตอน tag)
 
 ### 2026-07-05 — ★ รับชำระ: แท็บใหม่ "รายงานค่าธรรมเนียม" (รายเดือน · แยกหมวด) — ให้บัญชีบันทึกล้าง
 - **เจ้าของขอ:** การเงินรับชำระ IV 150 เงินเข้า 100 → ตั้ง "ค่าธรรมเนียมจ่ายล่วงหน้า 50" · สิ้นเดือนบัญชีต้องดึงรายงานรวมค่าธรรมเนียมทั้งเดือน **แยกหมวด** ไปบันทึกล้างเข้าบัญชีค่าใช้จ่ายจริงตามใบกำกับแพลตฟอร์ม

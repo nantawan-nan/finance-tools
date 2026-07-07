@@ -184,6 +184,7 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 - **UI:** `<select>` "เลือกเดือน…" ในกล่องช่วงวันที่ (แท็บ board · โชว์เมื่อมีข้อมูล) — ไฮไลต์สีแบรนด์เมื่อเลือกเดือน · chip all/today/7d/month เดิมยังอยู่
 - **ทุก downstream respect อัตโนมัติ** (ใช้ `d.dateRange` ผ่าน `ordRangeBounds`): board matrix/KPI (`ordRenderBoard` inRange) · detail rows/export (`ordBoardDetailRows`) · **เพิ่ม filter เดือนใน `ordReconExport` (ใบส่งกลับฝ่ายขาย)** ให้ไม่ปนเดือนอื่น
 - **กระทบหน้าอื่น = 0** — เพิ่ม case ใน `ordRangeBounds` (ค่าเดิม all/today/7d/month ไม่เปลี่ยน) + helper/UI ใหม่
+- **(ตามมา) default ช่วงวันที่ = "เดือนนี้"** — `ordGet()` init `dateRange:"month"` (เดิม fallback 'all') · เจ้าของขอให้เปิดหน้ามาเห็นเฉพาะเดือนปัจจุบัน (เริ่มใช้รายเดือน) · กระทบเฉพาะ board+recon export (register ไม่ใช้ dateRange)
 
 ### 2026-07-05 — ★ 3. กระเป๋าเงิน (sales_wallet): จับกลุ่มถอน = ออเดอร์ − ค่าธรรมเนียมในกระเป๋า
 - **เจ้าของขอ:** จับคู่ยอดที่เข้ากระเป๋า (ออเดอร์วันที่ 1-7) กับการถอน (วันที่ 8) · แต่ละยอดถอนประกอบด้วยออเดอร์กี่ใบ + ค่าธรรมเนียมที่หัก**ในกระเป๋า** (ค่าโฆษณา ฯลฯ ที่ไม่ได้หักตอนออเดอร์) · บางค่าธรรมเนียมออเดอร์อาจถูกยกเลิก → รายงานต้องบอกด้วย

@@ -19404,7 +19404,7 @@ async function ordTagBankFromWithdrawals(co, withdrawals){
 function ordGet(){
   if(!state.ord) state.ord = {};
   const co = state.company;
-  if(!state.ord[co]) state.ord[co] = { rows:[], busy:false, q:"", fCh:"all", fIv:"all", fStatus:"all", view:"board", loaded:false, expanded:new Set() };
+  if(!state.ord[co]) state.ord[co] = { rows:[], busy:false, q:"", fCh:"all", fIv:"all", fStatus:"all", view:"board", loaded:false, expanded:new Set(), dateRange:"month" };
   if(!state.ord[co].expanded) state.ord[co].expanded = new Set();
   // ★ Board redesign state — matrix detail filters + calendar collapsible + notes (per company localStorage)
   if(state.ord[co].boardCh==null)   state.ord[co].boardCh="all";

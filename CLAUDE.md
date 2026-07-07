@@ -177,6 +177,14 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-07 — Orders board: เลือก "ดูเฉพาะเดือน" (กัน report ปนเดือนก่อน)
+- **เจ้าของขอ:** เริ่มใช้จริงเดือน 7 → หน้าทะเบียนต้องเลือกเดือนได้ · "ทั้งหมด" ปนเดือน 6 ที่ผ่านมาแล้ว ไม่ควรเอามาออก report
+- **`ordRangeBounds` รองรับ `"m:YYYY-MM"`** → from=วันที่ 1, to=สิ้นเดือน (เต็มเดือน · `new Date(y,m,0)` หาวันสุดท้าย) · **unit test:** ก.ค.→01-31, ก.พ.→28
+- **`ordMonthsAvailable(d)`** (distinct YYYY-MM จาก order_date active + recon date · ใหม่→เก่า) · **`ordMonthLabel`** (ไทย+พ.ศ. เช่น "ก.ค. 2569") · **`ordSetMonth(ym)`** ตั้ง `d.dateRange='m:'+ym`
+- **UI:** `<select>` "เลือกเดือน…" ในกล่องช่วงวันที่ (แท็บ board · โชว์เมื่อมีข้อมูล) — ไฮไลต์สีแบรนด์เมื่อเลือกเดือน · chip all/today/7d/month เดิมยังอยู่
+- **ทุก downstream respect อัตโนมัติ** (ใช้ `d.dateRange` ผ่าน `ordRangeBounds`): board matrix/KPI (`ordRenderBoard` inRange) · detail rows/export (`ordBoardDetailRows`) · **เพิ่ม filter เดือนใน `ordReconExport` (ใบส่งกลับฝ่ายขาย)** ให้ไม่ปนเดือนอื่น
+- **กระทบหน้าอื่น = 0** — เพิ่ม case ใน `ordRangeBounds` (ค่าเดิม all/today/7d/month ไม่เปลี่ยน) + helper/UI ใหม่
+
 ### 2026-07-05 — ★ 3. กระเป๋าเงิน (sales_wallet): จับกลุ่มถอน = ออเดอร์ − ค่าธรรมเนียมในกระเป๋า
 - **เจ้าของขอ:** จับคู่ยอดที่เข้ากระเป๋า (ออเดอร์วันที่ 1-7) กับการถอน (วันที่ 8) · แต่ละยอดถอนประกอบด้วยออเดอร์กี่ใบ + ค่าธรรมเนียมที่หัก**ในกระเป๋า** (ค่าโฆษณา ฯลฯ ที่ไม่ได้หักตอนออเดอร์) · บางค่าธรรมเนียมออเดอร์อาจถูกยกเลิก → รายงานต้องบอกด้วย
 - **เปิด `sales_wallet` `soon`→`live`** · `renderToolSalesWallet` เดิมเป็น placeholder → เขียนจริง · **reuse `bmpParseShopeeBalance`** (Shopee Balance/Transaction report · stream txn: รายรับจากคำสั่งซื้อ/การถอนเงิน/รายการปรับปรุง)

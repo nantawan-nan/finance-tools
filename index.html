@@ -19641,6 +19641,16 @@ function ordFmtMoney(n){ return Number(n||0).toLocaleString("th-TH",{minimumFrac
 /* ---- toolbar: เมนู dropdown + ช่วงวัน + รูปแบบกราฟ ---- */
 function ordMenu(v){ const d=ordGet(); d._menu=(d._menu===v?'':v); renderToolOrders(); }
 function ordSetRange(k){ const d=ordGet(); d.dateRange=k; renderToolOrders(); }
+/* ★ เดือนที่มีข้อมูล (จาก order_date + วันในผลกระทบยอด) — ใหม่→เก่า */
+function ordMonthsAvailable(d){
+  const set=new Set();
+  for(const o of (d.rows||[])){ if(o.status!=='cancelled' && o.order_date) set.add(String(o.order_date).slice(0,7)); }
+  for(const r of ((d.recon&&d.recon.results)||[])){ if(r.date) set.add(String(r.date).slice(0,7)); }
+  return [...set].filter(x=>/^\d{4}-\d{2}$/.test(x)).sort().reverse();
+}
+function ordMonthLabel(ym){ const TH=["ม.ค.","ก.พ.","มี.ค.","เม.ย.","พ.ค.","มิ.ย.","ก.ค.","ส.ค.","ก.ย.","ต.ค.","พ.ย.","ธ.ค."];
+  const [y,m]=String(ym).split('-').map(Number); return (y&&m)?`${TH[m-1]} ${y+543}`:ym; }
+function ordSetMonth(ym){ const d=ordGet(); d.dateRange = ym ? ('m:'+ym) : 'all'; renderToolOrders(); }
 function ordReconViz(m){ const d=ordGet(); d.reconViz=m; renderToolOrders(); }
 function ordPlatGo(p){ const d=ordGet(); d.view='reg'; d.fCh=p; d.fRec='all'; d._menu=''; renderToolOrders(); }
 /* คลิกยอดสรุป/กราฟ → เด้งไปทะเบียนการขาย กรองสถานะกระทบยอด (only_be ไม่มีใน BS → ใช้ drill แทน) */
@@ -19905,6 +19915,12 @@ function ordRangeBounds(range){
   if(range==='today') return {from:iso(t),to:iso(t)};
   if(range==='7d'){ const a=new Date(t); a.setDate(t.getDate()-6); return {from:iso(a),to:iso(t)}; }
   if(range==='month'){ return {from:iso(new Date(t.getFullYear(),t.getMonth(),1)),to:iso(t)}; }
+  // ★ เดือนเจาะจง "m:YYYY-MM" → ตั้งแต่วันที่ 1 ถึงสิ้นเดือนนั้น (เต็มเดือน)
+  if(typeof range==='string' && range.startsWith('m:')){
+    const [y,m]=range.slice(2).split('-').map(Number);
+    if(y&&m){ const last=new Date(y,m,0).getDate(); const p=n=>String(n).padStart(2,'0');
+      return { from:`${y}-${p(m)}-01`, to:`${y}-${p(m)}-${p(last)}` }; }
+  }
   return null;
 }
 /* กราฟกระทบยอดต่อแพลตฟอร์ม 4 รูปแบบ: ก=แท่งเต็ม · ข=กระจาย · ค=กึ่งกลาง · ง=โดนัท */
@@ -20808,7 +20824,10 @@ async function ordReconLoad(){
    แยก 3 หมวด: ① ยังไม่คีย์ (only_be) · ② ยอดไม่ตรง (diff) · ③ ต้องเช็คซ้ำ (only_bs) */
 function ordReconExport(){
   const d=ordGet(); const rec=d.recon||{};
-  const res=(rec.results||[]).map(r=>({...r, status:ordReconEffStatus(r)}));
+  // ★ respect ช่วง/เดือนที่เลือกในหน้า — ไม่เอาออเดอร์เดือนอื่นมาปนในใบส่งกลับ
+  const rb=ordRangeBounds(d.dateRange||"all");
+  const inRange=dt=>!rb||(dt&&String(dt).slice(0,10)>=rb.from&&String(dt).slice(0,10)<=rb.to);
+  const res=(rec.results||[]).filter(r=>inRange(r.date)).map(r=>({...r, status:ordReconEffStatus(r)}));
   const co=COMPANIES.find(c=>c.id===state.company);
   const missing =res.filter(r=>r.status==='only_be');   // เซลยังไม่คีย์
   const diffRows=res.filter(r=>r.status==='diff');       // ยอดต่าง
@@ -22918,6 +22937,12 @@ async function renderToolOrders(){
         <div style="display:flex;align-items:center;gap:3px;background:#f8fafc;border:1px solid var(--n-200);border-radius:10px;padding:3px 5px">
           <span style="font:600 11.5px/1.2 inherit;color:var(--n-500);padding:0 5px;display:inline-flex;align-items:center;gap:4px"><i data-lucide="calendar-range" style="width:13px;height:13px"></i>ช่วงวันที่</span>
           ${[['all','ทั้งหมด'],['today','วันนี้'],['7d','7 วัน'],['month','เดือนนี้']].map(([k2,l])=>`<button onclick="ordSetRange('${k2}')" style="border:0;border-radius:7px;padding:5px 11px;font:600 12px/1 inherit;cursor:pointer;font-family:inherit;transition:.12s;${(d.dateRange||'all')===k2?'background:var(--brand,#1e3a8a);color:#fff':'background:transparent;color:#64748b'}">${l}</button>`).join('')}
+          ${(()=>{ const months=ordMonthsAvailable(d); if(!months.length) return ''; const onMonth=String(d.dateRange||'').startsWith('m:');
+            return `<span style="width:1px;height:16px;background:var(--n-200);margin:0 2px"></span>
+            <select onchange="ordSetMonth(this.value)" title="เลือกดูเฉพาะเดือน" style="border:0;border-radius:7px;padding:5px 8px;font:600 12px/1 inherit;font-family:inherit;cursor:pointer;${onMonth?'background:var(--brand,#1e3a8a);color:#fff':'background:transparent;color:#64748b'}">
+              <option value="" ${onMonth?'':'selected'}>เลือกเดือน…</option>
+              ${months.map(ym=>`<option value="${ym}" ${d.dateRange==='m:'+ym?'selected':''}>${ordMonthLabel(ym)}</option>`).join('')}
+            </select>`; })()}
         </div>
         <button onclick="ordBoardCalToggle()" style="display:inline-flex;align-items:center;gap:7px;padding:7px 12px;border-radius:9px;border:1px solid var(--n-200);background:${d.boardCalOpen?'var(--brand-soft,#eef2fb)':'#fff'};color:${d.boardCalOpen?'var(--brand,#1e3a8a)':'var(--n-700)'};font:600 12px/1.2 inherit;font-family:inherit;cursor:pointer;transition:.12s" onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background='${d.boardCalOpen?'var(--brand-soft,#eef2fb)':'#fff'}'">
           <i data-lucide="calendar-clock" style="width:14px;height:14px;color:var(--brand,#0d9488)"></i>

@@ -19533,7 +19533,9 @@ function ordSet(k,v){ const d=ordGet(); d[k]=v;
 function ordFiltered(d){
   const q=(d.q||"").trim().toLowerCase();
   const rmap = (d.fStatus && d.fStatus!=="all") ? ordReconMap(d) : null;
+  const inR=ordDateFilter(d);
   return (d.rows||[]).filter(o=>{
+    if(!inR(o.order_date)) return false;
     if(d.fCh!=="all" && o.channel_group!==d.fCh) return false;
     if(d.fIv==="noiv" && o.iv_no) return false;
     if(d.fIv==="hasiv" && !o.iv_no) return false;
@@ -19922,6 +19924,11 @@ function ordRangeBounds(range){
       return { from:`${y}-${p(m)}-01`, to:`${y}-${p(m)}-${p(last)}` }; }
   }
   return null;
+}
+/* ★ ตัวกรองวันที่ตามช่วง/เดือนที่เลือก — ใช้ร่วม (KPI/register/export ให้ตรงกับ board) */
+function ordDateFilter(d){
+  const rb=ordRangeBounds((d&&d.dateRange)||'all');
+  return dt=>!rb||(dt&&String(dt).slice(0,10)>=rb.from&&String(dt).slice(0,10)<=rb.to);
 }
 /* กราฟกระทบยอดต่อแพลตฟอร์ม 4 รูปแบบ: ก=แท่งเต็ม · ข=กระจาย · ค=กึ่งกลาง · ง=โดนัท */
 function ordReconChart(cov, mode, fmt, pAgg){
@@ -20571,8 +20578,9 @@ function ordRenderRegister(d){
   const recOf=o=> recMap.get(String(o.order_id))||'pending';
   const fCh=d.fCh||'all';
   const fRec='matched'; // ★ tab นี้โชว์เฉพาะออเดอร์ที่แมพตรงแล้วเท่านั้น
-  // ★ ตัดออเดอร์ยกเลิกออก (ให้ตรงกับการ์ด KPI + tab ที่นับเฉพาะ active)
-  const act=(d.rows||[]).filter(o=> o.status!=='cancelled');
+  // ★ ตัดออเดอร์ยกเลิกออก + กรองตามช่วง/เดือนที่เลือก (ให้ตรงกับ board + badge)
+  const inR=ordDateFilter(d);
+  const act=(d.rows||[]).filter(o=> o.status!=='cancelled' && inR(o.order_date));
   const base=act.filter(o=> fCh==='all'||o.channel_group===fCh);
   const rows=base.filter(o=> recOf(o)===fRec);
   const chCount={}; act.filter(o=>recOf(o)==='matched').forEach(o=>{chCount[o.channel_group]=(chCount[o.channel_group]||0)+1;});
@@ -22857,7 +22865,8 @@ function ordInjectStyle(){
 
 /* คำนวณ KPI สำหรับ hero/strip */
 function ordKpis(d){
-  const all=(d.rows||[]); const rmap=ordReconMap(d);
+  const inR=ordDateFilter(d);
+  const all=(d.rows||[]).filter(o=>inR(o.order_date)); const rmap=ordReconMap(d);
   let totN=0,totSum=0,actN=0,actSum=0,flowN=0,doneN=0,doneSum=0,cancelN=0;
   all.forEach(o=>{
     const k=ordStatusOf(o,rmap); const v=Number(o.order_total||0);
@@ -22867,7 +22876,7 @@ function ordKpis(d){
     else if(k==='wait_pay'||k==='wait_re'||k==='wait_deposit'||k==='wait_bank'){ flowN++; }
     else if(k==='done'){ doneN++; doneSum+=v; }
   });
-  const onlyBe=((d.recon&&d.recon.results)||[]).filter(r=>r.status==='only_be').length;
+  const onlyBe=((d.recon&&d.recon.results)||[]).filter(r=>r.status==='only_be'&&inR(r.date)).length;
   const pct=totN?Math.round(doneN/totN*100):0;
   return { totN, totSum, actN, actSum, flowN, doneN, doneSum, cancelN, onlyBe, pct };
 }

@@ -2783,6 +2783,9 @@ function ivrCanExport(o, reconMap, includeKeyed){
   if(o.iv_no && !includeKeyed) return { ok:false, reason:'คีย์ IV แล้ว · '+o.iv_no, sev:'info' };
   const ch = String(o.channel_group||'').toLowerCase();
   const isMarketplace = ch==='shopee' || ch==='tiktok' || ch==='lazada';
+  // ★ CSR (แจก/เคลม/ตัวอย่าง · รหัสขึ้นต้น CSR หรือ ยอด 0) = ไม่ใช่การขาย → ไม่ยื่นภาษีขาย
+  if(!isMarketplace && ordChannelDetail(o) === 'csr')
+    return { ok:false, reason:'CSR (แจก/เคลม/ตัวอย่าง) · ไม่ยื่นภาษีขาย', sev:'mute' };
   if(!isMarketplace) return { ok:true, reason:'manual (offline/อื่นๆ) · ผ่านทันที', sev:'ok' };
   const rc = reconMap ? reconMap.get(o.order_id) : null;
   if(rc === 'matched') return { ok:true, reason:'กระทบยอด BigSeller↔หลังบ้าน ตรง', sev:'ok' };
@@ -5084,7 +5087,13 @@ async function ivrDoExport(format){
   try{
     // 1) build AoA — ทุกออเดอร์เป็นรายบรรทัด items (เหมือน exkExport)
     const co = COMPANIES.find(c=>c.id===state.company);
+    const isMbark = state.company === 'mbark';
     const shipSkuCode = BS_SHIP_SKU[state.company] || '';
+    // ★ รหัสลูกค้า Benya = ช่องทาง×แบรนด์ (SHOPEE BE / TIKTOK QI / LAZADA QI ...) — mirror RE export (incReCandidates)
+    const custCodeBenya = (channel, brand)=>{
+      const chL={SP:"SHOPEE",TT:"TIKTOK",LZ:"LAZADA"}[channel]; const br={BT:"BE",QI:"QI"}[brand];
+      return (chL&&br) ? `${chL} ${br}` : "";
+    };
     const aoa = [BS_HEAD.concat(['ร้าน','หมายเหตุ'])];
     let seq = 0;
     let runningN = BigInt(e.startIv);
@@ -5095,11 +5104,21 @@ async function ivrDoExport(format){
         its = [{ sku:'', qty:1, price:Number(o.order_total||0), ship:0, discount:0 }];
       }
       const ivNo = runningN.toString().padStart(10,'0'); runningN += 1n;
+      const cg = String(o.channel_group||'').toLowerCase();
+      const channel = cg==='shopee'?'SP':cg==='tiktok'?'TT':cg==='lazada'?'LZ':'';
       const isManual = /^(FB|OD)/i.test(String(o.order_id||''));
-      const cust = isManual ? 'FACE' : '';
+      // ★ รหัสลูกค้า — Benya marketplace = ช่องทาง×แบรนด์ · ขายตรง = FACE · M Bark = customer เดิม
+      const brand = isMbark ? '' : incBrandOf(o);
+      let cust = '', custNote = '';
+      if(isMbark){ cust = o.customer || ''; }
+      else {
+        cust = custCodeBenya(channel, brand);
+        if(!cust) cust = isManual ? 'FACE' : (o.customer || '');
+        if(channel && !brand) custNote = '⚠ เดาแบรนด์ BT/QI ไม่ออก — ตรวจรหัสลูกค้า';
+      }
       const orderShip = Number(o.shipping_fee||0);
       const orderDisc = Number(o.seller_discount||0);
-      const platLabel = ({shopee:'SHOPEE',tiktok:'TIKTOK',lazada:'LAZADA'})[String(o.channel_group||'').toLowerCase()] || (o.channel||o.channel_group||'').toUpperCase();
+      const platLabel = ({shopee:'SHOPEE',tiktok:'TIKTOK',lazada:'LAZADA'})[cg] || (o.channel||o.channel_group||'').toUpperCase();
       its.forEach((it, idx) => {
         seq++;
         const isFirst = idx===0, isLast = idx===its.length-1;
@@ -5110,7 +5129,7 @@ async function ivrDoExport(format){
           it.sku||'', Number(it.qty)||0, Number(it.price)||0,
           isLast?orderShip:0, isFirst?orderDisc:0,
           hasShip?shipSkuCode:'', hasShip?'{Enter}':'', hasShip?orderShip:'',
-          (o.customer||''), isManual?'Manual → FACE':''
+          (o.customer||''), custNote
         ]);
       });
     }
@@ -18946,9 +18965,10 @@ function ordChannelGroup(channel, customer){
 function ordChannelDetail(o){
   const cg = String(o.channel_group||"").toLowerCase();
   if(cg === "shopee" || cg === "tiktok" || cg === "lazada") return cg;
-  // ★ ช่องทางที่ไม่มีแพลตฟอร์ม → แยกตาม "รหัสคำสั่งซื้อ" · ยอด 0 = CSR (แจก/เคลม/ตัวอย่าง)
-  if(Number(o.order_total||0) === 0) return "csr";
+  // ★ ช่องทางที่ไม่มีแพลตฟอร์ม → แยกตาม "รหัสคำสั่งซื้อ" · CSR = แจก/เคลม/ตัวอย่าง (ไม่ยื่นภาษีขาย)
   const oid = String(o.order_id||"").trim().toUpperCase();
+  if(/^CSR/.test(oid)) return "csr";     // CSR... = แจก/เคลม/ตัวอย่าง
+  if(Number(o.order_total||0) === 0) return "csr";   // ยอด 0 = CSR ด้วย
   if(/^FB/.test(oid))  return "face";    // FB...  = Facebook
   if(/^LMS/.test(oid)) return "line";    // LMS... = LINE
   return "dealer";                        // อื่นๆ = Dealer

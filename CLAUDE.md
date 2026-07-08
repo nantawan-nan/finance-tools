@@ -177,6 +177,12 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-08 — ยุบ "บันทึกขายเชื่อ (IV)" (bigseller) เข้า "ระบบงานขาย · 1. คำสั่งซื้อ" (sales_orders)
+- **เจ้าของขอ:** หน้า "ส่งออก IV + ตรวจการคีย์ 141.RWT" ซ้ำกัน 2 ที่ (sales_orders กับ bigseller) → เก็บ **1. คำสั่งซื้อ (sales_orders)** ที่เดียว
+- **ลบ TOOLS entry `bigseller` ออกจาก sidebar** · redirect ใน `renderTool()`: `state.tool` = expressmatch/exportkey/**bigseller** → `sales_orders` (เดิม 2 ตัวแรก redirect ไป bigseller) · `renderToolBigSeller` ยังอยู่ในไฟล์ (dead · เปิดคืนได้)
+- **อัป nav links** ที่ชี้ tool เก่า → sales_orders: home task card (`tool:"bigseller"`) · ปุ่ม "ไปหน้าส่งออกคีย์ AutoKey" (`setTool('exportkey')`→`sales_orders`)
+- **guard เดิมใน `renderToolOrders`** (`state.tool==='bigseller'`→renderToolBigSeller) เป็น dead แต่ไม่เสียหาย (redirect จับก่อน) · **กระทบหน้าอื่น = 0** — sales_orders มีครบ ทะเบียน+ส่งออก+ตรวจ (reuse `ivrRenderExport`/`ordRenderIv`)
+
 ### 2026-07-08 — ส่งออก IV: รหัสลูกค้า M Bark = ช่องทาง + วันที่ DD/MM/YY (พ.ศ.)
 - **เจ้าของจับได้:** ไฟล์ส่งออก AutoKey IV ของ M Bark คอลัมน์ "รหัสลูกค้า" ยังว่าง (fix ก่อนหน้าใช้ `o.customer` ซึ่ง marketplace ว่าง) + วันที่เป็น ISO `2026-07-01` ทั้งที่ต้องเป็น `01/07/69` (DD/MM/YY ปีพุทธ)
 - **`ivrDoExport` รหัสลูกค้า M Bark** — M Bark แบรนด์เดียว (mommam) → marketplace ใช้ **ช่องทาง** (SHOPEE/TIKTOK/LAZADA = `platLabel`) · ขายตรง = `o.customer||FACE` · ตรงกับที่ `mbarkBankDownByCust`/`mbarkCheckCode` parse (SHOPEE→SH ฯลฯ) · Benya ยังเป็น channel×brand เหมือนเดิม

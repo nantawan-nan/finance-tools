@@ -771,10 +771,8 @@ const TOOLS = [
     name:"Sales Dashboard", desc:"สรุปออเดอร์รายวัน",
     long:"คีย์ IV ถึงวันไหน · ยังค้างกี่ใบ · แยกตามช่องทาง — ข้อมูลจาก Supabase",
     multiInput:true, status:"live" },
-  { id:"bigseller", stage:"การขาย", ic:"📝", icon:"file-text",
-    name:"บันทึกขายเชื่อ (IV)", desc:"ส่งออก AutoKey + ตรวจการคีย์ด้วย 141.RWT",
-    long:"เกาะทะเบียนคำสั่งซื้อ · ส่งออก AutoKey เฉพาะออเดอร์ที่ recon ตรง · อัป 141.RWT ตรวจการคีย์",
-    multiInput:true, status:"live" },
+  /* ★ 2026-07-08 retired: "บันทึกขายเชื่อ (IV)" (bigseller) ยุบเข้า "ระบบงานขาย · 1. คำสั่งซื้อ" (sales_orders)
+     ซึ่งมีแท็บ ทะเบียน + ส่งออก IV + ตรวจการคีย์ ครบแล้ว · renderToolBigSeller ยังอยู่ในไฟล์ (dead) + redirect ใน renderTool() */
 
   // ───── 3. ลูกหนี้ ─────
   { id:"loans", stage:"สินเชื่อ", ic:"₿", icon:"hand-coins",
@@ -1009,8 +1007,9 @@ function setTool(id){
 function renderTool(){
   if(AUTH.isPresent() && !PRESENT_TOOLS.includes(state.tool)) state.tool = "execdash";  // โหมดพรีเซนต์ล็อกเฉพาะแท็บที่กำหนด
   if(!appToolEnabled(state.tool)) state.tool = appToolEnabled("home") ? "home" : (APP_CONFIG.enabledTools[0] || "home");  // clone: ถ้า tool ถูกปิด → ไปหน้าแรกที่เปิด
-  // ★ retire-tool redirect: ถ้า user เคยอยู่หน้าที่ถูกลบออก (expressmatch / exportkey) → ไปหน้าใหม่ที่แทน (bigseller = บันทึกขายเชื่อ IV)
-  if(state.tool==="expressmatch" || state.tool==="exportkey") state.tool = "bigseller";
+  // ★ retire-tool redirect: หน้าที่ถูกลบออก (expressmatch / exportkey / bigseller) → "ระบบงานขาย · 1. คำสั่งซื้อ" (sales_orders)
+  //   sales_orders มีครบทั้ง ทะเบียน + ส่งออก IV + ตรวจการคีย์ 141.RWT (แท็บเดียวกับ bigseller เดิม)
+  if(state.tool==="expressmatch" || state.tool==="exportkey" || state.tool==="bigseller") state.tool = "sales_orders";
   // ★ กัน state.tool ค้างเป็น id ที่ไม่มีใน TOOLS แล้ว → fallback home
   if(!TOOLS.find(x=>x.id===state.tool)) state.tool = "home";
   // ★ page_permissions: ถ้า user ไม่มีสิทธิ์เห็นหน้าปัจจุบัน (เช่น ผู้บริหาร default มา "หน้าหลัก") → เด้งไปหน้าแรกที่มีสิทธิ์
@@ -6249,7 +6248,7 @@ function renderToolHome(){
 
   // ── ตัวอย่างข้อมูล (จะ wire ของจริงทีหลัง) ──
   const tasks = [
-    { title:"คีย์ IV BigSeller รอบบ่าย (Shopee + TikTok)", due:"วันนี้ 16:00", dueColor:"#E23D4B", owner:"นันทวรรณ", oi:"น", pri:"เร่งด่วน", priColor:"#E23D4B", priBg:"#FDECEE", cat:"urgent", tool:"bigseller" },
+    { title:"คีย์ IV BigSeller รอบบ่าย (Shopee + TikTok)", due:"วันนี้ 16:00", dueColor:"#E23D4B", owner:"นันทวรรณ", oi:"น", pri:"เร่งด่วน", priColor:"#E23D4B", priBg:"#FDECEE", cat:"urgent", tool:"sales_orders" },
     { title:"ตรวจรายการ Bank Reconciliation ที่ไม่ตรง 36 รายการ", due:"วันนี้", dueColor:"#E23D4B", owner:"นันทวรรณ", oi:"น", pri:"เร่งด่วน", priColor:"#E23D4B", priBg:"#FDECEE", cat:"urgent", tool:"bankrec" },
     { title:"ติดตามรับชำระเงิน (RE) ค้าง 24 รายการ", due:"พรุ่งนี้", dueColor:"#E08C16", owner:"ทีม AR", oi:"A", pri:"ใกล้ครบกำหนด", priColor:"#C77E14", priBg:"#FBEFD7", cat:"due", tool:"ar" },
     { title:"จ่ายเจ้าหนี้ใกล้ครบกำหนด 8 ราย", due:"23 มิ.ย.", dueColor:"#E08C16", owner:"ทีม AP", oi:"P", pri:"ใกล้ครบกำหนด", priColor:"#C77E14", priBg:"#FBEFD7", cat:"due", tool:"ap_outstanding" },
@@ -20778,7 +20777,7 @@ function ordRenderIvSystem(d){
         <div style="font:700 13px/1.3 inherit;color:#92400e">📤 ดึงไปคีย์ใน Express (AutoKey CSV)</div>
         <div style="font:500 11.5px/1.5 inherit;color:#78350f;margin-top:3px">รายการที่ยังไม่ได้คีย์ IV — กดปุ่มเพื่อไปหน้า "ส่งออกคีย์ AutoKey" ที่มี filter+CSV พร้อมใช้ใน Express</div>
       </div>
-      <button class="ord-btn primary" onclick="setTool('exportkey')" style="background:#d97706;color:#fff;border:0"><i data-lucide="key-round"></i> ไปหน้า "ส่งออกคีย์ AutoKey" →</button>
+      <button class="ord-btn primary" onclick="setTool('sales_orders')" style="background:#d97706;color:#fff;border:0"><i data-lucide="key-round"></i> ไปหน้า "ส่งออกคีย์ AutoKey" →</button>
     </div>` : ''}
     <div style="font:500 12px/1.4 inherit;color:var(--n-500);margin-bottom:10px">▸ คลิกการ์ดเพื่อสลับมุมมอง · กำลังดู <b style="color:var(--n-900)">${rows.length.toLocaleString('th-TH')}</b> รายการ · ยอดรวม <b style="color:var(--n-900)">${fmt(sumRows)}</b> บาท</div>
     <div class="ord-card">

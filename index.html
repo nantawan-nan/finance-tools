@@ -5994,11 +5994,11 @@ function sdashCompute(rows, skuMap, months, monthKey){
   // selected month detail
   const mRows=byMonth[monthKey]||[];
   const chanRev=chanRevByMonth[monthKey]||{};
-  // per channel × sku units + overall sku units this month
-  const chSkuUnits={}, skuUnits={};
-  mRows.forEach(o=>{ const ch=sdashChannelOf(o); chSkuUnits[ch]=chSkuUnits[ch]||{};
-    sdashItems(o).forEach(it=>{ const sku=String(it.sku||'').toUpperCase(); if(!sku) return; const q=Number(it.qty)||0;
-      chSkuUnits[ch][sku]=(chSkuUnits[ch][sku]||0)+q; skuUnits[sku]=(skuUnits[sku]||0)+q; }); });
+  // per channel × sku : จำนวน + ยอดขายจริง (จากออเดอร์ ไม่ใช่ราคาในไฟล์ SKU ที่มักเป็น 0)
+  const chSkuUnits={}, skuUnits={}, chSkuRev={};
+  mRows.forEach(o=>{ const ch=sdashChannelOf(o); chSkuUnits[ch]=chSkuUnits[ch]||{}; chSkuRev[ch]=chSkuRev[ch]||{};
+    sdashItems(o).forEach(it=>{ const sku=String(it.sku||'').toUpperCase(); if(!sku) return; const q=Number(it.qty)||0; const rev=q*(Number(it.price)||0);
+      chSkuUnits[ch][sku]=(chSkuUnits[ch][sku]||0)+q; skuUnits[sku]=(skuUnits[sku]||0)+q; chSkuRev[ch][sku]=(chSkuRev[ch][sku]||0)+rev; }); });
 
   const active=SDASH_CH.map(c=>({...c,val:chanRev[c.k]||0})).filter(c=>c.val>0).sort((a,b)=>b.val-a.val);
   const tot=sdashSum(active.map(a=>a.val))||1;
@@ -6019,7 +6019,7 @@ function sdashCompute(rows, skuMap, months, monthKey){
     const mx=Math.max(1,...arr.map(x=>x.units));
     const prev=prevRev[ch]||0, cur=chanRev[ch]||0; const mv=prev?(cur-prev)/prev*100:null; const c=sdashChip(mv,false);
     return {channel:meta.l,color:meta.c,mom:c.mom,arrow:c.arrow,momColor:c.momColor||c.chipColor,
-      items:arr.map((x,i)=>({rank:i+1,sku:x.sku,img:imgOf(x.sku),name:nameOf(x.sku),units:sdashFmt(x.units),baht:sdashFmt(x.units*(priceOf(x.sku)||0)),barPct:(x.units/mx*100).toFixed(0)}))}; });
+      items:arr.map((x,i)=>({rank:i+1,sku:x.sku,img:imgOf(x.sku),name:nameOf(x.sku),units:sdashFmt(x.units),baht:sdashFmt((chSkuRev[ch]||{})[x.sku]||x.units*(priceOf(x.sku)||0)),barPct:(x.units/mx*100).toFixed(0)}))}; });
   // brand split (จากยอดขายเดือนนี้ ตาม skuMap.brand)
   let brandSplit=[];
   if(hasSku){ const bt={}; mRows.forEach(o=>sdashItems(o).forEach(it=>{ const s=skuMap[String(it.sku||'').toUpperCase()]; if(!s) return; const b=s.brand||'อื่นๆ'; bt[b]=(bt[b]||0)+(Number(it.qty)||0)*(Number(it.price)||0); }));

@@ -185,6 +185,7 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 - **hero:** `mrate = ordMatchStats(d).rate` (เดิมนับจาก reconRes อย่างเดียว = 100% หลอก)
 - **ใบกระทบยอด** (`ordReconGenReports`): concat `ordUnreconBs` เป็น `only_bs` (มีใน BigSeller · ไม่พบแพลตฟอร์ม) เข้า res → Lazada โผล่ในรายงาน · reuse category เดิม ไม่แก้ layout
 - **กระทบหน้าอื่น = 0** — helper+display layer ล้วน · ไม่แตะ `ordRunRecon`/recon ที่ save แล้ว · **แนะนำ user:** อัปรายงานหลังบ้าน Lazada เพื่อกระทบยอดจริง (unrecon = ตัวเตือนว่ายังไม่อัป)
+- **(ตามมา) ตารางผลต่างอ่านง่ายขึ้น** — det ของ `_type:'diff'` เดิมโชว์แค่ "ฐานภาษีขาย: 670 vs 680" (ไม่รู้ฝั่งไหน/ต่างตรงไหน) → เปลี่ยนเป็น "คีย์ขาย (BigSeller) X ↔ หลังบ้าน Y · ต่าง ±Δ" + **`ordDiffBreakdown(bs,be)`** แยก ยอดสินค้า/ส่วนลดร้าน(voucher vs discount)/ค่าส่ง 2 ฝั่ง ไฮไลต์ม่วง "◀ ต่าง" จุดที่ไม่ตรง + บรรทัด SKU/จำนวนถ้าต่าง · **unit test:** shopee 670/680 → ไฮไลต์ ส่วนลดร้าน 20≠10
 
 ### 2026-07-07 — Orders board: เลือก "ดูเฉพาะเดือน" (กัน report ปนเดือนก่อน)
 - **เจ้าของขอ:** เริ่มใช้จริงเดือน 7 → หน้าทะเบียนต้องเลือกเดือนได้ · "ทั้งหมด" ปนเดือน 6 ที่ผ่านมาแล้ว ไม่ควรเอามาออก report

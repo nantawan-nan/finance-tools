@@ -18940,10 +18940,12 @@ function ordChannelGroup(channel, customer){
 function ordChannelDetail(o){
   const cg = String(o.channel_group||"").toLowerCase();
   if(cg === "shopee" || cg === "tiktok" || cg === "lazada") return cg;
-  const s = `${o.channel||""} ${o.customer||""}`.toLowerCase();
-  if(/\bline\b|\bli\b/.test(s)) return "line";
-  if(/face|fb|facebook|\big\b|instagram|หน้าร้าน/.test(s)) return "face";
-  return "dealer";
+  // ★ ช่องทางที่ไม่มีแพลตฟอร์ม → แยกตาม "รหัสคำสั่งซื้อ" · ยอด 0 = CSR (แจก/เคลม/ตัวอย่าง)
+  if(Number(o.order_total||0) === 0) return "csr";
+  const oid = String(o.order_id||"").trim().toUpperCase();
+  if(/^FB/.test(oid))  return "face";    // FB...  = Facebook
+  if(/^LMS/.test(oid)) return "line";    // LMS... = LINE
+  return "dealer";                        // อื่นๆ = Dealer
 }
 /* ★ marketplace 3 ช่อง — โชว์เสมอ · มี recon ฝั่งแพลตฟอร์ม */
 const ORD_BOARD_CHANS_MP = [
@@ -18955,7 +18957,8 @@ const ORD_BOARD_CHANS_MP = [
 const ORD_BOARD_CHANS_OTHER = [
   {k:"face",   l:"FACE",   c:"#1877f2", img:"logo%20platfrom/Facebook_Logo_%282019%29.png", isMP:false},
   {k:"line",   l:"LINE",   c:"#06c755", img:"logo%20platfrom/LINE_logo.svg.png",            isMP:false},
-  {k:"dealer", l:"Dealer", c:"#0f766e", img:"logo%20platfrom/Logo%20%E0%B8%AD%E0%B8%B7%E0%B9%88%E0%B8%99%E0%B9%86.png", isMP:false}
+  {k:"dealer", l:"Dealer", c:"#0f766e", img:"logo%20platfrom/Logo%20%E0%B8%AD%E0%B8%B7%E0%B9%88%E0%B8%99%E0%B9%86.png", isMP:false},
+  {k:"csr",    l:"CSR",    c:"#7c3aed", isMP:false}
 ];
 const ORD_BOARD_CHANS = [...ORD_BOARD_CHANS_MP, ...ORD_BOARD_CHANS_OTHER];   /* full list — ใช้คำนวณ matrix */
 /* ===== Phase A: parser รายงานขายหลังบ้าน 4 ช่องทาง (item-level → group เป็นออเดอร์) ===== */
@@ -19694,7 +19697,7 @@ function ordBoardDetailRows(d){
   ordUnreconBs(d).forEach(o=>rows.push({ order_no:o.order_id, channel:o.channel_group, date:o.order_date, status:'unrecon', bs:o, be:null, _type:'unrecon', _ch:o.channel_group }));
   const fCh=d.boardCh||"all", fType=d.boardType||"all";
   let f=rows;
-  if(fCh==="_oth") f=f.filter(r=>["face","line","dealer"].includes(r._ch));
+  if(fCh==="_oth") f=f.filter(r=>["face","line","dealer","csr"].includes(r._ch));
   else if(fCh!=="all") f=f.filter(r=>r._ch===fCh);
   if(fType!=="all") f=f.filter(r=>r._type===fType);
   f.sort((a,b)=>(a.date||"").localeCompare(b.date||"") || (a.order_no||"").localeCompare(b.order_no||""));
@@ -20149,7 +20152,7 @@ function ordRenderBoard(d){
     const s=ordReconEffStatus(r);
     if(s!=='only_be'&&s!=='only_bs'&&s!=='diff') return;
     cntCh.all++; if(cntCh[r.channel]!=null) cntCh[r.channel]++;
-    if(["face","line","dealer"].includes(r.channel)) cntCh._oth++;
+    if(["face","line","dealer","csr"].includes(r.channel)) cntCh._oth++;
     cntType.all++; cntType[s]++;
   });
   // ★ นับ "ยังไม่ตรวจ" (BigSeller marketplace ที่ recon ไม่เคยเห็น)
@@ -20890,7 +20893,7 @@ function ordReconExport(){
   const diffRows=res.filter(r=>r.status==='diff');       // ยอดต่าง
   const extra   =res.filter(r=>r.status==='only_bs');    // BigSeller มี · หลังบ้านไม่มี
   if(!missing.length && !diffRows.length && !extra.length){ alert("ไม่มีรายการที่ต้องส่งกลับฝ่ายขาย — ทุกออเดอร์ตรงกันแล้ว 🎉"); return; }
-  const chLab=k=>({shopee:"Shopee",tiktok:"TikTok",lazada:"Lazada",face:"FACE",line:"LINE",dealer:"Dealer"}[k]||k||"");
+  const chLab=k=>({shopee:"Shopee",tiktok:"TikTok",lazada:"Lazada",face:"FACE",line:"LINE",dealer:"Dealer",csr:"CSR"}[k]||k||"");
   const ds=res.map(r=>r.date).filter(Boolean).sort();
   const chkFrom=ds[0]||"—", chkTo=ds[ds.length-1]||"—";
   const today=new Date(); const tISO=cffISO(today);

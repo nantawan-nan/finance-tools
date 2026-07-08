@@ -20002,6 +20002,21 @@ function ordReconChart(cov, mode, fmt, pAgg){
     </div>`;}).join('');
 }
 
+/* ★ แยกองค์ประกอบผลต่าง (ยอดต่างเพราะอะไร) — โชว์ ยอดสินค้า/ส่วนลด/ค่าส่ง 2 ฝั่ง ไฮไลต์จุดที่ต่าง */
+function ordDiffBreakdown(bs, be){
+  const fmt=ordFmtMoney; const num=x=>Number(x||0);
+  const g=bs.channel_group||be.channel_group;
+  const goodsBs=num(g==='tiktok' ? (bs.gross_total||ordGrossVal(bs)) : bs.order_total);
+  const goodsBe=num(g==='tiktok' ? (be.gross_total||ordGrossVal(be)) : be.order_total);
+  const parts=[
+    {l:'ยอดสินค้า', bs:goodsBs, be:goodsBe},
+    {l:'ส่วนลดร้าน', bs:num(bs.seller_voucher), be:num(be.seller_discount)},
+    {l:'ค่าส่ง', bs:num(bs.shipping_fee), be:num(be.shipping_fee)},
+  ];
+  return parts.map(p=>{ const dif=Math.abs(p.bs-p.be)>=0.01;
+    return `<span style="display:inline-block;margin:2px 12px 2px 0;${dif?'color:#8b5cf6;font-weight:700':'color:#94a3b8'}">${p.l}: ${fmt(p.bs)} ${dif?'≠':'='} ${fmt(p.be)}${dif?' ◀ ต่าง':''}</span>`;
+  }).join('');
+}
 /* แท็บ สรุปภาพรวม (redesign) — KPI แพลตฟอร์ม + สรุปกระทบยอด + กระทบยอดต่อแพลตฟอร์ม + recon เดิม */
 /* ===== Board redesign (2026-06-29): Matrix 6 ช่อง × 3 แถว (BS/หลังบ้าน/ผลต่าง) + detail table + calendar collapsible ===== */
 function ordRenderBoard(d){
@@ -20149,8 +20164,13 @@ function ordRenderBoard(d){
     const cm=CH.find(c=>c.k===r._ch)||{l:r._ch,c:'#64748b'};
     const amt=Number(ordReconNet(r.be||r.bs||{}))||0;
     let det='';
-    if(r._type==='diff' && r.diffs){
-      det=r.diffs.map(df=>`<span style="margin-right:10px"><b>${esc(df.f)}:</b> ${df.txt?esc(df.bs):fmt(df.bs)} <span style="color:#94a3b8">vs</span> ${df.txt?esc(df.be):fmt(df.be)}</span>`).join('');
+    if(r._type==='diff'){
+      const baseBs=ordTaxBase(r.bs||{},'bs'), baseBe=ordTaxBase(r.be||{},'be');
+      const delta=+(baseBs-baseBe).toFixed(2);
+      const skuDiff=(r.diffs||[]).find(x=>x.txt);   // SKU/จำนวนไม่ตรง
+      det=`<div style="margin-bottom:4px;font-weight:600"><span style="color:#0d9488">คีย์ขาย (BigSeller) ${fmt(baseBs)}</span> <span style="color:#cbd5e1">↔</span> <span style="color:#3b82f6">หลังบ้าน ${fmt(baseBe)}</span> <span style="color:#8b5cf6">· ต่าง ${delta>0?'+':''}${fmt(delta)}</span></div>`
+        + `<div style="font-size:11.5px">${ordDiffBreakdown(r.bs||{}, r.be||{})}</div>`
+        + (skuDiff?`<div style="font-size:11.5px;color:#8b5cf6;font-weight:700;margin-top:2px">SKU/จำนวนไม่ตรง: ${esc(skuDiff.bs||'—')} ≠ ${esc(skuDiff.be||'—')}</div>`:'');
     } else if(r._type==='only_be'){
       det=`ลูกค้า: <b>${esc(r.be?.customer||'—')}</b>` + (r.be?.products?` · SKU: ${esc(String(r.be.products).slice(0,80))}`:'');
     } else if(r._type==='only_bs'){

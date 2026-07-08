@@ -816,3 +816,13 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 - **แก้:** voucher ใช้ `cfg.discBillLevel ? Math.max : sum` เหมือน `disc` (เดิม 2026-06-26 ก็เป็น Math.max ก่อนถูกเปลี่ยนเป็น ×qty ตามเคส unverified) · qty=1 ได้ผลเท่าเดิม · ออเดอร์ไม่มี voucher ไม่กระทบ
 - **ต้องทำ:** re-upload BigSeller → `ordIngestChannelOrders` vchChanged backfill `seller_voucher` (20→10) → recon กลับมาตรง
 - **ความเสี่ยง (แจ้ง user):** ถ้ามีโปร voucher แบบ per-unit จริง (qty>1) จะกลายเป็นน้อยไป — ยังไม่เจอในข้อมูลจริง · ถ้าเจอค่อยทำ channel-aware
+
+### 2026-07-08 — Recon fix (แก้ที่ถูกต้อง): voucher "ต่อชิ้น/ต่อแถว" แยกตามช่องทาง
+- **PR #8 (Math.max ทั้งช่อง) ผิด → ทำ TikTok พัง** · วินิจฉัยจากข้อมูลจริง 3 ออเดอร์ (search view `ordReconDetailHtml`):
+  - **TikTok** 584825... : 1 แถว qty 4 · voucher/แถว 385.20 · หลังบ้าน (SKU Seller Discount) = 1,540.80 = **385.20×4** → **per-unit (×qty)**
+  - **Shopee** 260706 : 2 แถว qty1 · voucher 5/แถว · หลังบ้าน 10 = **5+5** → per-แถว (sum, mul=1)
+  - **Shopee** 260703 : 1 แถว qty2 · voucher 10 · หลังบ้าน 10 → sum (mul=1)
+- **สรุป:** code เดิม (×qty ทุกช่อง) ผิดกับ Shopee · PR #8 (Math.max) ผิดกับ TikTok+Shopee หลายแถว · **ที่ถูก = แยกช่องทาง:** `vmul = /tiktok/.test(platform) ? lineQty : 1` แล้ว `g.voucher += voucher*vmul` (sum เสมอ)
+- **`ordParseSalesFile` voucher block** อ่าน platform จาก row ปัจจุบัน (`row[ci.platform]`) → tiktok ×qty · shopee/lazada ×1 · **unit test:** SP10→10 · SP(2แถว5)→10 · TT(qty4 385.2)→1540.8
+- **ต้อง re-upload BigSeller** อีกครั้ง → backfill seller_voucher ให้ถูก → TikTok+Shopee ที่ฟ้องผลต่างจะหาย
+- **Lazada:** default = ×1 (เหมือน Shopee · ยังไม่มีข้อมูลยืนยัน · ถ้าต่างค่อยเพิ่ม)

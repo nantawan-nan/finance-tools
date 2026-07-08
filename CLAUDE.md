@@ -809,3 +809,10 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Push rule: keep this file current
 **ทุกครั้งที่ push** มีการเพิ่ม feature ใหญ่หรือเปลี่ยน convention — **อัปเดต `CLAUDE.md`** ให้ตรง (architecture, gotchas, recent changes section). ทำเป็น part ของ push เหมือนการเขียน commit message.
+
+### 2026-07-08 — Recon fix: BigSeller "Voucher ของร้านค้า" เป็น bill-level (เลิก ×qty)
+- **อาการ (เจ้าของจับได้):** Shopee ออเดอร์ qty=2 · voucher จริง 10 (หลังบ้านโชว์ "โค้ดส่วนลดร้าน SFP-... −฿10") แต่ระบบเก็บ 20 → ฐานภาษี bs 670 ≠ be 680 → ฟ้องผลต่างหลอก
+- **ต้นเหตุ:** parser BigSeller เอา `voucher × mul` (mul=qty เพราะ perUnitPrice) — สมมติ voucher เป็น per-unit เหมือน "ราคา" · จริงๆ "Voucher ของร้านค้า" (โค้ดส่วนลดร้าน Shopee) = **bill-level ต่อออเดอร์** ใส่ซ้ำทุกแถว
+- **แก้:** voucher ใช้ `cfg.discBillLevel ? Math.max : sum` เหมือน `disc` (เดิม 2026-06-26 ก็เป็น Math.max ก่อนถูกเปลี่ยนเป็น ×qty ตามเคส unverified) · qty=1 ได้ผลเท่าเดิม · ออเดอร์ไม่มี voucher ไม่กระทบ
+- **ต้องทำ:** re-upload BigSeller → `ordIngestChannelOrders` vchChanged backfill `seller_voucher` (20→10) → recon กลับมาตรง
+- **ความเสี่ยง (แจ้ง user):** ถ้ามีโปร voucher แบบ per-unit จริง (qty>1) จะกลายเป็นน้อยไป — ยังไม่เจอในข้อมูลจริง · ถ้าเจอค่อยทำ channel-aware

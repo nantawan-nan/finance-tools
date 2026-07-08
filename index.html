@@ -19031,12 +19031,13 @@ function ordParseSalesFile(rows){
       if(cfg.discBillLevel) g.disc = Math.max(g.disc, ordNum(row[ci.disc]));
       else                  g.disc += ordNum(row[ci.disc]);
     }
-    // ★ "Voucher ของร้านค้า" (โค้ดส่วนลดร้าน Shopee เช่น SFP-...) = bill-level ต่อออเดอร์ ใส่ซ้ำทุกแถว
-    //   → Math.max (เหมือน disc) · เดิม ×qty ทำให้ qty>1 นับซ้ำ (voucher 10 qty 2 → 20 ทั้งที่จริง 10 ทั้งบิล
-    //   ตรงกับหลังบ้านที่โชว์ -฿10) · qty=1 ได้ผลเท่าเดิม ไม่กระทบออเดอร์ที่ไม่มี voucher
+    // ★ "Voucher ของร้านค้า" อาการต่างกันต่อช่องทาง (ยืนยันจากข้อมูลจริง 3 ออเดอร์):
+    //   TikTok = ต่อชิ้น (per-unit) → ×qty  ·  Shopee/Lazada = ต่อแถว → บวกกัน (mul=1)
+    //   เช็ค: SP 1แถว qty2 v10→10 · SP 2แถว v5→10 · TT 1แถว qty4 v385.2→1540.8
     if(ci.voucher>=0){
-      if(cfg.discBillLevel) g.voucher = Math.max(g.voucher, ordNum(row[ci.voucher]));
-      else                  g.voucher += ordNum(row[ci.voucher]);
+      const _plat=(ci.platform>=0?String(row[ci.platform]||""):(g.platform||"")).toLowerCase();
+      const vmul=/tiktok/.test(_plat) ? (lineQty||1) : 1;
+      g.voucher += ordNum(row[ci.voucher]) * vmul;
     }
     if(ci.refund>=0) g.refund += ordNum(row[ci.refund]);
     if(ci.platform>=0 && !g.platform) g.platform = String(row[ci.platform]||"").trim();

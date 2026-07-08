@@ -1277,6 +1277,13 @@ function fmtDateDDMMYY(iso){
   const m=iso.match(/^(\d{4})-(\d{2})-(\d{2})/); if(!m) return iso;
   return `${m[3]}/${m[2]}/${m[1].slice(2)}`;
 }
+/* ★ DD/MM/YY แบบ พ.ศ. (ปีพุทธ 2 หลักท้าย) — ฟอร์แมตที่ AutoKey/Express ต้องการ เช่น 01/07/69 */
+function fmtDateDDMMYYBE(iso){
+  if(!iso) return "";
+  const m=String(iso).match(/^(\d{4})-(\d{2})-(\d{2})/); if(!m) return String(iso);
+  const be=(parseInt(m[1],10)+543)%100;
+  return `${m[3]}/${m[2]}/${String(be).padStart(2,"0")}`;
+}
 
 /* CSV parser (handles "" escapes + CRLF) */
 function csvParse(text){
@@ -5107,25 +5114,27 @@ async function ivrDoExport(format){
       const cg = String(o.channel_group||'').toLowerCase();
       const channel = cg==='shopee'?'SP':cg==='tiktok'?'TT':cg==='lazada'?'LZ':'';
       const isManual = /^(FB|OD)/i.test(String(o.order_id||''));
-      // ★ รหัสลูกค้า — Benya marketplace = ช่องทาง×แบรนด์ · ขายตรง = FACE · M Bark = customer เดิม
+      const platLabel = ({shopee:'SHOPEE',tiktok:'TIKTOK',lazada:'LAZADA'})[cg] || (o.channel||o.channel_group||'').toUpperCase();
+      // ★ รหัสลูกค้า — Benya marketplace = ช่องทาง×แบรนด์ (SHOPEE BE / TIKTOK QI ...) · ขายตรง = FACE
+      //   M Bark (แบรนด์เดียว mommam) = ช่องทาง (SHOPEE/TIKTOK/LAZADA) · ขายตรง = customer เดิม
       const brand = isMbark ? '' : incBrandOf(o);
       let cust = '', custNote = '';
-      if(isMbark){ cust = o.customer || ''; }
-      else {
+      if(isMbark){
+        cust = channel ? platLabel : (o.customer || (isManual ? 'FACE' : ''));
+      } else {
         cust = custCodeBenya(channel, brand);
         if(!cust) cust = isManual ? 'FACE' : (o.customer || '');
         if(channel && !brand) custNote = '⚠ เดาแบรนด์ BT/QI ไม่ออก — ตรวจรหัสลูกค้า';
       }
       const orderShip = Number(o.shipping_fee||0);
       const orderDisc = Number(o.seller_discount||0);
-      const platLabel = ({shopee:'SHOPEE',tiktok:'TIKTOK',lazada:'LAZADA'})[cg] || (o.channel||o.channel_group||'').toUpperCase();
       its.forEach((it, idx) => {
         seq++;
         const isFirst = idx===0, isLast = idx===its.length-1;
         const hasShip = isLast && orderShip > 0;
         aoa.push([
           seq, isFirst?ivNo:'', isFirst?(o.order_id||''):'',
-          o.order_date||'', platLabel, cust,
+          fmtDateDDMMYYBE(o.order_date), platLabel, cust,
           it.sku||'', Number(it.qty)||0, Number(it.price)||0,
           isLast?orderShip:0, isFirst?orderDisc:0,
           hasShip?shipSkuCode:'', hasShip?'{Enter}':'', hasShip?orderShip:'',
@@ -5162,7 +5171,7 @@ async function ivrDoExport(format){
     }
     // 3) download — CSV (UTF-8 BOM) หรือ Excel (.xlsx)
     const ws = XLSX.utils.aoa_to_sheet(aoa);
-    forceTextCells(ws, [1, 2, 6, 11, 12]);
+    forceTextCells(ws, [1, 2, 3, 6, 11, 12]);   // col 3 = วันที่ DD/MM/YY (พ.ศ.) — ล็อกเป็น text กัน Excel แปลง
     if(fmt==='xlsx'){
       // ตั้งความกว้างคอลัมน์ให้พอเหมาะ + รวมเป็น workbook · cell type เป็น text แล้วจาก forceTextCells
       ws['!cols'] = [{wch:5},{wch:13},{wch:18},{wch:11},{wch:9},{wch:8},{wch:18},{wch:7},{wch:10},{wch:9},{wch:11},{wch:10},{wch:11},{wch:11},{wch:18},{wch:14}];

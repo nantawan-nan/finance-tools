@@ -177,6 +177,12 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-08 — ส่งออก IV: เติมรหัสลูกค้าว่าง (Benya) ด้วยแบรนด์ตาม SKU — จำครั้งเดียว
+- **เจ้าของขอ:** รหัสลูกค้าว่างเต็มไปหมด (Benya marketplace ที่เดาแบรนด์ BT/QI ไม่ออกจากชื่อสินค้า เช่น SKU `SDO101`) — อยากได้ที่แก้ง่ายๆ
+- **`incBrandOf` รื้อลำดับความแม่น:** (1) **ชื่อร้าน** `bsBrandFromShop(shop)` (betra→BT/qi→QI · ถ้าเก็บ `shop` ไว้) (2) **map ผู้ใช้กำหนดตาม SKU prefix** (localStorage `inc-sku-brand-{co}`) (3) เดาจากข้อความ+SKU (SBR/STR/BTR=Betra) · helper ใหม่ `incSkuPrefix`/`incSkuBrandMap`/`incSetSkuBrand`/`incOrderSkus`
+- **UI แก้ง่ายในแท็บ "ส่งออก IV"** (Benya เท่านั้น): panel รวม SKU prefix ที่ยังเดาแบรนด์ไม่ออก (จาก eligible marketplace) → ปุ่ม **Betra (BE) / Qi (QI)** ต่อ prefix · กดครั้งเดียว → เติม "รหัสลูกค้า" (SHOPEE BE/QI) ให้ทุกออเดอร์ SKU กลุ่มนั้นทันที (พรีวิว+ไฟล์) · โชว์ mapping ที่ตั้งไว้ + ปุ่มลบ (✕)
+- **กระทบหน้าอื่น:** `incBrandOf` ใช้ร่วม RE export ด้วย → IV↔RE แบรนด์ตรงกัน (ดีขึ้นทั้งคู่) · signature เดิม · **unit test:** shop betra→BT · SDO ไม่รู้→ว่าง · map SDO→QI แล้ว SDO101/SDO999→QI · ลบ map→ว่าง
+
 ### 2026-07-08 — ส่งออก IV: พรีวิว = เนื้อไฟล์ CSV จริง (helper `ivrBuildExportAoA` ใช้ร่วม)
 - **เจ้าของขอ:** พรีวิวในหน้าส่งออกไม่โชว์ "รหัสลูกค้า" (อ่าน `o.customer` ว่าง) ต้องโหลดไฟล์มาเช็ค — ส่งออก 9 รอบยังไม่ได้คีย์ · อยากให้พรีวิว = ไฟล์จริงที่จะดาวน์โหลด ตรวจครบไหมได้เลย
 - **ต้นเหตุ:** พรีวิว (`ivrRenderExport`) กับไฟล์จริง (`ivrDoExport`) สร้างแยกกัน → รหัสลูกค้า/วันที่ พ.ศ./SKU ไม่ตรงกัน

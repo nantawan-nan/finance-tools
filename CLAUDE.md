@@ -833,3 +833,10 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 - **`ORD_BOARD_CHANS_OTHER`** เพิ่ม `{k:"csr",l:"CSR",c:"#7c3aed"}` (ไม่มี img → badge ตัว C ม่วง) → matrix/othAgg/display columns/chip รองรับอัตโนมัติ (dynamic จาก array)
 - **อัปเดต hardcode `["face","line","dealer"]` → เพิ่ม "csr"** ที่ `ordBoardDetailRows` (_oth filter), cntCh._oth, chLab (ใบส่งกลับฝ่ายขาย)
 - **display-only** — ไม่แตะ channel_group ใน DB · ไม่ต้อง re-upload (จัดกลุ่มตอน render จาก order_id/order_total ที่มี) · **unit test:** FB→face · LMS→line · DR/XYZ→dealer · ยอด0→csr · marketplace→cg
+
+### 2026-07-08 — Month scope + register icons (หน้าคำสั่งซื้อ/ส่งออก/หน้าแรก = เฉพาะเดือนปัจจุบัน)
+- **เจ้าของขอ:** (1) หน้า "ออเดอร์ที่แมพแล้ว" มีไอคอนช่องทางคลิกได้ (2) หน้าส่งออกไปคีย์ = เฉพาะเดือนปัจจุบัน (3) หน้าแรกภาพรวมเดือน = เฉพาะเดือนปัจจุบัน
+- **register icons** (`ordRenderRegister` chChip): เพิ่ม `ordPlatLogo(v,17)` หน้าชิป (all = icon layout-grid) → เห็นโลโก้ Shopee/TikTok/Lazada/offline
+- **หน้าแรก** (`homeLoadStats`): สถิติออเดอร์ (ivPct/ivKeyed/ordTotal/cancelled/rePending/bankIn/saleSum) กรอง `order_date` = เดือนปัจจุบัน (`todayISO.slice(0,7)`) · AP/เงินสด = ยอด ณ ปัจจุบัน (balance ไม่ผูกเดือน)
+- **หน้า 1.คำสั่งซื้อ/ส่งออก** (`renderToolSalesOrders`): `mrows = d.rows กรองเดือนปัจจุบัน` (via `cffISO`) → ส่งเข้า `salesKpis`/`salesRenderList`(param ใหม่ chip counts)/`unKeyedAll` · ivr export default `range:'today'→'month'`
+- **display-only** — ไม่แตะ data/DB · board ยังมี month picker แยก (dateRange) เหมือนเดิม

@@ -11079,12 +11079,13 @@ function pcPrintPdf(){
   let logo=co.logo||''; try{ logo=new URL(co.logo, location.href).href; }catch(_){}
   const today=new Date().toLocaleDateString('th-TH',{day:'2-digit',month:'long',year:'numeric'});
   const w=window.open('','_blank','width=1000,height=760'); if(!w){ alert('กรุณาอนุญาต popup เพื่อพิมพ์'); return; }
+  const dshort=(iso)=>{ const s=fmtDateDDMMYYBE(iso); return s||esc(iso||'—'); };
   const tr=R.rows.map((e,i)=>`<tr>
     <td style="text-align:center">${i+1}</td>
-    <td>${esc(e.pay_date||e.doc_date||'—')}</td>
+    <td>${dshort(e.pay_date||e.doc_date)}</td>
     <td style="font-family:monospace">${esc(e.doc_no||'')}</td>
-    <td>${esc(e.requester||'')}</td>
-    <td>${esc(e.description||'')}</td>
+    <td title="${esc(e.requester||'')}">${esc(e.requester||'')}</td>
+    <td class="desc" title="${esc(e.description||'')}">${esc(e.description||'')}</td>
     <td style="text-align:right;color:#0f766e">${Number(e.amount_in)?pcFmt(e.amount_in):''}</td>
     <td style="text-align:right;color:#b91c1c">${Number(e.amount_out)?pcFmt(e.amount_out):''}</td>
     <td style="text-align:right;font-weight:700">${pcFmt(e._bal)}</td>
@@ -11103,15 +11104,17 @@ function pcPrintPdf(){
       .summary > div{display:flex;flex-direction:column;gap:2px}
       .summary .l{font-size:10.5px;color:#64748b}
       .summary .v{font-size:15px;font-weight:800;color:#0f172a;font-variant-numeric:tabular-nums}
-      table{width:100%;border-collapse:collapse;font-size:11.5px}
-      th,td{border-bottom:1px solid #e2e8f0;padding:6px 8px;text-align:left;vertical-align:top}
-      th{background:${brand};color:#fff;font-weight:700;font-size:11px}
+      table{width:100%;border-collapse:collapse;font-size:10.5px;table-layout:fixed}
+      th,td{border-bottom:1px solid #e2e8f0;padding:4px 7px;text-align:left;vertical-align:middle;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+      th{background:${brand};color:#fff;font-weight:700;font-size:10px}
+      td.desc{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
       .op td{background:#f1f5f9;font-weight:700}
-      tfoot td{border-top:2px solid #0f172a;font-weight:800;font-size:12.5px;background:#ecfdf5}
-      .sig{display:grid;grid-template-columns:1fr 1fr;gap:60px;margin-top:52px;font-size:12px;color:#334155}
+      tfoot td{border-top:2px solid #0f172a;font-weight:800;font-size:11.5px;background:#ecfdf5}
+      .sig{display:grid;grid-template-columns:1fr 1fr;gap:60px;margin-top:44px;font-size:12px;color:#334155}
       .sig > div{text-align:center}
       .sig .ln{border-top:1px dotted #64748b;margin:0 20px 6px}
       .sig .dt{margin-top:8px;color:#94a3b8;font-size:11px}
+      @page{size:A4 landscape;margin:10mm}
       @media print{ .noprint{display:none} body{margin:12mm 10mm} }
     </style></head><body>
     <div class="head">
@@ -11129,7 +11132,7 @@ function pcPrintPdf(){
       <div><span class="l">คงเหลือยกไป</span><span class="v">${pcFmt(R.closing)}</span></div>
     </div>
     <table>
-      <thead><tr><th style="width:36px">#</th><th style="width:82px">วันที่</th><th style="width:110px">เลขที่เอกสาร</th><th style="width:150px">ผู้เบิก</th><th>รายการ</th><th style="text-align:right;width:80px">รับ</th><th style="text-align:right;width:80px">จ่าย</th><th style="text-align:right;width:90px">คงเหลือ</th><th style="width:110px">หมายเหตุ</th></tr></thead>
+      <thead><tr><th style="width:32px">#</th><th style="width:64px">วันที่</th><th style="width:118px">เลขที่เอกสาร</th><th style="width:172px">ผู้เบิก</th><th>รายการ</th><th style="text-align:right;width:82px">รับ</th><th style="text-align:right;width:82px">จ่าย</th><th style="text-align:right;width:92px">คงเหลือ</th><th style="width:96px">หมายเหตุ</th></tr></thead>
       <tbody>
         <tr class="op"><td colspan="7">ยอดยกมาต้นรอบ ${esc(pcRoundLabel(d.round))}</td><td style="text-align:right">${pcFmt(R.opening)}</td><td></td></tr>
         ${tr||`<tr><td colspan="9" style="text-align:center;color:#94a3b8;padding:20px">— ไม่มีรายการ —</td></tr>`}

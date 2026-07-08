@@ -177,6 +177,17 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-08 — ★ Sales Dashboard รื้อใหม่ (วิเคราะห์ยอดขาย + สินค้าคงเหลือ ใน 1 หน้า · แทนของเดิม)
+- **เจ้าของขอ:** แดชบอร์ดพรีเซนต์ — เดือนที่เลือกขายช่องทางไหนกี่บาท · สินค้าตัวไหนของแต่ละช่องทางขายดี · รายงานสินค้าคงเหลือ · กราฟล้ำๆ ดูง่าย เน้นวิเคราะห์ · มีรูปสินค้า · แทน Seller Dashboard เดิม
+- **ดีไซน์:** ทำจาก Claude Design handoff (`for-design` ref) · ฟอนต์ **Noto Sans Thai** (เพิ่มใน `<head>` · weight 400–900 · ตัวเลข/หัวข้อ 800–900 หนาเด่น) · theme light/dark ต่อบริษัท (Benya teal · M Bark navy)
+- **`renderToolDashboard` เขียนใหม่ทั้งหมด** (เดิม `dashLoad`/`state.dash` = dead) · helper prefix **`sdash*`** · `state.sdash={mode,month}`
+- **ข้อมูล:** ยอดขาย/ช่องทาง/สินค้าขายดี = `order_ledger` (ผ่าน `ordGet()`/`ordLoad`) · สต็อก/ทุน/ราคา/รูป = **อัปไฟล์ SKU Merchant (BigSeller) client-side** → เก็บ localStorage `sdash-sku-{co}` (`sdashUploadSku` parse xlsx: match header เลข SKU/ชื่อ/หมวด/ต้นทุน/ราคาขาย/สต็อก/Image URL) · รูปดึงจาก Image URL ในไฟล์
+- **section:** Header (เลือกเดือน+สลับบริษัท+โหมด+อัปสินค้า+พิมพ์) · KPI 5 ใบ (ยอดขาย/ออเดอร์/เฉลี่ย/กำไรขั้นต้น/มูลค่าสต็อก · sparkline + MoM) · โดนัทช่องทาง + แยกแบรนด์ · แท่งเทียบเดือนก่อน · การ์ดสินค้าขายดีต่อช่องทาง (Top 3 + รูป) · ตารางสินค้าคงเหลือ (เสี่ยงขาด/ควรเติม/ค้างสต็อก · พอขาย = สต็อก÷ขายเฉลี่ย/วัน) · Insight วิเคราะห์
+- **channel = `ordChannelDetail`** (shopee/tiktok/lazada/face/line/dealer/csr) · การ์ดขายดีโชว์ 5 ช่อง (SP/TT/LZ/FACE/Dealer)
+- **graceful ไม่มีไฟล์ SKU:** KPI ยอดขาย/ออเดอร์/เฉลี่ย + โดนัท + MoM + สินค้าขายดี ยังทำงานจาก order_ledger · กำไร/มูลค่าสต็อก/คงเหลือ = ปุ่ม "อัปไฟล์สินค้า"
+- **กระทบหน้าอื่น = 0** — CSS scoped `.sdash` · **unit test:** total/orders/profit/stockValue/donut/top/inventory ถูก · render simulation (fake DOM) ผ่าน · boot 0 non-env errors
+- **ยังไม่ทำ:** เก็บ SKU master ลง Supabase (ตอนนี้อัปไฟล์ client-side) · sparkline มูลค่าสต็อกเป็น snapshot (ไม่มี history)
+
 ### 2026-07-08 — ส่งออก IV: รหัสลูกค้าขายตรง = FACE/LINE/Dealer (อะไรที่ไม่ใช่ marketplace/FB/LMS = Dealer)
 - **เจ้าของขอ:** ออเดอร์ที่ไม่ใช่ Shopee/TikTok/Lazada/FACE/LINE → รหัสลูกค้า = "Dealer" (เดิม MANUAL ที่ไม่ใช่ FB/LMS ขึ้น "— ว่าง —")
 - **`ivrBuildExportAoA`:** ขายตรง (channel ว่าง) → `directCust = {face:FACE, line:LINE, dealer:Dealer, csr:CSR}[ordChannelDetail(o)] || 'Dealer'` (ใช้การจัดกลุ่มเดียวกับบอร์ด/register) · Benya = directCust · M Bark = `customer||directCust` · marketplace เดิมไม่เปลี่ยน (Benya ช่องทาง×แบรนด์ · M Bark ช่องทาง)

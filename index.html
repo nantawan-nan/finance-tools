@@ -10907,6 +10907,8 @@ function pcExcelDate(v){
   if(!isNaN(num) && num>20000 && num<80000){ const d=new Date(Math.round((num-25569)*86400*1000)); const p=n=>String(n).padStart(2,'0'); return `${d.getUTCFullYear()}-${p(d.getUTCMonth()+1)}-${p(d.getUTCDate())}`; }
   const m=String(v).match(/^(\d{4})-(\d{2})-(\d{2})/); if(m) return m[0];
   const m2=String(v).match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/); if(m2){ let y=+m2[3]; if(y<100)y+=2000; if(y>2500)y-=543; return `${y}-${String(+m2[2]).padStart(2,'0')}-${String(+m2[1]).padStart(2,'0')}`; }
+  // "04-Jun-2026" / "4 Jun 2026" (มีชื่อเดือนอังกฤษ)
+  if(/[A-Za-z]{3}/.test(String(v))){ const dd=new Date(String(v).replace(/-/g,' ')); if(!isNaN(dd)){ const p=n=>String(n).padStart(2,'0'); return `${dd.getFullYear()}-${p(dd.getMonth()+1)}-${p(dd.getDate())}`; } }
   return null;
 }
 function pcNum(x){ const v=parseFloat(String(x==null?'':x).replace(/,/g,'')); return isNaN(v)?0:v; }
@@ -10988,6 +10990,15 @@ async function pcDeleteRow(id){
   if(error){ alert('ลบไม่สำเร็จ: '+error.message); return; }
   await pcLoad(); renderToolPettyCash();
 }
+async function pcClearRound(){
+  const d=pcGet(); if(!fopCanWrite()){ alert('ไม่มีสิทธิ์'); return; }
+  const ids=d.entries.filter(e=>pcRoundOf(e)===d.round).map(e=>e.id);
+  if(!ids.length){ alert('รอบนี้ไม่มีรายการ'); return; }
+  if(!confirm(`ลบรายการทั้งหมดในรอบ ${pcRoundLabel(d.round)} (${ids.length} รายการ)?\nใช้กรณีนำเข้าผิดแล้วต้องการเริ่มใหม่`)) return;
+  const now=new Date().toISOString();
+  for(let i=0;i<ids.length;i+=200){ const { error } = await sb.from('petty_cash').update({ deleted_at:now }).in('id', ids.slice(i,i+200)); if(error){ alert('ลบไม่สำเร็จ: '+error.message); break; } }
+  await pcLoad(); renderToolPettyCash();
+}
 
 /* import ไฟล์ STM (ทะเบียนคุมเงินสดย่อย) — เลือกชีตของบริษัทปัจจุบันอัตโนมัติ */
 async function pcImport(){
@@ -10998,43 +11009,46 @@ async function pcImport(){
     try{
       const wb=XLSX.read(await f.arrayBuffer(),{type:'array',cellDates:true});
       const wantBenya = state.company!=='mbark';
+      // ★ cellDates:true (ไม่ raw:false) → วันที่เป็น Date object · เลขเป็น number
+      const readSheet=(sn)=>XLSX.utils.sheet_to_json(wb.Sheets[sn],{header:1,defval:'',cellDates:true});
       let chosen=null;
       for(const sn of wb.SheetNames){
-        const rows=XLSX.utils.sheet_to_json(wb.Sheets[sn],{header:1,defval:'',raw:false});
-        const head=rows.slice(0,5).map(r=>r.join(' ')).join(' ');
-        const isBenya=/เบญญา|benya/i.test(head), isMbark=/บาร์ค|bark|m\s*bark/i.test(head);
+        const rows=readSheet(sn);
+        const head=(sn+' '+rows.slice(0,5).map(r=>r.join(' ')).join(' '));
+        const isBenya=/เบญญา|benya/i.test(head), isMbark=/บาร์ค|bark/i.test(head);
         if((wantBenya&&isBenya)||(!wantBenya&&isMbark)){ chosen={rows}; break; }
       }
-      if(!chosen){ // fallback: sheet by index (1st=benya, 2nd=mbark)
-        const sn=wb.SheetNames[wantBenya?0:Math.min(1,wb.SheetNames.length-1)];
-        chosen={ rows: XLSX.utils.sheet_to_json(wb.Sheets[sn],{header:1,defval:'',raw:false}) };
-      }
+      if(!chosen){ const sn=wb.SheetNames[wantBenya?0:Math.min(1,wb.SheetNames.length-1)]; chosen={ rows: readSheet(sn) }; }
       const rows=chosen.rows;
       const hi=rows.findIndex(r=>r.some(c=>String(c).includes('วันที่ตรวจ')));
       if(hi<0){ alert('ไม่พบหัวตาราง "วันที่ตรวจเอกสาร" ในไฟล์'); return; }
-      const hdr=rows[hi].map(x=>String(x||''));
-      const col=(...kw)=>hdr.findIndex(h=>kw.some(k=>h.includes(k)));
-      const ci={ docDate:col('วันที่ตรวจ'), payDate:col('วันที่จ่าย'), docNo:col('เลขที่เอกสาร'), req:col('ผู้เบิก'), desc:col('รายการ'), rin:col('รับ'), rout:col('จ่าย'), reimb:col('เบิกคืน'), note:col('หมายเหตุ') };
+      const hdr=rows[hi].map(x=>String(x||'').trim());
+      // ★ exact-match ก่อน (กัน "จ่าย" ไปแมตช์ "วันที่จ่ายเงิน") → ไม่เจอค่อย includes
+      const col=(...kw)=>{ const e=hdr.findIndex(h=>kw.some(k=>h===k)); return e>=0?e:hdr.findIndex(h=>kw.some(k=>h.includes(k))); };
+      const ci={ docDate:col('วันที่ตรวจเอกสาร','วันที่ตรวจ'), payDate:col('วันที่จ่ายเงิน','วันที่จ่าย'), docNo:col('เลขที่เอกสาร'), req:col('ผู้เบิก'), desc:col('รายการ'), rin:col('รับ'), rout:col('จ่าย'), reimb:col('เบิกคืนเข้ารอบ','เบิกคืน'), note:col('หมายเหตุ') };
       const cid=pcGet()._cid||await fopCompanyId();
-      const inserts=[]; let seq=0;
+      // กันนำเข้าซ้ำ: เลขเอกสารที่มีอยู่แล้วในบริษัทนี้
+      const seen=new Set((pcGet().entries||[]).map(e=>String(e.doc_no||'').trim()).filter(Boolean));
+      const inserts=[]; let seq=0, dup=0;
       for(let i=hi+1;i<rows.length;i++){
         const r=rows[i]||[]; const docNo=String(r[ci.docNo]||'').trim();
         const req=String(r[ci.req]||'').trim(); const desc=String(r[ci.desc]||'').trim();
         const isHP=/^HP/i.test(docNo), isRR=/^RR/i.test(docNo)||/เติมเงิน|รับโอน/.test(req+desc);
         if(!isHP && !isRR) continue;   // เอาเฉพาะรายการเบิก(HP) + เติมเงิน(RR)
-        const raw=pcNum(r[ci.rin])||pcNum(r[ci.rout]);   // ยอด (คอลัมน์ไหนก็ได้ที่มีค่า)
+        if(docNo && seen.has(docNo)){ dup++; continue; }   // มีแล้ว ข้าม
+        const raw=pcNum(r[ci.rin])||pcNum(r[ci.rout]);   // ยอด (รับ หรือ จ่าย ที่มีค่า)
         if(!raw) continue;
         const payISO=pcExcelDate(r[ci.payDate])||pcExcelDate(r[ci.docDate]);
-        seq++;
+        seq++; if(docNo) seen.add(docNo);
         inserts.push({ company_id:cid, round_label:(payISO||'').slice(0,7)||pcGet().round,
-          doc_date:pcExcelDate(r[ci.docDate]), pay_date:payISO, doc_no:docNo,
+          doc_date:pcExcelDate(r[ci.docDate]), pay_date:payISO, doc_no:docNo||null,
           requester:req||null, description:desc||null,
           amount_in: isRR?raw:0, amount_out: isHP?raw:0,
           reimburse_round: ci.reimb>=0? (pcExcelDate(r[ci.reimb])||String(r[ci.reimb]||'').trim()||null) : null,
           note: ci.note>=0? String(r[ci.note]||'').trim()||null : null, seq });
       }
-      if(!inserts.length){ alert('ไม่พบรายการที่นำเข้าได้ (มองหาเลขเอกสาร HP.../RR...)'); return; }
-      if(!confirm(`นำเข้า ${inserts.length} รายการ เข้าบริษัท ${state.company==='mbark'?'M Bark':'Benya'}?\n(เบิกจ่าย HP + เติมเงิน RR · ตรวจ/แก้ยอดได้ภายหลัง)`)) return;
+      if(!inserts.length){ alert(dup?`ทุกรายการมีอยู่แล้ว (ข้าม ${dup} รายการซ้ำ)`:'ไม่พบรายการที่นำเข้าได้ (มองหาเลขเอกสาร HP.../RR...)'); return; }
+      if(!confirm(`นำเข้า ${inserts.length} รายการ เข้าบริษัท ${state.company==='mbark'?'M Bark':'Benya'}?${dup?`\n(ข้ามซ้ำ ${dup} รายการ)`:''}\n(เบิกจ่าย HP + เติมเงิน RR · ตรวจ/แก้ยอดได้ภายหลัง)`)) return;
       for(let i=0;i<inserts.length;i+=200){ const { error } = await sb.from('petty_cash').insert(inserts.slice(i,i+200)); if(error){ alert('นำเข้าบางส่วนไม่สำเร็จ: '+error.message); break; } }
       await pcLoad(); renderToolPettyCash();
       alert('นำเข้าสำเร็จ '+inserts.length+' รายการ');
@@ -11140,6 +11154,7 @@ async function renderToolPettyCash(){
           ${canW?`<button class="pc-btn" style="background:#eef2f1;color:#334155" onclick="pcSetOpening()">ยอดยกมา</button>`:''}
           ${canW?`<button class="pc-btn" style="background:#eef2f1;color:#334155" onclick="pcImport()">↑ นำเข้า Excel</button>`:''}
           <button class="pc-btn" style="background:#eef2f1;color:#334155" onclick="pcExport()">↓ ส่งออก</button>
+          ${canW?`<button class="pc-btn" style="background:#fef2f2;color:#b91c1c" onclick="pcClearRound()">🗑 ล้างรอบนี้</button>`:''}
         </div>
       </div>
       ${formHtml}

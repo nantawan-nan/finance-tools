@@ -177,6 +177,13 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-08 — ส่งออก IV: พรีวิว = เนื้อไฟล์ CSV จริง (helper `ivrBuildExportAoA` ใช้ร่วม)
+- **เจ้าของขอ:** พรีวิวในหน้าส่งออกไม่โชว์ "รหัสลูกค้า" (อ่าน `o.customer` ว่าง) ต้องโหลดไฟล์มาเช็ค — ส่งออก 9 รอบยังไม่ได้คีย์ · อยากให้พรีวิว = ไฟล์จริงที่จะดาวน์โหลด ตรวจครบไหมได้เลย
+- **ต้นเหตุ:** พรีวิว (`ivrRenderExport`) กับไฟล์จริง (`ivrDoExport`) สร้างแยกกัน → รหัสลูกค้า/วันที่ พ.ศ./SKU ไม่ตรงกัน
+- **แก้ = helper กลาง `ivrBuildExportAoA(orders, startIv)`** — สร้าง AoA (header + รายบรรทัด item) ครบ 16 คอลัมน์ · `ivrDoExport` เรียกใช้แทน inline (ลบโค้ดซ้ำ ~45 บรรทัด) · **พรีวิว render AoA เดียวกันเป๊ะ** (ทุกคอลัมน์: เลข IV/วันที่ 01/07/69/ช่องทาง/**รหัสลูกค้า**/SKU/จำนวน/ราคา/ส่วนลด/ค่าส่ง/หมายเหตุ)
+- **UX พรีวิว:** ไฮไลต์คอลัมน์ "รหัสลูกค้า" (เขียว) · ว่าง = แดง "— ว่าง —" · banner นับ "รหัสลูกค้าว่าง N บรรทัด" / "เดาแบรนด์ BT/QI ไม่ออก N" หรือ "✓ ครบทุกบรรทัด" · โชว์สูงสุด 150 บรรทัด · scroll แนวนอน
+- **กระทบหน้าอื่น = 0** — `ivrDoExport` ผลลัพธ์เท่าเดิม (unit test: MBark shopee→SHOPEE, Benya Betra→SHOPEE BE, date→01/07/69, IV รันต่อเนื่อง, brand ว่าง→note) · shared ทั้ง sales_orders + (bigseller dead)
+
 ### 2026-07-08 — ยุบ "บันทึกขายเชื่อ (IV)" (bigseller) เข้า "ระบบงานขาย · 1. คำสั่งซื้อ" (sales_orders)
 - **เจ้าของขอ:** หน้า "ส่งออก IV + ตรวจการคีย์ 141.RWT" ซ้ำกัน 2 ที่ (sales_orders กับ bigseller) → เก็บ **1. คำสั่งซื้อ (sales_orders)** ที่เดียว
 - **ลบ TOOLS entry `bigseller` ออกจาก sidebar** · redirect ใน `renderTool()`: `state.tool` = expressmatch/exportkey/**bigseller** → `sales_orders` (เดิม 2 ตัวแรก redirect ไป bigseller) · `renderToolBigSeller` ยังอยู่ในไฟล์ (dead · เปิดคืนได้)

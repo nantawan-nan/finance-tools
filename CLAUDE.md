@@ -177,6 +177,12 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-08 — ส่งออก IV: รหัสลูกค้า M Bark = ช่องทาง + วันที่ DD/MM/YY (พ.ศ.)
+- **เจ้าของจับได้:** ไฟล์ส่งออก AutoKey IV ของ M Bark คอลัมน์ "รหัสลูกค้า" ยังว่าง (fix ก่อนหน้าใช้ `o.customer` ซึ่ง marketplace ว่าง) + วันที่เป็น ISO `2026-07-01` ทั้งที่ต้องเป็น `01/07/69` (DD/MM/YY ปีพุทธ)
+- **`ivrDoExport` รหัสลูกค้า M Bark** — M Bark แบรนด์เดียว (mommam) → marketplace ใช้ **ช่องทาง** (SHOPEE/TIKTOK/LAZADA = `platLabel`) · ขายตรง = `o.customer||FACE` · ตรงกับที่ `mbarkBankDownByCust`/`mbarkCheckCode` parse (SHOPEE→SH ฯลฯ) · Benya ยังเป็น channel×brand เหมือนเดิม
+- **วันที่ = `fmtDateDDMMYYBE(o.order_date)`** (helper ใหม่ · `(ปี+543)%100` → 2026=69) → คอลัมน์วันที่ขายเป็น `01/07/69` · เพิ่ม col 3 ใน `forceTextCells` (xlsx) กัน Excel แปลง
+- **กระทบหน้าอื่น = 0** — แก้ใน `ivrDoExport` (shared bigseller+sales_orders) · **unit test:** date 2026-07-01→01/07/69, 2025→68 · M Bark shopee→SHOPEE · offline→customer
+
 ### 2026-07-08 — Register "ออเดอร์ที่แมพแล้ว": แยกชิปขายตรง FACE/LINE/Dealer/CSR (เลิกกรุ๊ป "หน้าร้าน/อื่น")
 - **เจ้าของขอ:** ชิปช่องทางในแท็บ register กรุ๊ปขายตรงรวมเป็น "หน้าร้าน/อื่น 35" — อยากให้แยกแบบหน้าแรก (board): FACE/LINE/Dealer/CSR แยกชิป
 - **`ordRenderRegister`:** `detOf(o)= isMp?channel_group:ordChannelDetail(o)` → chip filter/count ใช้ detOf (marketplace=channel_group · ขายตรง=face/line/dealer/csr) · ชิปใหม่ 8 อัน (all/shopee/tiktok/lazada/face/line/dealer/csr) · sub-label "(ขายตรง — ไม่ต้องกระทบยอด)" เมื่อเลือกช่องขายตรง

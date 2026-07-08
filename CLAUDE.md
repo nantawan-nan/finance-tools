@@ -177,6 +177,12 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-08 — ส่งออก IV: รหัสลูกค้า Benya = ช่องทาง×แบรนด์ (BT/QI) + CSR ไม่ยื่นภาษีขาย
+- **เจ้าของจับได้ 2 จุดในไฟล์ส่งออก AutoKey IV:** (1) คอลัมน์ "รหัสลูกค้า" ของ SHOPEE/TIKTOK ว่างเปล่า — Benya ต้องแยกช่องทาง×แบรนด์ (Betra=BE / Qi=QI) (2) ออเดอร์ CSR (แจก/เคลม/ตัวอย่าง) โผล่มามียอดให้ยื่นภาษีขาย ทั้งที่ปกติต้องยอด 0
+- **`ivrDoExport` รหัสลูกค้า** — เดิม `isManual?'FACE':''` (marketplace ว่างเสมอ) → เปลี่ยนเป็น **mirror RE export (`incReCandidates`):** `custCodeBenya(channel,brand)` = `{SP:SHOPEE,TT:TIKTOK,LZ:LAZADA}` × `{BT:BE,QI:QI}` → "SHOPEE BE"/"TIKTOK QI"/... · brand จาก `incBrandOf(o)` (products) · fallback ขายตรง=FACE · M Bark=`o.customer` · คอลัมน์หมายเหตุเตือน "⚠ เดาแบรนด์ BT/QI ไม่ออก" เมื่อ marketplace แต่ brand ว่าง
+- **CSR = ไม่ยื่นภาษีขาย** — `ordChannelDetail` เพิ่มจับ **prefix "CSR"** (ไม่ใช่แค่ยอด 0) · `ivrCanExport` block CSR (non-marketplace + `ordChannelDetail==='csr'`) → reason "CSR (แจก/เคลม/ตัวอย่าง) · ไม่ยื่นภาษีขาย" · หลุดจาก eligible/KPI ready อัตโนมัติ
+- **กระทบหน้าอื่น = 0** — `custCodeBenya` reuse สูตรเดียวกับ RE (IV↔RE รหัสตรงกัน) · `ordChannelDetail` เพิ่มเงื่อนไข CSR เดิม (face/line/dealer ไม่เปลี่ยน) · **unit test:** custCode SP/BT→"SHOPEE BE" · CSR prefix→csr · CSR export blocked · FACE export ok · SP matched ok/diff blocked
+
 ### 2026-07-08 — Orders: แก้ "แมท 100% หลอก" + ช่องที่ยังไม่อัปหลังบ้านหายจากรายงาน (unrecon)
 - **อาการ:** Lazada มี 1 ออเดอร์ใน BigSeller แต่ยังไม่อัปรายงานหลังบ้าน Lazada → `ordRunRecon` scope เฉพาะช่องที่อัป → Lazada ไม่เคยเข้า recon results → (1) hero โชว์ "อัตราแมท 100%" (คิดจากเฉพาะที่ตรวจ SP+TT) (2) ผลต่าง Lazada = 0 (3) ใบกระทบยอดไม่มี Lazada
 - **helper กลาง** `ordUnreconBs(d)` — ออเดอร์ marketplace (SP/TT/LZ) active ในช่วง ที่ `order_id` ไม่อยู่ใน recon results = "ยังไม่ตรวจ" · `ordMatchStats(d)` — `rate = matched / (matched+only_be+only_bs+diff+unrecon)` → 100% เฉพาะตรวจครบจริง · **unit test:** เคสจริง SP155+TT59 matched + LZ1 unrecon → matched 214/denom 215 = 99.53%

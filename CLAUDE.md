@@ -826,3 +826,10 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 - **`ordParseSalesFile` voucher block** อ่าน platform จาก row ปัจจุบัน (`row[ci.platform]`) → tiktok ×qty · shopee/lazada ×1 · **unit test:** SP10→10 · SP(2แถว5)→10 · TT(qty4 385.2)→1540.8
 - **ต้อง re-upload BigSeller** อีกครั้ง → backfill seller_voucher ให้ถูก → TikTok+Shopee ที่ฟ้องผลต่างจะหาย
 - **Lazada:** default = ×1 (เหมือน Shopee · ยังไม่มีข้อมูลยืนยัน · ถ้าต่างค่อยเพิ่ม)
+
+### 2026-07-08 — Orders board: แยกช่องทาง "อื่นๆ" ตามรหัสคำสั่งซื้อ + เพิ่ม CSR (ยอด 0)
+- **เจ้าของขอ:** สอนให้ระบบรู้จักออเดอร์ช่องทางที่ไม่มีแพลตฟอร์ม จาก prefix รหัส: `FB…`=FACE · `LMS…`=LINE · อื่นๆ=Dealer · **ยอด 0 = CSR** (แจก/เคลม/ตัวอย่าง)
+- **`ordChannelDetail(o)`** เปลี่ยนจากเดา text (channel/customer) → ดู `order_id` prefix + เช็ค `order_total===0` ก่อน (→csr) · marketplace (cg shopee/tiktok/lazada) return ตามเดิม (ตรวจก่อน)
+- **`ORD_BOARD_CHANS_OTHER`** เพิ่ม `{k:"csr",l:"CSR",c:"#7c3aed"}` (ไม่มี img → badge ตัว C ม่วง) → matrix/othAgg/display columns/chip รองรับอัตโนมัติ (dynamic จาก array)
+- **อัปเดต hardcode `["face","line","dealer"]` → เพิ่ม "csr"** ที่ `ordBoardDetailRows` (_oth filter), cntCh._oth, chLab (ใบส่งกลับฝ่ายขาย)
+- **display-only** — ไม่แตะ channel_group ใน DB · ไม่ต้อง re-upload (จัดกลุ่มตอน render จาก order_id/order_total ที่มี) · **unit test:** FB→face · LMS→line · DR/XYZ→dealer · ยอด0→csr · marketplace→cg

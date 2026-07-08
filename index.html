@@ -22898,12 +22898,17 @@ async function renderToolOrders(){
   const fmt = ordFmtMoney;
   const today = new Date().toLocaleDateString("th-TH",{day:"numeric",month:"short",year:"numeric"});
   const tabBtn=(v,l,cnt,cls)=>`<button class="ord-tab ${(d.view||'board')===v?'active':''} ${cls||''}" onclick="ordSetView('${v}')">${l}${cnt!=null?`<span class="n">${cnt}</span>`:''}</button>`;
-  // hero: อัตราแมท + ช่วงข้อมูล (ตามดีไซน์)
-  const reconRes=((d.rows||[]).length ? (d.recon&&d.recon.results) : null)||[];   // ทะเบียนว่าง → ไม่นับ recon ค้าง
+  // hero: อัตราแมท + ช่วงข้อมูล (★ ตามช่วง/เดือนที่เลือก ไม่ใช่ข้อมูลทั้งหมด)
+  const inR=ordDateFilter(d);
+  const reconRes=(((d.rows||[]).length ? (d.recon&&d.recon.results) : null)||[]).filter(r=>inR(r.date));   // ทะเบียนว่าง → ไม่นับ recon ค้าง
   const mrate = reconRes.length ? reconRes.filter(r=>r.status==='matched').length/reconRes.length*100 : null;
-  const actDates=(d.rows||[]).filter(o=>o.status!=='cancelled'&&o.order_date).map(o=>String(o.order_date).slice(0,10)).sort();
+  const actDates=(d.rows||[]).filter(o=>o.status!=='cancelled'&&o.order_date&&inR(o.order_date)).map(o=>String(o.order_date).slice(0,10)).sort();
   let rangeLabel='—';
   if(actDates.length){ const a=new Date(actDates[0]),b=new Date(actDates[actDates.length-1]); const dmon=x=>x.toLocaleDateString('th-TH',{day:'numeric',month:'short'}); const dnum=x=>x.toLocaleDateString('th-TH',{day:'numeric'}); const yr=b.toLocaleDateString('th-TH',{year:'numeric'}); const sameM=a.getMonth()===b.getMonth()&&a.getFullYear()===b.getFullYear(); rangeLabel = actDates[0]===actDates[actDates.length-1] ? `${dmon(a)} ${yr}` : (sameM?`${dnum(a)}–${dmon(b)} ${yr}`:`${dmon(a)}–${dmon(b)} ${yr}`); }
+  else { const dr=d.dateRange||'all';   // ไม่มีข้อมูลในช่วงที่เลือก → โชว์ชื่อเดือน/ช่วงที่เลือกแทน '—'
+    if(dr==='month'){ rangeLabel=new Date().toLocaleDateString('th-TH',{month:'short',year:'numeric'})+' · ยังไม่มีข้อมูล'; }
+    else if(typeof dr==='string'&&dr.startsWith('m:')){ rangeLabel=ordMonthLabel(dr.slice(2))+' · ยังไม่มีข้อมูล'; }
+  }
 
   main.innerHTML = `
   <div class="ord-page">

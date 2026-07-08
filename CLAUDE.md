@@ -177,6 +177,13 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-08 — Sales Dashboard: SKU master เก็บบน Supabase (ทุกคนเห็นชุดเดียวกัน) + รูปจาก repo
+- **เจ้าของขอ:** อยากให้ทุกคนเห็นสต็อกชุดเดียวกัน (เดิม localStorage ต่อเครื่อง) + รูปสินค้าไม่ขึ้น
+- **Migration `supabase/sku-master.sql`** (idempotent · RLS ปิด): ตาราง `sku_master(company_id,sku,name,brand,category,cost,price,stock,image_url,...)` + unique `(company_id,sku)`
+- **`sdashUploadSku`** อัป xlsx → **upsert ขึ้น Supabase** (chunk 500 · onConflict company_id,sku) + cache localStorage · **`sdashSyncSku(co)`** โหลดจาก DB ครั้งเดียวต่อบริษัท (fallback cache) · `renderToolDashboard` เรียก sync แล้ว re-render
+- **รูปสินค้า:** commit 69 รูปเข้า repo **`sku_images/{SKU}.jpeg`** · `sdashImgTag(sku,url)` = ลอง repo (same-origin ชัวร์) → fallback Image URL → ซ่อน · แก้อาการรูปไม่ขึ้น + ยอด 0 (skuMap ว่างเพราะยังไม่ sync)
+- **กระทบหน้าอื่น = 0** — เพิ่ม state `state.sdashSku` (cache) · **verify:** imgTag repo+fallback+hide · render sim (ชื่อจริง/ยอด≠0/repo path) · syntax OK · boot 0 non-env errors
+
 ### 2026-07-08 — ★ Sales Dashboard รื้อใหม่ (วิเคราะห์ยอดขาย + สินค้าคงเหลือ ใน 1 หน้า · แทนของเดิม)
 - **เจ้าของขอ:** แดชบอร์ดพรีเซนต์ — เดือนที่เลือกขายช่องทางไหนกี่บาท · สินค้าตัวไหนของแต่ละช่องทางขายดี · รายงานสินค้าคงเหลือ · กราฟล้ำๆ ดูง่าย เน้นวิเคราะห์ · มีรูปสินค้า · แทน Seller Dashboard เดิม
 - **ดีไซน์:** ทำจาก Claude Design handoff (`for-design` ref) · ฟอนต์ **Noto Sans Thai** (เพิ่มใน `<head>` · weight 400–900 · ตัวเลข/หัวข้อ 800–900 หนาเด่น) · theme light/dark ต่อบริษัท (Benya teal · M Bark navy)

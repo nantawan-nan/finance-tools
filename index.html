@@ -5865,10 +5865,39 @@ function sdashShort(n){ n=Number(n)||0; if(n>=1e6) return (n/1e6).toFixed(2)+'M'
 function sdashChannelOf(o){ return ordChannelDetail(o); }
 function sdashItems(o){ let it=o.items; if(typeof it==='string'){ try{ it=JSON.parse(it); }catch(_){ it=null; } } return Array.isArray(it)?it:[]; }
 
-/* ---- SKU master (อัปไฟล์ BigSeller) — localStorage ต่อบริษัท ---- */
+/* ---- SKU master (อัปไฟล์ BigSeller) — เก็บบน Supabase (ทุกคนเห็นชุดเดียวกัน) + cache localStorage ---- */
+state.sdashSku = state.sdashSku || {};   // { co: {map, loaded} } — in-memory cache
 function sdashSkuKey(co){ return 'sdash-sku-'+co; }
-function sdashLoadSku(co){ try{ return JSON.parse(localStorage.getItem(sdashSkuKey(co))||'null')||{}; }catch(_){ return {}; } }
-function sdashSaveSku(co, map){ try{ localStorage.setItem(sdashSkuKey(co), JSON.stringify(map)); }catch(_){} }
+function sdashCacheGet(co){ try{ return JSON.parse(localStorage.getItem(sdashSkuKey(co))||'null')||{}; }catch(_){ return {}; } }
+function sdashCacheSet(co, map){ try{ localStorage.setItem(sdashSkuKey(co), JSON.stringify(map)); }catch(_){} state.sdashSku[co]={map,loaded:true}; }
+/* อ่านแบบ sync (ใช้ตอน render) — จากหน่วยความจำ → cache localStorage */
+function sdashLoadSku(co){ const c=state.sdashSku[co]; if(c&&c.map) return c.map; return sdashCacheGet(co); }
+/* โหลดจาก Supabase → เก็บ map (idempotent · fallback = cache) */
+async function sdashSyncSku(co){
+  const cid = await fopCompanyId();
+  if(!cid){ const m=sdashCacheGet(co); state.sdashSku[co]={map:m,loaded:true}; return m; }
+  try{
+    let all=[], from=0;
+    while(true){
+      const { data, error } = await sb.from('sku_master').select('sku,name,brand,category,cost,price,stock,image_url').eq('company_id',cid).range(from,from+999);
+      if(error) throw error;
+      if(!data||!data.length) break;
+      all=all.concat(data); if(data.length<1000) break; from+=1000;
+    }
+    const map={}; all.forEach(r=>{ const sku=String(r.sku||'').toUpperCase(); if(!sku) return;
+      map[sku]={ sku:r.sku, name:r.name||r.sku, brand:r.brand||r.category||'', cost:Number(r.cost)||0, price:Number(r.price)||0, stock:Number(r.stock)||0, img:r.image_url||'' }; });
+    sdashCacheSet(co, map);
+    return map;
+  }catch(e){ console.warn('sku sync', e); const m=sdashCacheGet(co); state.sdashSku[co]={map:m,loaded:true}; return m; }
+}
+/* รูปสินค้า: repo (sku_images/{SKU}.jpeg · same-origin ชัวร์) → fallback Image URL → ซ่อน */
+function sdashImgTag(sku, url){
+  const repo='sku_images/'+encodeURIComponent(String(sku||'').toUpperCase())+'.jpeg';
+  const u=String(url||'').replace(/'/g,'%27').replace(/"/g,'%22');
+  // ลอง repo ก่อน → พลาดไป Image URL → พลาดอีก ซ่อน
+  const onerr = u ? `this.onerror=function(){this.style.visibility='hidden'};this.src='${u}'` : `this.style.visibility='hidden'`;
+  return `<img src="${repo}" alt="" style="width:100%;height:100%;object-fit:cover" onerror="${esc(onerr)}">`;
+}
 async function sdashUploadSku(){
   const inp=document.createElement('input'); inp.type='file'; inp.accept='.xlsx,.xls';
   inp.onchange=async()=>{
@@ -5894,8 +5923,19 @@ async function sdashUploadSku(){
         }
       }
       if(!n){ alert('ไม่พบข้อมูล SKU ในไฟล์ (ตรวจว่าเป็นไฟล์ SKU Merchant จาก BigSeller)'); return; }
-      sdashSaveSku(state.company, map);
-      alert('นำเข้าสินค้า '+n+' รายการแล้ว ✓');
+      // ★ บันทึกขึ้น Supabase (ทุกคนเห็นชุดเดียวกัน) — upsert ตาม (company_id, sku)
+      let cloud=false;
+      const cid = await fopCompanyId();
+      if(cid){
+        const dbRows=Object.values(map).map(s=>({ company_id:cid, sku:s.sku, name:s.name, brand:s.brand, category:s.brand, cost:s.cost, price:s.price, stock:s.stock, image_url:s.img, updated_email:(AUTH&&AUTH.email)||null }));
+        cloud=true;
+        for(let i=0;i<dbRows.length;i+=500){
+          const { error } = await sb.from('sku_master').upsert(dbRows.slice(i,i+500),{ onConflict:'company_id,sku' });
+          if(error){ console.warn('sku upsert', error); cloud=false; alert('บันทึกขึ้นคลาวด์ไม่สำเร็จ (เก็บเฉพาะเครื่องนี้): '+(error.message||error)); break; }
+        }
+      }
+      sdashCacheSet(state.company, map);
+      alert('นำเข้าสินค้า '+n+' รายการ'+(cloud?' ✓ บันทึกบนคลาวด์แล้ว — ทุกคนเห็นชุดเดียวกัน':' (เฉพาะเครื่องนี้)'));
       renderToolDashboard();
     }catch(err){ alert('อ่านไฟล์ไม่สำเร็จ: '+(err.message||err)); }
   };
@@ -5979,7 +6019,7 @@ function sdashCompute(rows, skuMap, months, monthKey){
     const mx=Math.max(1,...arr.map(x=>x.units));
     const prev=prevRev[ch]||0, cur=chanRev[ch]||0; const mv=prev?(cur-prev)/prev*100:null; const c=sdashChip(mv,false);
     return {channel:meta.l,color:meta.c,mom:c.mom,arrow:c.arrow,momColor:c.momColor||c.chipColor,
-      items:arr.map((x,i)=>({rank:i+1,img:imgOf(x.sku),name:nameOf(x.sku),units:sdashFmt(x.units),baht:sdashFmt(x.units*(priceOf(x.sku)||0)),barPct:(x.units/mx*100).toFixed(0)}))}; });
+      items:arr.map((x,i)=>({rank:i+1,sku:x.sku,img:imgOf(x.sku),name:nameOf(x.sku),units:sdashFmt(x.units),baht:sdashFmt(x.units*(priceOf(x.sku)||0)),barPct:(x.units/mx*100).toFixed(0)}))}; });
   // brand split (จากยอดขายเดือนนี้ ตาม skuMap.brand)
   let brandSplit=[];
   if(hasSku){ const bt={}; mRows.forEach(o=>sdashItems(o).forEach(it=>{ const s=skuMap[String(it.sku||'').toUpperCase()]; if(!s) return; const b=s.brand||'อื่นๆ'; bt[b]=(bt[b]||0)+(Number(it.qty)||0)*(Number(it.price)||0); }));
@@ -6045,6 +6085,10 @@ async function renderToolDashboard(){
     main.innerHTML=`<div class="sdash" style="padding:60px;text-align:center;color:#64748b"><div style="font-size:15px;font-weight:700">⏳ กำลังโหลดข้อมูลการขาย…</div></div>`;
     d.busy=true; try{ await ordLoad(); }catch(e){ console.warn(e); } d.busy=false;
   }
+  // ★ โหลด SKU master จาก Supabase ครั้งเดียวต่อบริษัท (ทุกคนเห็นสต็อกชุดเดียวกัน) → เสร็จแล้ว re-render
+  if(!(state.sdashSku[state.company] && state.sdashSku[state.company].loaded)){
+    sdashSyncSku(state.company).then(()=>{ if(state.tool==='dashboard') renderToolDashboard(); }).catch(e=>console.warn(e));
+  }
   const rows=(d.rows||[]).filter(o=>o.status!=='cancelled' && o.order_date);
   const monthsAll=[...new Set(rows.map(o=>String(o.order_date).slice(0,7)))].sort();
   const months=monthsAll.slice(-6);
@@ -6105,7 +6149,6 @@ async function renderToolDashboard(){
       </div>
     </div>`).join('');
 
-  const imgFallback=`this.style.visibility='hidden'`;
   const topHtml=D.topCards.map(card=>`
     <div style="background:${t.panel};border:1px solid ${t.border};border-radius:18px;padding:16px 17px;box-shadow:${t.shadow};border-top:3px solid ${card.color}">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:13px">
@@ -6115,7 +6158,7 @@ async function renderToolDashboard(){
       <div style="display:flex;flex-direction:column;gap:12px">
         ${card.items.map(p=>`<div style="display:flex;gap:10px;align-items:center">
           <div style="font-size:12px;font-weight:800;color:${t.muted};width:14px;text-align:center;flex:none">${p.rank}</div>
-          <div style="width:40px;height:40px;border-radius:11px;background:#fff;border:1px solid ${t.border};flex:none;overflow:hidden">${p.img?`<img src="${esc2(p.img)}" alt="" style="width:100%;height:100%;object-fit:cover" onerror="${imgFallback}">`:''}</div>
+          <div style="width:40px;height:40px;border-radius:11px;background:#fff;border:1px solid ${t.border};flex:none;overflow:hidden">${sdashImgTag(p.sku,p.img)}</div>
           <div style="flex:1;min-width:0">
             <div style="font-size:11.5px;font-weight:600;line-height:1.25;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc2(p.name)}</div>
             <div style="height:5px;background:${t.border};border-radius:4px;margin-top:5px;overflow:hidden"><div style="height:100%;width:${p.barPct}%;background:${card.color};border-radius:4px"></div></div>
@@ -6131,7 +6174,7 @@ async function renderToolDashboard(){
         <th style="padding:6px 8px;font-weight:700">สินค้า</th><th style="padding:6px 8px;font-weight:700;text-align:right">คงเหลือ</th><th style="padding:6px 8px;font-weight:700;text-align:right">ขาย/เดือน</th><th style="padding:6px 8px;font-weight:700;text-align:right">มูลค่าสต็อก</th><th style="padding:6px 8px;font-weight:700;text-align:right">พอขาย</th><th style="padding:6px 8px;font-weight:700;text-align:right">สถานะ</th>
       </tr></thead><tbody>
       ${D.inventory.map(r=>`<tr style="border-top:1px solid ${t.border};background:${r.rowBg}">
-        <td style="padding:8px"><div style="display:flex;gap:9px;align-items:center"><div style="width:34px;height:34px;border-radius:9px;background:#fff;border:1px solid ${t.border};flex:none;overflow:hidden">${r.img?`<img src="${esc2(r.img)}" alt="" style="width:100%;height:100%;object-fit:cover" onerror="${imgFallback}">`:''}</div><div style="min-width:0"><div style="font-weight:600;line-height:1.2;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:200px">${esc2(r.name)}</div><div style="font-size:10px;color:${t.muted};font-variant-numeric:tabular-nums">${esc2(r.sku)} · ${esc2(r.brand)}</div></div></div></td>
+        <td style="padding:8px"><div style="display:flex;gap:9px;align-items:center"><div style="width:34px;height:34px;border-radius:9px;background:#fff;border:1px solid ${t.border};flex:none;overflow:hidden">${sdashImgTag(r.sku,r.img)}</div><div style="min-width:0"><div style="font-weight:600;line-height:1.2;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:200px">${esc2(r.name)}</div><div style="font-size:10px;color:${t.muted};font-variant-numeric:tabular-nums">${esc2(r.sku)} · ${esc2(r.brand)}</div></div></div></td>
         <td style="padding:8px;text-align:right;font-weight:700;font-variant-numeric:tabular-nums">${r.stock}</td>
         <td style="padding:8px;text-align:right;font-variant-numeric:tabular-nums;color:${t.muted}">${r.units}</td>
         <td style="padding:8px;text-align:right;font-variant-numeric:tabular-nums">${r.value}</td>

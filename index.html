@@ -19567,7 +19567,11 @@ function ordFiltered(d){
   const inR=ordDateFilter(d);
   return (d.rows||[]).filter(o=>{
     if(!inR(o.order_date)) return false;
-    if(d.fCh!=="all" && o.channel_group!==d.fCh) return false;
+    if(d.fCh!=="all"){
+      const mpCh=['shopee','tiktok','lazada'].includes(d.fCh);
+      const okCh = mpCh ? o.channel_group===d.fCh : ordChannelDetail(o)===d.fCh;
+      if(!okCh) return false;
+    }
     if(d.fIv==="noiv" && o.iv_no) return false;
     if(d.fIv==="hasiv" && !o.iv_no) return false;
     if(d.fStatus && d.fStatus!=="all" && ordStatusOf(o,rmap)!==d.fStatus) return false;
@@ -19940,9 +19944,14 @@ function ordReconSide(o, side){
 /* badge โลโก้แบรนด์ต่อช่องทาง (Clearbit) + fallback ตัวอักษร · key: shopee/tiktok/lazada/offline/other */
 function ordPlatLogo(key, size){
   size=size||40;
-  const M={shopee:{c:'#ee4d2d',b:'S',d:'shopee.com'},tiktok:{c:'#000',b:'T',d:'tiktok.com'},lazada:{c:'#3f3bcc',b:'L',d:'lazada.com'},offline:{c:'#64748b',b:'฿',d:''},other:{c:'#64748b',b:'+',d:''}};
+  const M={shopee:{c:'#ee4d2d',b:'S',d:'shopee.com'},tiktok:{c:'#000',b:'T',d:'tiktok.com'},lazada:{c:'#3f3bcc',b:'L',d:'lazada.com'},offline:{c:'#64748b',b:'฿',d:''},other:{c:'#64748b',b:'+',d:''},
+    face:{c:'#1877f2',b:'F',img:'logo%20platfrom/Facebook_Logo_%282019%29.png'},
+    line:{c:'#06c755',b:'L',img:'logo%20platfrom/LINE_logo.svg.png'},
+    dealer:{c:'#0f766e',b:'D',img:'logo%20platfrom/Logo%20%E0%B8%AD%E0%B8%B7%E0%B9%88%E0%B8%99%E0%B9%86.png'},
+    csr:{c:'#7c3aed',b:'C',d:''}};
   const m=M[key]||M.other; const fs=Math.round(size*0.44);
-  return `<span style="position:relative;display:inline-flex;align-items:center;justify-content:center;width:${size}px;height:${size}px;border-radius:50%;background:${m.c};color:#fff;font:800 ${fs}px/1 inherit;overflow:hidden;flex-shrink:0">${m.b}${m.d?`<img src="https://logo.clearbit.com/${m.d}" alt="" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover" onerror="this.style.display='none'">`:''}</span>`;
+  const imgSrc = m.img ? m.img : (m.d ? `https://logo.clearbit.com/${m.d}` : '');
+  return `<span style="position:relative;display:inline-flex;align-items:center;justify-content:center;width:${size}px;height:${size}px;border-radius:50%;background:${m.c};color:#fff;font:800 ${fs}px/1 inherit;overflow:hidden;flex-shrink:0">${m.b}${imgSrc?`<img src="${imgSrc}" alt="" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover" onerror="this.style.display='none'">`:''}</span>`;
 }
 function ordRangeBounds(range){
   const t=new Date(); t.setHours(0,0,0,0);
@@ -20661,15 +20670,18 @@ function ordRenderRegister(d){
   // ★ marketplace = โชว์เฉพาะ recon "matched" · ขายตรง (FACE/LINE/Dealer/CSR) = โชว์ทุกใบ (BigSeller = ความจริง ไม่ต้องกระทบยอด)
   const show=o=> isMp(o) ? recOf(o)==='matched' : true;
   const act=(d.rows||[]).filter(o=> o.status!=='cancelled' && inR(o.order_date));
-  const inChip=o=> fCh==='all' ? true : (fCh==='offline' ? !isMp(o) : String(o.channel_group||'').toLowerCase()===fCh);
+  // ★ แยกช่องทางแบบเดียวกับหน้าแรก (board): มาร์เก็ตเพลส = channel_group · ขายตรง = FACE/LINE/Dealer/CSR
+  const detOf=o=> isMp(o) ? String(o.channel_group||'').toLowerCase() : ordChannelDetail(o);
+  const isDirect=v=> !['all','shopee','tiktok','lazada'].includes(v);
+  const inChip=o=> fCh==='all' ? true : detOf(o)===fCh;
   const rows=act.filter(o=> inChip(o) && show(o));
-  const chCount={}; act.forEach(o=>{ if(!show(o)) return; const key=isMp(o)?String(o.channel_group||'').toLowerCase():'offline'; chCount[key]=(chCount[key]||0)+1; });
+  const chCount={}; act.forEach(o=>{ if(!show(o)) return; const key=detOf(o); chCount[key]=(chCount[key]||0)+1; });
   const chChip=(v,l)=>`<button class="ord-chip ${fCh===v?'on':''}" onclick="ordSet('fCh','${v}')" style="display:inline-flex;align-items:center;gap:7px">${v==='all'?'<i data-lucide="layout-grid" style="width:15px;height:15px"></i>':ordPlatLogo(v,17)}${l}${v!=='all'&&chCount[v]?` <span class="n">${chCount[v]}</span>`:''}</button>`;
   return `
     <div class="ord-chips">
-      ${chChip('all','ทุกช่อง')}${chChip('shopee','Shopee')}${chChip('tiktok','TikTok')}${chChip('lazada','Lazada')}${chChip('offline','หน้าร้าน/อื่น')}
+      ${chChip('all','ทุกช่อง')}${chChip('shopee','Shopee')}${chChip('tiktok','TikTok')}${chChip('lazada','Lazada')}${chChip('face','FACE')}${chChip('line','LINE')}${chChip('dealer','Dealer')}${chChip('csr','CSR')}
     </div>
-    <div style="font:500 11.5px/1.5 inherit;color:var(--n-500);margin:2px 2px 10px">${rows.length.toLocaleString('th-TH')} ออเดอร์${fCh==='offline'?' (ขายตรง — ไม่ต้องกระทบยอด)':''}</div>
+    <div style="font:500 11.5px/1.5 inherit;color:var(--n-500);margin:2px 2px 10px">${rows.length.toLocaleString('th-TH')} ออเดอร์${isDirect(fCh)?' (ขายตรง — ไม่ต้องกระทบยอด)':''}</div>
     <div class="ord-card">
       <div style="max-height:60vh;overflow-y:auto">
         <table class="ord-table">

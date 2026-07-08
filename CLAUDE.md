@@ -177,6 +177,13 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-08 — Register "ออเดอร์ที่แมพแล้ว": แยกชิปขายตรง FACE/LINE/Dealer/CSR (เลิกกรุ๊ป "หน้าร้าน/อื่น")
+- **เจ้าของขอ:** ชิปช่องทางในแท็บ register กรุ๊ปขายตรงรวมเป็น "หน้าร้าน/อื่น 35" — อยากให้แยกแบบหน้าแรก (board): FACE/LINE/Dealer/CSR แยกชิป
+- **`ordRenderRegister`:** `detOf(o)= isMp?channel_group:ordChannelDetail(o)` → chip filter/count ใช้ detOf (marketplace=channel_group · ขายตรง=face/line/dealer/csr) · ชิปใหม่ 8 อัน (all/shopee/tiktok/lazada/face/line/dealer/csr) · sub-label "(ขายตรง — ไม่ต้องกระทบยอด)" เมื่อเลือกช่องขายตรง
+- **`ordPlatLogo`** เพิ่ม key face/line/dealer/csr (สี board + โลโก้จริงจาก `logo platfrom/` · csr = badge ตัว C ม่วง)
+- **`ordFiltered`** fCh รองรับ sub-channel ด้วย (`mpCh?channel_group:ordChannelDetail`) → ปุ่มส่งออก "ยังไม่คีย์ IV" กรองตามช่องขายตรงได้ถูก
+- **กระทบหน้าอื่น = 0** — `ordPlatGo`/`ordReconGoReg` ยังตั้ง fCh เป็น marketplace key/all เหมือนเดิม · **unit test:** FACE29/CSR6/Dealer1/LINE1 · shopee matched1 (diff ซ่อน)
+
 ### 2026-07-08 — ส่งออก IV: รหัสลูกค้า Benya = ช่องทาง×แบรนด์ (BT/QI) + CSR ไม่ยื่นภาษีขาย
 - **เจ้าของจับได้ 2 จุดในไฟล์ส่งออก AutoKey IV:** (1) คอลัมน์ "รหัสลูกค้า" ของ SHOPEE/TIKTOK ว่างเปล่า — Benya ต้องแยกช่องทาง×แบรนด์ (Betra=BE / Qi=QI) (2) ออเดอร์ CSR (แจก/เคลม/ตัวอย่าง) โผล่มามียอดให้ยื่นภาษีขาย ทั้งที่ปกติต้องยอด 0
 - **`ivrDoExport` รหัสลูกค้า** — เดิม `isManual?'FACE':''` (marketplace ว่างเสมอ) → เปลี่ยนเป็น **mirror RE export (`incReCandidates`):** `custCodeBenya(channel,brand)` = `{SP:SHOPEE,TT:TIKTOK,LZ:LAZADA}` × `{BT:BE,QI:QI}` → "SHOPEE BE"/"TIKTOK QI"/... · brand จาก `incBrandOf(o)` (products) · fallback ขายตรง=FACE · M Bark=`o.customer` · คอลัมน์หมายเหตุเตือน "⚠ เดาแบรนด์ BT/QI ไม่ออก" เมื่อ marketplace แต่ brand ว่าง

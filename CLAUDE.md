@@ -840,3 +840,8 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 - **หน้าแรก** (`homeLoadStats`): สถิติออเดอร์ (ivPct/ivKeyed/ordTotal/cancelled/rePending/bankIn/saleSum) กรอง `order_date` = เดือนปัจจุบัน (`todayISO.slice(0,7)`) · AP/เงินสด = ยอด ณ ปัจจุบัน (balance ไม่ผูกเดือน)
 - **หน้า 1.คำสั่งซื้อ/ส่งออก** (`renderToolSalesOrders`): `mrows = d.rows กรองเดือนปัจจุบัน` (via `cffISO`) → ส่งเข้า `salesKpis`/`salesRenderList`(param ใหม่ chip counts)/`unKeyedAll` · ivr export default `range:'today'→'month'`
 - **display-only** — ไม่แตะ data/DB · board ยังมี month picker แยก (dateRange) เหมือนเดิม
+
+### 2026-07-08 — Register "ออเดอร์ที่แมพแล้ว": โชว์ขายตรง (FACE/LINE/Dealer/CSR) ครบตามบอร์ด
+- **อาการ:** ชิป "หน้าร้าน/อื่น" โชว์ว่างเปล่า แต่บอร์ดมี FACE/LINE/Dealer/CSR — เพราะ register กรอง `recOf(o)==='matched'` เท่านั้น แต่ขายตรงไม่มี recon (BigSeller = ความจริง) → หลุดหมด · แถมชิป offline จับ `channel_group===fCh` แต่บางออเดอร์เป็น 'other'
+- **`ordRenderRegister`:** `show(o) = isMp(o) ? recOf==='matched' : true` (marketplace เฉพาะ matched · ขายตรง=โชว์ทุกใบ) · `inChip` offline = `!isMp(o)` (จับ offline+other) · `chCount` นับ marketplace matched + offline ทั้งหมด · column ช่องทางใช้ `chLabel(o)=ordChannelDetail→label` (Shopee/FACE/…) · status badge ขายตรง = "ขายตรง · ไม่ต้องกระทบ" (เขียว) แทน "รอเทียบยอดขาย"
+- **unit test:** SP matched→show · SP diff→hide · offline(FB/LMS/DR)→show ทุกใบ · chCount shopee1/tiktok1/offline3

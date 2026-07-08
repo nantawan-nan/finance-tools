@@ -20635,19 +20635,21 @@ function ordRenderRegister(d){
   ((d.recon&&d.recon.results)||[]).forEach(r=>{ if(r.order_no){ recMap.set(String(r.order_no), ordReconEffStatus(r)); recResMap.set(String(r.order_no), r); } });
   const recOf=o=> recMap.get(String(o.order_id))||'pending';
   const fCh=d.fCh||'all';
-  const fRec='matched'; // ★ tab นี้โชว์เฉพาะออเดอร์ที่แมพตรงแล้วเท่านั้น
-  // ★ ตัดออเดอร์ยกเลิกออก + กรองตามช่วง/เดือนที่เลือก (ให้ตรงกับ board + badge)
   const inR=ordDateFilter(d);
+  const isMp=o=>{ const cg=String(o.channel_group||'').toLowerCase(); return cg==='shopee'||cg==='tiktok'||cg==='lazada'; };
+  const chLabel=o=>({shopee:'Shopee',tiktok:'TikTok',lazada:'Lazada',face:'FACE',line:'LINE',dealer:'Dealer',csr:'CSR'}[ordChannelDetail(o)]||o.channel_group||'—');
+  // ★ marketplace = โชว์เฉพาะ recon "matched" · ขายตรง (FACE/LINE/Dealer/CSR) = โชว์ทุกใบ (BigSeller = ความจริง ไม่ต้องกระทบยอด)
+  const show=o=> isMp(o) ? recOf(o)==='matched' : true;
   const act=(d.rows||[]).filter(o=> o.status!=='cancelled' && inR(o.order_date));
-  const base=act.filter(o=> fCh==='all'||o.channel_group===fCh);
-  const rows=base.filter(o=> recOf(o)===fRec);
-  const chCount={}; act.filter(o=>recOf(o)==='matched').forEach(o=>{chCount[o.channel_group]=(chCount[o.channel_group]||0)+1;});
+  const inChip=o=> fCh==='all' ? true : (fCh==='offline' ? !isMp(o) : String(o.channel_group||'').toLowerCase()===fCh);
+  const rows=act.filter(o=> inChip(o) && show(o));
+  const chCount={}; act.forEach(o=>{ if(!show(o)) return; const key=isMp(o)?String(o.channel_group||'').toLowerCase():'offline'; chCount[key]=(chCount[key]||0)+1; });
   const chChip=(v,l)=>`<button class="ord-chip ${fCh===v?'on':''}" onclick="ordSet('fCh','${v}')" style="display:inline-flex;align-items:center;gap:7px">${v==='all'?'<i data-lucide="layout-grid" style="width:15px;height:15px"></i>':ordPlatLogo(v,17)}${l}${v!=='all'&&chCount[v]?` <span class="n">${chCount[v]}</span>`:''}</button>`;
   return `
     <div class="ord-chips">
       ${chChip('all','ทุกช่อง')}${chChip('shopee','Shopee')}${chChip('tiktok','TikTok')}${chChip('lazada','Lazada')}${chChip('offline','หน้าร้าน/อื่น')}
     </div>
-    <div style="font:500 11.5px/1.5 inherit;color:var(--n-500);margin:2px 2px 10px">${rows.length.toLocaleString('th-TH')} ออเดอร์ที่กระทบยอดตรงกันแล้ว</div>
+    <div style="font:500 11.5px/1.5 inherit;color:var(--n-500);margin:2px 2px 10px">${rows.length.toLocaleString('th-TH')} ออเดอร์${fCh==='offline'?' (ขายตรง — ไม่ต้องกระทบยอด)':''}</div>
     <div class="ord-card">
       <div style="max-height:60vh;overflow-y:auto">
         <table class="ord-table">
@@ -20660,14 +20662,15 @@ function ordRenderRegister(d){
             <th>สถานะกระทบยอด</th>
           </tr></thead>
           <tbody>
-          ${rows.slice(0,1000).map(o=>{ const exp=d.expanded.has(o.id); const cancelled=o.status==='cancelled'; const rk=recOf(o); const rm=ORD_REC_META[rk]||ORD_REC_META.pending; return `
+          ${rows.slice(0,1000).map(o=>{ const exp=d.expanded.has(o.id); const cancelled=o.status==='cancelled'; const rk=recOf(o); const rm=ORD_REC_META[rk]||ORD_REC_META.pending;
+            const stBadge = isMp(o) ? `<span class="ord-bd ${rm.c}">${esc(rm.l)}</span>` : `<span class="ord-bd ok">ขายตรง · ไม่ต้องกระทบ</span>`; return `
             <tr class="${cancelled?'cancel':''} ${exp?'exp':''}" onclick="ordToggleRow('${o.id}')">
               <td class="tnum" style="font-size:12px">${o.order_date||'—'}</td>
-              <td style="font-size:12px">${esc(o.channel_group||'')}</td>
+              <td style="font-size:12px">${esc(chLabel(o))}</td>
               <td class="mono">${esc(o.order_id||'')}</td>
               <td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(o.products||'')}">${esc(o.products||'')}</td>
               <td class="right tnum">${fmt(o.order_total)}</td>
-              <td><span class="ord-bd ${rm.c}">${esc(rm.l)}</span></td>
+              <td>${stBadge}</td>
             </tr>
             ${exp?`<tr class="exp"><td colspan="6" style="padding:0">${ordReconDetailHtml(recResMap.get(String(o.order_id)) || {bs:o, be:null})}</td></tr>`:''}
           `; }).join("") || `<tr><td colspan="6"><div class="ord-empty" style="border:0;background:transparent"><i data-lucide="package-search"></i><div class="ttl">ไม่มีออเดอร์ตามตัวกรอง</div></div></td></tr>`}

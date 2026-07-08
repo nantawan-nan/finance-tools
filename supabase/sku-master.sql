@@ -14,9 +14,15 @@ create table if not exists public.sku_master (
   updated_at    timestamptz default now(),
   updated_email text
 );
--- กัน clone เก่าที่ตารางมีอยู่แต่คอลัมน์ไม่ครบ
+-- กัน clone/ตารางเก่าที่มีอยู่แต่คอลัมน์ไม่ครบ (CREATE IF NOT EXISTS จะข้ามการสร้างคอลัมน์)
+alter table public.sku_master add column if not exists name       text;
+alter table public.sku_master add column if not exists brand      text;
 alter table public.sku_master add column if not exists category   text;
+alter table public.sku_master add column if not exists cost       numeric;
+alter table public.sku_master add column if not exists price      numeric;
+alter table public.sku_master add column if not exists stock      numeric;
 alter table public.sku_master add column if not exists image_url  text;
+alter table public.sku_master add column if not exists updated_at timestamptz default now();
 alter table public.sku_master add column if not exists updated_email text;
 
 create unique index if not exists uq_sku_master on public.sku_master(company_id, sku);

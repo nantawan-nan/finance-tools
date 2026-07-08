@@ -11070,6 +11070,84 @@ function pcExport(){
   XLSX.writeFile(wb, `เงินสดย่อย_${co.code}_${d.round}.xlsx`);
 }
 
+/* พิมพ์ PDF — หัวตาราง+โลโก้บริษัท + ช่องเซ็นผู้จัดทำ/ผู้ตรวจสอบ */
+function pcPrintPdf(){
+  const d=pcGet(); const co=COMPANIES.find(c=>c.id===state.company);
+  const ent=d.entries.filter(e=>pcRoundOf(e)===d.round);
+  const R=pcCompute(ent,(d.openings[d.round]||{}).opening||0);
+  const brand=(co.gradient&&co.gradient[0]) || (state.company==='mbark'?'#1e3a8a':'#0d9488');
+  let logo=co.logo||''; try{ logo=new URL(co.logo, location.href).href; }catch(_){}
+  const today=new Date().toLocaleDateString('th-TH',{day:'2-digit',month:'long',year:'numeric'});
+  const w=window.open('','_blank','width=1000,height=760'); if(!w){ alert('กรุณาอนุญาต popup เพื่อพิมพ์'); return; }
+  const tr=R.rows.map((e,i)=>`<tr>
+    <td style="text-align:center">${i+1}</td>
+    <td>${esc(e.pay_date||e.doc_date||'—')}</td>
+    <td style="font-family:monospace">${esc(e.doc_no||'')}</td>
+    <td>${esc(e.requester||'')}</td>
+    <td>${esc(e.description||'')}</td>
+    <td style="text-align:right;color:#0f766e">${Number(e.amount_in)?pcFmt(e.amount_in):''}</td>
+    <td style="text-align:right;color:#b91c1c">${Number(e.amount_out)?pcFmt(e.amount_out):''}</td>
+    <td style="text-align:right;font-weight:700">${pcFmt(e._bal)}</td>
+    <td>${esc(e.note||'')}</td>
+  </tr>`).join('');
+  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>ทะเบียนคุมเงินสดย่อย — ${esc(co.name)} — ${esc(pcRoundLabel(d.round))}</title>
+    <style>
+      *{font-family:"IBM Plex Sans Thai","IBM Plex Sans",system-ui,sans-serif;box-sizing:border-box}
+      body{margin:18px;color:#0f172a;font-size:12.5px}
+      .head{display:flex;align-items:center;gap:16px;border-bottom:2px solid ${brand};padding-bottom:12px;margin-bottom:8px}
+      .head img{height:54px;width:auto;object-fit:contain}
+      .head h1{font-size:20px;margin:0;color:${brand}}
+      .head .co{font-size:14px;font-weight:700;color:#0f172a;margin-top:2px}
+      .head .sub{color:#475569;font-size:12px;margin-top:2px}
+      .summary{display:flex;gap:22px;margin:12px 0 14px;padding:10px 14px;background:#f8fafc;border-radius:8px}
+      .summary > div{display:flex;flex-direction:column;gap:2px}
+      .summary .l{font-size:10.5px;color:#64748b}
+      .summary .v{font-size:15px;font-weight:800;color:#0f172a;font-variant-numeric:tabular-nums}
+      table{width:100%;border-collapse:collapse;font-size:11.5px}
+      th,td{border-bottom:1px solid #e2e8f0;padding:6px 8px;text-align:left;vertical-align:top}
+      th{background:${brand};color:#fff;font-weight:700;font-size:11px}
+      .op td{background:#f1f5f9;font-weight:700}
+      tfoot td{border-top:2px solid #0f172a;font-weight:800;font-size:12.5px;background:#ecfdf5}
+      .sig{display:grid;grid-template-columns:1fr 1fr;gap:60px;margin-top:52px;font-size:12px;color:#334155}
+      .sig > div{text-align:center}
+      .sig .ln{border-top:1px dotted #64748b;margin:0 20px 6px}
+      .sig .dt{margin-top:8px;color:#94a3b8;font-size:11px}
+      @media print{ .noprint{display:none} body{margin:12mm 10mm} }
+    </style></head><body>
+    <div class="head">
+      ${logo?`<img src="${esc(logo)}" alt="">`:''}
+      <div style="flex:1">
+        <h1>ทะเบียนคุมเงินสดย่อย</h1>
+        <div class="co">${esc(co.fullName||co.name)}</div>
+        <div class="sub">รอบ ${esc(pcRoundLabel(d.round))} · พิมพ์เมื่อ ${today} · หน่วย: บาท</div>
+      </div>
+    </div>
+    <div class="summary">
+      <div><span class="l">ยอดยกมาต้นรอบ</span><span class="v">${pcFmt(R.opening)}</span></div>
+      <div><span class="l">รับ / เติมเงิน</span><span class="v" style="color:#0f766e">${pcFmt(R.totalIn)}</span></div>
+      <div><span class="l">จ่าย (เบิก)</span><span class="v" style="color:#b91c1c">${pcFmt(R.totalOut)}</span></div>
+      <div><span class="l">คงเหลือยกไป</span><span class="v">${pcFmt(R.closing)}</span></div>
+    </div>
+    <table>
+      <thead><tr><th style="width:36px">#</th><th style="width:82px">วันที่</th><th style="width:110px">เลขที่เอกสาร</th><th style="width:150px">ผู้เบิก</th><th>รายการ</th><th style="text-align:right;width:80px">รับ</th><th style="text-align:right;width:80px">จ่าย</th><th style="text-align:right;width:90px">คงเหลือ</th><th style="width:110px">หมายเหตุ</th></tr></thead>
+      <tbody>
+        <tr class="op"><td colspan="7">ยอดยกมาต้นรอบ ${esc(pcRoundLabel(d.round))}</td><td style="text-align:right">${pcFmt(R.opening)}</td><td></td></tr>
+        ${tr||`<tr><td colspan="9" style="text-align:center;color:#94a3b8;padding:20px">— ไม่มีรายการ —</td></tr>`}
+      </tbody>
+      <tfoot><tr><td colspan="5" style="text-align:right">รวมในรอบ</td><td style="text-align:right;color:#0f766e">${pcFmt(R.totalIn)}</td><td style="text-align:right;color:#b91c1c">${pcFmt(R.totalOut)}</td><td style="text-align:right">${pcFmt(R.closing)}</td><td></td></tr></tfoot>
+    </table>
+    <div class="sig">
+      <div><div class="ln">&nbsp;</div>ผู้จัดทำ<div class="dt">วันที่ ......../......../........</div></div>
+      <div><div class="ln">&nbsp;</div>ผู้ตรวจสอบ<div class="dt">วันที่ ......../......../........</div></div>
+    </div>
+    <div class="noprint" style="margin-top:26px;text-align:center">
+      <button onclick="window.print()" style="padding:10px 22px;border:0;border-radius:8px;background:${brand};color:#fff;font:700 13px/1.2 inherit;cursor:pointer">🖨 พิมพ์ / บันทึก PDF</button>
+      <button onclick="window.close()" style="padding:10px 22px;border:1px solid #e2e8f0;border-radius:8px;background:#fff;font:600 13px/1.2 inherit;cursor:pointer">ปิด</button>
+    </div>
+    </body></html>`);
+  w.document.close();
+}
+
 function pcInjectCSS(){
   if(document.getElementById('pc-css')) return;
   const s=document.createElement('style'); s.id='pc-css';
@@ -11154,6 +11232,7 @@ async function renderToolPettyCash(){
           ${canW?`<button class="pc-btn" style="background:#eef2f1;color:#334155" onclick="pcSetOpening()">ยอดยกมา</button>`:''}
           ${canW?`<button class="pc-btn" style="background:#eef2f1;color:#334155" onclick="pcImport()">↑ นำเข้า Excel</button>`:''}
           <button class="pc-btn" style="background:#eef2f1;color:#334155" onclick="pcExport()">↓ ส่งออก</button>
+          <button class="pc-btn" style="background:var(--brand,#0d9488);color:#fff" onclick="pcPrintPdf()">🖨 พิมพ์ PDF</button>
           ${canW?`<button class="pc-btn" style="background:#fef2f2;color:#b91c1c" onclick="pcClearRound()">🗑 ล้างรอบนี้</button>`:''}
         </div>
       </div>

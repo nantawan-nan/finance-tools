@@ -19688,6 +19688,8 @@ function ordBoardDetailRows(d){
       rows.push({...r, _type:r.status, _ch:r.channel});
     }
   });
+  // ★ ออเดอร์ BigSeller ที่ยังไม่ถูกตรวจ (ไม่มีข้อมูลหลังบ้านช่องนั้น)
+  ordUnreconBs(d).forEach(o=>rows.push({ order_no:o.order_id, channel:o.channel_group, date:o.order_date, status:'unrecon', bs:o, be:null, _type:'unrecon', _ch:o.channel_group }));
   const fCh=d.boardCh||"all", fType=d.boardType||"all";
   let f=rows;
   if(fCh==="_oth") f=f.filter(r=>["face","line","dealer"].includes(r._ch));
@@ -19930,6 +19932,24 @@ function ordDateFilter(d){
   const rb=ordRangeBounds((d&&d.dateRange)||'all');
   return dt=>!rb||(dt&&String(dt).slice(0,10)>=rb.from&&String(dt).slice(0,10)<=rb.to);
 }
+/* ★ ออเดอร์ marketplace (SP/TT/LZ) ที่ recon ไม่เคยเห็น = "ยังไม่ตรวจ" (ยังไม่อัปหลังบ้านช่องนั้น)
+   → กันเคส Lazada มีใน BigSeller แต่ไม่มีหลังบ้าน แล้วถูกนับว่าแมท 100% เงียบๆ */
+function ordUnreconBs(d){
+  const inR=ordDateFilter(d);
+  const reconOids=new Set((((d.rows||[]).length ? (d.recon&&d.recon.results) : null)||[]).filter(r=>inR(r.date)).map(r=>String(r.order_no)));
+  const isMp=g=>g==='shopee'||g==='tiktok'||g==='lazada';
+  return (d.rows||[]).filter(o=>o.status!=='cancelled'&&isMp(o.channel_group)&&inR(o.order_date)&&!reconOids.has(String(o.order_id)));
+}
+/* ★ สถิติการแมท (denominator รวม "ยังไม่ตรวจ" → 100% เฉพาะเมื่อตรวจครบจริง) */
+function ordMatchStats(d){
+  const inR=ordDateFilter(d);
+  const res=(((d.rows||[]).length ? (d.recon&&d.recon.results) : null)||[]).filter(r=>inR(r.date)).map(r=>({...r,status:ordReconEffStatus(r)}));
+  const cnt=s=>res.filter(r=>r.status===s).length;
+  const matched=cnt('matched'), only_be=cnt('only_be'), only_bs=cnt('only_bs'), diff=cnt('diff');
+  const unrecon=ordUnreconBs(d).length;
+  const denom=matched+only_be+only_bs+diff+unrecon;
+  return { matched, only_be, only_bs, diff, unrecon, denom, rate: denom?matched/denom*100:null };
+}
 /* กราฟกระทบยอดต่อแพลตฟอร์ม 4 รูปแบบ: ก=แท่งเต็ม · ข=กระจาย · ค=กึ่งกลาง · ง=โดนัท */
 function ordReconChart(cov, mode, fmt, pAgg){
   const plMeta={shopee:{l:'Shopee',c:'#ee4d2d',pk:'shopee'},tiktok:{l:'TikTok',c:'#1f1f29',pk:'tiktok'},lazada:{l:'Lazada',c:'#3f3bcc',pk:'lazada'},offline:{l:'หน้าร้าน',c:'#64748b',pk:'other'}};
@@ -19993,7 +20013,7 @@ function ordRenderBoard(d){
   // recon results in range + recompute status
   const res=((d.recon&&d.recon.results)||[]).filter(r=>inRange(r.date)).map(r=>({...r, status: ordReconEffStatus(r)}));
   // ----- matrix data -----
-  const M={}; CH.forEach(c=>M[c.k]={bs:{n:0,sum:0}, be:{n:0,sum:0}, only_be:0, only_bs:0, diff:0, diffSum:0});
+  const M={}; CH.forEach(c=>M[c.k]={bs:{n:0,sum:0}, be:{n:0,sum:0}, only_be:0, only_bs:0, diff:0, diffSum:0, unrecon:0, unreconSum:0});
   active.forEach(o=>{
     const k=ordChannelDetail(o); if(!M[k]) return;
     M[k].bs.n++; M[k].bs.sum+=Number(o.order_total||0);
@@ -20009,7 +20029,9 @@ function ordRenderBoard(d){
     if(r.status==='only_bs'){ M[ch].only_bs++; M[ch].diffSum+=amt; }
     if(r.status==='diff'){    M[ch].diff++;    M[ch].diffSum+=amt; }
   });
-  const diffN=k=>M[k].only_be+M[k].only_bs+M[k].diff;
+  // ★ ออเดอร์ BigSeller ที่ recon ไม่เคยเห็น (ยังไม่อัปหลังบ้านช่องนั้น) = "ยังไม่ตรวจ"
+  ordUnreconBs(d).forEach(o=>{ const k=o.channel_group; if(M[k]){ M[k].unrecon++; M[k].unreconSum+=Number(o.order_total||0); } });
+  const diffN=k=>M[k].only_be+M[k].only_bs+M[k].diff+M[k].unrecon;
 
   // ★ aggregate "อื่นๆ" — face+line+dealer
   const OTH_KEYS=ORD_BOARD_CHANS_OTHER.map(c=>c.k);
@@ -20092,7 +20114,7 @@ function ordRenderBoard(d){
           if(!c.isMP) return dashCell();
           const n=diffN(c.k);
           if(n===0) return cell(0, 0, {col:'#16a34a', subCol:'#16a34a'});
-          return cell(n, M[c.k].diffSum, {col:'#dc2626', subCol:'#dc2626', bg:'#fef2f2', hoverBg:'#fee2e2', click:`ordBoardGoDetail('${c.k}')`});
+          return cell(n, M[c.k].diffSum+M[c.k].unreconSum, {col:'#dc2626', subCol:'#dc2626', bg:'#fef2f2', hoverBg:'#fee2e2', click:`ordBoardGoDetail('${c.k}')`});
         }).join('')}
       </div>
     </div>
@@ -20102,10 +20124,10 @@ function ordRenderBoard(d){
   // ----- Detail table -----
   const detail=ordBoardDetailRows(d);
   const fCh=d.boardCh||'all', fType=d.boardType||'all';
-  const typeMeta={only_be:{l:'มีในแพลตฟอร์ม · ไม่มีใน BigSeller', short:'ไม่มีใน BS', c:'#dc2626', bg:'#fef2f2'}, only_bs:{l:'มีใน BigSeller · ไม่มีในแพลตฟอร์ม', short:'ไม่มีใน Platform', c:'#d97706', bg:'#fffbeb'}, diff:{l:'ยอดไม่ตรง', short:'ยอดต่าง', c:'#8b5cf6', bg:'#f5f3ff'}};
+  const typeMeta={only_be:{l:'มีในแพลตฟอร์ม · ไม่มีใน BigSeller', short:'ไม่มีใน BS', c:'#dc2626', bg:'#fef2f2'}, only_bs:{l:'มีใน BigSeller · ไม่มีในแพลตฟอร์ม', short:'ไม่มีใน Platform', c:'#d97706', bg:'#fffbeb'}, diff:{l:'ยอดไม่ตรง', short:'ยอดต่าง', c:'#8b5cf6', bg:'#f5f3ff'}, unrecon:{l:'ยังไม่ตรวจ · ไม่มีข้อมูลหลังบ้าน (ต้องอัปรายงานหลังบ้านช่องนี้)', short:'ยังไม่ตรวจ', c:'#0284c7', bg:'#f0f9ff'}};
   // counts for filter chips
   const cntCh={all:0, _oth:0}; CH.forEach(c=>cntCh[c.k]=0);
-  const cntType={all:0, only_be:0, only_bs:0, diff:0};
+  const cntType={all:0, only_be:0, only_bs:0, diff:0, unrecon:0};
   ((d.recon&&d.recon.results)||[]).filter(r=>inRange(r.date)).forEach(r=>{
     const s=ordReconEffStatus(r);
     if(s!=='only_be'&&s!=='only_bs'&&s!=='diff') return;
@@ -20113,6 +20135,8 @@ function ordRenderBoard(d){
     if(["face","line","dealer"].includes(r.channel)) cntCh._oth++;
     cntType.all++; cntType[s]++;
   });
+  // ★ นับ "ยังไม่ตรวจ" (BigSeller marketplace ที่ recon ไม่เคยเห็น)
+  ordUnreconBs(d).forEach(o=>{ cntCh.all++; if(cntCh[o.channel_group]!=null) cntCh[o.channel_group]++; cntType.all++; cntType.unrecon++; });
   const chipCh=(k,l)=>`<button onclick="ordBoardSetCh('${k}')" style="border:0;border-radius:9px;padding:6px 13px;font:600 12.5px/1.1 inherit;font-family:inherit;cursor:pointer;display:inline-flex;align-items:center;gap:6px;${fCh===k?'background:var(--brand,#0d9488);color:#fff':'background:#f1f5f9;color:#475569'}">${esc(l)}${cntCh[k]?`<span style="font:700 10.5px/1 inherit;padding:2px 6px;border-radius:999px;${fCh===k?'background:rgba(255,255,255,.22)':'background:#fff;color:#dc2626'}" class="tnum">${cntCh[k]}</span>`:''}</button>`;
   const chipTy=(k,l,col)=>`<button onclick="ordBoardSetType('${k}')" style="border:0;border-radius:9px;padding:6px 13px;font:600 12.5px/1.1 inherit;font-family:inherit;cursor:pointer;display:inline-flex;align-items:center;gap:6px;${fType===k?`background:${col||'#475569'};color:#fff`:'background:#f1f5f9;color:#475569'}">${esc(l)}${cntType[k]?`<span style="font:700 10.5px/1 inherit;padding:2px 6px;border-radius:999px;${fType===k?'background:rgba(255,255,255,.22)':'background:#fff;color:'+(col||'#475569')}" class="tnum">${cntType[k]}</span>`:''}</button>`;
   // ★ ตาม otherOpen — ยุบ/ขยาย chip ขายตรง
@@ -20131,6 +20155,8 @@ function ordRenderBoard(d){
       det=`ลูกค้า: <b>${esc(r.be?.customer||'—')}</b>` + (r.be?.products?` · SKU: ${esc(String(r.be.products).slice(0,80))}`:'');
     } else if(r._type==='only_bs'){
       det=`ลูกค้า: <b>${esc(r.bs?.customer||'—')}</b>` + (r.bs?.products?` · SKU: ${esc(String(r.bs.products).slice(0,80))}`:'');
+    } else if(r._type==='unrecon'){
+      det=`ลูกค้า: <b>${esc(r.bs?.customer||'—')}</b>` + (r.bs?.products?` · SKU: ${esc(String(r.bs.products).slice(0,80))}`:'') + ` · <span style="color:#0284c7">ยังไม่อัปรายงานหลังบ้าน ${esc(r._ch||'')} — อัปเพื่อกระทบยอด</span>`;
     }
     const note=(d.boardNotes&&d.boardNotes[r.order_no])||'';
     const oidEnc=encodeURIComponent(r.order_no||'');
@@ -20169,6 +20195,7 @@ function ordRenderBoard(d){
         ${chipTy('only_be','มีใน Platform · ไม่มี BS','#dc2626')}
         ${chipTy('only_bs','มีใน BS · ไม่มี Platform','#d97706')}
         ${chipTy('diff','ยอดต่าง','#8b5cf6')}
+        ${chipTy('unrecon','ยังไม่ตรวจ','#0284c7')}
       </div>
       ${detail.length ? `<div style="overflow-x:auto;border:1px solid #eef1f6;border-radius:12px">
         <table style="width:100%;border-collapse:collapse;font:400 12.5px/1.4 inherit">
@@ -20885,7 +20912,11 @@ function ordReconExport(){
 }
 /* ===== Sales Reconciliation Report — snapshot ล็อก + Excel/PDF + ประวัติ ===== */
 async function ordReconGenReports(dateSet){
-  const d=ordGet(); const rec=d.recon||{}; let res=rec.results||[];
+  const d=ordGet(); const rec=d.recon||{};
+  // ★ รวมออเดอร์ marketplace ที่ยังไม่ตรวจ (ไม่มีข้อมูลหลังบ้าน · เช่น Lazada) เข้าใบกระทบยอดในฐานะ
+  //   "มีใน BigSeller · ไม่พบในแพลตฟอร์ม" (only_bs) → กันเคสช่องทางนั้นหายไปจากรายงาน
+  const _unrecon=ordUnreconBs(d).map(o=>({ order_no:o.order_id, channel:o.channel_group, date:o.order_date, status:'only_bs', bs:o, be:null }));
+  let res=(rec.results||[]).concat(_unrecon);
   if(!res.length){ alert("ยังไม่มีผลตรวจ — อัปไฟล์หลังบ้านเทียบก่อน"); return; }
   if(dateSet && dateSet.size){
     res = res.filter(r=> r.date && dateSet.has(r.date));
@@ -22900,8 +22931,8 @@ async function renderToolOrders(){
   const tabBtn=(v,l,cnt,cls)=>`<button class="ord-tab ${(d.view||'board')===v?'active':''} ${cls||''}" onclick="ordSetView('${v}')">${l}${cnt!=null?`<span class="n">${cnt}</span>`:''}</button>`;
   // hero: อัตราแมท + ช่วงข้อมูล (★ ตามช่วง/เดือนที่เลือก ไม่ใช่ข้อมูลทั้งหมด)
   const inR=ordDateFilter(d);
-  const reconRes=(((d.rows||[]).length ? (d.recon&&d.recon.results) : null)||[]).filter(r=>inR(r.date));   // ทะเบียนว่าง → ไม่นับ recon ค้าง
-  const mrate = reconRes.length ? reconRes.filter(r=>r.status==='matched').length/reconRes.length*100 : null;
+  const ms=ordMatchStats(d);   // ★ อัตราแมท = matched / (matched+ต่าง+ยังไม่ตรวจ) → 100% เฉพาะตรวจครบจริง
+  const mrate = ms.rate;
   const actDates=(d.rows||[]).filter(o=>o.status!=='cancelled'&&o.order_date&&inR(o.order_date)).map(o=>String(o.order_date).slice(0,10)).sort();
   let rangeLabel='—';
   if(actDates.length){ const a=new Date(actDates[0]),b=new Date(actDates[actDates.length-1]); const dmon=x=>x.toLocaleDateString('th-TH',{day:'numeric',month:'short'}); const dnum=x=>x.toLocaleDateString('th-TH',{day:'numeric'}); const yr=b.toLocaleDateString('th-TH',{year:'numeric'}); const sameM=a.getMonth()===b.getMonth()&&a.getFullYear()===b.getFullYear(); rangeLabel = actDates[0]===actDates[actDates.length-1] ? `${dmon(a)} ${yr}` : (sameM?`${dnum(a)}–${dmon(b)} ${yr}`:`${dmon(a)}–${dmon(b)} ${yr}`); }

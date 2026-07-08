@@ -3721,10 +3721,39 @@ function incSetReSeed(v){
   renderToolSalesIncome();
   requestAnimationFrame(()=>{ const n=document.getElementById("incReSeed"); if(n){ n.focus(); if(caret!=null){ try{n.setSelectionRange(caret,caret);}catch(e){} } } });
 }
-/* เดาแบรนด์จากชื่อร้าน/ลูกค้า/สินค้า ของออเดอร์ (BT=Betra · QI=Qi care) — ใช้เลือก bank ฝั่ง Benya */
+/* ★ แบรนด์ตาม SKU (Benya) — ผู้ใช้กำหนดเองได้ในหน้า "ส่งออก IV" (จำ prefix ของ SKU → BT/QI)
+ *   key = prefix ตัวอักษรนำหน้า SKU (เช่น SDO101 → "SDO") · เก็บ localStorage ต่อบริษัท */
+function incSkuPrefix(sku){ const m=String(sku||"").toUpperCase().match(/^[A-Z]+/); return m?m[0]:""; }
+function incSkuBrandMap(){ try{ return JSON.parse(localStorage.getItem("inc-sku-brand-"+state.company)||"{}")||{}; }catch(_){ return {}; } }
+function incSetSkuBrand(prefix, brand){
+  if(!prefix) return;
+  const m = incSkuBrandMap();
+  if(brand) m[prefix]=brand; else delete m[prefix];
+  try{ localStorage.setItem("inc-sku-brand-"+state.company, JSON.stringify(m)); }catch(_){}
+  if(state.tool==="sales_orders") renderToolSalesOrders(); else if(state.tool==="sales_income") renderToolSalesIncome(); else if(typeof ivrRerender==="function") ivrRerender();
+}
+/* SKU ทั้งหมดของออเดอร์ (จาก sku_list หรือ items) */
+function incOrderSkus(ord){
+  if(!ord) return [];
+  if(ord.sku_list) return String(ord.sku_list).split(",").map(s=>s.trim()).filter(Boolean);
+  let it=ord.items; if(typeof it==="string"){ try{it=JSON.parse(it);}catch(_){it=null;} }
+  return Array.isArray(it) ? it.map(x=>x&&x.sku).filter(Boolean) : [];
+}
+/* เดาแบรนด์ของออเดอร์ (BT=Betra · QI=Qi care) — ใช้เลือก bank/รหัสลูกค้า ฝั่ง Benya
+   ลำดับความแม่น: (1) ชื่อร้าน (2) map ที่ผู้ใช้กำหนดตาม SKU prefix (3) เดาจากข้อความ+SKU */
 function incBrandOf(ord){
-  const s = String((ord && (ord.shop||ord.customer||ord.products))||"").toLowerCase();
-  if(/betra|บีทร้า|btr|sbr|\bbt\b/.test(s)) return "BT";
+  if(!ord) return "";
+  // 1) ชื่อร้าน = ชี้ขาดแบรนด์ (betra→BT · qi→QI) ถ้าเก็บ shop ไว้
+  if(ord.shop){ const b=bsBrandFromShop(state.company, ord.shop); if(b==="BT"||b==="QI") return b; }
+  // 2) map ที่ผู้ใช้กำหนดเอง ตาม prefix ของ SKU
+  const skus = incOrderSkus(ord);
+  if(skus.length){
+    const map = incSkuBrandMap();
+    for(const sk of skus){ const pf=incSkuPrefix(sk); if(map[pf]==="BT"||map[pf]==="QI") return map[pf]; }
+  }
+  // 3) เดาจากข้อความ (ชื่อร้าน/ลูกค้า/สินค้า/SKU) — SBR/STR/BTR = Betra
+  const s = String((ord.shop||"")+" "+(ord.customer||"")+" "+(ord.products||"")+" "+skus.join(" ")).toLowerCase();
+  if(/betra|บีทร้า|btr|sbr|\bstr|\bbt\b/.test(s)) return "BT";
   if(/\bqi\b|qicare|qi care|คิวไอ|คิว แคร์/.test(s)) return "QI";
   return "";
 }
@@ -4990,6 +5019,42 @@ function ivrRenderExport(d){
         </div>
       </div>
     </div>
+
+    <!-- ★ แก้รหัสลูกค้าว่างแบบง่าย: กำหนดแบรนด์ตาม SKU (Benya) จำครั้งเดียว -->
+    ${(()=>{
+      if(state.company!=='benya') return '';
+      const map = incSkuBrandMap();
+      const need = eligible.map(x=>x.o).filter(o=>{
+        const cg=String(o.channel_group||'').toLowerCase();
+        const isMp = cg==='shopee'||cg==='tiktok'||cg==='lazada';
+        return isMp && !incBrandOf(o);   // marketplace ที่ยังเดาแบรนด์ไม่ออก
+      });
+      const prefCount={};
+      for(const o of need){ for(const sk of incOrderSkus(o)){ const pf=incSkuPrefix(sk); if(pf && !map[pf]){ if(!prefCount[pf]) prefCount[pf]={n:0,ex:sk}; prefCount[pf].n++; } } }
+      const prefs = Object.keys(prefCount).sort((a,b)=>prefCount[b].n-prefCount[a].n);
+      const mapped = Object.keys(map).sort();
+      if(!prefs.length && !mapped.length) return '';
+      return `
+      <div style="margin-bottom:14px;padding:14px 16px;border-radius:12px;background:linear-gradient(135deg,#f0fdfa,#ecfeff);border:1px solid #99f6e4">
+        <div style="font:700 13.5px/1.4 inherit;color:#0f766e;display:flex;align-items:center;gap:8px;margin-bottom:${prefs.length?'10px':'6px'}">
+          <i data-lucide="wand-2" style="width:16px;height:16px"></i> แก้รหัสลูกค้าว่างแบบง่าย — กำหนดแบรนด์ตาม SKU (จำให้อัตโนมัติ ครั้งเดียว)
+        </div>
+        ${prefs.length ? `<div style="font:500 12px/1.5 inherit;color:#334155;margin-bottom:8px">SKU ต่อไปนี้ยังไม่รู้แบรนด์ → กดเลือก <b>Betra</b> หรือ <b>Qi</b> ครั้งเดียว ระบบจะเติม "รหัสลูกค้า" (SHOPEE BE / SHOPEE QI …) ให้ทุกออเดอร์ที่ใช้ SKU กลุ่มนี้ทันที</div>
+        <div style="display:flex;flex-direction:column;gap:7px">
+          ${prefs.map(pf=>`<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:#fff;border:1px solid #e2e8f0;border-radius:9px;padding:7px 11px">
+            <code style="font:800 13px/1 'JetBrains Mono',monospace;color:#0f172a;background:#f1f5f9;padding:3px 8px;border-radius:6px">${esc(pf)}</code>
+            <span style="font:500 11.5px/1.3 inherit;color:#64748b">เช่น ${esc(prefCount[pf].ex)} · ${prefCount[pf].n} ออเดอร์</span>
+            <div style="margin-left:auto;display:flex;gap:6px">
+              <button class="ord-btn btn-sm" style="padding:4px 12px;font-size:12px;background:#0d9488;color:#fff;border:0" onclick="incSetSkuBrand('${esc(pf)}','BT')">Betra (BE)</button>
+              <button class="ord-btn btn-sm" style="padding:4px 12px;font-size:12px;background:#6366f1;color:#fff;border:0" onclick="incSetSkuBrand('${esc(pf)}','QI')">Qi (QI)</button>
+            </div>
+          </div>`).join('')}
+        </div>` : `<div style="font:500 12px/1.5 inherit;color:#166534">✓ ไม่มี SKU ที่เดาแบรนด์ไม่ออกในรอบนี้</div>`}
+        ${mapped.length ? `<div style="margin-top:10px;padding-top:9px;border-top:1px dashed #cbd5e1;font:500 11.5px/1.7 inherit;color:#475569">
+          ตั้งไว้แล้ว: ${mapped.map(pf=>`<span style="display:inline-flex;align-items:center;gap:4px;background:#fff;border:1px solid #e2e8f0;border-radius:999px;padding:2px 4px 2px 9px;margin:2px 3px"><b>${esc(pf)}</b> → ${map[pf]==='BT'?'Betra':'Qi'} <span onclick="incSetSkuBrand('${esc(pf)}','')" title="ลบ" style="cursor:pointer;color:#dc2626;font-weight:800;padding:0 4px">✕</span></span>`).join('')}
+        </div>` : ''}
+      </div>`;
+    })()}
 
     <!-- Preview: เนื้อไฟล์ CSV จริง (ทุกคอลัมน์เหมือนที่จะดาวน์โหลด) -->
     ${(()=>{

@@ -177,6 +177,15 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-08 — Orders: แก้ "แมท 100% หลอก" + ช่องที่ยังไม่อัปหลังบ้านหายจากรายงาน (unrecon)
+- **อาการ:** Lazada มี 1 ออเดอร์ใน BigSeller แต่ยังไม่อัปรายงานหลังบ้าน Lazada → `ordRunRecon` scope เฉพาะช่องที่อัป → Lazada ไม่เคยเข้า recon results → (1) hero โชว์ "อัตราแมท 100%" (คิดจากเฉพาะที่ตรวจ SP+TT) (2) ผลต่าง Lazada = 0 (3) ใบกระทบยอดไม่มี Lazada
+- **helper กลาง** `ordUnreconBs(d)` — ออเดอร์ marketplace (SP/TT/LZ) active ในช่วง ที่ `order_id` ไม่อยู่ใน recon results = "ยังไม่ตรวจ" · `ordMatchStats(d)` — `rate = matched / (matched+only_be+only_bs+diff+unrecon)` → 100% เฉพาะตรวจครบจริง · **unit test:** เคสจริง SP155+TT59 matched + LZ1 unrecon → matched 214/denom 215 = 99.53%
+- **board:** `M[ch].unrecon`/`unreconSum` (นับจาก `ordUnreconBs`) · `diffN` รวม unrecon → ผลต่าง Lazada = 1 · cell amount รวม unreconSum
+- **detail/export:** `ordBoardDetailRows` เพิ่มแถว `_type:'unrecon'` · typeMeta/chip "ยังไม่ตรวจ" (ฟ้า #0284c7) · cntType/cntCh นับ unrecon · det บอก "ยังไม่อัปรายงานหลังบ้าน <ช่อง>" · `ordBoardExportXlsx` ได้ unrecon อัตโนมัติ
+- **hero:** `mrate = ordMatchStats(d).rate` (เดิมนับจาก reconRes อย่างเดียว = 100% หลอก)
+- **ใบกระทบยอด** (`ordReconGenReports`): concat `ordUnreconBs` เป็น `only_bs` (มีใน BigSeller · ไม่พบแพลตฟอร์ม) เข้า res → Lazada โผล่ในรายงาน · reuse category เดิม ไม่แก้ layout
+- **กระทบหน้าอื่น = 0** — helper+display layer ล้วน · ไม่แตะ `ordRunRecon`/recon ที่ save แล้ว · **แนะนำ user:** อัปรายงานหลังบ้าน Lazada เพื่อกระทบยอดจริง (unrecon = ตัวเตือนว่ายังไม่อัป)
+
 ### 2026-07-07 — Orders board: เลือก "ดูเฉพาะเดือน" (กัน report ปนเดือนก่อน)
 - **เจ้าของขอ:** เริ่มใช้จริงเดือน 7 → หน้าทะเบียนต้องเลือกเดือนได้ · "ทั้งหมด" ปนเดือน 6 ที่ผ่านมาแล้ว ไม่ควรเอามาออก report
 - **`ordRangeBounds` รองรับ `"m:YYYY-MM"`** → from=วันที่ 1, to=สิ้นเดือน (เต็มเดือน · `new Date(y,m,0)` หาวันสุดท้าย) · **unit test:** ก.ค.→01-31, ก.พ.→28

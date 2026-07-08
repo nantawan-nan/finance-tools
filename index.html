@@ -4814,6 +4814,58 @@ function ivrRenderBoard(d){
 }
 
 /* ---- Tab 2: Export Wizard ---- */
+/* ★ สร้าง AoA ของไฟล์ส่งออก AutoKey IV — ใช้ร่วมทั้ง "พรีวิว" + "ดาวน์โหลดจริง"
+ *   → พรีวิวในหน้า = เนื้อไฟล์จริงเป๊ะ (รหัสลูกค้า/วันที่ พ.ศ./SKU/ยอด ครบทุกคอลัมน์) ไม่ต้องโหลดมาเช็ค
+ *   คืน array (row 0 = header · row ถัดไป = รายบรรทัด item) */
+function ivrBuildExportAoA(orders, startIv){
+  const isMbark = state.company === 'mbark';
+  const shipSkuCode = BS_SHIP_SKU[state.company] || '';
+  const custCodeBenya = (channel, brand)=>{
+    const chL={SP:"SHOPEE",TT:"TIKTOK",LZ:"LAZADA"}[channel]; const br={BT:"BE",QI:"QI"}[brand];
+    return (chL&&br) ? `${chL} ${br}` : "";
+  };
+  const aoa = [BS_HEAD.concat(['ร้าน','หมายเหตุ'])];
+  let seq = 0;
+  let runningN = BigInt(String(startIv||'').replace(/\D/g,'') || '0');
+  for(const o of (orders||[])){
+    let its = o.items;
+    if(typeof its === 'string'){ try{ its = JSON.parse(its); }catch(_){ its = []; } }
+    if(!Array.isArray(its) || !its.length){
+      its = [{ sku:'', qty:1, price:Number(o.order_total||0), ship:0, discount:0 }];
+    }
+    const ivNo = runningN.toString().padStart(10,'0'); runningN += 1n;
+    const cg = String(o.channel_group||'').toLowerCase();
+    const channel = cg==='shopee'?'SP':cg==='tiktok'?'TT':cg==='lazada'?'LZ':'';
+    const isManual = /^(FB|OD)/i.test(String(o.order_id||''));
+    const platLabel = ({shopee:'SHOPEE',tiktok:'TIKTOK',lazada:'LAZADA'})[cg] || (o.channel||o.channel_group||'').toUpperCase();
+    // ★ รหัสลูกค้า — Benya marketplace = ช่องทาง×แบรนด์ · ขายตรง = FACE · M Bark = ช่องทาง (แบรนด์เดียว)
+    const brand = isMbark ? '' : incBrandOf(o);
+    let cust = '', custNote = '';
+    if(isMbark){
+      cust = channel ? platLabel : (o.customer || (isManual ? 'FACE' : ''));
+    } else {
+      cust = custCodeBenya(channel, brand);
+      if(!cust) cust = isManual ? 'FACE' : (o.customer || '');
+      if(channel && !brand) custNote = '⚠ เดาแบรนด์ BT/QI ไม่ออก — ตรวจรหัสลูกค้า';
+    }
+    const orderShip = Number(o.shipping_fee||0);
+    const orderDisc = Number(o.seller_discount||0);
+    its.forEach((it, idx) => {
+      seq++;
+      const isFirst = idx===0, isLast = idx===its.length-1;
+      const hasShip = isLast && orderShip > 0;
+      aoa.push([
+        seq, isFirst?ivNo:'', isFirst?(o.order_id||''):'',
+        fmtDateDDMMYYBE(o.order_date), platLabel, cust,
+        it.sku||'', Number(it.qty)||0, Number(it.price)||0,
+        isLast?orderShip:0, isFirst?orderDisc:0,
+        hasShip?shipSkuCode:'', hasShip?'{Enter}':'', hasShip?orderShip:'',
+        (o.customer||''), custNote
+      ]);
+    });
+  }
+  return aoa;
+}
 function ivrRenderExport(d){
   const e = d.ivrec.exp;
   const rmap = ordReconMap(d);
@@ -4939,29 +4991,54 @@ function ivrRenderExport(d){
       </div>
     </div>
 
-    <!-- Preview -->
-    <div class="ivr-prev">
-      <div class="ivr-prev-head">
-        <span>👁 ตัวอย่างรายการที่จะส่งออก</span>
-        <span class="mu">· แสดง ${Math.min(eligible.length,100).toLocaleString('th-TH')} / ${eligible.length.toLocaleString('th-TH')} ใบ${eligible.length>100?` (เกิน 100 ใบ — เห็นทั้งหมดในไฟล์ที่ส่งออก)`:''}</span>
-      </div>
-      <div style="overflow:auto;max-height:400px">
-      <table class="ord-table">
-        <thead><tr><th style="width:60px">ลำดับ IV</th><th>วันที่</th><th>เลขออเดอร์</th><th>ช่องทาง</th><th>ลูกค้า</th><th class="right">ยอด</th><th>สาเหตุผ่าน gate</th></tr></thead>
-        <tbody>
-          ${eligible.length ? eligible.slice(0,100).map((x,i)=>{ const o=x.o; const ivNo = startValid ? ivrPredictEnd(e.startIv, i+1) : '—'; return `<tr>
-            <td class="mono" style="color:var(--brand,#0d9488);font-weight:700">${esc(ivNo)}</td>
-            <td class="tnum">${esc(o.order_date||'—')}</td>
-            <td class="mono">${esc(o.order_id||'—')}</td>
-            <td>${esc(({shopee:'Shopee',tiktok:'TikTok',lazada:'Lazada',offline:'ออฟไลน์',other:'อื่นๆ'})[String(o.channel_group||'').toLowerCase()]||o.channel_group||'—')}</td>
-            <td>${esc((o.customer||'').slice(0,32))}</td>
-            <td class="num">${ivrFmt2(o.order_total)}</td>
-            <td><span class="ord-bd ok" style="font-size:10.5px">${esc(x.gate.reason)}</span></td>
-          </tr>`; }).join('') : `<tr><td colspan="7" style="padding:30px;text-align:center;color:#94a3b8">— ไม่มีออเดอร์พร้อมส่งออกในช่วงที่เลือก —</td></tr>`}
-        </tbody>
-      </table>
-      </div>
-    </div>
+    <!-- Preview: เนื้อไฟล์ CSV จริง (ทุกคอลัมน์เหมือนที่จะดาวน์โหลด) -->
+    ${(()=>{
+      const ROWCAP = 150;
+      if(!eligible.length) return `<div class="ivr-prev"><div class="ivr-prev-head"><span>👁 ตัวอย่างไฟล์ที่จะส่งออก (CSV จริง)</span></div>
+        <div style="padding:30px;text-align:center;color:#94a3b8">— ไม่มีออเดอร์พร้อมส่งออกในช่วงที่เลือก —</div></div>`;
+      const aoa = ivrBuildExportAoA(eligible.map(x=>x.o), startValid ? e.startIv : '0000000000');
+      const header = aoa[0]; const body = aoa.slice(1);
+      const CUST_COL = 5, NOTE_COL = 15;   // คอลัมน์ รหัสลูกค้า / หมายเหตุ
+      const noteN = body.filter(r=> r[NOTE_COL]).length;                 // แถวที่เดาแบรนด์ไม่ออก
+      const missCust = body.filter(r=> !String(r[CUST_COL]||'').trim()).length;   // รหัสลูกค้าว่าง
+      const numCols = new Set([0,7,8,9,10,13]);                          // คอลัมน์ตัวเลข → ชิดขวา
+      const th = header.map((h,ci)=>`<th class="${numCols.has(ci)?'right':''}" style="${ci===CUST_COL?'background:rgba(13,148,136,.14);color:var(--brand,#0d9488)':''};white-space:nowrap">${esc(String(h))}</th>`).join('');
+      const rowsHtml = body.slice(0,ROWCAP).map(r=>{
+        const tds = r.map((c,ci)=>{
+          let v = (c===0||c==='') ? (c===0?'0':'') : String(c);
+          if(ci===1 && !startValid) v = '(รอเลข IV)';       // ยังไม่กรอกเลข IV
+          if(numCols.has(ci) && (c===0||c==='0'||c==='')) v = (ci===0? String(c) : '0');
+          const isCust = ci===CUST_COL;
+          const custEmpty = isCust && !String(c||'').trim();
+          const style = [
+            numCols.has(ci)?'text-align:right':'',
+            (ci===1||ci===2||ci===6)?'font-family:monospace':'',
+            isCust?`font-weight:700;background:${custEmpty?'rgba(220,38,38,.10)':'rgba(13,148,136,.08)'}`:'',
+            ci===NOTE_COL && c ? 'color:#b45309' : ''
+          ].filter(Boolean).join(';');
+          return `<td style="${style};white-space:nowrap">${custEmpty?'<span style="color:#dc2626">— ว่าง —</span>':esc(v)}</td>`;
+        }).join('');
+        return `<tr>${tds}</tr>`;
+      }).join('');
+      return `
+      <div class="ivr-prev">
+        <div class="ivr-prev-head">
+          <span>👁 ตัวอย่างไฟล์ที่จะส่งออก (CSV จริง · ทุกคอลัมน์)</span>
+          <span class="mu">· แสดง ${Math.min(body.length,ROWCAP).toLocaleString('th-TH')} / ${body.length.toLocaleString('th-TH')} บรรทัด (${eligible.length.toLocaleString('th-TH')} ใบ)${body.length>ROWCAP?` — ที่เหลืออยู่ในไฟล์`:''}</span>
+        </div>
+        ${(missCust||noteN) ? `<div style="margin:0 0 8px;padding:8px 12px;border-radius:8px;background:${missCust?'#fef2f2':'#fffbeb'};border:1px solid ${missCust?'#fecaca':'#fde68a'};font:600 12px/1.5 inherit;color:${missCust?'#991b1b':'#92400e'}">
+          ${missCust?`⚠ รหัสลูกค้าว่าง ${missCust} บรรทัด — ตรวจก่อนคีย์ (marketplace ที่เดาแบรนด์ไม่ออก / ขายตรงไม่มีรหัส)`:''}
+          ${missCust&&noteN?' · ':''}
+          ${noteN?`เดาแบรนด์ BT/QI ไม่ออก ${noteN} บรรทัด (ดูคอลัมน์หมายเหตุ)`:''}
+        </div>` : `<div style="margin:0 0 8px;padding:8px 12px;border-radius:8px;background:#f0fdf4;border:1px solid #bbf7d0;font:600 12px/1.5 inherit;color:#166534">✓ รหัสลูกค้าครบทุกบรรทัด</div>`}
+        <div style="overflow:auto;max-height:420px;border:1px solid var(--n-100,#e2e8f0);border-radius:8px">
+        <table class="ord-table" style="font-size:11.5px">
+          <thead><tr>${th}</tr></thead>
+          <tbody>${rowsHtml}</tbody>
+        </table>
+        </div>
+      </div>`;
+    })()}
   </div>`;
 }
 
@@ -5091,56 +5168,9 @@ async function ivrDoExport(format){
   if(!confirm(`ส่งออก ${eligible.length} ออเดอร์ → AutoKey ${fmtLabel}\n\n• เลข IV: ${e.startIv} → ${endIv}\n• ช่วงวัน: ${dFrom||'ไม่จำกัด'} → ${dTo||'ไม่จำกัด'}\n• ช่องทาง: ${[...channels].join(', ')}\n\nดำเนินการ?`)) return;
   e.busy = true; ivrRerender();
   try{
-    // 1) build AoA — ทุกออเดอร์เป็นรายบรรทัด items (เหมือน exkExport)
+    // 1) build AoA — ใช้ helper ตัวเดียวกับพรีวิว (เนื้อไฟล์ตรงกันเป๊ะ)
     const co = COMPANIES.find(c=>c.id===state.company);
-    const isMbark = state.company === 'mbark';
-    const shipSkuCode = BS_SHIP_SKU[state.company] || '';
-    // ★ รหัสลูกค้า Benya = ช่องทาง×แบรนด์ (SHOPEE BE / TIKTOK QI / LAZADA QI ...) — mirror RE export (incReCandidates)
-    const custCodeBenya = (channel, brand)=>{
-      const chL={SP:"SHOPEE",TT:"TIKTOK",LZ:"LAZADA"}[channel]; const br={BT:"BE",QI:"QI"}[brand];
-      return (chL&&br) ? `${chL} ${br}` : "";
-    };
-    const aoa = [BS_HEAD.concat(['ร้าน','หมายเหตุ'])];
-    let seq = 0;
-    let runningN = BigInt(e.startIv);
-    for(const o of eligible){
-      let its = o.items;
-      if(typeof its === 'string'){ try{ its = JSON.parse(its); }catch(_){ its = []; } }
-      if(!Array.isArray(its) || !its.length){
-        its = [{ sku:'', qty:1, price:Number(o.order_total||0), ship:0, discount:0 }];
-      }
-      const ivNo = runningN.toString().padStart(10,'0'); runningN += 1n;
-      const cg = String(o.channel_group||'').toLowerCase();
-      const channel = cg==='shopee'?'SP':cg==='tiktok'?'TT':cg==='lazada'?'LZ':'';
-      const isManual = /^(FB|OD)/i.test(String(o.order_id||''));
-      const platLabel = ({shopee:'SHOPEE',tiktok:'TIKTOK',lazada:'LAZADA'})[cg] || (o.channel||o.channel_group||'').toUpperCase();
-      // ★ รหัสลูกค้า — Benya marketplace = ช่องทาง×แบรนด์ (SHOPEE BE / TIKTOK QI ...) · ขายตรง = FACE
-      //   M Bark (แบรนด์เดียว mommam) = ช่องทาง (SHOPEE/TIKTOK/LAZADA) · ขายตรง = customer เดิม
-      const brand = isMbark ? '' : incBrandOf(o);
-      let cust = '', custNote = '';
-      if(isMbark){
-        cust = channel ? platLabel : (o.customer || (isManual ? 'FACE' : ''));
-      } else {
-        cust = custCodeBenya(channel, brand);
-        if(!cust) cust = isManual ? 'FACE' : (o.customer || '');
-        if(channel && !brand) custNote = '⚠ เดาแบรนด์ BT/QI ไม่ออก — ตรวจรหัสลูกค้า';
-      }
-      const orderShip = Number(o.shipping_fee||0);
-      const orderDisc = Number(o.seller_discount||0);
-      its.forEach((it, idx) => {
-        seq++;
-        const isFirst = idx===0, isLast = idx===its.length-1;
-        const hasShip = isLast && orderShip > 0;
-        aoa.push([
-          seq, isFirst?ivNo:'', isFirst?(o.order_id||''):'',
-          fmtDateDDMMYYBE(o.order_date), platLabel, cust,
-          it.sku||'', Number(it.qty)||0, Number(it.price)||0,
-          isLast?orderShip:0, isFirst?orderDisc:0,
-          hasShip?shipSkuCode:'', hasShip?'{Enter}':'', hasShip?orderShip:'',
-          (o.customer||''), custNote
-        ]);
-      });
-    }
+    const aoa = ivrBuildExportAoA(eligible, e.startIv);
     // 2) save batch + download
     const stampStr = (function(){ const dt=new Date(); return `${dt.getFullYear()}${String(dt.getMonth()+1).padStart(2,'0')}${String(dt.getDate()).padStart(2,'0')}_${String(dt.getHours()).padStart(2,'0')}${String(dt.getMinutes()).padStart(2,'0')}`; })();
     const ext = fmt==='xlsx' ? 'xlsx' : 'csv';

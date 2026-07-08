@@ -177,6 +177,12 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-08 — ส่งออก IV: รหัสลูกค้าขายตรง = FACE/LINE/Dealer (อะไรที่ไม่ใช่ marketplace/FB/LMS = Dealer)
+- **เจ้าของขอ:** ออเดอร์ที่ไม่ใช่ Shopee/TikTok/Lazada/FACE/LINE → รหัสลูกค้า = "Dealer" (เดิม MANUAL ที่ไม่ใช่ FB/LMS ขึ้น "— ว่าง —")
+- **`ivrBuildExportAoA`:** ขายตรง (channel ว่าง) → `directCust = {face:FACE, line:LINE, dealer:Dealer, csr:CSR}[ordChannelDetail(o)] || 'Dealer'` (ใช้การจัดกลุ่มเดียวกับบอร์ด/register) · Benya = directCust · M Bark = `customer||directCust` · marketplace เดิมไม่เปลี่ยน (Benya ช่องทาง×แบรนด์ · M Bark ช่องทาง)
+- **ผล:** พรีวิว "รหัสลูกค้าว่าง N บรรทัด" เหลือเฉพาะ Benya marketplace ที่เดาแบรนด์ไม่ออก (ตรงกับ panel SKU→brand) · ขายตรงไม่ว่างแล้ว
+- **กระทบหน้าอื่น = 0** — เลิกใช้ `isManual`(FB|OD) หันมา `ordChannelDetail` (FB→FACE/LMS→LINE/อื่น→Dealer) · **unit test:** BY→Dealer · FB→FACE · LMS→LINE · SP Betra→SHOPEE BE · MBark direct มีชื่อ→ชื่อ · ไม่มี→Dealer
+
 ### 2026-07-08 — ส่งออก IV: เติมรหัสลูกค้าว่าง (Benya) ด้วยแบรนด์ตาม SKU — จำครั้งเดียว
 - **เจ้าของขอ:** รหัสลูกค้าว่างเต็มไปหมด (Benya marketplace ที่เดาแบรนด์ BT/QI ไม่ออกจากชื่อสินค้า เช่น SKU `SDO101`) — อยากได้ที่แก้ง่ายๆ
 - **`incBrandOf` รื้อลำดับความแม่น:** (1) **ชื่อร้าน** `bsBrandFromShop(shop)` (betra→BT/qi→QI · ถ้าเก็บ `shop` ไว้) (2) **map ผู้ใช้กำหนดตาม SKU prefix** (localStorage `inc-sku-brand-{co}`) (3) เดาจากข้อความ+SKU (SBR/STR/BTR=Betra) · helper ใหม่ `incSkuPrefix`/`incSkuBrandMap`/`incSetSkuBrand`/`incOrderSkus`

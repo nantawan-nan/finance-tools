@@ -4865,17 +4865,22 @@ function ivrBuildExportAoA(orders, startIv){
     const ivNo = runningN.toString().padStart(10,'0'); runningN += 1n;
     const cg = String(o.channel_group||'').toLowerCase();
     const channel = cg==='shopee'?'SP':cg==='tiktok'?'TT':cg==='lazada'?'LZ':'';
-    const isManual = /^(FB|OD)/i.test(String(o.order_id||''));
     const platLabel = ({shopee:'SHOPEE',tiktok:'TIKTOK',lazada:'LAZADA'})[cg] || (o.channel||o.channel_group||'').toUpperCase();
-    // ★ รหัสลูกค้า — Benya marketplace = ช่องทาง×แบรนด์ · ขายตรง = FACE · M Bark = ช่องทาง (แบรนด์เดียว)
+    // ★ ขายตรง (ไม่มีแพลตฟอร์ม) → FACE/LINE/Dealer/CSR ตามการจัดกลุ่มเดียวกับหน้าบอร์ด (ordChannelDetail)
+    //   อะไรที่ไม่ใช่ shopee/tiktok/lazada/face/line = Dealer
+    const directCust = ({face:'FACE', line:'LINE', dealer:'Dealer', csr:'CSR'})[ordChannelDetail(o)] || 'Dealer';
+    // ★ รหัสลูกค้า — Benya marketplace = ช่องทาง×แบรนด์ · M Bark marketplace = ช่องทาง (แบรนด์เดียว)
     const brand = isMbark ? '' : incBrandOf(o);
     let cust = '', custNote = '';
-    if(isMbark){
-      cust = channel ? platLabel : (o.customer || (isManual ? 'FACE' : ''));
+    if(channel){
+      if(isMbark){ cust = platLabel; }
+      else {
+        cust = custCodeBenya(channel, brand);
+        if(!cust) custNote = '⚠ เดาแบรนด์ BT/QI ไม่ออก — ตรวจรหัสลูกค้า';
+      }
     } else {
-      cust = custCodeBenya(channel, brand);
-      if(!cust) cust = isManual ? 'FACE' : (o.customer || '');
-      if(channel && !brand) custNote = '⚠ เดาแบรนด์ BT/QI ไม่ออก — ตรวจรหัสลูกค้า';
+      // ขายตรง: M Bark เก็บชื่อลูกค้าถ้ามี ไม่งั้น Dealer · Benya ใช้ FACE/LINE/Dealer ตามช่อง
+      cust = isMbark ? (o.customer || directCust) : directCust;
     }
     const orderShip = Number(o.shipping_fee||0);
     const orderDisc = Number(o.seller_discount||0);

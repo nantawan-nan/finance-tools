@@ -177,6 +177,14 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-08 — ทะเบียนคุมเงินสดย่อย (Petty Cash) — แทนหน้า Task Management
+- **เจ้าของขอ:** เปลี่ยนหน้า `tasks` (Task Management · placeholder "กำลังพัฒนา") เป็น **ทะเบียนคุมเงินสดย่อย** (มีไฟล์ STM ตัวอย่าง 2 ชีต Benya/M Bark)
+- **Migration `supabase/petty-cash.sql`** (idempotent · RLS ปิด): `petty_cash`(company_id,round_label,doc_date,pay_date,doc_no,requester,description,amount_in,amount_out,reimburse_round,note,seq,soft-delete) + `petty_cash_rounds`(company_id,round_label,opening_balance · unique) เก็บยอดยกมาต้นรอบ
+- **โมดูล `pc*`** (`renderToolPettyCash` · dispatch ที่ `t.id==="tasks"` · tool เปลี่ยนชื่อ+status live): เลือกรอบ (chip · YYYY-MM) · ยอดยกมา · ตารางเบิกจ่าย/เติมเงิน + **ยอดคงเหลือวิ่ง** (`pcCompute` sort pay_date→seq) · เพิ่ม/แก้/ลบ (Supabase) · KPI (ยกมา/รับ/จ่าย/คงเหลือ)
+- **นำเข้า Excel** (`pcImport`): auto เลือกชีตตามบริษัท (regex เบญญา/บาร์ค · fallback index) · หา header "วันที่ตรวจเอกสาร" · แปลง Excel serial→ISO (`pcExcelDate` · 46177→2026-06-04) · เอาเฉพาะ HP…(จ่าย)/RR…(รับ) · ยอด = คอลัมน์ที่มีค่า · **ส่งออก** xlsx ฟอร์แมตทะเบียน
+- **กระทบหน้าอื่น = 0** — โมดูลใหม่ล้วน (CSS `.pc-*`) · **unit test:** running balance (1000−107+3000=3893) · pcExcelDate serial/ISO/พ.ศ. · render sim ผ่าน · syntax OK · boot 0 non-env errors
+- **ยังไม่ทำ:** ผูก "เบิกคืนเข้ารอบ" อัตโนมัติ · แนบใบเสร็จ · approval · import ของแถวสรุป/top-up ที่ไฟล์ตัวอย่างกรอกไม่สม่ำเสมอ (เลือก HP/RR เท่านั้น)
+
 ### 2026-07-08 — Sales Dashboard: SKU master เก็บบน Supabase (ทุกคนเห็นชุดเดียวกัน) + รูปจาก repo
 - **เจ้าของขอ:** อยากให้ทุกคนเห็นสต็อกชุดเดียวกัน (เดิม localStorage ต่อเครื่อง) + รูปสินค้าไม่ขึ้น
 - **Migration `supabase/sku-master.sql`** (idempotent · RLS ปิด): ตาราง `sku_master(company_id,sku,name,brand,category,cost,price,stock,image_url,...)` + unique `(company_id,sku)`

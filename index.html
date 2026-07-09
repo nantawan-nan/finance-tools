@@ -7340,45 +7340,72 @@ async function renderToolUsers(){
 
   const users = state.users.list || [];
   const cos = state.users.companies || [];
+  if(state.users.filter===undefined) state.users.filter="all";
+  if(state.users.q===undefined) state.users.q="";
+  const roleOf = u => ((u.app_metadata||{}).role) || "";
+  const roleLbl = v => { const r=ROLES.find(x=>x.v===v); return r?r.l:(v||"—"); };
+  const nameOf = u => (u.user_metadata && u.user_metadata.display_name) || (u.email||"").split("@")[0];
+  const isBanned = u => u.banned_until && new Date(u.banned_until) > new Date();
+  const ROLE_COLORS = { admin:"#0d9488", finance_mgr:"#1d4ed8", accountant:"#7c3aed", treasury:"#0891b2", sales_ops:"#ea580c", approver:"#ca8a04", executive:"#be185d", viewer:"#64748b" };
+  const roleCount={}; users.forEach(u=>{ const r=roleOf(u); roleCount[r]=(roleCount[r]||0)+1; });
+  const presentRoles = ROLES.filter(r=>roleCount[r.v]);
+  const fil=state.users.filter, q=(state.users.q||"").toLowerCase();
+  const view = users.filter(u=>{
+    if(fil!=="all" && roleOf(u)!==fil) return false;
+    if(q){ const t=`${nameOf(u)} ${u.email||""} ${roleOf(u)}`.toLowerCase(); if(!t.includes(q)) return false; }
+    return true;
+  });
+  const bannedN = users.filter(isBanned).length;
+
+  const kpiCard=(r)=>{ const c=ROLE_COLORS[r.v]||"#0d9488"; return `
+    <div style="flex:1;min-width:158px;background:#fff;border:1px solid #e6eaf0;border-left:4px solid ${c};border-radius:14px;padding:14px 16px">
+      <div style="font-size:12.5px;color:#64748b;font-weight:600">${esc(r.l)}</div>
+      <div style="font-size:24px;font-weight:800;color:#0f172a;margin-top:3px">${roleCount[r.v]} <span style="font-size:12px;color:#94a3b8;font-weight:600">คน</span></div>
+    </div>`; };
+  const tab=(k,l,n)=>`<button onclick="usrSetFilter('${k}')" style="border:0;border-radius:9px;padding:7px 13px;font:600 12.5px/1 inherit;cursor:pointer;${fil===k?'background:var(--brand,#0d9488);color:#fff':'background:#eef2f6;color:#475569'}">${esc(l)}${n!=null?` (${n})`:''}</button>`;
 
   main.innerHTML = `
-    <div class="page-head" style="display:flex;justify-content:space-between;align-items:flex-end;gap:12px;flex-wrap:wrap">
+    <div class="page-head" style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
       <div>
-        <h1>${t.name} <span class="badge">${esc(co.name)}</span></h1>
-        <div class="sub">${users.length} users · ${cos.length} companies</div>
+        <h1>จัดการผู้ใช้ระบบ · Users</h1>
+        <div class="sub">ผู้ใช้ทั้งหมด ${users.length} คน · admin-only · จัดการรหัส+สิทธิ์ในที่เดียว${bannedN?` · ปิดใช้งาน ${bannedN}`:''}</div>
       </div>
-      <div style="display:flex;gap:8px">
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn ghost btn sm" onclick="usrExportXlsx()">↓ Excel</button>
+        <button class="btn ghost btn sm" onclick="window.print()">🖨 พิมพ์</button>
         <button class="btn ghost btn sm" onclick="usrClearKey()">เปลี่ยน key</button>
         <button class="btn" onclick="usrOpenAdd()">+ เพิ่มผู้ใช้</button>
       </div>
     </div>
 
+    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px">${presentRoles.map(kpiCard).join("")}</div>
+
+    <div style="display:flex;gap:9px;flex-wrap:wrap;align-items:center;margin-bottom:12px">
+      ${tab("all","ทั้งหมด",users.length)}${presentRoles.map(r=>tab(r.v,r.l,roleCount[r.v])).join("")}
+      <input value="${esc(state.users.q||'')}" oninput="state.users.q=this.value" onkeydown="if(event.key==='Enter')renderToolUsers()" placeholder="ค้นหา อีเมล / ชื่อ…" style="flex:1;min-width:200px;padding:7px 12px;border:1px solid #cbd5e1;border-radius:9px;font:inherit;font-size:12.5px">
+    </div>
+
     <div class="card" style="padding:0;overflow:hidden">
-      <div class="table-wrap" style="max-height:none;border:none;margin-top:0;border-radius:0">
+      <div class="table-wrap" style="max-height:64vh;border:none;margin-top:0;border-radius:0">
         <table>
           <thead><tr>
-            <th>อีเมล</th>
-            <th>ชื่อ</th>
-            <th>Default Role</th>
-            <th>สิทธิ์เข้าบริษัท</th>
-            <th>เข้าระบบล่าสุด</th>
-            <th style="text-align:right">จัดการ</th>
+            <th>อีเมล</th><th>ชื่อ</th><th>Role</th><th>สิทธิ์เข้าบริษัท</th><th>เข้าระบบล่าสุด</th><th style="text-align:right">จัดการ</th>
           </tr></thead>
           <tbody>
-            ${users.length===0 ? `<tr><td colspan="6" class="empty">ยังไม่มีผู้ใช้</td></tr>` :
-              users.map(u => {
-                const meta = u.app_metadata || {};
-                const role = meta.role || "—";
+            ${view.length===0 ? `<tr><td colspan="6" class="empty">ไม่พบผู้ใช้ตามตัวกรอง</td></tr>` :
+              view.map(u => {
+                const role = roleOf(u) || "—";
                 const acc = usrAccessByUser(u.id);
                 const last = u.last_sign_in_at ? new Date(u.last_sign_in_at).toLocaleString("th-TH",{dateStyle:"short",timeStyle:"short"}) : "—";
-                const name = (u.user_metadata && u.user_metadata.display_name) || (u.email||"").split("@")[0];
-                const banned = u.banned_until && new Date(u.banned_until) > new Date();
+                const name = nameOf(u);
+                const banned = isBanned(u);
+                const rc = ROLE_COLORS[role]||"#64748b";
                 return `
-                <tr${banned?' style="opacity:.6"':''}>
+                <tr${banned?' style="opacity:.55"':''}>
                   <td style="font-family:monospace;font-size:12px">${esc(u.email||"—")}${banned?' <span style="font-family:inherit;background:#fee2e2;color:#b91c1c;padding:1px 7px;border-radius:999px;font-size:10.5px;font-weight:700">ปิดใช้งาน</span>':''}</td>
-                  <td>${esc(name)}</td>
-                  <td>${role==="—"?'<span style="color:var(--ink-3)">—</span>':`<span class="badge">${esc(role)}</span>`}</td>
-                  <td>${acc.length===0 ? '<span style="color:var(--ink-3);font-size:12px">ไม่มี</span>' :
+                  <td style="font-weight:600">${esc(name)}</td>
+                  <td>${role==="—"?'<span style="color:var(--ink-3)">—</span>':`<span style="font-size:11px;font-weight:700;padding:2px 9px;border-radius:20px;background:${rc}1a;color:${rc}">${esc(roleLbl(role))}</span>`}</td>
+                  <td>${acc.length===0 ? '<span style="color:var(--ink-3);font-size:12px">—</span>' :
                     acc.map(a => `<span style="display:inline-block;background:var(--brand-soft);color:var(--brand-dark);padding:1px 7px;border-radius:999px;font-size:11px;margin-right:3px">${esc(usrCoName(a.company_id))}: ${esc(a.role)}</span>`).join("")}</td>
                   <td style="font-size:12px;color:var(--ink-3)">${esc(last)}</td>
                   <td style="text-align:right;white-space:nowrap">
@@ -7396,6 +7423,18 @@ async function renderToolUsers(){
       </div>
     </div>
   `;
+}
+function usrSetFilter(v){ state.users.filter=v; renderToolUsers(); }
+function usrExportXlsx(){
+  const users=state.users.list||[];
+  const roleLbl=v=>{const r=ROLES.find(x=>x.v===v);return r?r.l:(v||"");};
+  const data=users.map(u=>{ const acc=usrAccessByUser(u.id);
+    return { "อีเมล":u.email||"", "ชื่อ":(u.user_metadata&&u.user_metadata.display_name)||"", "Role":roleLbl((u.app_metadata||{}).role||""),
+      "สิทธิ์เข้าบริษัท":acc.map(a=>`${usrCoName(a.company_id)}:${a.role}`).join(", "),
+      "เข้าระบบล่าสุด":u.last_sign_in_at?new Date(u.last_sign_in_at).toLocaleString("th-TH"):"",
+      "สถานะ":(u.banned_until&&new Date(u.banned_until)>new Date())?"ปิดใช้งาน":"ใช้งาน" }; });
+  const ws=XLSX.utils.json_to_sheet(data); const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,"Users");
+  XLSX.writeFile(wb, `users_${new Date().toISOString().slice(0,10)}.xlsx`);
 }
 
 function usrSaveKey(){

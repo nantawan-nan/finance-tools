@@ -177,6 +177,10 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-08 — จัดการผู้ใช้: redesign (KPI ตาม role + filter tab + ค้นหา + Excel)
+- **`renderToolUsers` รื้อเฉพาะ render block** (handlers `usrOpenAdd`/`usrOpenEdit`/`usrToggleBan`/`usrConfirmDelete`/`usrClearKey` ไม่แตะ) — KPI การ์ดต่อ role (นับจาก app_metadata.role · สีต่อ role) · filter tab (ทั้งหมด+role ที่มี) · ค้นหา อีเมล/ชื่อ · badge role สี · ปุ่ม Excel (`usrExportXlsx`)/พิมพ์ · `usrSetFilter` · state `users.filter/q`
+- **กระทบหน้าอื่น = 0** — service_role gate + modal + ban/delete เดิมทำงานเหมือนเดิม · syntax OK · boot 0 non-env errors
+
 ### 2026-07-08 — หน้าใหม่: สำรอง/กู้คืนข้อมูล (backup) + Audit Log (audit) — กลุ่มตั้งค่า (admin only)
 - **เจ้าของขอ:** อยากได้หน้า backup/restore แบบแอปอื่น + ปรับ Audit/Users ให้สวย
 - **`backup` (ใหม่ · `bkp*` · `renderToolBackup`):** ดาวน์โหลดทุกตาราง (`BKP_TABLES` ~30 ตาราง · paginate) เป็น JSON ไฟล์เดียว · กู้คืน = อ่าน JSON → **upsert ตาม id** (ไม่ลบของเดิม · chunk 200) · banner เตือน · log สถานะ

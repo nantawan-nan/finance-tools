@@ -177,6 +177,14 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-08 — จัดการผู้ใช้: สถานะออนไลน์ (heartbeat) + บังคับออกจากระบบ (kick) + audit
+- **เจ้าของขอ:** อยากได้ online presence + force logout เหมือนระบบตัวอย่าง + ลง audit
+- **Migration `supabase/user-presence.sql`** (idempotent · RLS ปิด): ตาราง `user_presence(user_id PK, email, display_name, role, last_seen, current_tool, kick_at)` + **policy `p_audit_insert`** ให้ client บันทึก audit ได้ (เดิม audit_log_v2 มีแค่ SELECT policy)
+- **heartbeat (`presence*`):** `presenceStart()` เรียกท้าย `renderApp` (guard `_prsTimer`) → upsert `user_presence` ทุก 60 วิ + ตอน focus · `state._sessionStart` = เวลา login · `presenceBeat` เช็ค `kick_at > sessionStart` → signOut+reload · `authSignOut` เรียก `presenceStop`+`presenceLeave` (ลบ row)
+- **force logout:** `usrKick(id)` (set `kick_at=now` ต่อคน) · `usrKickAll()` (`.neq(user_id, me)`) — client เด้งออกภายใน ~1 นาที · ปุ่ม "⏻ บังคับออกทุกคน" บนหัว + ✕ บน chip ออนไลน์ · `usrAuditLog` insert audit_log_v2 (action UPDATE · table 'auth' · changed_fields ['force_logout'])
+- **UI:** panel "🟢 กำลังออนไลน์ (N คน)" chips (เขียว<5นาที/เทา + relative time `usrAgo`) · `usrLoadPresence` โหลดใน `usrLoadAll`
+- **กระทบหน้าอื่น = 0** — heartbeat try/catch (เงียบถ้ายังไม่ deploy) · presence เขียนโดยทุก user ที่ login · syntax OK · boot 0 non-env errors
+
 ### 2026-07-08 — จัดการผู้ใช้: redesign (KPI ตาม role + filter tab + ค้นหา + Excel)
 - **`renderToolUsers` รื้อเฉพาะ render block** (handlers `usrOpenAdd`/`usrOpenEdit`/`usrToggleBan`/`usrConfirmDelete`/`usrClearKey` ไม่แตะ) — KPI การ์ดต่อ role (นับจาก app_metadata.role · สีต่อ role) · filter tab (ทั้งหมด+role ที่มี) · ค้นหา อีเมล/ชื่อ · badge role สี · ปุ่ม Excel (`usrExportXlsx`)/พิมพ์ · `usrSetFilter` · state `users.filter/q`
 - **กระทบหน้าอื่น = 0** — service_role gate + modal + ban/delete เดิมทำงานเหมือนเดิม · syntax OK · boot 0 non-env errors

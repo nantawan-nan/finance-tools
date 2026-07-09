@@ -177,6 +177,12 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-09 — จัดการผู้ใช้: ปุ่ม "รีเซ็ตรหัส" ต่อผู้ใช้ (admin ตั้งรหัสใหม่ให้)
+- **เจ้าของขอ:** ต้องมีปุ่มกดรีเซ็ตรหัสในตารางผู้ใช้ (เหมือนระบบตัวอย่าง Water POG)
+- **`usrResetPwd(uid)`** (หลัง `usrGenPwd`) — gate admin · หา email จาก `state.users.list` · `prompt` รหัสใหม่ (default = `usrGenPwd()` สุ่ม 14 ตัว · แก้เองได้ · บังคับ ≥6 ตัว) → **PUT `SUPABASE_URL/auth/v1/admin/users/{uid}` `{password}`** (service_role key ผ่าน `usrSrKey()` เหมือน `usrToggleBan`) → `usrAuditLog("reset_password", email)` → alert โชว์รหัสใหม่ให้คัดลอกไปแจ้งผู้ใช้
+- **ปุ่ม "รีเซ็ตรหัส"** (สีน้ำเงิน) ในแถว action ตารางผู้ใช้ ระหว่าง "แก้ไข" กับปุ่ม ban · `onclick="usrResetPwd('${u.id}')"`
+- **กระทบหน้าอื่น = 0** — ฟังก์ชัน+ปุ่มใหม่ · reuse `usrGenPwd`/`usrSrKey`/`usrAuditLog` (audit ผ่าน policy `p_audit_insert` ที่เพิ่มไว้แล้ว) · syntax OK · boot 0 non-env errors
+
 ### 2026-07-08 — จัดการผู้ใช้: สถานะออนไลน์ (heartbeat) + บังคับออกจากระบบ (kick) + audit
 - **เจ้าของขอ:** อยากได้ online presence + force logout เหมือนระบบตัวอย่าง + ลง audit
 - **Migration `supabase/user-presence.sql`** (idempotent · RLS ปิด): ตาราง `user_presence(user_id PK, email, display_name, role, last_seen, current_tool, kick_at)` + **policy `p_audit_insert`** ให้ client บันทึก audit ได้ (เดิม audit_log_v2 มีแค่ SELECT policy)

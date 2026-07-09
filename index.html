@@ -7435,6 +7435,7 @@ async function renderToolUsers(){
                   <td style="font-size:12px;color:var(--ink-3)">${esc(last)}</td>
                   <td style="text-align:right;white-space:nowrap">
                     <button class="btn ghost btn sm" onclick="usrOpenEdit('${u.id}')">แก้ไข</button>
+                    <button class="btn ghost btn sm" style="color:#1d4ed8;border-color:#bfdbfe" onclick="usrResetPwd('${u.id}')" title="ตั้งรหัสผ่านใหม่ให้ผู้ใช้นี้">รีเซ็ตรหัส</button>
                     ${banned
                       ? `<button class="btn ghost btn sm" style="color:#0f766e;border-color:#5eead4" onclick="usrToggleBan('${u.id}',false)" title="เปิดให้ login ได้อีกครั้ง">เปิดใช้</button>`
                       : `<button class="btn ghost btn sm" style="color:#b45309;border-color:#fcd34d" onclick="usrToggleBan('${u.id}',true)" title="บล็อกไม่ให้ login (ไม่ลบข้อมูล)">ปิดใช้</button>`}
@@ -7562,6 +7563,26 @@ function usrGenPwd(){
   const c = "ABCDEFGHJKMNPQRSTUVWXYZ23456789abcdefghjkmnpqrstuvwxyz!@#$";
   let p = ""; for(let i=0;i<14;i++) p += c[Math.floor(Math.random()*c.length)];
   return p;
+}
+/* รีเซ็ตรหัสผ่าน user (admin) — ตั้งรหัสใหม่ผ่าน Admin API แล้วโชว์ให้แจ้งผู้ใช้ */
+async function usrResetPwd(uid){
+  if(AUTH.role!=="admin"){ alert("เฉพาะผู้ดูแลระบบ"); return; }
+  const u=(state.users.list||[]).find(x=>x.id===uid); const email=u?(u.email||""):"";
+  const suggested=usrGenPwd();
+  const npw=prompt(`ตั้งรหัสผ่านใหม่ให้ "${email}"\n(กด OK ใช้รหัสที่สุ่มให้ หรือพิมพ์รหัสเอง · อย่างน้อย 6 ตัว)`, suggested);
+  if(npw===null) return;
+  const pw=String(npw).trim();
+  if(pw.length<6){ alert("รหัสผ่านต้องอย่างน้อย 6 ตัวอักษร"); return; }
+  try{
+    const res=await fetch(SUPABASE_URL + "/auth/v1/admin/users/" + uid, {
+      method:"PUT",
+      headers:{ apikey:usrSrKey(), Authorization:"Bearer "+usrSrKey(), "Content-Type":"application/json" },
+      body: JSON.stringify({ password: pw })
+    });
+    if(!res.ok){ const t=await res.text(); throw new Error(res.status+" "+t.slice(0,300)); }
+    usrAuditLog("reset_password", email||uid);
+    alert(`✓ รีเซ็ตรหัสผ่านของ "${email}" แล้ว\n\nรหัสใหม่: ${pw}\n\nแจ้งผู้ใช้แล้วให้เขาเปลี่ยนเองภายหลัง (คัดลอกก่อนปิด)`);
+  }catch(e){ alert("รีเซ็ตรหัสไม่สำเร็จ: "+(e.message||e)); }
 }
 
 async function usrCreate(){

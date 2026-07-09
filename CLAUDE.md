@@ -177,6 +177,13 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-09 — ซ่อนกลุ่ม "ลูกหนี้ (AR)" (ar/armap/settle) — ซ้ำกับระบบงานขาย
+- **เจ้าของขอ:** 3 หน้าใน AR (AR Outstanding · Map ลูกหนี้→เงินเข้า · จับยอด Settlement) ซ้ำกับ "ระบบงานขาย" → เอาออก/ซ่อน
+- **วิธี:** เติม `hidden:true` บน tool `ar`/`armap`/`settle` + guard บรรทัดแรกใน `appToolVisible` (`if(t.hidden) return false`) → หายจาก sidebar + home quick modules + home task cards (ผ่าน `appToolVisible`) · `renderTool()` guard เดิม (บรรทัด 1024-1030) เด้ง `state.tool` ที่ hidden → หน้าแรกที่เห็น
+- **function ยังอยู่ครบ** (`renderToolAr`/`renderToolArmap` + dispatch) — เปิดคืนได้แค่ลบ `hidden:true`
+- **repoint demo task cards** ใน `renderToolHome`: `tool:"ar"`→`sales_income` · `tool:"settle"`→`sales_recon` (กันคลิกแล้วเด้ง)
+- **กระทบหน้าอื่น = 0** — flag + 1 guard line · syntax OK
+
 ### 2026-07-09 — จัดการผู้ใช้: ปุ่ม "รีเซ็ตรหัส" ต่อผู้ใช้ (admin ตั้งรหัสใหม่ให้)
 - **เจ้าของขอ:** ต้องมีปุ่มกดรีเซ็ตรหัสในตารางผู้ใช้ (เหมือนระบบตัวอย่าง Water POG)
 - **`usrResetPwd(uid)`** (หลัง `usrGenPwd`) — gate admin · หา email จาก `state.users.list` · `prompt` รหัสใหม่ (default = `usrGenPwd()` สุ่ม 14 ตัว · แก้เองได้ · บังคับ ≥6 ตัว) → **PUT `SUPABASE_URL/auth/v1/admin/users/{uid}` `{password}`** (service_role key ผ่าน `usrSrKey()` เหมือน `usrToggleBan`) → `usrAuditLog("reset_password", email)` → alert โชว์รหัสใหม่ให้คัดลอกไปแจ้งผู้ใช้

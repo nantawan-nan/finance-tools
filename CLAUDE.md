@@ -177,6 +177,12 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-08 — หน้าใหม่: สำรอง/กู้คืนข้อมูล (backup) + Audit Log (audit) — กลุ่มตั้งค่า (admin only)
+- **เจ้าของขอ:** อยากได้หน้า backup/restore แบบแอปอื่น + ปรับ Audit/Users ให้สวย
+- **`backup` (ใหม่ · `bkp*` · `renderToolBackup`):** ดาวน์โหลดทุกตาราง (`BKP_TABLES` ~30 ตาราง · paginate) เป็น JSON ไฟล์เดียว · กู้คืน = อ่าน JSON → **upsert ตาม id** (ไม่ลบของเดิม · chunk 200) · banner เตือน · log สถานะ
+- **`audit` (soon→live · `aud*` · `renderToolAudit`):** ดึง `audit_log_v2` (occurred_at/user_email/table_name/row_id/action/changed_fields) · KPI (ทั้งหมด/แก้ไข/เพิ่ม/ลบ) · filter tab + dropdown ตาราง + ค้นหา + limit (200–2000) · export Excel
+- dispatch เพิ่มที่ `renderTool()` · tool ทั้งคู่ `adminOnly` · **กระทบหน้าอื่น = 0** — โมดูลใหม่ล้วน · syntax OK · boot 0 non-env errors (fns defined)
+
 ### 2026-07-08 — ทะเบียนคุมเงินสดย่อย (Petty Cash) — แทนหน้า Task Management
 - **เจ้าของขอ:** เปลี่ยนหน้า `tasks` (Task Management · placeholder "กำลังพัฒนา") เป็น **ทะเบียนคุมเงินสดย่อย** (มีไฟล์ STM ตัวอย่าง 2 ชีต Benya/M Bark)
 - **Migration `supabase/petty-cash.sql`** (idempotent · RLS ปิด): `petty_cash`(company_id,round_label,doc_date,pay_date,doc_no,requester,description,amount_in,amount_out,reimburse_round,note,seq,soft-delete) + `petty_cash_rounds`(company_id,round_label,opening_balance · unique) เก็บยอดยกมาต้นรอบ

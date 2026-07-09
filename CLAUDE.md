@@ -118,7 +118,7 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 | `recurring` | `renderToolRecurring` | live | ค่าใช้จ่ายประจำ |
 | `cashflow` | `renderToolCashflowForecast` | live | **Cash Flow Forecast** — มี 2 view: 📋 พนักงาน (daily LINE) + 📊 ผู้บริหาร (30d) |
 | `tasks` | (none) | soon | — |
-| `docs` | (none) | soon | — |
+| `docs` | `renderToolDocs` | live | **Document Center** — คลังเอกสาร PDF (STM/เมมโม่/อนุมัติจ่าย/สัญญา) · เก็บบน Supabase Storage bucket `documents` · อัป/ค้นหา/เปิด/โหลด/ลบ + ดาวน์โหลดทั้งหมด ZIP · doc* helpers |
 | `users` | `renderToolUsers` | live (admin only) | จัดการผู้ใช้ |
 | `audit` | (none) | soon | — |
 
@@ -176,6 +176,18 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 - `phase0-foundation.sql` trigger `trg_sync_user_profile` ต้องเป็น `AFTER INSERT only` (ไม่ใช่ `INSERT OR UPDATE`)
 
 ## Recent changes (chronological)
+
+### 2026-07-09 — ★ หน้าใหม่: Document Center (docs) — คลังเอกสาร PDF บน Supabase Storage
+- **เจ้าของขอ:** อยากเริ่มใช้ Document Center เก็บ PDF (STM · เมมโม่ · รายงานอนุมัติจ่าย · สัญญา) · ไม่อยากให้ไฟล์หาย → เก็บ + สำรอง
+- **สถาปัตยกรรม (ตัดสินใจร่วมกับเจ้าของ):** ไฟล์จริงเก็บใน **Supabase Storage** (ไม่ยัดลง DB · ไม่ต่อ Google Drive สดเพราะไม่มี backend) · meta เก็บตาราง `documents` · ตาข่ายสำรอง = มิเรอร์เข้า backup ทุกคืน + ปุ่ม ZIP โหลดเข้า Drive เอง
+- **Migration `supabase/documents.sql`** (idempotent): ตาราง `documents`(company_id/title/category/file_name/**storage_path**/mime_type/size_bytes/doc_date/note/uploaded_by/soft-delete · RLS ปิด) + `INSERT storage.buckets 'documents'` (private · limit 50MB) + **storage policies** `p_docs_read/insert/update/delete` ให้ role `authenticated` บน bucket 'documents' (storage.objects RLS ปิดไม่ได้ ต้องมี policy)
+- **โมดูล `doc*`** (`renderToolDocs` · dispatch `t.id==="docs"` · tool `soon`→`live`): อัปหลายไฟล์ (modal เลือกหมวด/วันที่/หมายเหตุ) · **storage key = ASCII ล้วน** `{CODE}/{ปี}/{stamp}.{ext}` (ชื่อจริงเก็บ file_name/title — กัน URL ภาษาไทยพังตอน mirror) · เปิด/โหลดผ่าน `createSignedUrl(path,3600,{download})` · ลบ = soft-delete + `storage.remove` · ค้นหา + chip หมวด · KPI จำนวน/พื้นที่ · audit ผ่าน `docAudit`
+- **6 หมวด** (`DOC_CATS`): STM/เมมโม่/อนุมัติจ่าย/สัญญา/ใบกำกับ/อื่นๆ
+- **ปุ่ม "ดาวน์โหลดทั้งหมด (ZIP)"** (`docDownloadAllZip`): fetch ทุกไฟล์ตามตัวกรอง → **JSZip** (เพิ่ม CDN ใน head) จัดโฟลเดอร์ตามหมวด → โหลด zip (redundancy เข้า Google Drive เอง)
+- **มิเรอร์อัตโนมัติเข้า backup** (`.github/workflows/backup.yml` เพิ่ม step): list ชื่อไฟล์จาก `storage.objects` ผ่าน psql (`SUPABASE_DB_URL`) → curl ดาวน์โหลดแต่ละไฟล์ด้วย **`SUPABASE_SERVICE_KEY`** (secret ใหม่ · ⚠️ **ต้องเพิ่มเอง** ที่ Settings→API→service_role) → tar+gzip+AES → `backups/docs_{DATE}.tar.gz.enc` · **skip เงียบถ้าไม่มี secret** (meta ยังอยู่ใน SQL/CSV) · prune เก็บ 30 ไฟล์ล่าสุด
+- **เพิ่ม `documents` ใน `BKP_TABLES`** (หน้า Backup/Restore สำรอง meta ด้วย)
+- **กระทบหน้าอื่น = 0** — โมดูล+ตาราง+bucket ใหม่ล้วน · syntax OK · unit test (fmtSize/filter/search/code/safeName) + render sim ผ่าน
+- **ข้อจำกัด/ยังไม่ทำ:** Storage ฟรี 1GB (เตือนใกล้เต็มได้ภายหลัง) · storage policy ยังกว้าง (authenticated ทุกคนเห็นทุกบริษัท — app กรอง company_id ที่ query · ถ้าต้องเข้มค่อยทำ path-based RLS) · service key mirror ต้องรอเจ้าของเพิ่ม secret
 
 ### 2026-07-09 — ซ่อนกลุ่ม "ลูกหนี้ (AR)" (ar/armap/settle) — ซ้ำกับระบบงานขาย
 - **เจ้าของขอ:** 3 หน้าใน AR (AR Outstanding · Map ลูกหนี้→เงินเข้า · จับยอด Settlement) ซ้ำกับ "ระบบงานขาย" → เอาออก/ซ่อน

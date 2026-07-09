@@ -838,9 +838,13 @@ const TOOLS = [
     long:"จัดการผู้ใช้ระบบ — เพิ่มอีเมล · ตั้งรหัสผ่าน · กำหนด role + สิทธิ์เข้าบริษัท",
     multiInput:true, status:"live", adminOnly:true },
   { id:"audit", stage:"ตั้งค่า", ic:"≣", icon:"scroll-text",
-    name:"Audit Trail", desc:"ประวัติการแก้ไข",
-    long:"ใครแก้อะไร เมื่อไหร่ — เพื่อตรวจสอบย้อนหลัง",
-    multiInput:true, status:"soon" },
+    name:"Audit Log", desc:"ประวัติการแก้ไขข้อมูล",
+    long:"ใครแก้อะไร เมื่อไหร่ — ดึงจากตาราง audit_log_v2 (Supabase)",
+    multiInput:true, status:"live", adminOnly:true },
+  { id:"backup", stage:"ตั้งค่า", ic:"⬇", icon:"database-backup",
+    name:"สำรอง / กู้คืนข้อมูล", desc:"ดาวน์โหลด/กู้คืน JSON",
+    long:"ดาวน์โหลดข้อมูลทุกตารางเป็นไฟล์ JSON เก็บนอกเครื่อง · กู้คืนแบบ upsert",
+    multiInput:true, status:"live", adminOnly:true },
 ];
 
 /* pick the best sheet name from a workbook for the given tool
@@ -1045,6 +1049,8 @@ function renderTool(){
     if (t.id==="exportkey") return renderToolExportKey();
     if (t.id==="dashboard") return renderToolDashboard();
     if (t.id==="tasks") return renderToolPettyCash();
+    if (t.id==="backup") return renderToolBackup();
+    if (t.id==="audit") return renderToolAudit();
     if (t.id==="home") return renderToolHome();
     // ★ ระบบงานขาย (sales pipeline) — Phase 1
     if (t.id==="sales_orders") return renderToolSalesOrders();
@@ -11257,6 +11263,218 @@ async function renderToolPettyCash(){
         </table>
       </div>
     </div>`;
+  if(window.lucide) try{ lucide.createIcons(); }catch(e){}
+}
+
+/* ============================================================
+   สำรอง / กู้คืนข้อมูล (Backup / Restore) — bkp*
+   ดาวน์โหลดทุกตารางเป็น JSON · กู้คืนแบบ upsert ตาม id (ไม่ลบของเดิม)
+   ============================================================ */
+const BKP_TABLES = [
+  "companies","users_profile","user_company_access",
+  "bank_accounts","bank_balances","vendors",
+  "ap_invoices","ap_payments","recurring_expenses","recurring_occurrences",
+  "exec_cashflow","ar_receipts",
+  "order_ledger","order_recon","order_recon_runs","recon_reports",
+  "iv_export_batches","re_export_batches","sales_income_rows",
+  "sku_master","petty_cash","petty_cash_rounds",
+  "brec_express_rows","brec_bank_rows","brec_matches","brec_imports",
+  "brec_mp_imports","brec_mp_withdrawals","brec_mp_orders",
+  "catbot_rules","csv_imports"
+];
+state.bkp = state.bkp || { busy:false, log:"" };
+function bkpGet(){ return state.bkp; }
+function bkpSetLog(s){ const d=bkpGet(); d.log=s; const el=document.getElementById("bkpLog"); if(el){ el.textContent=s; } }
+async function bkpFetchAll(table){
+  let all=[], from=0;
+  while(true){
+    const { data, error } = await sb.from(table).select("*").range(from, from+999);
+    if(error) throw error;
+    if(!data || !data.length) break;
+    all=all.concat(data); if(data.length<1000) break; from+=1000;
+  }
+  return all;
+}
+async function bkpDownload(){
+  const d=bkpGet(); if(d.busy) return; d.busy=true; renderToolBackup();
+  try{
+    const out={ _meta:{ app:"finance-tools", created_at:new Date().toISOString(), by:(AUTH&&AUTH.email)||null, tables:[] }, data:{} };
+    let ok=0, skip=0;
+    for(const t of BKP_TABLES){
+      bkpSetLog(`กำลังอ่าน ${t} …`);
+      try{ const rows=await bkpFetchAll(t); out.data[t]=rows; out._meta.tables.push({name:t, rows:rows.length}); ok++; }
+      catch(e){ console.warn("skip",t,e.message); skip++; }
+    }
+    const stamp=new Date().toISOString().replace(/[:T]/g,"-").slice(0,16);
+    const blob=new Blob([JSON.stringify(out)],{type:"application/json"});
+    const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=`finance-tools-backup_${stamp}.json`; a.click();
+    setTimeout(()=>URL.revokeObjectURL(a.href), 4000);
+    const total=out._meta.tables.reduce((s,x)=>s+x.rows,0);
+    bkpSetLog(`✓ สำรองสำเร็จ — ${ok} ตาราง · ${total.toLocaleString("th-TH")} แถว${skip?` · ข้าม ${skip} ตาราง`:""}`);
+  }catch(err){ bkpSetLog("✗ สำรองไม่สำเร็จ: "+(err.message||err)); }
+  d.busy=false; renderToolBackup();
+}
+async function bkpRestore(){
+  const d=bkpGet(); if(d.busy) return;
+  if(!(AUTH.role==="admin")){ alert("เฉพาะผู้ดูแลระบบ"); return; }
+  const inp=document.createElement("input"); inp.type="file"; inp.accept=".json,application/json";
+  inp.onchange=async()=>{
+    const f=inp.files && inp.files[0]; if(!f) return;
+    let json;
+    try{ json=JSON.parse(await f.text()); }catch(e){ alert("ไฟล์ไม่ใช่ JSON ที่ถูกต้อง"); return; }
+    const data=json.data || json;   // รองรับทั้งมี _meta และไม่มี
+    const tables=Object.keys(data).filter(t=>Array.isArray(data[t]) && data[t].length);
+    if(!tables.length){ alert("ไม่พบข้อมูลในไฟล์"); return; }
+    const totalRows=tables.reduce((s,t)=>s+data[t].length,0);
+    if(!confirm(`กู้คืน ${tables.length} ตาราง · ${totalRows.toLocaleString("th-TH")} แถว\nupsert ตาม id (ไม่ลบแถวที่มีอยู่แล้ว)\n\nดำเนินการ?`)) return;
+    d.busy=true; renderToolBackup();
+    let okRows=0, failT=[];
+    for(const t of tables){
+      if(!BKP_TABLES.includes(t)){ continue; }   // เฉพาะตารางที่รู้จัก
+      bkpSetLog(`กำลังกู้คืน ${t} …`);
+      const rows=data[t]; let ok=true;
+      for(let i=0;i<rows.length;i+=200){
+        const chunk=rows.slice(i,i+200);
+        const { error } = await sb.from(t).upsert(chunk, { onConflict:"id" });
+        if(error){ console.warn("restore",t,error.message); ok=false; break; }
+      }
+      if(ok) okRows+=rows.length; else failT.push(t);
+    }
+    bkpSetLog(`✓ กู้คืนสำเร็จ ${okRows.toLocaleString("th-TH")} แถว${failT.length?` · ผิดพลาด: ${failT.join(", ")}`:""}`);
+    d.busy=false; renderToolBackup();
+    alert("กู้คืนเสร็จ"+(failT.length?` (บางตารางผิดพลาด: ${failT.join(", ")})`:""));
+  };
+  inp.click();
+}
+async function renderToolBackup(){
+  const t=TOOLS.find(x=>x.id==="backup"); const main=document.getElementById("main");
+  if(AUTH.role!=="admin"){ main.innerHTML=`<div class="page-head"><h1>สำรอง / กู้คืนข้อมูล</h1></div><div class="card"><div class="empty">เฉพาะผู้ดูแลระบบ</div></div>`; return; }
+  const d=bkpGet(); const busy=d.busy;
+  const card=(icon,title,sub,btn)=>`
+    <div style="background:#fff;border:1px solid #e6eaf0;border-radius:16px;padding:20px 22px;display:flex;align-items:center;gap:18px;margin-bottom:14px;box-shadow:0 1px 2px rgba(16,24,40,.04)">
+      <div style="flex:1"><div style="font-size:15.5px;font-weight:800;color:#0f172a">${icon} ${title}</div><div style="font-size:12.5px;color:#64748b;margin-top:3px">${sub}</div></div>
+      ${btn}
+    </div>`;
+  main.innerHTML=`
+    <div class="page-head"><h1>สำรอง / กู้คืนข้อมูล</h1><div class="sub">ดาวน์โหลดข้อมูลทุกตารางเป็นไฟล์ JSON เก็บไว้นอกเครื่อง — ตาข่ายกันข้อมูลหาย</div></div>
+    <div style="max-width:1100px">
+      <div style="background:#fffbeb;border:1px solid #fde68a;color:#92400e;border-radius:12px;padding:11px 15px;font-size:12.5px;margin-bottom:16px">
+        💡 แนะนำกดสำรองสม่ำเสมอ (เช่น <b>สัปดาห์ละครั้ง</b>) แล้วเก็บไฟล์ไว้ใน Google Drive / เครื่องตัวเอง — ระบบมี backup อัตโนมัติทุกคืนบน GitHub อยู่แล้ว แต่ไฟล์นี้คือตาข่ายสำรองของเราเอง
+      </div>
+      ${card("⬇","สำรองข้อมูล (ดาวน์โหลด)","อ่านทุกตารางจากระบบ → ไฟล์ JSON หนึ่งไฟล์",
+        `<button class="btn" style="background:var(--brand,#0d9488);color:#fff;border:0;padding:10px 18px;border-radius:10px;font-weight:700;cursor:pointer" ${busy?"disabled":""} onclick="bkpDownload()">${busy?"⏳ กำลังทำงาน…":"⬇ ดาวน์โหลด Backup"}</button>`)}
+      ${card("↩","กู้คืนจากไฟล์","upsert ตาม id — ไม่ลบแถวที่มีอยู่แล้ว (เหมาะกับ \\\"กู้ข้อมูลที่หาย\\\")",
+        `<button class="btn ghost" style="border:1px solid #fca5a5;color:#b91c1c;background:#fff;padding:10px 18px;border-radius:10px;font-weight:700;cursor:pointer" ${busy?"disabled":""} onclick="bkpRestore()">↩ เลือกไฟล์ Backup…</button>`)}
+      <div id="bkpLog" style="font-size:12.5px;color:#475569;padding:10px 4px;min-height:20px;font-family:monospace">${esc(d.log||"")}</div>
+      <div style="font-size:11.5px;color:#94a3b8;margin-top:6px">ตารางที่สำรอง (${BKP_TABLES.length}): ${BKP_TABLES.join(" · ")}</div>
+    </div>`;
+  if(window.lucide) try{ lucide.createIcons(); }catch(e){}
+}
+
+/* ============================================================
+   Audit Log — aud* · ดึงจาก audit_log_v2 (Supabase)
+   ============================================================ */
+state.aud = state.aud || { rows:[], loaded:false, busy:false, filter:"all", table:"all", q:"", limit:200 };
+function audGet(){ return state.aud; }
+const AUD_ACT = {
+  INSERT:{ l:"เพิ่มข้อมูล", c:"#0f766e", bg:"#d1fae5" },
+  UPDATE:{ l:"แก้ไขข้อมูล", c:"#b45309", bg:"#fef3c7" },
+  DELETE:{ l:"ลบข้อมูล",   c:"#b91c1c", bg:"#fee2e2" },
+  RESTORE:{ l:"กู้คืน",     c:"#1d4ed8", bg:"#dbeafe" }
+};
+async function audLoad(){
+  const d=audGet(); d.busy=true;
+  const { data, error } = await sb.from("audit_log_v2")
+    .select("id,occurred_at,user_email,company_id,table_name,row_id,action,changed_fields")
+    .order("occurred_at",{ascending:false}).limit(d.limit);
+  if(error){ d.busy=false; throw error; }
+  d.rows=data||[]; d.loaded=true; d.busy=false;
+}
+function audFmtTime(iso){ if(!iso) return "—"; const dt=new Date(iso); if(isNaN(dt)) return iso;
+  const p=n=>String(n).padStart(2,"0"); return `${p(dt.getDate())}/${p(dt.getMonth()+1)}/${dt.getFullYear()} ${p(dt.getHours())}:${p(dt.getMinutes())}:${p(dt.getSeconds())}`; }
+function audUserName(email){ if(!email) return "—"; return String(email).split("@")[0]; }
+function audFiltered(){
+  const d=audGet(); const q=(d.q||"").trim().toLowerCase();
+  return (d.rows||[]).filter(r=>{
+    if(d.filter!=="all" && r.action!==d.filter) return false;
+    if(d.table!=="all" && r.table_name!==d.table) return false;
+    if(q){ const t=`${r.user_email||""} ${r.table_name||""} ${r.row_id||""} ${(r.changed_fields||[]).join(" ")}`.toLowerCase(); if(!t.includes(q)) return false; }
+    return true;
+  });
+}
+function audSet(k,v){ audGet()[k]=v; renderToolAudit(); }
+async function audSetLimit(v){ const d=audGet(); d.limit=Number(v)||200; d.loaded=false; renderToolAudit(); }
+async function audExport(){
+  const rows=audFiltered();
+  const data=rows.map(r=>({ "เวลา":audFmtTime(r.occurred_at), "ผู้ใช้":r.user_email||"", "การกระทำ":(AUD_ACT[r.action]||{}).l||r.action, "ตาราง":r.table_name||"", "row_id":r.row_id||"", "ฟิลด์ที่เปลี่ยน":(r.changed_fields||[]).join(", ") }));
+  const ws=XLSX.utils.json_to_sheet(data); const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,"AuditLog");
+  XLSX.writeFile(wb, `audit_log_${new Date().toISOString().slice(0,10)}.xlsx`);
+}
+async function renderToolAudit(){
+  const main=document.getElementById("main");
+  if(AUTH.role!=="admin"){ main.innerHTML=`<div class="page-head"><h1>Audit Log</h1></div><div class="card"><div class="empty">เฉพาะผู้ดูแลระบบ</div></div>`; return; }
+  const d=audGet();
+  if(!d.loaded && !d.busy){
+    main.innerHTML=`<div class="page-head"><h1>Audit Log · บันทึกการแก้ไขข้อมูล</h1></div><div class="card"><div class="empty">⏳ กำลังโหลด…</div></div>`;
+    try{ await audLoad(); }catch(e){ main.innerHTML+=`<div class="card"><div style="color:#dc2626">โหลดไม่สำเร็จ: ${esc(e.message||e)}</div></div>`; return; }
+  }
+  const rows=d.rows||[];
+  const cnt=a=>rows.filter(r=>r.action===a).length;
+  const nUpd=cnt("UPDATE"), nIns=cnt("INSERT"), nDel=cnt("DELETE");
+  const tables=[...new Set(rows.map(r=>r.table_name).filter(Boolean))].sort();
+  const view=audFiltered();
+  const kpi=(l,v,unit,c)=>`<div style="flex:1;min-width:170px;background:#fff;border:1px solid #e6eaf0;border-left:4px solid ${c};border-radius:14px;padding:15px 18px">
+    <div style="font-size:12.5px;color:#64748b;font-weight:600">${l}</div><div style="font-size:24px;font-weight:800;color:#0f172a;margin-top:4px">${v.toLocaleString("th-TH")} <span style="font-size:12px;color:#94a3b8;font-weight:600">${unit}</span></div></div>`;
+  const tab=(k,l,n)=>`<button onclick="audSet('filter','${k}')" style="border:0;border-radius:9px;padding:7px 14px;font:600 12.5px/1 inherit;cursor:pointer;${d.filter===k?'background:var(--brand,#0d9488);color:#fff':'background:#eef2f6;color:#475569'}">${l}${n!=null?` (${n})`:''}</button>`;
+  const tr=view.map(r=>{ const a=AUD_ACT[r.action]||{l:r.action,c:"#64748b",bg:"#eef2f6"}; const nf=(r.changed_fields||[]).length;
+    return `<tr>
+      <td style="white-space:nowrap;color:#475569">${audFmtTime(r.occurred_at)}</td>
+      <td><div style="font-weight:700;color:#0f172a">${esc(audUserName(r.user_email))}</div><div style="font-size:11px;color:#94a3b8">${esc(r.user_email||"")}</div></td>
+      <td><span style="font-size:11px;font-weight:700;padding:3px 9px;border-radius:20px;background:${a.bg};color:${a.c}">${esc(a.l)}</span></td>
+      <td style="font-family:monospace;font-size:12px;color:#0f766e">${esc(r.table_name||"")}</td>
+      <td style="text-align:right;color:#64748b">${nf||""}</td>
+      <td style="font-size:11.5px;color:#475569">${esc((r.changed_fields||[]).join(", ")||(r.row_id?("row "+String(r.row_id).slice(0,12)):""))}</td>
+    </tr>`; }).join("");
+  main.innerHTML=`
+    <div class="page-head" style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px">
+      <div><h1>Audit Log · บันทึกการแก้ไขข้อมูล</h1><div class="sub">ดูประวัติว่าใคร-แก้-อะไร-เมื่อไหร่ · ดึงจากตาราง audit_log_v2 · แสดง ${rows.length.toLocaleString("th-TH")} รายการล่าสุด</div></div>
+      <div style="display:flex;gap:8px">
+        <button class="btn ghost" onclick="audSet('loaded',false)">⟳ รีเฟรช</button>
+        <button class="btn ghost" onclick="audExport()">↓ Excel</button>
+      </div>
+    </div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px">
+      ${kpi("บันทึกทั้งหมด",rows.length,"รายการ","#0d9488")}
+      ${kpi("แก้ไขข้อมูล",nUpd,"ครั้ง","#b45309")}
+      ${kpi("เพิ่มข้อมูล",nIns,"ครั้ง","#0f766e")}
+      ${kpi("ลบข้อมูล",nDel,"ครั้ง","#b91c1c")}
+    </div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:12px">
+      ${tab("all","ทั้งหมด",rows.length)}${tab("UPDATE","แก้ไข",nUpd)}${tab("INSERT","เพิ่ม",nIns)}${tab("DELETE","ลบ",nDel)}
+      <select onchange="audSet('table',this.value)" style="padding:7px 10px;border:1px solid #cbd5e1;border-radius:9px;font:inherit;font-size:12.5px">
+        <option value="all">ทุกตาราง</option>${tables.map(t=>`<option value="${esc(t)}" ${d.table===t?'selected':''}>${esc(t)}</option>`).join("")}
+      </select>
+      <input value="${esc(d.q||'')}" oninput="audGet().q=this.value" onkeydown="if(event.key==='Enter')renderToolAudit()" placeholder="ค้นหา user / ตาราง / ฟิลด์…" style="flex:1;min-width:200px;padding:7px 12px;border:1px solid #cbd5e1;border-radius:9px;font:inherit;font-size:12.5px">
+      <select onchange="audSetLimit(this.value)" style="padding:7px 10px;border:1px solid #cbd5e1;border-radius:9px;font:inherit;font-size:12.5px">
+        ${[200,500,1000,2000].map(n=>`<option value="${n}" ${d.limit===n?'selected':''}>${n} รายการล่าสุด</option>`).join("")}
+      </select>
+    </div>
+    <div class="card" style="padding:0;overflow:hidden">
+      <div style="max-height:64vh;overflow:auto">
+        <table style="width:100%;border-collapse:collapse;font-size:12.5px">
+          <thead><tr style="position:sticky;top:0;background:#f8fafc;z-index:1">
+            <th style="text-align:left;padding:9px 12px;color:#64748b;font-size:11px;text-transform:uppercase">เวลา</th>
+            <th style="text-align:left;padding:9px 12px;color:#64748b;font-size:11px;text-transform:uppercase">ผู้ใช้</th>
+            <th style="text-align:left;padding:9px 12px;color:#64748b;font-size:11px;text-transform:uppercase">การกระทำ</th>
+            <th style="text-align:left;padding:9px 12px;color:#64748b;font-size:11px;text-transform:uppercase">ตาราง</th>
+            <th style="text-align:right;padding:9px 12px;color:#64748b;font-size:11px;text-transform:uppercase">ฟิลด์</th>
+            <th style="text-align:left;padding:9px 12px;color:#64748b;font-size:11px;text-transform:uppercase">รายละเอียด</th>
+          </tr></thead>
+          <tbody>${tr||`<tr><td colspan="6" style="text-align:center;color:#94a3b8;padding:28px">— ไม่มีบันทึกตามตัวกรอง —</td></tr>`}</tbody>
+        </table>
+      </div>
+    </div>
+    <style>#main table tbody tr td{border-top:1px solid #eef2f6;padding:9px 12px;vertical-align:top}#main table tbody tr:hover td{background:#f8fbfa}</style>`;
   if(window.lucide) try{ lucide.createIcons(); }catch(e){}
 }
 

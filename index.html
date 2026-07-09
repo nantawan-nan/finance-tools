@@ -671,6 +671,7 @@ const APP_CONFIG = {
 function appToolEnabled(id){ return !APP_CONFIG.enabledTools || APP_CONFIG.enabledTools.includes(id); }
 /* optIn tool = โชว์เฉพาะตอนถูกใส่ใน enabledTools เท่านั้น (ของเดิม enabledTools=null จะไม่เห็น) */
 function appToolVisible(t){
+  if(t.hidden) return false;                                // ★ ซ่อนถาวร (AR ซ้ำกับระบบงานขาย) — ไม่โชว์ sidebar/home
   if(!appToolEnabled(t.id)) return false;
   if(t.optIn && !(APP_CONFIG.enabledTools && APP_CONFIG.enabledTools.includes(t.id))) return false;
   // ★ per-page permissions (app_metadata.page_permissions) — null = ใช้ role default · array = filter เฉพาะที่ระบุ
@@ -781,18 +782,19 @@ const TOOLS = [
     name:"ลูกหนี้คงค้าง", desc:"พอร์ตสินเชื่อ + Aging",
     long:"สรุปลูกหนี้เงินกู้คงค้าง · เงินต้น/ดอกเบี้ย · รายลูกหนี้ · aging ตามปี — อัปรายงานลูกหนี้คงค้างแบบละเอียด",
     multiInput:true, status:"live", optIn:true },
+  // ★ AR 3 หน้า (ar/armap/settle) ซ่อนแล้ว 2026-07-09 — ซ้ำกับ "ระบบงานขาย" (function ยังอยู่ในไฟล์ เปิดคืนได้โดยลบ hidden)
   { id:"ar", stage:"ลูกหนี้ (AR)", ic:"◷", icon:"wallet",
     name:"AR Outstanding", desc:"ลูกหนี้คงค้าง + Aging",
     long:"ลูกหนี้คงค้าง · AR จริง vs AR บัญชี · Aging 0-30 / 31-60 / 61-90 / >90 · บันทึกรับเงิน",
-    multiInput:true, status:"live" },
+    multiInput:true, status:"live", hidden:true },
   { id:"armap", stage:"ลูกหนี้ (AR)", ic:"⇌", icon:"git-merge",
     name:"Map ลูกหนี้ → เงินเข้า", desc:"3 ไฟล์ → พร้อมคีย์ RE",
     long:"วาง 3 ไฟล์ — ลูกหนี้คงค้าง · รายงานขาย · หลังบ้าน Shopee/TikTok → แมพ IV กับเงินเข้า แล้วออกเป็น 3 ชีตพร้อมคีย์ AutoKey",
-    multiInput:true, status:"live" },
+    multiInput:true, status:"live", hidden:true },
   { id:"settle", stage:"ลูกหนี้ (AR)", ic:"≡", icon:"list-checks",
     name:"จับยอด Settlement", desc:"Shopee / TikTok / Lazada",
     long:"อัปรายงานเงินเข้ากระเป๋าจากแพลตฟอร์ม → จับคู่ออเดอร์ ว่าเงินเข้าจริงกี่บาท วันไหน + คำนวณส่วนต่าง",
-    sheetHints:{ contains:["settlement","income","รายได้","รายละเอียด"], exclude:["สรุป","summary"] }, status:"live" },
+    sheetHints:{ contains:["settlement","income","รายได้","รายละเอียด"], exclude:["สรุป","summary"] }, status:"live", hidden:true },
 
   // ───── 4. ธนาคาร ─────
   { id:"bankrec", stage:"ธนาคาร", ic:"⇆", icon:"refresh-ccw",
@@ -6686,9 +6688,9 @@ function renderToolHome(){
   const tasks = [
     { title:"คีย์ IV BigSeller รอบบ่าย (Shopee + TikTok)", due:"วันนี้ 16:00", dueColor:"#E23D4B", owner:"นันทวรรณ", oi:"น", pri:"เร่งด่วน", priColor:"#E23D4B", priBg:"#FDECEE", cat:"urgent", tool:"sales_orders" },
     { title:"ตรวจรายการ Bank Reconciliation ที่ไม่ตรง 36 รายการ", due:"วันนี้", dueColor:"#E23D4B", owner:"นันทวรรณ", oi:"น", pri:"เร่งด่วน", priColor:"#E23D4B", priBg:"#FDECEE", cat:"urgent", tool:"bankrec" },
-    { title:"ติดตามรับชำระเงิน (RE) ค้าง 24 รายการ", due:"พรุ่งนี้", dueColor:"#E08C16", owner:"ทีม AR", oi:"A", pri:"ใกล้ครบกำหนด", priColor:"#C77E14", priBg:"#FBEFD7", cat:"due", tool:"ar" },
+    { title:"ติดตามรับชำระเงิน (RE) ค้าง 24 รายการ", due:"พรุ่งนี้", dueColor:"#E08C16", owner:"ทีม AR", oi:"A", pri:"ใกล้ครบกำหนด", priColor:"#C77E14", priBg:"#FBEFD7", cat:"due", tool:"sales_income" },
     { title:"จ่ายเจ้าหนี้ใกล้ครบกำหนด 8 ราย", due:"23 มิ.ย.", dueColor:"#E08C16", owner:"ทีม AP", oi:"P", pri:"ใกล้ครบกำหนด", priColor:"#C77E14", priBg:"#FBEFD7", cat:"due", tool:"ap_outstanding" },
-    { title:"ตรวจสอบ Settlement Shopee/TikTok ประจำสัปดาห์", due:"25 มิ.ย.", dueColor:"#9AA8BF", owner:"นันทวรรณ", oi:"น", pri:"รอตรวจสอบ", priColor:"#5468FF", priBg:"#EEF0FF", cat:"review", tool:"settle" },
+    { title:"ตรวจสอบ Settlement Shopee/TikTok ประจำสัปดาห์", due:"25 มิ.ย.", dueColor:"#9AA8BF", owner:"นันทวรรณ", oi:"น", pri:"รอตรวจสอบ", priColor:"#5468FF", priBg:"#EEF0FF", cat:"review", tool:"sales_recon" },
   ];
   const taskCounts = { urgent: tasks.filter(t=>t.cat==="urgent").length, due: tasks.filter(t=>t.cat==="due").length, review: tasks.filter(t=>t.cat==="review").length };
   const tf = state.home.taskFilter;

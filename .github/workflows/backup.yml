@@ -55,6 +55,43 @@ jobs:
           done
           echo "✅ CSV — $N ตาราง"
 
+      - name: Mirror Storage bucket 'documents' (ไฟล์ Document Center)
+        env:
+          DB_URL:  ${{ secrets.SUPABASE_DB_URL }}
+          SVC_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          SB_URL:  https://qbsuynmsjieqglxzbqpw.supabase.co
+          PASS:    ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          if [ -z "$SVC_KEY" ]; then
+            echo "ℹ️ ยังไม่ได้ตั้ง secret 'SUPABASE_SERVICE_KEY' — ข้ามการสำรองไฟล์ Storage"
+            echo "   (meta ตาราง documents ถูกสำรองใน SQL/CSV แล้ว แต่ไฟล์ PDF จริงต้องใช้ service_role key)"
+            echo "   วิธีเปิด: Supabase → Project Settings → API → service_role key → เพิ่มเป็น repo secret ชื่อ SUPABASE_SERVICE_KEY"
+            exit 0
+          fi
+          mkdir -p out/docs
+          psql "$DB_URL" -Atc "select name from storage.objects where bucket_id='documents' order by name" > out/doc_names.txt || true
+          CNT=$(grep -c . out/doc_names.txt || echo 0)
+          echo "พบไฟล์ใน Storage: $CNT"
+          if [ "$CNT" -gt 0 ]; then
+            while IFS= read -r NAME; do
+              [ -z "$NAME" ] && continue
+              OUT="out/docs/$NAME"
+              mkdir -p "$(dirname "$OUT")"
+              if curl -fsSL -H "Authorization: Bearer $SVC_KEY" -H "apikey: $SVC_KEY" \
+                   "$SB_URL/storage/v1/object/documents/$NAME" -o "$OUT"; then
+                echo "  • $NAME"
+              else
+                echo "  ✗ $NAME"; rm -f "$OUT"
+              fi
+            done < out/doc_names.txt
+            tar -czf "out/docs_${DATE}.tar.gz" -C out/docs .
+            openssl enc -aes-256-cbc -salt -pbkdf2 -iter 100000 \
+              -in  "out/docs_${DATE}.tar.gz" \
+              -out "backups/docs_${DATE}.tar.gz.enc" \
+              -k   "$PASS"
+            echo "✅ storage docs encrypted — $(du -h backups/docs_${DATE}.tar.gz.enc | cut -f1)"
+          fi
+
       - name: Compress + Encrypt (AES-256)
         run: |
           gzip -c out/dump.sql > "out/backup_${DATE}.sql.gz"
@@ -83,8 +120,8 @@ jobs:
       - name: Prune old backups (เก็บ 30 ไฟล์ล่าสุดต่อชนิด)
         run: |
           cd backups
-          for EXT in "sql.gz.enc" "csv.tar.gz.enc"; do
-            ls -1t *."$EXT" 2>/dev/null | tail -n +31 | xargs -r git rm
+          for PAT in "backup_*.sql.gz.enc" "backup_*.csv.tar.gz.enc" "docs_*.tar.gz.enc"; do
+            ls -1t $PAT 2>/dev/null | tail -n +31 | xargs -r git rm
           done
           git commit -m "backup: prune (keep 30)" || echo "nothing to prune"
           git push || true

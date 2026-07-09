@@ -451,6 +451,7 @@ async function authSignIn(email, password){
   return data;
 }
 async function authSignOut(){
+  try{ presenceStop(); await presenceLeave(); }catch(e){}
   await sb.auth.signOut();
   AUTH.user=null; AUTH.role=null; AUTH.email=null;
   renderApp();
@@ -591,6 +592,7 @@ async function renderApp(){
   renderSidebar();
   renderTool();
   updateCrumb();
+  try{ presenceStart(); }catch(e){}   // heartbeat สถานะออนไลน์
 }
 
 function buildShell(){
@@ -7259,6 +7261,9 @@ async function usrLoadAll(){
     .select("id,user_id,company_id,role,is_active");
   if(e2) throw e2;
   state.users.access = acc || [];
+
+  // 4) presence (สถานะออนไลน์) — best effort
+  await usrLoadPresence();
 }
 
 function usrAccessByUser(uid){
@@ -7356,6 +7361,24 @@ async function renderToolUsers(){
     return true;
   });
   const bannedN = users.filter(isBanned).length;
+  const presence = (state.users.presence||[]).slice().sort((a,b)=>new Date(b.last_seen)-new Date(a.last_seen));
+  const onlineN = presence.filter(p=>usrIsOnline(p.last_seen)).length;
+  const meId = AUTH.user && AUTH.user.id;
+  const onlinePanel = `
+    <div style="background:#fff;border:1px solid #e6eaf0;border-radius:14px;padding:14px 16px;margin-bottom:16px">
+      <div style="font-size:13px;font-weight:800;color:#0f172a;margin-bottom:10px;display:flex;align-items:center;gap:8px">
+        <span style="width:9px;height:9px;border-radius:50%;background:#22c55e"></span>กำลังออนไลน์ (${onlineN} คน)
+        <span style="font-size:11px;color:#94a3b8;font-weight:500">· heartbeat ทุก ~1 นาที · ไม่บันทึกใน audit log</span>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px">
+        ${presence.length ? presence.map(p=>{ const on=usrIsOnline(p.last_seen); const nm=p.display_name||(p.email||"").split("@")[0];
+          return `<span style="display:inline-flex;align-items:center;gap:7px;background:${on?'#ecfdf5':'#f1f5f9'};border:1px solid ${on?'#a7f3d0':'#e6eaf0'};border-radius:999px;padding:5px 11px;font-size:12px">
+            <span style="width:8px;height:8px;border-radius:50%;background:${on?'#22c55e':'#cbd5e1'}"></span>
+            <b>${esc(nm)}</b><span style="color:#94a3b8">${esc(roleLbl(p.role))} · ${usrAgo(p.last_seen)}</span>
+            ${p.user_id!==meId ? `<span onclick="usrKick('${p.user_id}','${esc((p.email||'').replace(/'/g,''))}')" title="เตะออกจากระบบ" style="cursor:pointer;color:#dc2626;font-weight:800;padding-left:3px">✕</span>` : `<span style="color:#94a3b8;font-size:10.5px">(คุณ)</span>`}
+          </span>`; }).join("") : `<span style="color:#94a3b8;font-size:12px">— ยังไม่มีข้อมูลออนไลน์ (ต้อง deploy ตาราง user_presence ก่อน) —</span>`}
+      </div>
+    </div>`;
 
   const kpiCard=(r)=>{ const c=ROLE_COLORS[r.v]||"#0d9488"; return `
     <div style="flex:1;min-width:158px;background:#fff;border:1px solid #e6eaf0;border-left:4px solid ${c};border-radius:14px;padding:14px 16px">
@@ -7373,12 +7396,14 @@ async function renderToolUsers(){
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <button class="btn ghost btn sm" onclick="usrExportXlsx()">↓ Excel</button>
         <button class="btn ghost btn sm" onclick="window.print()">🖨 พิมพ์</button>
+        <button class="btn ghost btn sm" style="color:#b91c1c;border-color:#fca5a5" onclick="usrKickAll()">⏻ บังคับออกทุกคน</button>
         <button class="btn ghost btn sm" onclick="usrClearKey()">เปลี่ยน key</button>
         <button class="btn" onclick="usrOpenAdd()">+ เพิ่มผู้ใช้</button>
       </div>
     </div>
 
     <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px">${presentRoles.map(kpiCard).join("")}</div>
+    ${onlinePanel}
 
     <div style="display:flex;gap:9px;flex-wrap:wrap;align-items:center;margin-bottom:12px">
       ${tab("all","ทั้งหมด",users.length)}${presentRoles.map(r=>tab(r.v,r.l,roleCount[r.v])).join("")}
@@ -11516,6 +11541,71 @@ async function renderToolAudit(){
     <style>#main table tbody tr td{border-top:1px solid #eef2f6;padding:9px 12px;vertical-align:top}#main table tbody tr:hover td{background:#f8fbfa}</style>`;
   if(window.lucide) try{ lucide.createIcons(); }catch(e){}
 }
+
+/* ============================================================
+   สถานะออนไลน์ (presence heartbeat) + บังคับออกจากระบบ (kick)
+   ============================================================ */
+let _prsTimer = null;
+function presenceStart(){
+  if(_prsTimer || !AUTH.user) return;
+  state._sessionStart = Date.now();
+  presenceBeat();
+  _prsTimer = setInterval(presenceBeat, 60000);
+  try{ document.addEventListener("visibilitychange", ()=>{ if(!document.hidden) presenceBeat(); }); }catch(e){}
+}
+function presenceStop(){ if(_prsTimer){ clearInterval(_prsTimer); _prsTimer=null; } }
+async function presenceBeat(){
+  try{
+    if(!AUTH.user) return;
+    const nm=(AUTH.user.user_metadata && AUTH.user.user_metadata.display_name) || (AUTH.email||"").split("@")[0];
+    await sb.from("user_presence").upsert({ user_id:AUTH.user.id, email:AUTH.email, display_name:nm, role:AUTH.role, last_seen:new Date().toISOString(), current_tool:state.tool||"" }, { onConflict:"user_id" });
+    // เช็คว่าถูกบังคับออกไหม
+    const { data } = await sb.from("user_presence").select("kick_at").eq("user_id",AUTH.user.id).limit(1);
+    const ka = data && data[0] && data[0].kick_at;
+    if(ka && new Date(ka).getTime() > (state._sessionStart||0)){
+      presenceStop();
+      alert("บัญชีนี้ถูกบังคับออกจากระบบโดยผู้ดูแล");
+      try{ await sb.auth.signOut(); }catch(e){}
+      try{ location.reload(); }catch(e){}
+    }
+  }catch(e){ /* เงียบ — ตาราง presence อาจยังไม่ deploy */ }
+}
+async function presenceLeave(){
+  try{ if(AUTH.user) await sb.from("user_presence").delete().eq("user_id",AUTH.user.id); }catch(e){}
+}
+
+/* ---- ฝั่งจัดการผู้ใช้: โหลด presence + เตะออก + audit ---- */
+async function usrLoadPresence(){
+  try{ const { data } = await sb.from("user_presence").select("*"); state.users.presence = data||[]; }
+  catch(e){ state.users.presence=[]; }
+}
+function usrAuditLog(kind, target){
+  try{ sb.from("audit_log_v2").insert({ user_email:AUTH.email, table_name:"auth", row_id:String(target||""), action:"UPDATE", changed_fields:[kind] }); }catch(e){}
+}
+async function usrKick(userId, email){
+  if(AUTH.role!=="admin") return;
+  if(!confirm("บังคับ "+(email||"ผู้ใช้นี้")+" ออกจากระบบ?\n(ผู้ใช้จะถูกเด้งออกภายใน ~1 นาที)")) return;
+  const { error } = await sb.from("user_presence").update({ kick_at:new Date().toISOString() }).eq("user_id",userId);
+  if(error){ alert("ไม่สำเร็จ: "+error.message); return; }
+  usrAuditLog("force_logout", email||userId);
+  await usrLoadPresence(); renderToolUsers();
+}
+async function usrKickAll(){
+  if(AUTH.role!=="admin") return;
+  if(!confirm("บังคับออกจากระบบทุกคน (ยกเว้นตัวเอง)?\nทุกคนจะถูกเด้งออกภายใน ~1 นาที")) return;
+  const { error } = await sb.from("user_presence").update({ kick_at:new Date().toISOString() }).neq("user_id",AUTH.user.id);
+  if(error){ alert("ไม่สำเร็จ: "+error.message); return; }
+  usrAuditLog("force_logout_all", "ALL");
+  await usrLoadPresence(); renderToolUsers();
+  alert("ส่งคำสั่งออกจากระบบให้ทุกคนแล้ว");
+}
+function usrAgo(iso){
+  if(!iso) return "—"; const m=Math.floor((Date.now()-new Date(iso).getTime())/60000);
+  if(m<1) return "เมื่อสักครู่"; if(m<60) return m+" นาทีที่แล้ว";
+  const h=Math.floor(m/60); if(h<24) return h+" ชม.ที่แล้ว";
+  return Math.floor(h/24)+" วันที่แล้ว";
+}
+function usrIsOnline(iso){ return iso && (Date.now()-new Date(iso).getTime()) < 5*60000; }
 
 function fopFmt(n){
   if(n==null || isNaN(n)) return "—";

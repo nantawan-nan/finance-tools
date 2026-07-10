@@ -15910,7 +15910,12 @@ function finInjectStyle(){
   table.fin-tbl td.fin-code{ color:#94a3b8; font-size:11px; padding-right:4px; }
   .fin-tbl tr.fin-acc td.fin-name{ padding-left:22px; color:#475569; }
   .fin-tbl tr.fin-sec td{ background:#f8fafc; font-weight:800; color:var(--fg); }
+  .fin-tbl tr.fin-sec-click{ cursor:pointer; user-select:none; }
+  .fin-tbl tr.fin-sec-click:hover td{ background:#eef2f7; }
+  .fin-tbl .fin-chev{ display:inline-block; width:14px; color:#94a3b8; font-size:11px; }
   .fin-tbl tr.fin-sub td{ font-weight:700; color:var(--fg); border-top:1px solid var(--ln); }
+  .fin-pctlbl{ font-weight:600; color:var(--brand); font-size:11px; margin-left:8px; background:color-mix(in srgb,var(--brand) 10%,#fff); padding:1px 8px; border-radius:20px; white-space:nowrap; }
+  .fin-totpct{ font-size:10.5px; font-weight:600; color:var(--mut); font-style:italic; }
   .fin-tbl tr.fin-hl-g td{ background:#ecfdf5; font-weight:800; color:var(--grn); border-top:1px solid #a7f3d0; border-bottom:1px solid #a7f3d0; }
   .fin-tbl tr.fin-hl-r td{ background:#fef2f2; font-weight:800; color:var(--red); border-top:1px solid #fecaca; border-bottom:1px solid #fecaca; }
   .fin-tbl tr.fin-pct td{ font-style:italic; color:var(--mut); font-size:11.5px; }
@@ -15962,7 +15967,7 @@ function finHeroHtml(which, d){
     </div>
     <div class="fin-acts fin-noprint">
       ${canW?`<button class="fin-btn" onclick="finUpload()"><i data-lucide="upload"></i> อัปโหลดข้อมูล</button>`:``}
-      ${(which==="pnl"&&d.pnl)?`<button class="fin-btn" onclick="finTogglePnlDetail()"><i data-lucide="list"></i> ${d.pnlDetail?"ย่อรายละเอียด":"แสดงรายบัญชี"}</button>`:``}
+      ${(which==="pnl"&&d.pnl)?`<button class="fin-btn" onclick="finTogglePnlDetail()"><i data-lucide="list"></i> ${finPnlAllOpen(d)?"ย่อทุกกลุ่ม":"กางรายบัญชีทุกกลุ่ม"}</button>`:``}
       ${((which==="pnl"&&d.pnl)||(which==="balance"&&d.balance))?`<button class="fin-btn" onclick="finPrint()"><i data-lucide="printer"></i> พิมพ์ / PDF</button>`:``}
     </div>
   </div>`;
@@ -15994,40 +15999,48 @@ function finPnlHtml(d){
                                      : `<td class="fin-name" colspan="2">${esc(label)}</td>`;
     return `<tr class="${cls}">${nameCell}${cells}${totCell}</tr>`;
   };
-  const accRows=(list)=> d.pnlDetail ? list.map(a=>{
+  const secOpen=key=> !!(d.pnlOpen && d.pnlOpen[key]);
+  const accRows=(list)=> list.map(a=>{
     const line={ m:M.map(mo=>a.mv[mo.key]||0), total:a.total };
     return rowLine("fin-acc", a.name, line, { code:a.code });
-  }).join("") : "";
-  const gapRow=(secKey,label)=>{ if(!d.pnlDetail) return ""; const g=C.gaps&&C.gaps[secKey]; if(!g||Math.abs(g.total)<=0.01) return ""; return rowLine("fin-acc", label, g, { code:"" }); };
+  }).join("");
+  const gapRow=(secKey,label)=>{ const g=C.gaps&&C.gaps[secKey]; if(!g||Math.abs(g.total)<=0.01) return ""; return rowLine("fin-acc", label, g, { code:"" }); };
   const pctRow=(label,marg)=>{
     const cells=marg.m.map(v=>`<td class="num">${finPct(v)}</td>`).join("");
     return `<tr class="fin-pct"><td class="fin-name" colspan="2">${label}</td>${cells}<td class="num tot-col">${finPct(marg.total)}</td></tr>`;
   };
+  // ยอดรวมย่อย + %ของรายได้ (บนบรรทัดรวม) + %ต่อเดือนในแต่ละช่อง
+  const pctOfRev=line=> C.rev.total ? line.total/C.rev.total : null;
+  const subP=(label,line,showPct)=>{
+    const cells=line.m.map(v=>`<td class="num ${v<0?'neg':''}">${finCell(v)}</td>`).join("");
+    const chip = showPct ? ` <span class="fin-pctlbl">${finPct(pctOfRev(line))} ของรายได้</span>` : "";
+    const totPct = showPct ? `<div class="fin-totpct">${finPct(pctOfRev(line))}</div>` : "";
+    return `<tr class="fin-sub"><td class="fin-name" colspan="2">${esc(label)}${chip}</td>${cells}<td class="num tot-col">${finCell(line.total)}${totPct}</td></tr>`;
+  };
   const sub=(label,line)=>rowLine("fin-sub",label,line);
-  const sec=label=>`<tr class="fin-sec"><td class="fin-name" colspan="${ncols+3}">${label}</td></tr>`;
+  // หัวข้อกลุ่ม — คลิกเพื่อกาง/ย่อรายบัญชี
+  const sec=(label,key)=>`<tr class="fin-sec ${key?'fin-sec-click':''}" ${key?`onclick="finTogglePnlSection('${key}')"`:''}>
+    <td class="fin-name" colspan="${ncols+3}">${key?`<span class="fin-chev">${secOpen(key)?"▾":"▸"}</span>`:""}${label}</td></tr>`;
   const thMonths=M.map(mo=>`<th class="num">${mo.label}</th>`).join("");
   let body="";
-  body+=sec("รายได้");
-  body+=accRows(C.acc.revenue);
-  body+=gapRow("revenue","รายได้อื่น (ปรับปรุง)");
-  body+=sub("รวมรายได้",C.rev);
-  body+=sec("ต้นทุนขาย");
-  body+=accRows(C.acc.cogs);
-  body+=gapRow("cogs","การเปลี่ยนแปลงสินค้าคงเหลือ");
-  body+=sub("ต้นทุนขาย",C.cogs);
+  body+=sec("รายได้","revenue");
+  if(secOpen("revenue")){ body+=accRows(C.acc.revenue); body+=gapRow("revenue","รายได้อื่น (ปรับปรุง)"); }
+  body+=subP("รวมรายได้",C.rev,false);
+  body+=sec("ต้นทุนขาย","cogs");
+  if(secOpen("cogs")){ body+=accRows(C.acc.cogs); body+=gapRow("cogs","การเปลี่ยนแปลงสินค้าคงเหลือ"); }
+  body+=subP("ต้นทุนขาย",C.cogs,true);
   body+=rowLine("fin-hl-g","กำไร(ขาดทุน)ขั้นต้น",C.gross);
   body+=pctRow("% Gross Margin",C.grossMarg);
-  body+=sec("ค่าใช้จ่ายในการขายและบริหาร");
-  body+=accRows(C.acc.selling);
-  body+=gapRow("selling","ค่าใช้จ่ายในการขายอื่น");
-  body+=sub("รวมค่าใช้จ่ายในการขาย",C.sell);
-  body+=accRows(C.acc.admin);
-  body+=gapRow("admin","ค่าใช้จ่ายในการบริหารอื่น");
-  body+=sub("รวมค่าใช้จ่ายในการบริหาร",C.adm);
-  body+=rowLine("fin-sub","รวมค่าใช้จ่ายขายและบริหาร",C.opex);
+  body+=sec("ค่าใช้จ่ายในการขายและบริหาร","opex");
+  if(secOpen("opex")){ body+=accRows(C.acc.selling); body+=gapRow("selling","ค่าใช้จ่ายในการขายอื่น"); }
+  body+=subP("รวมค่าใช้จ่ายในการขาย",C.sell,true);
+  if(secOpen("opex")){ body+=accRows(C.acc.admin); body+=gapRow("admin","ค่าใช้จ่ายในการบริหารอื่น"); }
+  body+=subP("รวมค่าใช้จ่ายในการบริหาร",C.adm,true);
+  body+=subP("รวมค่าใช้จ่ายขายและบริหาร",C.opex,true);
   body+=rowLine("fin-sub","กำไร(ขาดทุน)ก่อนต้นทุนทางการเงิน",C.ebit);
-  if(d.pnlDetail){ body+=sec("ต้นทุนทางการเงิน"); body+=accRows(C.acc.finance); }
-  body+=sub("ต้นทุนทางการเงิน",C.fin);
+  body+=sec("ต้นทุนทางการเงิน","finance");
+  if(secOpen("finance")){ body+=accRows(C.acc.finance); }
+  body+=subP("ต้นทุนทางการเงิน",C.fin,true);
   body+=rowLine(C.net.total>=0?"fin-hl-g":"fin-hl-r","กำไร(ขาดทุน)สุทธิ",C.net);
   body+=pctRow("% Net Margin",C.netMarg);
   return `${kpis}
@@ -16093,7 +16106,10 @@ function finEmptyHtml(which){
     ${canW?`<div style="margin-top:14px"><button class="fin-btn" style="background:var(--brand);border-color:var(--brand)" onclick="finUpload()"><i data-lucide="upload"></i> อัปโหลดข้อมูล</button></div>`:``}
   </div>`;
 }
-function finTogglePnlDetail(){ const d=finState(); d.pnlDetail=!d.pnlDetail; renderTool(); }
+const FIN_PNL_SECS=["revenue","cogs","opex","finance"];
+function finPnlAllOpen(d){ const o=d.pnlOpen||{}; return FIN_PNL_SECS.every(k=>o[k]); }
+function finTogglePnlSection(key){ const d=finState(); d.pnlOpen=d.pnlOpen||{}; d.pnlOpen[key]=!d.pnlOpen[key]; renderTool(); }
+function finTogglePnlDetail(){ const d=finState(); const open=!finPnlAllOpen(d); const o={}; FIN_PNL_SECS.forEach(k=>o[k]=open); d.pnlOpen=o; renderTool(); }
 function finToggleBLine(key){ const d=finState(); d.bOpen[key]=!d.bOpen[key]; renderTool(); }
 function finPrint(){
   const sheet=document.querySelector(".fin-page");

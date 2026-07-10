@@ -15730,71 +15730,75 @@ function finParsePnl(rows){
   });
   const mkeys=new Set(months.map(m=>m.key));
   accounts.forEach(a=>{ const mv={}; for(const k in a.mv){ if(mkeys.has(k)) mv[k]=a.mv[k]; } a.mv=mv; });
+  const mcActive = monthCols.filter(m=>mkeys.has(m.key));   // month columns เรียงตรงกับ months (aligned)
+  // ---- อ่าน "ยอดรวมย่อยที่พิมพ์ไว้" ในชีตตรง ๆ (authoritative — รวมปรับปรุงสินค้าคงเหลือ ฯลฯ ให้แล้ว) ----
+  const rowLabel=row=>{ for(let c=0;c<row.length;c++){ const cv=finTxt(row[c]); if(cv && !FIN_CODE.test(cv)) return cv; } return ""; };
+  const readLine=row=>({ m: mcActive.map(mc=>finR2(finNum(row[mc.c]))), total: finR2(finNum(totalCol>=0?row[totalCol]:0)) });
+  const findSub=match=>{ for(let r=hdr+1;r<rows.length;r++){ const row=rows[r]||[]; if(match(rowLabel(row))) return readLine(row); } return null; };
+  const subs={};
+  [ ["rev",   n=> n==="รวมรายได้"],
+    ["cogs",  n=> n==="ต้นทุนขาย" || n==="ต้นทุนขายและบริการ" || n==="ต้นทุนขายและการบริการ"],
+    ["gross", n=> n.indexOf("ขั้นต้น")>=0],
+    ["sell",  n=> n.indexOf("รวมค่าใช้จ่ายในการขาย")===0],
+    ["adm",   n=> n.indexOf("รวมค่าใช้จ่ายในการบริหาร")===0],
+    ["opex",  n=> n.indexOf("รวมค่าใช้จ่ายขายและบริหาร")===0 || n.indexOf("รวมค่าใช้จ่ายในการขายและบริหาร")===0],
+    ["ebit",  n=> n.indexOf("ก่อนต้นทุนทางการเงิน")>=0],
+    ["net",   n=> n.indexOf("สุทธิ")>=0 && n.indexOf("กำไร")>=0]
+  ].forEach(d=>{ const L=findSub(d[1]); if(L) subs[d[0]]=L; });
   let year=2569; if(months.length) year = parseInt(months[0].key.slice(0,4),10)+543;
   const rangeLabel = months.length ? (months[0].label.replace(/\.$/,"")+"–"+months[months.length-1].label.replace(/\.$/,"")) : "";
-  return { year, periodLabel:"สำหรับเดือน "+rangeLabel+" ปี "+year, months, accounts };
+  return { year, periodLabel:"สำหรับเดือน "+rangeLabel+" ปี "+year, months, accounts, subs };
 }
+/* detail sheet → กลุ่มบัญชีย่อยตามหัวข้อ (subheader → รายบัญชี) */
+function finBalDetGroups(detRows){
+  const groups=[]; let cur=null;
+  if(!detRows) return groups;
+  for(let r=0;r<detRows.length;r++){
+    const row=detRows[r]||[]; let code="",name="",amt=0,found=false;
+    for(let c=0;c<row.length;c++){ const cv=finTxt(row[c]);
+      if(FIN_CODE.test(cv)){ code=cv; name=finTxt(row[c+1]);
+        for(let k=c+2;k<row.length;k++){ if(typeof row[k]==="number"){ amt=row[k]; break; } }
+        found=true; break; } }
+    if(found){ if(!cur){ cur={name:"(none)",accs:[]}; groups.push(cur); } cur.accs.push({ code, name, amount:finR2(amt) }); }
+    else { let label=""; for(let c=0;c<row.length;c++){ const cv=finTxt(row[c]); if(cv){ label=cv; break; } }
+      if(label && label.indexOf("รวม")!==0 && label.indexOf("ณ")!==0 && label.indexOf("งบ")!==0 && label.indexOf("บริษัท")!==0){ cur={name:label,accs:[]}; groups.push(cur); } }
+  }
+  return groups.filter(g=>g.accs.length);
+}
+/* งบแสดงฐานะการเงิน — generic: สร้างจากโครงของ "ชีตสรุป" เอง (ไม่ hardcode ตามบริษัท) */
 function finParseBalance(sumRows, detRows){
   if(!sumRows) return null;
-  // summary lines: scan — name = text cell แรก, cur/prev = ตัวเลข 2 ตัวแรก
-  // (index-independent — SheetJS ตัดคอลัมน์ว่างซ้ายทิ้ง ทำให้ตำแหน่งเลื่อน)
-  const sumLines=[];
+  let curYear="", prevYear="", asOf="", curCol=-1, prevCol=-1; const lines=[]; let started=false;
+  const yearOf=v=>{ const n=(typeof v==="number")?v:parseFloat(String(v).replace(/[^\d.]/g,"")); return (isFinite(n)&&n>2400&&n<2600)?n:null; };
   for(let r=0;r<sumRows.length;r++){
-    const row=sumRows[r]||[]; let name=""; const nums=[];
-    for(let c=0;c<row.length;c++){
-      const cell=row[c];
-      if(typeof cell==="number"){ nums.push(cell); }
-      else { const t=finTxt(cell); if(t && !name) name=t; }
-    }
+    const row=sumRows[r]||[];
+    // แถวหัวปี (คอลัมน์ 2569 / 2567) — จับตำแหน่งคอลัมน์ cur/prev ไว้อ่านทุกบรรทัด (กันค่าปีก่อนไปอยู่ช่อง cur)
+    if(curCol<0){ const yc=[]; for(let c=0;c<row.length;c++){ if(yearOf(row[c])!=null) yc.push(c); }
+      if(yc.length>=2){ curCol=yc[0]; prevCol=yc[1]; curYear=String(Math.round(yearOf(row[curCol]))); prevYear=String(Math.round(yearOf(row[prevCol]))); continue; } }
+    let name=""; for(let c=0;c<row.length;c++){ const t=finTxt(row[c]); if(t && yearOf(row[c])==null){ name=t; break; } }
+    if(name && name.indexOf("วันที่")>=0) asOf=name.replace(/^ณ\.?\s*/,"ณ ");
     if(!name) continue;
-    sumLines.push({ name, cur: nums.length? finR2(nums[0]) : null, prev: nums.length>1? finR2(nums[1]) : null });
+    if(!started){ if(name==="สินทรัพย์") started=true; else continue; }
+    const rd=c=> (c>=0 && typeof row[c]==="number") ? finR2(row[c]) : null;
+    let cur=rd(curCol), prev=rd(prevCol);
+    if(curCol<0){ const nums=row.filter(x=>typeof x==="number"); cur=nums.length?finR2(nums[0]):null; prev=nums.length>1?finR2(nums[1]):null; }
+    lines.push({ name, cur, prev });
   }
-  const sline=nm=>{ const x=sumLines.find(s=>s.name===nm); return x||{cur:null,prev:null}; };
-  // detail groups: subheader (text ไม่ขึ้นต้น "รวม") → accounts จนถึง subheader ถัดไป
-  const groups=[]; let cur=null;
-  if(detRows){
-    for(let r=4;r<detRows.length;r++){
-      const row=detRows[r]||[]; let code="",name="",amt=0,found=false;
-      for(let c=0;c<row.length;c++){ const cv=finTxt(row[c]); if(FIN_CODE.test(cv)){ code=cv; name=finTxt(row[c+1]); amt=finNum(row[c+2]); found=true; break; } }
-      if(found){ if(!cur){ cur={name:"(none)",accs:[]}; groups.push(cur); } cur.accs.push({ code, name, amount:finR2(amt) }); }
-      else { let label=""; for(let c=0;c<row.length;c++){ const cv=finTxt(row[c]); if(cv){ label=cv; break; } } if(label && label.indexOf("รวม")!==0){ cur={name:label,accs:[]}; groups.push(cur); } }
-    }
-  }
-  const ne=groups.filter(g=>g.accs.length);
-  const at=i=> (ne[i]?ne[i].accs:null);
-  const line=(name,type,c,p,accs)=>{ const o={name,type}; if(c!=null)o.cur=c; if(p!=null)o.prev=p; if(accs&&accs.length)o.accounts=accs; return o; };
-  const eq = at(7)||[];
-  const capA = eq.filter(a=>a.code.indexOf("3100")===0);
-  const retA = eq.filter(a=>a.code.indexOf("3100")!==0);
-  const g=nm=>sline(nm);
-  const assets=[
-    line("สินทรัพย์หมุนเวียน","subheader"),
-    line("เงินสดและรายการเทียบเท่าเงินสด","line",g("เงินสดและรายการเทียบเท่าเงินสด").cur,g("เงินสดและรายการเทียบเท่าเงินสด").prev,at(0)),
-    line("ลูกหนี้การค้าและลูกหนี้หมุนเวียนอื่น","line",g("ลูกหนี้การค้าและลูกหนี้หมุนเวียนอื่น").cur,g("ลูกหนี้การค้าและลูกหนี้หมุนเวียนอื่น").prev,at(1)),
-    line("สินค้าคงเหลือ","line",g("สินค้าคงเหลือ").cur,g("สินค้าคงเหลือ").prev),
-    line("สินทรัพย์หมุนเวียนอื่น","line",g("สินทรัพย์หมุนเวียนอื่น").cur,g("สินทรัพย์หมุนเวียนอื่น").prev,at(2)),
-    line("รวมสินทรัพย์หมุนเวียน","subtotal",g("รวมสินทรัพย์หมุนเวียน").cur,g("รวมสินทรัพย์หมุนเวียน").prev),
-    line("สินทรัพย์ไม่หมุนเวียน","subheader"),
-    line("ที่ดิน อาคาร และอุปกรณ์-สุทธิ","line",g("อุปกรณ์-สุทธิ").cur,g("อุปกรณ์-สุทธิ").prev,at(3)),
-    line("รวมสินทรัพย์ไม่หมุนเวียน","subtotal",g("รวมสินทรัพย์ไม่หมุนเวียน").cur,g("รวมสินทรัพย์ไม่หมุนเวียน").prev),
-    line("รวมสินทรัพย์","total",g("รวมสินทรัพย์").cur,g("รวมสินทรัพย์").prev)
-  ];
-  const liabeq=[
-    line("หนี้สินหมุนเวียน","subheader"),
-    line("เจ้าหนี้การค้าและเจ้าหนี้หมุนเวียนอื่น","line",g("เจ้าหนี้การค้าและเจ้าหนี้หมุนเวียนอื่น").cur,g("เจ้าหนี้การค้าและเจ้าหนี้หมุนเวียนอื่น").prev,at(4)),
-    line("หนี้สินหมุนเวียนอื่น","line",g("หนี้สินหมุนเวียนอื่น").cur,g("หนี้สินหมุนเวียนอื่น").prev,at(5)),
-    line("รวมหนี้สินหมุนเวียน","subtotal",g("รวมหนี้สินหมุนเวียน").cur,g("รวมหนี้สินหมุนเวียน").prev),
-    line("หนี้สินไม่หมุนเวียน","subheader"),
-    line("เงินกู้ยืมจากบุคคลและกิจการที่เกี่ยวข้องกัน","line",g("เงินกู้ยืมจากบุคคลและกิจการที่เกี่ยวข้องกัน").cur,g("เงินกู้ยืมจากบุคคลและกิจการที่เกี่ยวข้องกัน").prev,at(6)),
-    line("รวมหนี้สินไม่หมุนเวียน","subtotal",g("รวมหนี้สินไม่หมุนเวียน").cur,g("รวมหนี้สินไม่หมุนเวียน").prev),
-    line("รวมหนี้สิน","total",g("รวมหนี้สิน").cur,g("รวมหนี้สิน").prev),
-    line("ส่วนของผู้ถือหุ้น","subheader"),
-    line("ทุนที่ออกและชำระแล้ว (หุ้นสามัญ 15,000 หุ้น มูลค่าหุ้นละ 100 บาท)","line",1500000,90361000,capA),
-    line("ขาดทุนสะสม (ขาดทุนเกินทุน)","line",g("ขาดทุนสะสม(ขาดทุนเกินทุน)").cur,g("ขาดทุนสะสม(ขาดทุนเกินทุน)").prev,retA),
-    line("รวมส่วนของผู้ถือหุ้น","subtotal",g("รวมส่วนของผู้ถือหุ้น").cur,g("รวมส่วนของผู้ถือหุ้น").prev),
-    line("รวมหนี้สินและส่วนของผู้ถือหุ้น","total",g("รวมหนี้สินและส่วนของผู้ถือหุ้น").cur,g("รวมหนี้สินและส่วนของผู้ถือหุ้น").prev)
-  ];
-  return { asOf:"ณ วันที่ 30 มิถุนายน 2569", curYear:"2569", prevYear:"2567",
+  const isTotal=n=> n==="รวมสินทรัพย์"||n==="รวมหนี้สิน"||n==="รวมส่วนของผู้ถือหุ้น"||n==="รวมส่วนของผู้ถิอหุ้น"||n==="รวมหนี้สินและส่วนของผู้ถือหุ้น";
+  const typeOf=L=> isTotal(L.name)?"total" : (L.name.indexOf("รวม")===0?"subtotal" : ((L.cur!=null||L.prev!=null)?"line":"subheader"));
+  const detGroups=finBalDetGroups(detRows); const usedDet=new Set();
+  const attach=nm=>{ for(let i=0;i<detGroups.length;i++){ if(usedDet.has(i)) continue; const dn=detGroups[i].name;
+    if(dn===nm || dn.indexOf(nm)>=0 || nm.indexOf(dn)>=0){ usedDet.add(i); return detGroups[i].accs; } } return null; };
+  const assets=[], liabeq=[]; let bucket=assets;
+  lines.forEach(L=>{
+    if(L.name==="สินทรัพย์") return;                                   // group title
+    if(L.name==="หนี้สินและส่วนของผู้ถือหุ้น"){ bucket=liabeq; return; } // สลับกลุ่ม
+    const t=typeOf(L); const o={ name:L.name, type:t };
+    if(L.cur!=null) o.cur=L.cur; if(L.prev!=null) o.prev=L.prev;
+    if(t==="line"){ const accs=attach(L.name); if(accs) o.accounts=accs; }
+    bucket.push(o);
+  });
+  return { asOf: asOf||"ณ วันที่ 30 มิถุนายน 2569", curYear:curYear||"2569", prevYear:prevYear||"2567",
     groups:[ {key:"assets",name:"สินทรัพย์",lines:assets}, {key:"liabeq",name:"หนี้สินและส่วนของผู้ถือหุ้น",lines:liabeq} ] };
 }
 function finParse(wb){
@@ -15840,14 +15844,25 @@ function finPnlLine(accounts, months){
 function finVecSub(a,b){ return { m:a.m.map((v,i)=>finR2(v-b.m[i])), total:finR2(a.total-b.total) }; }
 function finVecAdd(a,b){ return { m:a.m.map((v,i)=>finR2(v+b.m[i])), total:finR2(a.total+b.total) }; }
 function finPnlCompute(pnl){
-  const M=pnl.months, A=pnl.accounts;
+  const M=pnl.months, A=pnl.accounts, S=pnl.subs||{};
   const bySec=s=>A.filter(a=>a.section===s);
-  const rev=finPnlLine(bySec("revenue"),M), cogs=finPnlLine(bySec("cogs"),M),
-        sell=finPnlLine(bySec("selling"),M), adm=finPnlLine(bySec("admin"),M), fin=finPnlLine(bySec("finance"),M);
-  const gross=finVecSub(rev,cogs), opex=finVecAdd(sell,adm), ebit=finVecSub(gross,opex), net=finVecSub(ebit,fin);
+  const coded=s=>finPnlLine(bySec(s),M);
+  // ใช้ยอดรวมย่อยที่พิมพ์ไว้เป็นหลัก (authoritative) · ถ้าไม่มีค่อยคำนวณจากรายบัญชี
+  const rev = S.rev || coded("revenue");
+  const cogs= S.cogs|| coded("cogs");
+  const gross= S.gross || finVecSub(rev,cogs);
+  const sell= S.sell || coded("selling");
+  const adm = S.adm || coded("admin");
+  const opex= S.opex || finVecAdd(sell,adm);
+  const ebit= S.ebit || finVecSub(gross,opex);
+  const net = S.net || finVecSub(ebit, coded("finance"));
+  const fin = finVecSub(ebit, net);   // identity: EBIT = net + finance cost
   const marg=v=>({ m:v.m.map((x,i)=> rev.m[i]?x/rev.m[i]:null), total: rev.total? v.total/rev.total : null });
+  // ส่วนต่างระหว่างยอดรวมย่อย (พิมพ์) กับผลรวมรายบัญชีที่มีรหัส — เช่น ปรับปรุงสินค้าคงเหลือ (COGS)
+  const gap=(secKey, sub)=>{ const c=coded(secKey); return { m: sub.m.map((v,i)=>finR2(v-(c.m[i]||0))), total: finR2(sub.total-c.total) }; };
   return { rev,cogs,sell,adm,fin,gross,opex,ebit,net, grossMarg:marg(gross), netMarg:marg(net),
-           acc:{revenue:bySec("revenue"),cogs:bySec("cogs"),selling:bySec("selling"),admin:bySec("admin"),finance:bySec("finance")} };
+           acc:{revenue:bySec("revenue"),cogs:bySec("cogs"),selling:bySec("selling"),admin:bySec("admin"),finance:bySec("finance")},
+           gaps:{ revenue:gap("revenue",rev), cogs:gap("cogs",cogs), selling:gap("selling",sell), admin:gap("admin",adm) } };
 }
 
 /* ---- Styles ---- */
@@ -15983,6 +15998,7 @@ function finPnlHtml(d){
     const line={ m:M.map(mo=>a.mv[mo.key]||0), total:a.total };
     return rowLine("fin-acc", a.name, line, { code:a.code });
   }).join("") : "";
+  const gapRow=(secKey,label)=>{ if(!d.pnlDetail) return ""; const g=C.gaps&&C.gaps[secKey]; if(!g||Math.abs(g.total)<=0.01) return ""; return rowLine("fin-acc", label, g, { code:"" }); };
   const pctRow=(label,marg)=>{
     const cells=marg.m.map(v=>`<td class="num">${finPct(v)}</td>`).join("");
     return `<tr class="fin-pct"><td class="fin-name" colspan="2">${label}</td>${cells}<td class="num tot-col">${finPct(marg.total)}</td></tr>`;
@@ -15993,16 +16009,20 @@ function finPnlHtml(d){
   let body="";
   body+=sec("รายได้");
   body+=accRows(C.acc.revenue);
+  body+=gapRow("revenue","รายได้อื่น (ปรับปรุง)");
   body+=sub("รวมรายได้",C.rev);
   body+=sec("ต้นทุนขาย");
   body+=accRows(C.acc.cogs);
+  body+=gapRow("cogs","การเปลี่ยนแปลงสินค้าคงเหลือ");
   body+=sub("ต้นทุนขาย",C.cogs);
   body+=rowLine("fin-hl-g","กำไร(ขาดทุน)ขั้นต้น",C.gross);
   body+=pctRow("% Gross Margin",C.grossMarg);
   body+=sec("ค่าใช้จ่ายในการขายและบริหาร");
   body+=accRows(C.acc.selling);
+  body+=gapRow("selling","ค่าใช้จ่ายในการขายอื่น");
   body+=sub("รวมค่าใช้จ่ายในการขาย",C.sell);
   body+=accRows(C.acc.admin);
+  body+=gapRow("admin","ค่าใช้จ่ายในการบริหารอื่น");
   body+=sub("รวมค่าใช้จ่ายในการบริหาร",C.adm);
   body+=rowLine("fin-sub","รวมค่าใช้จ่ายขายและบริหาร",C.opex);
   body+=rowLine("fin-sub","กำไร(ขาดทุน)ก่อนต้นทุนทางการเงิน",C.ebit);

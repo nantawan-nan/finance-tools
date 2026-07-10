@@ -93,6 +93,7 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ### Other tables
 - `exec_cashflow` — `(company_id PK, data jsonb)` — Executive Dashboard data per company (`supabase/exec-cashflow.sql`)
+- `financial_statements` — `(company_id, kind ['pnl'|'balance'], data jsonb)` unique `(company_id, kind)` — งบกำไรขาดทุน + งบแสดงฐานะการเงิน per company (`supabase/financial-statements.sql`) · seed MBark อยู่ใน client `window.FIN_SEED` (โชว์ก่อนถ้า cloud ว่าง)
 - `ar_receipts` — Phase 0 AR module (`supabase/ar-module.sql`)
 - (อนาคต: ar_invoices, marketplace_settlements, forecast_items)
 
@@ -117,6 +118,9 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 | `bank_balance` | `renderToolBankBalance` | live | **ตารางกรอกยอดรายวัน** (chip เลือกวัน + "พรุ่งนี้" คาดการณ์ carry-forward) — bb* helpers |
 | `recurring` | `renderToolRecurring` | live | ค่าใช้จ่ายประจำ |
 | `cashflow` | `renderToolCashflowForecast` | live | **Cash Flow Forecast** — มี 2 view: 📋 พนักงาน (daily LINE) + 📊 ผู้บริหาร (30d) |
+| `finstmt` | (group) | live | **งบการเงินทางบัญชี** — nav-group ใต้ Cash Flow · อัปไฟล์ "งบการเงิน" (xlsx) → 2 เมนูย่อย · fin* helpers |
+| `finpnl` | `renderToolFinPnl` | live | **งบกำไรขาดทุน** (P&L) รายเดือน (สะสมต้นปี) · KPI + ตารางรายบัญชี (toggle ย่อ/รายบัญชี) |
+| `finbalance` | `renderToolFinBalance` | live | **งบแสดงฐานะการเงิน** (Balance Sheet) เทียบปีก่อน · คลิกดูบัญชีย่อย · สินทรัพย์=หนี้สิน+ส่วนของผู้ถือหุ้น |
 | `tasks` | (none) | soon | — |
 | `docs` | `renderToolDocs` | live | **Document Center** — คลังเอกสาร PDF (STM/เมมโม่/อนุมัติจ่าย/สัญญา) · เก็บบน Supabase Storage bucket `documents` · อัป/ค้นหา/เปิด/โหลด/ลบ + ดาวน์โหลดทั้งหมด ZIP · doc* helpers |
 | `users` | `renderToolUsers` | live (admin only) | จัดการผู้ใช้ |
@@ -177,6 +181,15 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-10 — ★ งบการเงินทางบัญชี (P&L + งบแสดงฐานะการเงิน) — เมนูใหม่ใต้ Cash Flow Forecast
+- **เจ้าของขอ:** เพิ่มหน้างบกำไรขาดทุน + งบแสดงฐานะการเงิน (จากไฟล์ "งบการเงิน เอ็มบาร์ค เดือน1-6.xlsx") ไว้ใต้ Cash Flow Forecast
+- **nav-group `finstmt` "งบการเงิน"** (stage ภาพรวม · หลัง cashflow) มี 2 เมนูย่อย: `finpnl` (งบกำไรขาดทุน) + `finbalance` (งบแสดงฐานะการเงิน) · helper prefix **`fin*`** (ก่อน `renderToolCashflowForecast`)
+- **Upload-based + cloud** (เหมือน Executive Dashboard): อัปไฟล์งบการเงิน xlsx → `finParse(wb)` → เก็บ `financial_statements` (upsert `company_id,kind`) · `finLoad` cloud-first · **seed MBark ใน `window.FIN_SEED`** (insert ก่อน `applyCompanyTheme` · ~15KB) โชว์ทันทีถ้า cloud ว่าง (company='mbark') · `finSaveCloud`/`finHandleFile`/`finUpload` (เฉพาะ `fopCanWrite`)
+- **Parser** (`finParsePnl`/`finParseBalance`/`finParse`): detect ชีตด้วยชื่อ (กำไร→P&L รายเดือน · ฐานะ+รวม→งบแสดงฯ summary YoY · ฐานะ→detail รายบัญชี) · **P&L**: track section จาก marker row (รายได้/ต้นทุนขายสุทธิ/ค่าใช้จ่ายในการขาย/บริหาร/ก่อนต้นทุนทางการเงิน) → เก็บ**รายบัญชี** (code+mv รายเดือน+total) · subtotal ทั้งหมด**คำนวณจากรายบัญชีตอน render** (`finPnlCompute` — รวมรายได้/ต้นทุนขาย/กำไรขั้นต้น/ขาย/บริหาร/opex/EBIT/ดอกเบี้ย/สุทธิ + margin) · **Balance**: ใช้ summary เป็นโครง (YoY 2569 vs 2567) + แนบบัญชีย่อยจาก detail
+- **★ gotcha SheetJS (แก้แล้ว):** (1) `cellDates` แปลง serial คลาด ~4 วิ (`2026-01-01`→`Dec 31 2025 23:59:56`) → เดือนเพี้ยน -1 · แก้ด้วย `finCellYM` snap เป็นเที่ยงคืน local ที่ใกล้สุด (2) SheetJS **ตัดคอลัมน์ว่างซ้ายทิ้ง** → index เลื่อนจาก openpyxl · summary parse ต้อง **scan** (name=text แรก · cur/prev=ตัวเลข 2 ตัวแรก) ไม่ hardcode index · P&L ใช้ month column ที่ detect จาก header Date (dynamic อยู่แล้ว)
+- **UI** (สไตล์ mockup Water POG · CSS scoped `.fin-*`): hero gradient ตามบริษัท + watermark โลโก้ · KPI 4 ใบ (P&L: รายได้/ต้นทุน/กำไรขั้นต้น+margin/สุทธิ+net margin · Balance: สินทรัพย์/หนี้สิน/ส่วนของผู้ถือหุ้น/เงินสด) · ตัวเลขติดลบ `()` แดง (`fopFmt`) · ตาราง P&L รายเดือน + toggle "แสดงรายบัญชี" (`finTogglePnlDetail`) · ตาราง Balance คลิกบรรทัดดูบัญชีย่อย (`finToggleBLine`) · ปุ่ม "พิมพ์/PDF" เปิดหน้าต่างใหม่ (`finPrint`)
+- **ทดสอบ (preview + parser roundtrip):** P&L net = **(900,420.02)** เป๊ะ · Balance สินทรัพย์ = หนี้สิน+ทุน = **1,053,211.11** · `finParse(ไฟล์จริง)` = seed ทุกบัญชี (54 บัญชี · 6 เดือน ม.ค.–มิ.ย.) · **กระทบหน้าอื่น = 0** (โค้ด+ตาราง+migration ใหม่ล้วน)
+- **หมายเหตุ:** MBark seed อยู่ใน client (โชว์ก่อน) — อัปไฟล์ทับ = บันทึกขึ้น cloud (ทับ seed) · Benya ยังไม่มีข้อมูล (อัปไฟล์เอง) · migration `financial-statements.sql` สร้างตารางเปล่า (ไม่ seed ผ่าน SQL)
 ### 2026-07-09 — ★ หน้าใหม่: Document Center (docs) — คลังเอกสาร PDF บน Supabase Storage
 - **เจ้าของขอ:** อยากเริ่มใช้ Document Center เก็บ PDF (STM · เมมโม่ · รายงานอนุมัติจ่าย · สัญญา) · ไม่อยากให้ไฟล์หาย → เก็บ + สำรอง
 - **สถาปัตยกรรม (ตัดสินใจร่วมกับเจ้าของ):** ไฟล์จริงเก็บใน **Supabase Storage** (ไม่ยัดลง DB · ไม่ต่อ Google Drive สดเพราะไม่มี backend) · meta เก็บตาราง `documents` · ตาข่ายสำรอง = มิเรอร์เข้า backup ทุกคืน + ปุ่ม ZIP โหลดเข้า Drive เอง

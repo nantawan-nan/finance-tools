@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>คำนวณค่าแบด · หารค่าสนาม + ลูกขนไก่</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --brand:#16a34a; --brand-d:#15803d; --brand-l:#dcfce7;
+    --ink:#0f172a; --muted:#64748b; --line:#e2e8f0; --bg:#f1f5f9;
+    --card:#ffffff; --shuttle:#f59e0b; --shuttle-l:#fef3c7;
+    --danger:#dc2626; --radius:16px;
+    --shadow:0 1px 3px rgba(15,23,42,.06),0 8px 24px rgba(15,23,42,.05);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    font-family:"IBM Plex Sans Thai",system-ui,sans-serif;
+    background:var(--bg); color:var(--ink); line-height:1.5;
+    padding:16px; max-width:820px; margin:0 auto;
+    -webkit-text-size-adjust:100%;
+  }
+  h1{font-size:22px;font-weight:700;display:flex;align-items:center;gap:8px}
+  .sub{color:var(--muted);font-size:13px;margin-top:2px}
+  header{margin-bottom:18px}
+
+  .card{
+    background:var(--card); border-radius:var(--radius);
+    box-shadow:var(--shadow); padding:16px 16px; margin-bottom:14px;
+    border:1px solid var(--line);
+  }
+  .card>h2{
+    font-size:15px;font-weight:700;margin-bottom:12px;
+    display:flex;align-items:center;gap:8px;
+  }
+  .card>h2 .tag{
+    font-size:11px;font-weight:500;color:var(--muted);
+    margin-left:auto;background:var(--bg);padding:2px 8px;border-radius:20px;
+  }
+
+  label{font-size:12.5px;color:var(--muted);font-weight:500;display:block;margin-bottom:5px}
+  input,select{
+    font-family:inherit;font-size:15px;color:var(--ink);
+    border:1.5px solid var(--line);border-radius:10px;
+    padding:9px 11px;width:100%;background:#fff;outline:none;
+    transition:border-color .15s;
+  }
+  input:focus,select:focus{border-color:var(--brand)}
+  input[type=number]{-moz-appearance:textfield}
+  .grid{display:grid;gap:12px}
+  .g2{grid-template-columns:1fr 1fr}
+  .g3{grid-template-columns:1fr 1fr 1fr}
+
+  button{font-family:inherit;cursor:pointer;border:none;font-weight:600}
+  .btn{
+    background:var(--brand);color:#fff;border-radius:10px;
+    padding:10px 16px;font-size:14px;display:inline-flex;
+    align-items:center;gap:6px;transition:background .15s;
+  }
+  .btn:hover{background:var(--brand-d)}
+  .btn.ghost{background:var(--brand-l);color:var(--brand-d)}
+  .btn.ghost:hover{background:#bbf7d0}
+  .btn.sm{padding:7px 12px;font-size:13px}
+  .btn.gray{background:var(--bg);color:var(--muted)}
+  .btn.gray:hover{background:#e2e8f0}
+
+  /* players table */
+  .ptable{width:100%;border-collapse:collapse;font-size:14px}
+  .ptable th{
+    font-size:11.5px;font-weight:600;color:var(--muted);text-align:center;
+    padding:6px 4px;border-bottom:1.5px solid var(--line);white-space:nowrap;
+  }
+  .ptable th.namecol{text-align:left;padding-left:2px}
+  .ptable td{padding:7px 4px;border-bottom:1px solid var(--line);text-align:center;vertical-align:middle}
+  .ptable td.namecell{text-align:left}
+  .ptable tr:last-child td{border-bottom:none}
+  .pname{
+    border:1.5px solid var(--line);border-radius:9px;padding:8px 10px;
+    font-size:14px;font-weight:600;width:100%;min-width:90px;
+  }
+  .hourcell{position:relative}
+  .hcheck{
+    appearance:none;-webkit-appearance:none;width:24px;height:24px;
+    border:2px solid var(--line);border-radius:7px;cursor:pointer;
+    position:relative;transition:.12s;vertical-align:middle;flex:none;
+  }
+  .hcheck:checked{background:var(--brand);border-color:var(--brand)}
+  .hcheck:checked::after{
+    content:"";position:absolute;left:7px;top:3px;width:6px;height:11px;
+    border:solid #fff;border-width:0 2.5px 2.5px 0;transform:rotate(45deg);
+  }
+  .scheck{width:24px;height:24px;accent-color:var(--shuttle);cursor:pointer;vertical-align:middle}
+  .delp{
+    background:none;color:var(--danger);font-size:18px;line-height:1;
+    padding:4px 6px;border-radius:8px;opacity:.55;
+  }
+  .delp:hover{opacity:1;background:#fee2e2}
+  .hint{font-size:12px;color:var(--muted);margin-top:10px;display:flex;gap:6px;align-items:flex-start}
+  .hint b{color:var(--brand-d);font-weight:600}
+
+  .tablewrap{overflow-x:auto;margin:0 -4px}
+
+  .totstrip{
+    display:flex;flex-wrap:wrap;gap:10px;margin-top:6px;
+  }
+  .totchip{
+    flex:1;min-width:130px;background:var(--bg);border-radius:12px;padding:10px 12px;
+  }
+  .totchip .k{font-size:11.5px;color:var(--muted);font-weight:500}
+  .totchip .v{font-size:18px;font-weight:700;margin-top:1px}
+  .totchip.court .v{color:var(--brand-d)}
+  .totchip.shut .v{color:#b45309}
+  .totchip.all{background:var(--ink)}
+  .totchip.all .k{color:#cbd5e1}
+  .totchip.all .v{color:#fff}
+
+  /* results */
+  .rrow{
+    display:flex;align-items:center;gap:12px;padding:12px 4px;
+    border-bottom:1px solid var(--line);
+  }
+  .rrow:last-child{border-bottom:none}
+  .ravatar{
+    width:38px;height:38px;border-radius:50%;background:var(--brand-l);
+    color:var(--brand-d);font-weight:700;font-size:15px;
+    display:flex;align-items:center;justify-content:center;flex:none;
+  }
+  .rinfo{flex:1;min-width:0}
+  .rinfo .rn{font-weight:600;font-size:15px}
+  .rinfo .rd{font-size:11.5px;color:var(--muted);margin-top:1px}
+  .ramt{font-size:19px;font-weight:700;color:var(--ink);white-space:nowrap}
+  .ramt small{font-size:12px;font-weight:500;color:var(--muted)}
+  .grandrow{
+    display:flex;justify-content:space-between;align-items:center;
+    margin-top:14px;padding:14px 16px;background:var(--brand-l);
+    border-radius:12px;font-weight:700;
+  }
+  .grandrow .gv{font-size:20px;color:var(--brand-d)}
+  .warn{
+    background:#fef3c7;border:1px solid #fde68a;color:#92400e;
+    border-radius:10px;padding:10px 12px;font-size:13px;margin-bottom:12px;
+    display:flex;gap:8px;
+  }
+  .toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:4px}
+  .switch{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted);margin-left:auto;cursor:pointer;user-select:none}
+  .switch input{width:auto}
+  .foot{text-align:center;color:var(--muted);font-size:12px;margin:18px 0 8px}
+  .empty{text-align:center;color:var(--muted);font-size:13px;padding:18px}
+  @media(max-width:520px){
+    body{padding:12px}
+    .g2,.g3{grid-template-columns:1fr}
+    h1{font-size:19px}
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>🏸 คำนวณค่าแบด</h1>
+  <div class="sub">หารค่าสนามตามชั่วโมงที่เล่นจริง + ค่าลูกขนไก่ ใครมาชั่วโมงไหนก็จ่ายเท่านั้น</div>
+</header>
+
+<!-- ===== ค่าสนาม ===== -->
+<div class="card">
+  <h2>1. ค่าสนาม <span class="tag" id="courtTag"></span></h2>
+  <div class="grid g3">
+    <div>
+      <label>ชื่อสนาม / คอร์ท (ไม่ใส่ก็ได้)</label>
+      <input id="courtName" type="text" placeholder="เช่น สนาม A คอร์ท 3">
+    </div>
+    <div>
+      <label>ราคาต่อชั่วโมง (บาท)</label>
+      <input id="pricePerHour" type="number" inputmode="decimal" min="0" placeholder="เช่น 200">
+    </div>
+    <div>
+      <label>จำนวนชั่วโมงที่จอง</label>
+      <input id="numHours" type="number" inputmode="numeric" min="1" max="12" step="1" value="2">
+    </div>
+  </div>
+  <div class="totstrip" style="margin-top:14px">
+    <div class="totchip court"><div class="k">ค่าสนามรวม</div><div class="v" id="courtTotal">0</div></div>
+  </div>
+</div>
+
+<!-- ===== ผู้เล่น ===== -->
+<div class="card">
+  <h2>2. ผู้เล่น &amp; ชั่วโมงที่เล่น <span class="tag">ติ๊กชั่วโมงที่มา</span></h2>
+  <div class="tablewrap">
+    <table class="ptable" id="ptable"></table>
+  </div>
+  <div class="toolbar" style="margin-top:12px">
+    <button class="btn ghost sm" onclick="addPlayer()">＋ เพิ่มผู้เล่น</button>
+    <button class="btn gray sm" onclick="checkAll(true)">ติ๊กทุกชั่วโมง</button>
+    <button class="btn gray sm" onclick="checkAll(false)">เคลียร์</button>
+  </div>
+  <div class="hint">💡 <span><b>ตัวอย่าง:</b> จอง 2 ชม. แต่บางคนมาแค่ชั่วโมงสุดท้าย → ติ๊กเฉพาะ ชม.2 คนนั้นก็หารเฉพาะชั่วโมงนั้น &nbsp;·&nbsp; แต่ละชั่วโมงหารกันเฉพาะคนที่ติ๊ก</span></div>
+</div>
+
+<!-- ===== ลูกขนไก่ ===== -->
+<div class="card">
+  <h2>3. ค่าลูกขนไก่ <span class="tag" id="shutTag"></span></h2>
+  <div class="grid g3">
+    <div>
+      <label>ใช้ไปกี่ลูก</label>
+      <input id="numShuttle" type="number" inputmode="decimal" min="0" step="1" value="0" placeholder="0">
+    </div>
+    <div>
+      <label>ราคาต่อลูก (บาท)</label>
+      <input id="pricePerShuttle" type="number" inputmode="decimal" min="0" placeholder="เช่น 20">
+    </div>
+    <div>
+      <label>ค่าลูกรวม</label>
+      <input id="shuttleTotalIn" type="number" inputmode="decimal" min="0" placeholder="คำนวณอัตโนมัติ">
+    </div>
+  </div>
+  <div class="hint" style="margin-top:12px">🏸 <span>ใครหารค่าลูกบ้าง ติ๊กในตารางด้านบน (คอลัมน์ <b>ค่าลูก</b>) — หารเท่ากันทุกคนที่ติ๊ก</span></div>
+</div>
+
+<!-- ===== ผลลัพธ์ ===== -->
+<div class="card">
+  <h2>4. สรุปว่าใครจ่ายเท่าไหร่</h2>
+  <label class="switch" style="margin:0 0 12px auto;justify-content:flex-end">
+    <input type="checkbox" id="roundWhole" checked> ปัดเป็นจำนวนเต็มบาท
+  </label>
+  <div id="warnBox"></div>
+  <div id="results"></div>
+</div>
+
+<div class="toolbar" style="justify-content:center;margin-bottom:8px">
+  <button class="btn gray sm" onclick="copyResult()">📋 คัดลอกสรุป</button>
+  <button class="btn gray sm" onclick="resetAll()">🔄 เริ่มใหม่</button>
+</div>
+<div class="foot">บันทึกอัตโนมัติในเครื่อง · ปิดแล้วเปิดใหม่ข้อมูลยังอยู่</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const STORE = "badminton-calc-v1";
+let state = {
+  courtName:"", pricePerHour:"", numHours:2, players:[],
+  numShuttle:0, pricePerShuttle:"", shuttleTotalOverride:null, roundWhole:true
+};
+let uid = 1;
+
+/* ---------- persistence ---------- */
+function save(){ localStorage.setItem(STORE, JSON.stringify(state)); }
+function load(){
+  try{
+    const s = JSON.parse(localStorage.getItem(STORE));
+    if(s && s.players){ state = Object.assign(state, s); }
+  }catch(e){}
+  if(!state.players.length){
+    state.players = [ newPlayer("คน 1"), newPlayer("คน 2"), newPlayer("คน 3"), newPlayer("คน 4") ];
+  }
+  uid = Math.max(1, ...state.players.map(p=>p.id||0)) + 1;
+}
+function newPlayer(name){
+  const H = clampHours(state.numHours);
+  return { id:uid++, name:name||"", hours:Array(H).fill(true), shuttle:true };
+}
+
+/* ---------- helpers ---------- */
+function clampHours(h){ h = parseInt(h)||1; return Math.min(12, Math.max(1, h)); }
+function num(v){ const n = parseFloat(v); return isFinite(n)&&n>0 ? n : 0; }
+function fmt(n){ return n.toLocaleString("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function fmt0(n){ return Math.round(n).toLocaleString("th-TH"); }
+
+/* ---------- sync hour columns when numHours changes ---------- */
+function syncHourCols(){
+  const H = clampHours(state.numHours);
+  state.players.forEach(p=>{
+    if(p.hours.length < H) while(p.hours.length<H) p.hours.push(true);
+    else if(p.hours.length > H) p.hours = p.hours.slice(0,H);
+  });
+}
+
+/* ---------- core calc ---------- */
+function compute(){
+  const H = clampHours(state.numHours);
+  const pph = num(state.pricePerHour);
+  const players = state.players;
+
+  // court: per-hour split among present
+  const courtShare = players.map(()=>0);
+  let unmannedHours = 0;
+  for(let h=0; h<H; h++){
+    const present = [];
+    players.forEach((p,i)=>{ if(p.hours[h]) present.push(i); });
+    if(present.length===0){ if(pph>0) unmannedHours++; continue; }
+    const each = pph / present.length;
+    present.forEach(i=> courtShare[i]+=each);
+  }
+  const courtTotal = pph*H;
+
+  // shuttle
+  const shuttleTotal = shuttleTotalValue();
+  const shutPlayers = players.map((p,i)=> p.shuttle ? i : -1).filter(i=>i>=0);
+  const shuttleShare = players.map(()=>0);
+  if(shuttleTotal>0 && shutPlayers.length){
+    const each = shuttleTotal / shutPlayers.length;
+    shutPlayers.forEach(i=> shuttleShare[i]+=each);
+  }
+
+  // totals per player
+  let totals = players.map((p,i)=> courtShare[i]+shuttleShare[i]);
+  const grandRaw = courtShare.reduce((a,b)=>a+b,0) + shuttleShare.reduce((a,b)=>a+b,0);
+
+  // rounding (largest remainder) to whole baht
+  let rounded = totals.slice();
+  if(state.roundWhole){
+    rounded = largestRemainder(totals);
+  }
+
+  return { H, pph, courtShare, shuttleShare, totals, rounded, courtTotal,
+           shuttleTotal, grandRaw, unmannedHours,
+           shuttleUnassigned: shuttleTotal>0 && shutPlayers.length===0 };
+}
+function shuttleTotalValue(){
+  if(state.shuttleTotalOverride!=null && state.shuttleTotalOverride!=="")
+    return num(state.shuttleTotalOverride);
+  return num(state.numShuttle)*num(state.pricePerShuttle);
+}
+function largestRemainder(arr){
+  const target = Math.round(arr.reduce((a,b)=>a+b,0));
+  const floors = arr.map(v=>Math.floor(v));
+  let rem = target - floors.reduce((a,b)=>a+b,0);
+  const order = arr.map((v,i)=>({i,frac:v-Math.floor(v)}))
+                   .sort((a,b)=>b.frac-a.frac);
+  const out = floors.slice();
+  for(let k=0; k<order.length && rem>0; k++){ out[order[k].i]++; rem--; }
+  return out;
+}
+
+/* ---------- render ---------- */
+function renderTable(){
+  const H = clampHours(state.numHours);
+  let head = '<tr><th class="namecol">ชื่อ</th>';
+  for(let h=0;h<H;h++) head += `<th>ชม.${h+1}</th>`;
+  head += '<th>ค่าลูก</th><th></th></tr>';
+
+  let rows = '';
+  state.players.forEach((p,pi)=>{
+    let tds = `<td class="namecell"><input class="pname" value="${escAttr(p.name)}" placeholder="ชื่อผู้เล่น" onchange="setName(${p.id},this.value)"></td>`;
+    for(let h=0;h<H;h++){
+      tds += `<td class="hourcell"><input type="checkbox" class="hcheck" ${p.hours[h]?'checked':''} onchange="toggleHour(${p.id},${h},this.checked)"></td>`;
+    }
+    tds += `<td><input type="checkbox" class="scheck" ${p.shuttle?'checked':''} onchange="toggleShut(${p.id},this.checked)"></td>`;
+    tds += `<td><button class="delp" onclick="delPlayer(${p.id})" title="ลบ">✕</button></td>`;
+    rows += `<tr>${tds}</tr>`;
+  });
+  if(!state.players.length) rows = `<tr><td colspan="${H+3}" class="empty">ยังไม่มีผู้เล่น กด “เพิ่มผู้เล่น”</td></tr>`;
+  $("ptable").innerHTML = head + rows;
+}
+
+function renderAll(){
+  // inputs reflect state
+  $("courtName").value = state.courtName;
+  $("pricePerHour").value = state.pricePerHour;
+  $("numHours").value = state.numHours;
+  $("numShuttle").value = state.numShuttle;
+  $("pricePerShuttle").value = state.pricePerShuttle;
+  $("shuttleTotalIn").placeholder = (num(state.numShuttle)*num(state.pricePerShuttle))
+      ? fmt0(num(state.numShuttle)*num(state.pricePerShuttle)) : "คำนวณอัตโนมัติ";
+  if(state.shuttleTotalOverride!=null) $("shuttleTotalIn").value = state.shuttleTotalOverride;
+  $("roundWhole").checked = state.roundWhole;
+
+  renderTable();
+  const c = compute();
+
+  // tags & court total
+  $("courtTotal").textContent = fmt0(c.courtTotal);
+  $("courtTag").textContent = c.pph ? `${fmt0(c.pph)}฿ × ${c.H} ชม.` : "";
+  $("shutTag").textContent = c.shuttleTotal ? `รวม ${fmt0(c.shuttleTotal)}฿` : "";
+
+  renderResults(c);
+  save();
+}
+
+function renderResults(c){
+  // warnings
+  let w = "";
+  if(c.unmannedHours>0)
+    w += `<div class="warn">⚠️ <span>มี ${c.unmannedHours} ชั่วโมงที่ไม่มีใครติ๊กว่าเล่น (ค่าสนาม ${fmt0(c.pph*c.unmannedHours)}฿ ยังไม่ถูกหาร) — ติ๊กชั่วโมงให้ครบ หรือปรับจำนวนชั่วโมง</span></div>`;
+  if(c.shuttleUnassigned)
+    w += `<div class="warn">⚠️ <span>มีค่าลูกขนไก่ แต่ยังไม่มีใครติ๊กหารค่าลูก</span></div>`;
+  $("warnBox").innerHTML = w;
+
+  if(!state.players.length){ $("results").innerHTML = `<div class="empty">เพิ่มผู้เล่นเพื่อดูผลลัพธ์</div>`; return; }
+
+  let html = "";
+  state.players.forEach((p,i)=>{
+    const amt = state.roundWhole ? c.rounded[i] : c.totals[i];
+    const nm = p.name.trim() || `คน ${i+1}`;
+    const parts = [];
+    if(c.courtShare[i]>0) parts.push(`สนาม ${fmt(c.courtShare[i])}`);
+    if(c.shuttleShare[i]>0) parts.push(`ลูก ${fmt(c.shuttleShare[i])}`);
+    const detail = parts.length ? parts.join(" + ")+" บาท" : "ไม่ได้ร่วมจ่าย";
+    html += `<div class="rrow">
+      <div class="ravatar">${escHtml(firstChar(nm))}</div>
+      <div class="rinfo"><div class="rn">${escHtml(nm)}</div><div class="rd">${detail}</div></div>
+      <div class="ramt">${state.roundWhole?fmt0(amt):fmt(amt)}<small> บาท</small></div>
+    </div>`;
+  });
+  const shownTotal = state.roundWhole
+      ? c.rounded.reduce((a,b)=>a+b,0)
+      : c.grandRaw;
+  html += `<div class="grandrow"><span>รวมทั้งหมด</span><span class="gv">${state.roundWhole?fmt0(shownTotal):fmt(shownTotal)} บาท</span></div>`;
+  $("results").innerHTML = html;
+}
+
+/* ---------- events ---------- */
+function setName(id,v){ const p=find(id); if(p){p.name=v; save(); renderResultsOnly();} }
+function toggleHour(id,h,v){ const p=find(id); if(p){p.hours[h]=v; renderAll();} }
+function toggleShut(id,v){ const p=find(id); if(p){p.shuttle=v; renderAll();} }
+function delPlayer(id){ state.players = state.players.filter(p=>p.id!==id); renderAll(); }
+function addPlayer(){ state.players.push(newPlayer(`คน ${state.players.length+1}`)); renderAll(); }
+function checkAll(v){
+  const H = clampHours(state.numHours);
+  state.players.forEach(p=>{ p.hours = Array(H).fill(v); });
+  renderAll();
+}
+function find(id){ return state.players.find(p=>p.id===id); }
+function renderResultsOnly(){ renderResults(compute()); }
+
+$("courtName").addEventListener("input", e=>{ state.courtName=e.target.value; save(); });
+$("pricePerHour").addEventListener("input", e=>{ state.pricePerHour=e.target.value; renderAll(); });
+$("numHours").addEventListener("input", e=>{
+  state.numHours = clampHours(e.target.value);
+  syncHourCols(); renderAll();
+});
+$("numShuttle").addEventListener("input", e=>{ state.numShuttle=e.target.value; state.shuttleTotalOverride=null; $("shuttleTotalIn").value=""; renderAll(); });
+$("pricePerShuttle").addEventListener("input", e=>{ state.pricePerShuttle=e.target.value; state.shuttleTotalOverride=null; $("shuttleTotalIn").value=""; renderAll(); });
+$("shuttleTotalIn").addEventListener("input", e=>{ state.shuttleTotalOverride = e.target.value===""?null:e.target.value; renderResultsOnly(); updateTags(); save(); });
+$("roundWhole").addEventListener("change", e=>{ state.roundWhole=e.target.checked; renderResultsOnly(); save(); });
+
+function updateTags(){
+  const c = compute();
+  $("shutTag").textContent = c.shuttleTotal ? `รวม ${fmt0(c.shuttleTotal)}฿` : "";
+}
+
+/* ---------- copy / reset ---------- */
+function copyResult(){
+  const c = compute();
+  let t = "🏸 สรุปค่าแบด";
+  if(state.courtName) t += ` — ${state.courtName}`;
+  t += "\n";
+  if(c.pph) t += `ค่าสนาม ${fmt0(c.pph)}฿ × ${c.H} ชม. = ${fmt0(c.courtTotal)}฿\n`;
+  if(c.shuttleTotal) t += `ค่าลูก = ${fmt0(c.shuttleTotal)}฿\n`;
+  t += "──────────\n";
+  state.players.forEach((p,i)=>{
+    const amt = state.roundWhole ? c.rounded[i] : c.totals[i];
+    const nm = p.name.trim()||`คน ${i+1}`;
+    t += `${nm}: ${state.roundWhole?fmt0(amt):fmt(amt)} บาท\n`;
+  });
+  const total = state.roundWhole ? c.rounded.reduce((a,b)=>a+b,0) : c.grandRaw;
+  t += "──────────\n";
+  t += `รวม: ${state.roundWhole?fmt0(total):fmt(total)} บาท`;
+  navigator.clipboard.writeText(t).then(
+    ()=>toast("คัดลอกแล้ว ✓"),
+    ()=>{ prompt("คัดลอกข้อความนี้:", t); }
+  );
+}
+function resetAll(){
+  if(!confirm("ล้างข้อมูลทั้งหมดแล้วเริ่มใหม่?")) return;
+  localStorage.removeItem(STORE);
+  state = { courtName:"", pricePerHour:"", numHours:2, players:[],
+            numShuttle:0, pricePerShuttle:"", shuttleTotalOverride:null, roundWhole:true };
+  uid = 1;
+  state.players = [ newPlayer("คน 1"), newPlayer("คน 2"), newPlayer("คน 3"), newPlayer("คน 4") ];
+  renderAll();
+}
+function toast(msg){
+  const d=document.createElement("div");
+  d.textContent=msg;
+  d.style.cssText="position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#0f172a;color:#fff;padding:10px 18px;border-radius:10px;font-size:14px;z-index:99;box-shadow:0 8px 24px rgba(0,0,0,.2)";
+  document.body.appendChild(d);
+  setTimeout(()=>d.remove(),1500);
+}
+
+/* ---------- util ---------- */
+function escHtml(s){ return String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+function escAttr(s){ return String(s).replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
+function firstChar(s){ return (s.trim()[0]||"?").toUpperCase(); }
+
+/* ---------- init ---------- */
+load();
+syncHourCols();
+renderAll();
+</script>
+</body>
+</html>

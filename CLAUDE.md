@@ -188,7 +188,7 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 - **แดชบอร์ดวิเคราะห์ใต้ตาราง P&L** (`finAnalyticsHtml`+`finRenderPnlCharts` · Chart.js เดิม) เรียกท้าย `renderToolFinPage` (เฉพาะ pnl+hasData):
   - กราฟ **รายได้·ค่าใช้จ่าย·กำไรสุทธิ** (bar×2 + line) · **โดนัทโครงสร้างค่าใช้จ่าย** + legend · **ค่าใช้จ่ายสูงสุด** (bar list) · **แนวโน้มกำไรสุทธิ** (area line) — 3 canvas (`_finCharts`/`finMakeChart`)
   - **จัดหมวดค่าใช้จ่าย** `finExpenseCats` (6 หมวด: ค่าโฆษณา/ต้นทุนขาย/เงินเดือน&บุคลากร/ค่าธรรมเนียม&ขายอื่นๆ/ดอกเบี้ยจ่าย/บริหารอื่นๆ · `finExpCatKey` match ชื่อ · cogs/interest ใช้ยอด authoritative)
-  - **คะแนนสุขภาพการเงิน** `finHealth` (gauge 0-100 + 5 มิติ: สภาพคล่อง/ทำกำไร/เติบโต/ประสิทธิภาพ/ความเสี่ยง · `finScoreLinear` map จาก netMargin/currentRatio/growth/opexRatio/debtRatio · ใช้ทั้ง P&L+Balance)
+  - **คะแนนสุขภาพการเงิน** `finHealth` (gauge 0-100 + 5 มิติ: สภาพคล่อง/ทำกำไร/เติบโต/ประสิทธิภาพ/ความเสี่ยง · `finScoreLinear` map จาก netMargin/currentRatio/growth/opexRatio/debtRatio · ใช้ทั้ง P&L+Balance) · **แต่ละมิติมี `detail`** (metric/formula/inputs/result/bands/src/weight) — คลิกกางดูที่มา (`finToggleHScore` · `d.hOpen` · โชว์ตัวเลขจริง+งบต้นทาง+น้ำหนัก)
   - **CFO Insight** `finInsight` (rule-based · สรุป+bullets+ข้อเสนอแนะ จากตัวเลขจริง)
 - **ทดสอบ (preview + seed MBark):** หมวดค่าใช้จ่าย = mockup เป๊ะ (ค่าโฆษณา 30%/เงินเดือน 24%/ต้นทุนขาย 19%...) · health 34 (mockup 33) · ไตรมาส Q1 รวมรายได้ 1,233,253.91 (=ม.ค.+ก.พ.+มี.ค.) · 3 Chart.js instance สร้างครบ · **กระทบหน้าอื่น = 0** (เพิ่ม fin* + ย้าย menu · execdash render เดิม)
 

@@ -15979,6 +15979,19 @@ function finInjectStyle(){
   .fin-ss-bar span{ display:block; height:100%; border-radius:6px; }
   .fin-ss-v{ text-align:right; font-weight:800; color:var(--fg); } .fin-ss-lb{ text-align:right; font-size:11px; font-weight:700; }
   @media(max-width:560px){ .fin-sub-score{ grid-template-columns:110px 1fr 30px; } .fin-ss-lb{ display:none; } }
+  .fin-ss-click{ cursor:pointer; } .fin-ss-click:hover{ background:#f8fafc; }
+  .fin-hint{ font-size:10.5px; font-weight:600; color:var(--brand); margin-left:6px; white-space:nowrap; }
+  .fin-hint i{ width:12px; height:12px; vertical-align:-2px; }
+  .fin-hd{ background:#f8fafc; border:1px solid var(--ln); border-radius:9px; padding:10px 12px; margin:2px 0 8px; font-size:12px; }
+  .fin-hd-row{ display:flex; gap:10px; padding:2px 0; }
+  .fin-hd-k{ color:var(--mut); min-width:88px; flex-shrink:0; }
+  .fin-hd-f{ font-family:ui-monospace,monospace; color:#334155; }
+  .fin-hd-in{ display:flex; justify-content:space-between; padding:2px 0 2px 88px; color:#475569; }
+  .fin-hd-in b{ font-variant-numeric:tabular-nums; color:var(--fg); }
+  .fin-hd-res{ color:var(--brand); font-variant-numeric:tabular-nums; }
+  .fin-hd-band{ color:#64748b; }
+  .fin-hd-src{ display:flex; align-items:center; gap:5px; margin-top:6px; padding-top:6px; border-top:1px dashed var(--ln); color:#94a3b8; font-size:11px; }
+  .fin-hd-src i{ width:12px; height:12px; }
   /* insight */
   .fin-insight{ background:linear-gradient(180deg,#f8fafc,#fff); border:1px solid var(--ln); border-radius:14px; padding:18px; }
   .fin-ins-head{ display:flex; align-items:center; gap:12px; margin-bottom:12px; }
@@ -16175,6 +16188,7 @@ function finTogglePnlSection(key){ const d=finState(); d.pnlOpen=d.pnlOpen||{}; 
 function finTogglePnlDetail(){ const d=finState(); const open=!finPnlAllOpen(d); const o={}; FIN_PNL_SECS.forEach(k=>o[k]=open); d.pnlOpen=o; renderTool(); }
 function finToggleBLine(key){ const d=finState(); d.bOpen[key]=!d.bOpen[key]; renderTool(); }
 function finSetPnlPeriod(p){ const d=finState(); d.pnlPeriod=p; renderTool(); }
+function finToggleHScore(name){ const d=finState(); d.hOpen=d.hOpen||{}; d.hOpen[name]=!d.hOpen[name]; renderTool(); }
 
 /* ---- รวมรายเดือน → รายไตรมาส (สำหรับ toggle มุมมอง) ---- */
 function finQuarterize(pnl){
@@ -16236,12 +16250,33 @@ function finHealth(pnl,balance,C){
   const sEff=finScoreLinear(opexRatio,[[0.2,95],[0.4,75],[0.6,55],[0.9,32],[1.5,12]]);
   let sRisk=debtRatio!=null?finScoreLinear(debtRatio,[[0.3,90],[0.6,65],[1,42],[2,20],[4,8]]):50;
   if(eq!=null&&eq<0) sRisk=Math.min(sRisk,12);
+  const m0=C.rev.m[0], m1=C.rev.m[C.rev.m.length-1];
   const subs=[
-    {name:"สภาพคล่อง",score:Math.round(sLiq)},
-    {name:"ความสามารถทำกำไร",score:Math.round(sProf)},
-    {name:"การเติบโต",score:Math.round(sGrow)},
-    {name:"ประสิทธิภาพ",score:Math.round(sEff)},
-    {name:"ความเสี่ยง",score:Math.round(sRisk)},
+    {name:"สภาพคล่อง",score:Math.round(sLiq),weight:0.20,detail:{
+      metric:"อัตราส่วนสภาพคล่อง (Current Ratio)", formula:"สินทรัพย์หมุนเวียน ÷ หนี้สินหมุนเวียน",
+      inputs:[{label:"รวมสินทรัพย์หมุนเวียน",value:ca},{label:"รวมหนี้สินหมุนเวียน",value:cl}],
+      result: curRatio!=null?curRatio.toFixed(2)+" เท่า":"— (ยังไม่มีข้อมูลงบแสดงฐานะการเงิน)",
+      src:"งบแสดงฐานะการเงิน", bands:"≥ 2 เท่า = ดี · ~1 เท่า = เฝ้าระวัง · < 1 เท่า = เสี่ยง"}},
+    {name:"ความสามารถทำกำไร",score:Math.round(sProf),weight:0.30,detail:{
+      metric:"อัตรากำไรสุทธิ (Net Margin)", formula:"กำไร(ขาดทุน)สุทธิ ÷ รายได้รวม",
+      inputs:[{label:"กำไร(ขาดทุน)สุทธิ",value:C.net.total},{label:"รายได้รวม",value:C.rev.total}],
+      result:(netMargin*100).toFixed(1)+"%", src:"งบกำไรขาดทุน",
+      bands:"≥ 15% = ดี · 0–5% = พอใช้ · ติดลบ = ต้องแก้ไข"}},
+    {name:"การเติบโต",score:Math.round(sGrow),weight:0.15,detail:{
+      metric:"การเติบโตของรายได้ (เดือนแรก → เดือนล่าสุด)", formula:"(รายได้เดือนล่าสุด − รายได้เดือนแรก) ÷ รายได้เดือนแรก",
+      inputs:[{label:"รายได้เดือนล่าสุด",value:m1},{label:"รายได้เดือนแรก",value:m0}],
+      result:(growth*100).toFixed(0)+"%", src:"งบกำไรขาดทุน (รายเดือน)",
+      bands:"> 80% = ดีมาก · 0–30% = ปกติ · ติดลบ = หดตัว"}},
+    {name:"ประสิทธิภาพ",score:Math.round(sEff),weight:0.15,detail:{
+      metric:"สัดส่วนค่าใช้จ่ายขายและบริหารต่อรายได้ (OPEX Ratio)", formula:"รวมค่าใช้จ่ายขายและบริหาร ÷ รายได้รวม",
+      inputs:[{label:"รวมค่าใช้จ่ายขายและบริหาร",value:C.opex.total},{label:"รายได้รวม",value:C.rev.total}],
+      result:(opexRatio*100).toFixed(0)+"%", src:"งบกำไรขาดทุน",
+      bands:"< 30% = ดี · ~60% = เฝ้าระวัง · > 90% = ต้องแก้ไข (ยิ่งต่ำยิ่งดี)"}},
+    {name:"ความเสี่ยง",score:Math.round(sRisk),weight:0.20,detail:{
+      metric:"อัตราส่วนหนี้สินต่อสินทรัพย์ (Debt Ratio)", formula:"หนี้สินรวม ÷ สินทรัพย์รวม",
+      inputs:[{label:"รวมหนี้สิน",value:tl},{label:"รวมสินทรัพย์",value:ta}].concat((eq!=null&&eq<0)?[{label:"ส่วนของผู้ถือหุ้น (ติดลบ = เสี่ยงสูง)",value:eq}]:[]),
+      result: debtRatio!=null?debtRatio.toFixed(2)+" เท่า"+((eq!=null&&eq<0)?" · ส่วนของผู้ถือหุ้นติดลบ":""):"—",
+      src:"งบแสดงฐานะการเงิน", bands:"< 0.5 เท่า = ดี · ~1 เท่า = เฝ้าระวัง · > 2 เท่า = เสี่ยง (ยิ่งต่ำยิ่งดี)"}},
   ];
   subs.forEach(s=>{ s.label=s.score>=70?"ดี":s.score>=45?"เฝ้าระวัง":"ต้องดำเนินการ"; s.color=s.score>=70?"#22c55e":s.score>=45?"#f59e0b":"#ef4444"; });
   const overall=Math.round(sLiq*0.2+sProf*0.3+sGrow*0.15+sEff*0.15+sRisk*0.2);
@@ -16311,7 +16346,23 @@ function finAnalyticsHtml(d){
   const topBars=cats.map(c=>`<div class="fin-tx"><div class="fin-tx-h"><span>${esc(c.name)}</span><span class="fin-tx-v">${fopFmt(c.total)} · ${(c.pct*100).toFixed(0)}%</span></div><div class="fin-tx-bar"><span style="width:${Math.max(2,c.total/cats[0].total*100)}%;background:${c.color}"></span></div></div>`).join("");
   const gcol=H.overall>=70?"#22c55e":H.overall>=45?"#f59e0b":"#ef4444";
   const gstat=H.overall>=70?"ดี":H.overall>=45?"เฝ้าระวัง":"ต้องดำเนินการ";
-  const subBars=H.subs.map(s=>`<div class="fin-sub-score"><div class="fin-ss-l"><span class="fin-dot" style="background:${s.color}"></span>${esc(s.name)}</div><div class="fin-ss-bar"><span style="width:${s.score}%;background:${s.color}"></span></div><div class="fin-ss-v">${s.score}</div><div class="fin-ss-lb" style="color:${s.color}">${s.label}</div></div>`).join("");
+  const subBars=H.subs.map(s=>{
+    const open=!!(d.hOpen && d.hOpen[s.name]); const dt=s.detail||{};
+    const inputs=(dt.inputs||[]).filter(x=>x.value!=null).map(x=>`<div class="fin-hd-in"><span>${esc(x.label)}</span><b>${fopFmt(x.value)}</b></div>`).join("");
+    const det=open?`<div class="fin-hd">
+      <div class="fin-hd-row"><span class="fin-hd-k">ตัวชี้วัด</span><span>${esc(dt.metric||"")}</span></div>
+      <div class="fin-hd-row"><span class="fin-hd-k">สูตร</span><span class="fin-hd-f">${esc(dt.formula||"")}</span></div>
+      ${inputs}
+      <div class="fin-hd-row"><span class="fin-hd-k">ผลลัพธ์</span><b class="fin-hd-res">${esc(dt.result||"")}</b></div>
+      <div class="fin-hd-row"><span class="fin-hd-k">เกณฑ์ให้คะแนน</span><span class="fin-hd-band">${esc(dt.bands||"")}</span></div>
+      <div class="fin-hd-src"><i data-lucide="file-text"></i> ที่มา: ${esc(dt.src||"")} · ถ่วงน้ำหนัก ${((s.weight||0)*100).toFixed(0)}% ของคะแนนรวม</div>
+    </div>`:"";
+    return `<div class="fin-ss-wrap"><div class="fin-sub-score fin-ss-click" onclick="finToggleHScore('${esc(s.name)}')">
+      <div class="fin-ss-l"><span class="fin-chev">${open?"▾":"▸"}</span><span class="fin-dot" style="background:${s.color}"></span>${esc(s.name)}</div>
+      <div class="fin-ss-bar"><span style="width:${s.score}%;background:${s.color}"></span></div>
+      <div class="fin-ss-v">${s.score}</div><div class="fin-ss-lb" style="color:${s.color}">${s.label}</div>
+    </div>${det}</div>`;
+  }).join("");
   const bico={good:'<i data-lucide="check-circle" style="color:#059669"></i>',bad:'<i data-lucide="alert-circle" style="color:#dc2626"></i>',warn:'<i data-lucide="alert-triangle" style="color:#d97706"></i>'};
   const bullets=ins.bullets.map(b=>`<div class="fin-ins-b">${bico[b.t]||""}<span>${b.x}</span></div>`).join("");
   const recs=ins.recs.map((r,i)=>`<div class="fin-rec"><span class="fin-rec-n">${i+1}</span><span>${r}</span></div>`).join("");
@@ -16334,8 +16385,8 @@ function finAnalyticsHtml(d){
         <div class="fin-h-pill" style="background:${gcol}"><span class="fin-dot" style="background:#fff"></span>${gstat}</div>
       </div>
       <div class="fin-hsubs">
-        <div class="fin-card-h">คะแนนย่อยรายมิติ</div>
-        <div class="fin-card-sub">ประเมินจากข้อมูล ${M.length} ${pnl.months.length>6?"ไตรมาส":"เดือน"} — สภาพคล่อง · ความสามารถทำกำไร · การเติบโต · ประสิทธิภาพ · ความเสี่ยง</div>
+        <div class="fin-card-h">คะแนนย่อยรายมิติ <span class="fin-hint"><i data-lucide="mouse-pointer-click"></i> คลิกแต่ละมิติเพื่อดูสูตร + ตัวเลขที่ใช้</span></div>
+        <div class="fin-card-sub">คำนวณจากงบกำไรขาดทุน + งบแสดงฐานะการเงิน · คะแนนรวม = ถ่วงน้ำหนัก (ทำกำไร 30% · สภาพคล่อง 20% · ความเสี่ยง 20% · เติบโต 15% · ประสิทธิภาพ 15%)</div>
         ${subBars}
       </div>
     </div>

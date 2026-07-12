@@ -181,6 +181,17 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-11 — ★ งบการเงิน: ย้าย Exec Cash Flow เข้ากลุ่ม + P&L toggle เดือน/ไตรมาส + แดชบอร์ดวิเคราะห์ใต้ตาราง
+- **เจ้าของขอ (3 อย่าง):** (1) P&L+Balance คลิกดูรายเดือน/รายไตรมาส (2) เปลี่ยนชื่อ "Executive Cash Flow" → "งบกระแสเงินสด" ย้ายเข้ากลุ่ม "งบการเงิน" **บนสุด** (ก่อน กำไรขาดทุน/ฐานะ) (3) ใต้ตาราง P&L เพิ่มกราฟแท่ง รายได้/ค่าใช้จ่าย/กำไร + โครงสร้างค่าใช้จ่าย + วิเคราะห์ธุรกิจ (ตามภาพ mockup)
+- **ย้ายเมนู:** `execdash` เปลี่ยน `name:"งบกระแสเงินสด"` + `parent:"finstmt"` วางเป็น child แรกของ group (ก่อน finpnl/finbalance) · icon `banknote` · **render logic ห้ามแตะ = ไม่แตะ** (แค่ย้าย TOOLS entry) · **PRESENT_TOOLS เพิ่ม finstmt/finpnl/finbalance** (กันโหมดพรีเซนต์พังเพราะ execdash กลายเป็น child ใต้ group ที่ present filter ตัดออก)
+- **P&L toggle เดือน/ไตรมาส** (`d.pnlPeriod` · `finSetPnlPeriod` · `finQuarterize`): รวม mv รายเดือน→ไตรมาส (Q1=ม.ค.-มี.ค. ฯลฯ) ทั้ง accounts+subs · ปุ่มใน sheet header · KPI/analytics ยังอิงรายเดือนเสมอ · **Balance = snapshot ณ วันที่ (ไม่มี toggle)** — อธิบายเจ้าของว่าเป็น point-in-time + เทียบปีก่อนอยู่แล้ว (ข้อมูลรายเดือนต้อง parse TB sheets เพิ่ม)
+- **แดชบอร์ดวิเคราะห์ใต้ตาราง P&L** (`finAnalyticsHtml`+`finRenderPnlCharts` · Chart.js เดิม) เรียกท้าย `renderToolFinPage` (เฉพาะ pnl+hasData):
+  - กราฟ **รายได้·ค่าใช้จ่าย·กำไรสุทธิ** (bar×2 + line) · **โดนัทโครงสร้างค่าใช้จ่าย** + legend · **ค่าใช้จ่ายสูงสุด** (bar list) · **แนวโน้มกำไรสุทธิ** (area line) — 3 canvas (`_finCharts`/`finMakeChart`)
+  - **จัดหมวดค่าใช้จ่าย** `finExpenseCats` (6 หมวด: ค่าโฆษณา/ต้นทุนขาย/เงินเดือน&บุคลากร/ค่าธรรมเนียม&ขายอื่นๆ/ดอกเบี้ยจ่าย/บริหารอื่นๆ · `finExpCatKey` match ชื่อ · cogs/interest ใช้ยอด authoritative)
+  - **คะแนนสุขภาพการเงิน** `finHealth` (gauge 0-100 + 5 มิติ: สภาพคล่อง/ทำกำไร/เติบโต/ประสิทธิภาพ/ความเสี่ยง · `finScoreLinear` map จาก netMargin/currentRatio/growth/opexRatio/debtRatio · ใช้ทั้ง P&L+Balance)
+  - **CFO Insight** `finInsight` (rule-based · สรุป+bullets+ข้อเสนอแนะ จากตัวเลขจริง)
+- **ทดสอบ (preview + seed MBark):** หมวดค่าใช้จ่าย = mockup เป๊ะ (ค่าโฆษณา 30%/เงินเดือน 24%/ต้นทุนขาย 19%...) · health 34 (mockup 33) · ไตรมาส Q1 รวมรายได้ 1,233,253.91 (=ม.ค.+ก.พ.+มี.ค.) · 3 Chart.js instance สร้างครบ · **กระทบหน้าอื่น = 0** (เพิ่ม fin* + ย้าย menu · execdash render เดิม)
+
 ### 2026-07-10 (3) — งบกำไรขาดทุน: %ของรายได้บนบรรทัดรวม + คลิกกลุ่มกางรายบัญชี (accordion)
 - **เจ้าของขอ:** (1) บรรทัดรวมอยากได้ % (ค่าบริหารคิดเป็นกี่ %ของยอดขาย) (2) กดดูแบบกลุ่มแล้วไม่เห็นรายบัญชี · "รวม" เยอะไป
 - **%ของรายได้** (`subP` · `pctOfRev`=total/รายได้รวม): chip ข้างชื่อ + %เล็กใต้ช่องรวมทั้งปี บนบรรทัด ต้นทุนขาย/รวมขาย/รวมบริหาร/ขายและบริหาร/ต้นทุนการเงิน (รวมรายได้ไม่ใส่=100% · gross/net มี margin row อยู่แล้ว)

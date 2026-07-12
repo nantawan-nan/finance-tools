@@ -439,7 +439,7 @@ const AUTH = {
 const PRESENT_EMAIL       = "present@benyamedical.com";   // บัญชีจริงใน Supabase (read-only, role executive)
 const PRESENT_ALIAS_EMAIL = "nisa.y@benyamedical.com";    // อีเมลที่ nisa พิมพ์
 const PRESENT_PW          = "present2026";                // รหัสพิเศษ = รหัสบัญชี present
-const PRESENT_TOOLS       = ["execdash","cashflow"];      // แท็บที่โหมดพรีเซนต์เห็นได้ (Exec Cash Flow + Cash Flow Forecast)
+const PRESENT_TOOLS       = ["execdash","cashflow","finstmt","finpnl","finbalance"];      // แท็บที่โหมดพรีเซนต์เห็นได้ (งบกระแสเงินสด + Cash Flow Forecast + งบการเงิน)
 
 async function authSignIn(email, password){
   // ★ รหัสพิเศษ present2026 + อีเมล nisa → เข้าบัญชี present (เห็นแค่ Exec Cash Flow)
@@ -738,19 +738,19 @@ const TOOLS = [
     name:"หน้าหลัก", desc:"Hub ของบริษัท",
     long:"ภาพรวม KPI · ทางลัดไปแต่ละโมดูล · สถานะระบบ",
     multiInput:true, status:"live" },
-  { id:"execdash", stage:"ภาพรวม", ic:"↗", icon:"trending-up",
-    name:"Executive Cash Flow", desc:"แดชบอร์ดผู้บริหาร",
-    long:"อัปไฟล์ \"รายละเอียดเงินรับ-เงินจ่าย\" → 6 แดชบอร์ด: Summary · Activity · Category · Bank · Explorer · Statement",
-    multiInput:true, status:"live", adminOnly:true },
   { id:"cashflow", stage:"ภาพรวม", ic:"~", icon:"waves",
     name:"Cash Flow Forecast", desc:"Real-time projection + KPI",
     long:"Opening Cash + Forecast Receipts − Forecast Payments = Projected Cash · KPI 10 ตัว · timeline + drill-down · snapshot mode",
     multiInput:true, status:"live" },
   /* ★ งบการเงินทางบัญชี — group ใหม่ collapsible · อัปไฟล์ "งบการเงิน" (xlsx) → P&L + งบแสดงฐานะการเงิน */
   { id:"finstmt", stage:"ภาพรวม", ic:"▤", icon:"file-spreadsheet",
-    name:"งบการเงิน", desc:"งบกำไรขาดทุน + งบแสดงฐานะการเงิน",
-    long:"อัปไฟล์งบการเงิน (xlsx) → งบกำไรขาดทุนรายเดือน + งบแสดงฐานะการเงิน (เทียบปีก่อน)",
+    name:"งบการเงิน", desc:"งบกระแสเงินสด + กำไรขาดทุน + ฐานะการเงิน",
+    long:"งบกระแสเงินสด · งบกำไรขาดทุน · งบแสดงฐานะการเงิน",
     isGroup:true, status:"live" },
+  { id:"execdash", stage:"ภาพรวม", parent:"finstmt", ic:"≈", icon:"banknote",
+    name:"งบกระแสเงินสด", desc:"แดชบอร์ดผู้บริหาร",
+    long:"อัปไฟล์ \"รายละเอียดเงินรับ-เงินจ่าย\" → 6 แดชบอร์ด: Summary · Activity · Category · Bank · Explorer · Statement",
+    multiInput:true, status:"live", adminOnly:true },
   { id:"finpnl", stage:"ภาพรวม", parent:"finstmt", ic:"↗", icon:"trending-up",
     name:"งบกำไรขาดทุน", desc:"Profit & Loss รายเดือน",
     long:"งบกำไรขาดทุนทางบัญชี · รายเดือน (สะสมตั้งแต่ต้นปี) · KPI + ตารางรายบัญชี",
@@ -15940,6 +15940,62 @@ function finInjectStyle(){
   .fin-empty .big{ font-size:34px; margin-bottom:8px; }
   .fin-loading{ padding:40px; text-align:center; color:var(--mut); }
   .fin-seednote{ background:#fffbeb; border:1px solid #fde68a; color:#92400e; border-radius:10px; padding:8px 12px; font-size:12px; margin-bottom:14px; }
+  /* period toggle */
+  .fin-period{ margin-left:auto; display:inline-flex; background:#f1f5f9; border-radius:9px; padding:3px; gap:2px; }
+  .fin-period button{ border:0; background:transparent; padding:5px 14px; border-radius:7px; font-size:12.5px; font-weight:600; color:var(--mut); cursor:pointer; font-family:inherit; }
+  .fin-period button.on{ background:#fff; color:var(--brand); box-shadow:0 1px 2px rgba(15,23,42,.1); }
+  /* analytics */
+  .fin-anal{ margin-top:18px; display:flex; flex-direction:column; gap:16px; }
+  .fin-grid2{ display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+  @media(max-width:900px){ .fin-grid2{ grid-template-columns:1fr; } }
+  .fin-card{ background:#fff; border:1px solid var(--ln); border-radius:14px; padding:16px 18px; box-shadow:0 1px 3px rgba(15,23,42,.05); }
+  .fin-card-h{ font-size:14px; font-weight:800; color:var(--fg); margin-bottom:4px; }
+  .fin-card-sub{ font-size:11.5px; color:var(--mut); margin-bottom:12px; }
+  .fin-chart-box{ position:relative; height:280px; }
+  .fin-donut-wrap{ display:flex; align-items:center; gap:16px; }
+  .fin-donut-box{ position:relative; width:170px; height:170px; flex-shrink:0; }
+  .fin-legend{ flex:1; display:flex; flex-direction:column; gap:9px; }
+  .fin-leg{ display:flex; align-items:center; gap:8px; font-size:12.5px; }
+  .fin-leg-n{ flex:1; color:#334155; } .fin-leg-p{ font-weight:700; color:var(--fg); }
+  .fin-dot{ width:11px; height:11px; border-radius:3px; flex-shrink:0; display:inline-block; }
+  .fin-tx{ margin-bottom:12px; }
+  .fin-tx-h{ display:flex; justify-content:space-between; font-size:12.5px; margin-bottom:4px; }
+  .fin-tx-h span:first-child{ color:#334155; font-weight:600; } .fin-tx-v{ color:var(--mut); font-variant-numeric:tabular-nums; }
+  .fin-tx-bar{ height:8px; background:#f1f5f9; border-radius:6px; overflow:hidden; }
+  .fin-tx-bar span{ display:block; height:100%; border-radius:6px; }
+  /* health */
+  .fin-health{ display:grid; grid-template-columns:280px 1fr; gap:16px; }
+  @media(max-width:820px){ .fin-health{ grid-template-columns:1fr; } }
+  .fin-hscore{ background:#0f172a; border-radius:14px; padding:20px; display:flex; flex-direction:column; align-items:center; gap:14px; }
+  .fin-h-title{ color:#cbd5e1; font-size:13px; font-weight:700; }
+  .fin-gauge{ width:150px; height:150px; border-radius:50%; display:flex; align-items:center; justify-content:center; }
+  .fin-gauge-in{ width:116px; height:116px; border-radius:50%; background:#0f172a; display:flex; flex-direction:column; align-items:center; justify-content:center; }
+  .fin-gauge-num{ font-size:40px; font-weight:900; color:#fff; line-height:1; } .fin-gauge-den{ font-size:12px; color:#94a3b8; }
+  .fin-h-pill{ display:inline-flex; align-items:center; gap:6px; color:#fff; font-size:12px; font-weight:700; padding:4px 14px; border-radius:20px; }
+  .fin-hsubs{ background:#fff; border:1px solid var(--ln); border-radius:14px; padding:16px 18px; }
+  .fin-sub-score{ display:grid; grid-template-columns:150px 1fr 34px 92px; align-items:center; gap:10px; padding:7px 0; border-bottom:1px solid #f1f5f9; font-size:12.5px; }
+  .fin-ss-l{ display:flex; align-items:center; gap:8px; color:#334155; font-weight:600; }
+  .fin-ss-bar{ height:8px; background:#f1f5f9; border-radius:6px; overflow:hidden; }
+  .fin-ss-bar span{ display:block; height:100%; border-radius:6px; }
+  .fin-ss-v{ text-align:right; font-weight:800; color:var(--fg); } .fin-ss-lb{ text-align:right; font-size:11px; font-weight:700; }
+  @media(max-width:560px){ .fin-sub-score{ grid-template-columns:110px 1fr 30px; } .fin-ss-lb{ display:none; } }
+  /* insight */
+  .fin-insight{ background:linear-gradient(180deg,#f8fafc,#fff); border:1px solid var(--ln); border-radius:14px; padding:18px; }
+  .fin-ins-head{ display:flex; align-items:center; gap:12px; margin-bottom:12px; }
+  .fin-ins-ic{ width:34px; height:34px; border-radius:9px; background:linear-gradient(135deg,#6366f1,#8b5cf6); color:#fff; display:flex; align-items:center; justify-content:center; }
+  .fin-ins-ic i{ width:18px; height:18px; }
+  .fin-ins-t{ font-size:14px; font-weight:800; color:var(--fg); } .fin-ins-s{ font-size:11.5px; color:var(--mut); }
+  .fin-ins-badge{ margin-left:auto; font-size:10.5px; font-weight:700; color:#6366f1; background:#eef2ff; padding:3px 9px; border-radius:20px; }
+  .fin-ins-sum{ font-size:13.5px; line-height:1.7; color:#1e293b; background:#fff; border:1px solid var(--ln); border-radius:10px; padding:12px 14px; margin-bottom:12px; }
+  .fin-ins-bullets{ display:grid; grid-template-columns:1fr 1fr; gap:8px 18px; margin-bottom:14px; }
+  @media(max-width:760px){ .fin-ins-bullets{ grid-template-columns:1fr; } }
+  .fin-ins-b{ display:flex; align-items:flex-start; gap:8px; font-size:12.5px; color:#334155; line-height:1.5; }
+  .fin-ins-b i{ width:15px; height:15px; flex-shrink:0; margin-top:2px; }
+  .fin-recs{ background:#fffbeb; border:1px solid #fde68a; border-radius:10px; padding:12px 14px; }
+  .fin-recs-h{ display:flex; align-items:center; gap:7px; font-size:12.5px; font-weight:800; color:#92400e; margin-bottom:8px; }
+  .fin-recs-h i{ width:15px; height:15px; }
+  .fin-rec{ display:flex; align-items:flex-start; gap:9px; font-size:12.5px; color:#334155; line-height:1.6; margin-bottom:6px; }
+  .fin-rec-n{ flex-shrink:0; width:19px; height:19px; border-radius:50%; background:#f59e0b; color:#fff; font-size:11px; font-weight:700; display:flex; align-items:center; justify-content:center; }
   @media print{ .sidebar,#sb,.topbar,.crumb,.fin-noprint,.company-switch{ display:none!important; } .main{ margin:0!important; padding:0!important; } .fin-hero{ box-shadow:none; } }
   `;
   document.head.appendChild(s);
@@ -15981,7 +16037,9 @@ function finKpi(lbl,val,icon,variant,badge){
   </div>`;
 }
 function finPnlHtml(d){
-  const pnl=d.pnl; const C=finPnlCompute(pnl); const M=pnl.months;
+  const period = d.pnlPeriod==="quarter" ? "quarter" : "month";
+  const pnl = period==="quarter" ? finQuarterize(d.pnl) : d.pnl;
+  const C=finPnlCompute(pnl); const M=pnl.months;
   const kpis=`<div class="fin-kpis">
     ${finKpi("รายได้รวม", finFmt(C.rev.total), "trending-up", "")}
     ${finKpi("ต้นทุนขายรวม", finFmt(C.cogs.total), "package", "")}
@@ -16043,15 +16101,20 @@ function finPnlHtml(d){
   body+=subP("ต้นทุนทางการเงิน",C.fin,true);
   body+=rowLine(C.net.total>=0?"fin-hl-g":"fin-hl-r","กำไร(ขาดทุน)สุทธิ",C.net);
   body+=pctRow("% Net Margin",C.netMarg);
+  const periodToggle=`<div class="fin-period">
+    <button class="${period==="month"?"on":""}" onclick="finSetPnlPeriod('month')">รายเดือน</button>
+    <button class="${period==="quarter"?"on":""}" onclick="finSetPnlPeriod('quarter')">รายไตรมาส</button>
+  </div>`;
   return `${kpis}
   ${d.isSeed?`<div class="fin-seednote">แสดงข้อมูลตัวอย่างจากไฟล์ที่นำเข้า — กด "อัปโหลดข้อมูล" เพื่อบันทึกขึ้นระบบ/อัปเดตงวดใหม่</div>`:``}
   <div class="fin-sheet">
-    <div class="fin-sheet-h"><h3>งบกำไรขาดทุนรายเดือน</h3><span class="fin-unit">หน่วย: บาท</span></div>
+    <div class="fin-sheet-h"><h3>งบกำไรขาดทุน${period==="quarter"?"รายไตรมาส":"รายเดือน"}</h3><span class="fin-unit">หน่วย: บาท</span>${periodToggle}</div>
     <div class="fin-tblwrap"><table class="fin-tbl">
       <thead><tr><th colspan="2">รายการ</th>${thMonths}<th class="num">รวมทั้งปี</th></tr></thead>
       <tbody>${body}</tbody>
     </table></div>
-  </div>`;
+  </div>
+  ${finAnalyticsHtml(d)}`;
 }
 function finBalTotals(balance){
   const find=nm=>{ for(const grp of balance.groups){ const l=grp.lines.find(x=>x.name===nm); if(l) return l; } return null; };
@@ -16111,6 +16174,179 @@ function finPnlAllOpen(d){ const o=d.pnlOpen||{}; return FIN_PNL_SECS.every(k=>o
 function finTogglePnlSection(key){ const d=finState(); d.pnlOpen=d.pnlOpen||{}; d.pnlOpen[key]=!d.pnlOpen[key]; renderTool(); }
 function finTogglePnlDetail(){ const d=finState(); const open=!finPnlAllOpen(d); const o={}; FIN_PNL_SECS.forEach(k=>o[k]=open); d.pnlOpen=o; renderTool(); }
 function finToggleBLine(key){ const d=finState(); d.bOpen[key]=!d.bOpen[key]; renderTool(); }
+function finSetPnlPeriod(p){ const d=finState(); d.pnlPeriod=p; renderTool(); }
+
+/* ---- รวมรายเดือน → รายไตรมาส (สำหรับ toggle มุมมอง) ---- */
+function finQuarterize(pnl){
+  const qOf=key=>"Q"+Math.ceil(parseInt(key.slice(5,7),10)/3);
+  const qMap={}; pnl.months.forEach(mo=>{ const q=qOf(mo.key); (qMap[q]=qMap[q]||[]).push(mo.key); });
+  const qKeys=Object.keys(qMap).sort();
+  const QL={Q1:"ไตรมาส 1",Q2:"ไตรมาส 2",Q3:"ไตรมาส 3",Q4:"ไตรมาส 4"};
+  const months=qKeys.map(q=>({key:q,label:QL[q]||q}));
+  const idxOf=mk=>pnl.months.findIndex(x=>x.key===mk);
+  const accounts=pnl.accounts.map(a=>{ const mv={}; qKeys.forEach(q=>{ mv[q]=finR2(qMap[q].reduce((s,mk)=>s+(a.mv[mk]||0),0)); }); return Object.assign({},a,{mv}); });
+  const subs={}; if(pnl.subs) for(const k in pnl.subs){ const src=pnl.subs[k];
+    subs[k]={ m:qKeys.map(q=>finR2(qMap[q].reduce((s,mk)=>s+(src.m[idxOf(mk)]||0),0))), total:src.total }; }
+  return Object.assign({},pnl,{months,accounts,subs});
+}
+
+/* ---- จัดหมวดค่าใช้จ่าย (สำหรับโดนัท + Top expenses) ---- */
+const FIN_EXP_CATS=[
+  {key:"ad",       name:"ค่าโฆษณา",              color:"#ef4444"},
+  {key:"cogs",     name:"ต้นทุนขาย",             color:"#3b82f6"},
+  {key:"payroll",  name:"เงินเดือน & บุคลากร",    color:"#8b5cf6"},
+  {key:"feeSell",  name:"ค่าธรรมเนียม & ขายอื่น ๆ", color:"#06b6d4"},
+  {key:"interest", name:"ดอกเบี้ยจ่าย",          color:"#f59e0b"},
+  {key:"admOther", name:"บริหารอื่น ๆ",           color:"#94a3b8"},
+];
+function finExpCatKey(a){
+  const n=a.name||"";
+  if(a.section==="finance") return "interest";
+  if(a.section==="cogs") return "cogs";
+  if(/โฆษณา|ยิงแอด|แอด|โปรโมท|ads?/i.test(n)) return "ad";
+  if(/เงินเดือน|ค่าจ้าง|สวัสดิการ|ประกันสังคม|กองทุน|ตำแหน่ง|เบี้ยเลี้ยง|ครองชีพ|ประสบการณ์|บุคลากร|โบนัส|ประกัน-พนักงาน|สำรองเลี้ยงชีพ|ทดแทน/.test(n)) return "payroll";
+  if(a.section==="selling") return "feeSell";
+  return "admOther";
+}
+function finExpenseCats(pnl,C){
+  const tot={ad:0,cogs:0,payroll:0,feeSell:0,interest:0,admOther:0};
+  pnl.accounts.forEach(a=>{ if(a.section==="revenue") return; tot[finExpCatKey(a)]+=a.total||0; });
+  tot.cogs=C.cogs.total; tot.interest=C.fin.total;   // ยอด authoritative (รวม gap สินค้าคงเหลือ)
+  const grand=(C.cogs.total+C.sell.total+C.adm.total+C.fin.total)||1;
+  return FIN_EXP_CATS.map(c=>({name:c.name,color:c.color,total:finR2(tot[c.key]),pct:tot[c.key]/grand}))
+    .filter(c=>Math.abs(c.total)>0.01).sort((a,b)=>b.total-a.total);
+}
+
+/* ---- คะแนนสุขภาพทางการเงิน ---- */
+function finScoreLinear(v,pts){
+  if(v<=pts[0][0]) return pts[0][1];
+  for(let i=0;i<pts.length-1;i++){ const [v0,s0]=pts[i],[v1,s1]=pts[i+1]; if(v<=v1) return s0+(s1-s0)*(v-v0)/(v1-v0); }
+  return pts[pts.length-1][1];
+}
+function finHealth(pnl,balance,C){
+  const rev=C.rev.total||1;
+  const netMargin=C.net.total/rev, grossMargin=C.gross.total/rev, opexRatio=C.opex.total/rev;
+  const m=C.rev.m; const growth=(m.length>=2 && m[0])?(m[m.length-1]-m[0])/Math.abs(m[0]):0;
+  const bf=nm=>{ if(!balance) return null; for(const g of balance.groups){ const l=g.lines.find(x=>x.name===nm); if(l&&l.cur!=null) return l.cur; } return null; };
+  const ca=bf("รวมสินทรัพย์หมุนเวียน"), cl=bf("รวมหนี้สินหมุนเวียน"), tl=bf("รวมหนี้สิน"), ta=bf("รวมสินทรัพย์"), eq=bf("รวมส่วนของผู้ถือหุ้น");
+  const curRatio=(ca!=null&&cl)?ca/cl:null, debtRatio=(tl!=null&&ta)?tl/ta:null;
+  const sLiq=curRatio!=null?finScoreLinear(curRatio,[[0.5,12],[1,45],[1.5,70],[2,85],[3,95]]):50;
+  const sProf=finScoreLinear(netMargin,[[-0.5,5],[-0.2,20],[0,45],[0.05,68],[0.15,92]]);
+  const sGrow=finScoreLinear(growth,[[-0.5,10],[0,50],[0.3,75],[0.8,90],[1.5,97]]);
+  const sEff=finScoreLinear(opexRatio,[[0.2,95],[0.4,75],[0.6,55],[0.9,32],[1.5,12]]);
+  let sRisk=debtRatio!=null?finScoreLinear(debtRatio,[[0.3,90],[0.6,65],[1,42],[2,20],[4,8]]):50;
+  if(eq!=null&&eq<0) sRisk=Math.min(sRisk,12);
+  const subs=[
+    {name:"สภาพคล่อง",score:Math.round(sLiq)},
+    {name:"ความสามารถทำกำไร",score:Math.round(sProf)},
+    {name:"การเติบโต",score:Math.round(sGrow)},
+    {name:"ประสิทธิภาพ",score:Math.round(sEff)},
+    {name:"ความเสี่ยง",score:Math.round(sRisk)},
+  ];
+  subs.forEach(s=>{ s.label=s.score>=70?"ดี":s.score>=45?"เฝ้าระวัง":"ต้องดำเนินการ"; s.color=s.score>=70?"#22c55e":s.score>=45?"#f59e0b":"#ef4444"; });
+  const overall=Math.round(sLiq*0.2+sProf*0.3+sGrow*0.15+sEff*0.15+sRisk*0.2);
+  return { overall, subs, metrics:{netMargin,grossMargin,opexRatio,growth,curRatio,debtRatio,ca,cl,tl,ta,eq} };
+}
+
+/* ---- CFO Insight (สรุปเชิงผู้บริหาร · rule-based) ---- */
+function finInsight(pnl,balance,C,H){
+  const f=v=>fopFmt(v), pc=v=>(v*100).toFixed(1)+"%";
+  const rev=C.rev.total, net=C.net.total, M=C.rev.m, first=M[0], last=M[M.length-1];
+  const g=H.metrics.growth, gm=H.metrics.grossMargin, nm=H.metrics.netMargin, eq=H.metrics.eq;
+  const cats=finExpenseCats(pnl,C), top=cats[0];
+  let summary=`บริษัทมีรายได้รวม <b>${f(rev)}</b> บาท `
+    + (g>0.05?`เติบโต <b>${(g*100).toFixed(0)}%</b> จากต้นงวด `:g<-0.05?`ลดลง ${(Math.abs(g)*100).toFixed(0)}% จากต้นงวด `:``)
+    + `และกำไรขั้นต้นที่ <b>${(gm*100).toFixed(0)}%</b> `
+    + (net<0?`แต่ยัง<b style="color:#dc2626">ขาดทุนสุทธิ ${f(net)}</b> บาท ${top?"จาก"+top.name+"และค่าใช้จ่ายที่สูงเกินรายได้":""}`
+            :`และทำ<b style="color:#059669">กำไรสุทธิ ${f(net)}</b> บาท`)
+    + (eq!=null&&eq<0?` · จุดที่ต้องเร่งแก้คือ<b>ส่วนของผู้ถือหุ้นติดลบ ${f(eq)}</b> บาท`:``) + ".";
+  const B=[];
+  B.push({t:"good",x:`รายได้รวม ${f(rev)} บาท`+(first!=null?` (ม.ค. ${f(first)} → ล่าสุด ${f(last)})`:"")});
+  B.push({t:"good",x:`กำไรขั้นต้น ${f(C.gross.total)} บาท คิดเป็นอัตรา ${pc(gm)}`});
+  if(top) B.push({t:"bad",x:`${top.name} ${f(top.total)} บาท คิดเป็น ${pc(top.pct)} ของค่าใช้จ่าย`});
+  B.push({t:net<0?"bad":"good",x:`${net<0?"ขาดทุน":"กำไร"}สุทธิ ${f(net)} บาท อัตรา ${pc(nm)}`+(C.ebit.total<0?` · ยังไม่ถึงจุดคุ้มก่อนต้นทุนการเงิน (EBIT ${f(C.ebit.total)})`:``)});
+  if(eq!=null&&eq<0) B.push({t:"bad",x:`ส่วนของผู้ถือหุ้นติดลบ ${f(eq)} บาท`+(H.metrics.debtRatio?` · Debt Ratio ${H.metrics.debtRatio.toFixed(2)} เท่า`:``)});
+  if(C.fin.total>0.01) B.push({t:"warn",x:`ต้นทุนทางการเงิน (ดอกเบี้ยจ่าย) ${f(C.fin.total)} บาท กดดันกระแสเงินสด`});
+  const R=[];
+  if(H.metrics.opexRatio>0.5) R.push(`คุมค่าใช้จ่ายขายและบริหาร — ปัจจุบัน ${(H.metrics.opexRatio*100).toFixed(0)}% ของรายได้ · ตั้งเพดานค่าโฆษณาไม่เกิน ~25% ของยอดขาย`);
+  if(net<0) R.push(`เร่งหาจุดคุ้มทุน — เพิ่มรายได้หรือลดค่าใช้จ่ายให้กำไรก่อนต้นทุนการเงินเป็นบวก`);
+  if(eq!=null&&eq<0) R.push(`ปรับโครงสร้างทุน — พิจารณาแปลงเงินกู้กรรมการ/ในเครือเป็นทุน (debt-to-equity) เพื่อแก้ส่วนผู้ถือหุ้นติดลบ`);
+  if(H.metrics.curRatio!=null&&H.metrics.curRatio<1.2) R.push(`ดูแลสภาพคล่อง — สินทรัพย์หมุนเวียนต่อหนี้สินหมุนเวียน ${H.metrics.curRatio.toFixed(2)} เท่า · เร่งเก็บลูกหนี้`);
+  if(!R.length) R.push(`รักษาโมเมนตัม — คุมต้นทุนและขยายรายได้ต่อเนื่อง`);
+  return { summary, bullets:B, recs:R };
+}
+
+/* ---- Chart helpers (fin*) ---- */
+const _finCharts={};
+function finKfmt(n){ const a=Math.abs(n); if(a>=1e6) return (n/1e6).toFixed(a>=1e7?0:1)+"M"; if(a>=1e3) return Math.round(n/1e3)+"K"; return String(Math.round(n)); }
+function finMakeChart(id,cfg){ if(_finCharts[id]){ try{_finCharts[id].destroy();}catch(e){} delete _finCharts[id]; } const el=document.getElementById(id); if(!el||!window.Chart) return; _finCharts[id]=new Chart(el.getContext("2d"),cfg); }
+function finRenderPnlCharts(d){
+  if(!d.pnl||!window.Chart) return;
+  const pnl=d.pnl, C=finPnlCompute(pnl), M=pnl.months;
+  const labels=M.map(m=>m.label);
+  const revA=C.rev.m, netA=C.net.m, expA=revA.map((v,i)=>finR2(v-netA[i]));
+  const cats=finExpenseCats(pnl,C);
+  const yTick={ ticks:{ callback:v=>finKfmt(v), font:{size:10} }, grid:{color:"#f1f5f9"} };
+  finMakeChart("finChartMonthly",{ data:{ labels, datasets:[
+      {type:"bar",label:"รายได้",data:revA,backgroundColor:"#3b82f6",borderRadius:4,order:3},
+      {type:"bar",label:"ค่าใช้จ่าย",data:expA,backgroundColor:"#cbd5e1",borderRadius:4,order:3},
+      {type:"line",label:"กำไร/ขาดทุนสุทธิ",data:netA,borderColor:"#ef4444",backgroundColor:"#ef4444",borderWidth:2,tension:0.3,pointRadius:3,order:1}
+    ]}, options:{ responsive:true, maintainAspectRatio:false, interaction:{mode:"index",intersect:false},
+      plugins:{ legend:{position:"top",labels:{boxWidth:12,font:{size:11}}}, tooltip:{callbacks:{label:c=>c.dataset.label+": "+fopFmt(c.parsed.y)}} },
+      scales:{ x:{grid:{display:false}}, y:yTick } } });
+  finMakeChart("finChartDonut",{ type:"doughnut", data:{ labels:cats.map(c=>c.name), datasets:[{data:cats.map(c=>c.total),backgroundColor:cats.map(c=>c.color),borderWidth:2,borderColor:"#fff"}]},
+    options:{ responsive:true, maintainAspectRatio:false, cutout:"60%", plugins:{ legend:{display:false}, tooltip:{callbacks:{label:c=>c.label+": "+fopFmt(c.parsed)}} } } });
+  finMakeChart("finChartTrend",{ type:"line", data:{ labels, datasets:[{data:netA,borderColor:"#dc2626",backgroundColor:"rgba(220,38,38,.12)",fill:true,borderWidth:2,tension:0.35,pointRadius:3,pointBackgroundColor:"#fff",pointBorderColor:"#dc2626"}]},
+    options:{ responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>fopFmt(c.parsed.y)}}}, scales:{x:{grid:{display:false}},y:yTick} } });
+}
+
+/* ---- Analytics section HTML (ใต้ตาราง P&L) ---- */
+function finAnalyticsHtml(d){
+  const pnl=d.pnl, C=finPnlCompute(pnl), M=pnl.months;
+  const cats=finExpenseCats(pnl,C);
+  const H=finHealth(pnl,d.balance,C);
+  const ins=finInsight(pnl,d.balance,C,H);
+  const totExp=cats.reduce((s,c)=>s+c.total,0)||1;
+  const legend=cats.map(c=>`<div class="fin-leg"><span class="fin-dot" style="background:${c.color}"></span><span class="fin-leg-n">${esc(c.name)}</span><span class="fin-leg-p">${(c.pct*100).toFixed(0)}%</span></div>`).join("");
+  const topBars=cats.map(c=>`<div class="fin-tx"><div class="fin-tx-h"><span>${esc(c.name)}</span><span class="fin-tx-v">${fopFmt(c.total)} · ${(c.pct*100).toFixed(0)}%</span></div><div class="fin-tx-bar"><span style="width:${Math.max(2,c.total/cats[0].total*100)}%;background:${c.color}"></span></div></div>`).join("");
+  const gcol=H.overall>=70?"#22c55e":H.overall>=45?"#f59e0b":"#ef4444";
+  const gstat=H.overall>=70?"ดี":H.overall>=45?"เฝ้าระวัง":"ต้องดำเนินการ";
+  const subBars=H.subs.map(s=>`<div class="fin-sub-score"><div class="fin-ss-l"><span class="fin-dot" style="background:${s.color}"></span>${esc(s.name)}</div><div class="fin-ss-bar"><span style="width:${s.score}%;background:${s.color}"></span></div><div class="fin-ss-v">${s.score}</div><div class="fin-ss-lb" style="color:${s.color}">${s.label}</div></div>`).join("");
+  const bico={good:'<i data-lucide="check-circle" style="color:#059669"></i>',bad:'<i data-lucide="alert-circle" style="color:#dc2626"></i>',warn:'<i data-lucide="alert-triangle" style="color:#d97706"></i>'};
+  const bullets=ins.bullets.map(b=>`<div class="fin-ins-b">${bico[b.t]||""}<span>${b.x}</span></div>`).join("");
+  const recs=ins.recs.map((r,i)=>`<div class="fin-rec"><span class="fin-rec-n">${i+1}</span><span>${r}</span></div>`).join("");
+  return `
+  <div class="fin-anal">
+    <div class="fin-grid2">
+      <div class="fin-card"><div class="fin-card-h">รายได้ · ค่าใช้จ่าย · กำไรสุทธิ ${M.length?"ราย"+(pnl.months.length>6?"ไตรมาส":"เดือน"):""}</div><div class="fin-chart-box"><canvas id="finChartMonthly"></canvas></div></div>
+      <div class="fin-card"><div class="fin-card-h">โครงสร้างค่าใช้จ่ายทั้งหมด</div>
+        <div class="fin-donut-wrap"><div class="fin-donut-box"><canvas id="finChartDonut"></canvas></div><div class="fin-legend">${legend}</div></div>
+      </div>
+    </div>
+    <div class="fin-grid2">
+      <div class="fin-card"><div class="fin-card-h">ค่าใช้จ่ายสูงสุด (${M.length} ${pnl.months.length>6?"ไตรมาส":"เดือน"})</div><div class="fin-card-sub">ค่าใช้จ่ายอันดับต้น ๆ ที่เป็นตัวแปรหลักของผลกำไร</div>${topBars}</div>
+      <div class="fin-card"><div class="fin-card-h">แนวโน้มกำไร(ขาดทุน)สุทธิรายเดือน</div><div class="fin-chart-box"><canvas id="finChartTrend"></canvas></div></div>
+    </div>
+    <div class="fin-health">
+      <div class="fin-hscore">
+        <div class="fin-h-title">คะแนนสุขภาพทางการเงิน</div>
+        <div class="fin-gauge" style="background:conic-gradient(${gcol} ${H.overall*3.6}deg, #334155 0)"><div class="fin-gauge-in"><div class="fin-gauge-num">${H.overall}</div><div class="fin-gauge-den">/100</div></div></div>
+        <div class="fin-h-pill" style="background:${gcol}"><span class="fin-dot" style="background:#fff"></span>${gstat}</div>
+      </div>
+      <div class="fin-hsubs">
+        <div class="fin-card-h">คะแนนย่อยรายมิติ</div>
+        <div class="fin-card-sub">ประเมินจากข้อมูล ${M.length} ${pnl.months.length>6?"ไตรมาส":"เดือน"} — สภาพคล่อง · ความสามารถทำกำไร · การเติบโต · ประสิทธิภาพ · ความเสี่ยง</div>
+        ${subBars}
+      </div>
+    </div>
+    <div class="fin-insight">
+      <div class="fin-ins-head"><span class="fin-ins-ic"><i data-lucide="sparkles"></i></span><div><div class="fin-ins-t">สรุปเชิงผู้บริหาร (CFO Insight)</div><div class="fin-ins-s">วิเคราะห์จากงบการเงินจริง · ชี้ความเสี่ยงและข้อเสนอแนะ</div></div><span class="fin-ins-badge">Auto Generated</span></div>
+      <div class="fin-ins-sum">${ins.summary}</div>
+      <div class="fin-ins-bullets">${bullets}</div>
+      <div class="fin-recs"><div class="fin-recs-h"><i data-lucide="lightbulb"></i> ข้อเสนอแนะเชิงบริหาร</div>${recs}</div>
+    </div>
+  </div>`;
+}
 function finPrint(){
   const sheet=document.querySelector(".fin-page");
   if(!sheet){ window.print(); return; }
@@ -16160,6 +16396,7 @@ async function renderToolFinPage(which){
        : which==="pnl" ? finPnlHtml(d) : finBalanceHtml(d));
   main.innerHTML=`<div class="fin-page">${finHeroHtml(which,d)}${inner}</div>`;
   if(window.lucide) try{lucide.createIcons();}catch(e){}
+  if(which==="pnl" && hasData){ try{ finRenderPnlCharts(d); }catch(e){ console.warn("[fin] charts",e); } }
 }
 function renderToolFinPnl(){ return renderToolFinPage("pnl"); }
 function renderToolFinBalance(){ return renderToolFinPage("balance"); }

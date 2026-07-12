@@ -181,6 +181,17 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-11 (2) — งบแสดงฐานะการเงิน: แดชบอร์ดวิเคราะห์ใต้ตาราง (โครงสร้าง/YoY/อัตราส่วน/สรุป)
+- **เจ้าของขอ:** หน้างบแสดงฐานะการเงินอยากได้วิเคราะห์ด้วย (แบบ P&L)
+- **`finBalAnalyticsHtml`+`finRenderBalCharts`** เรียกท้าย `renderToolFinPage` (which==balance+hasData) · reuse CSS `.fin-*` เดิม:
+  - **โครงสร้างสินทรัพย์** (โดนัท `finBalAssetComp` — asset lines type=line · top 7 + อื่นๆ) + legend
+  - **แหล่งเงินทุน** (`finBalFunding` — หนี้หมุนเวียน/ไม่หมุนเวียน/ส่วนของผู้ถือหุ้น · bar scale ต่อ max · ติดลบ=แดง)
+  - **เทียบปีก่อน YoY** (grouped bar `finChartBalYoY` — สินทรัพย์/หนี้สิน/ทุน × 2569 vs 2567)
+  - **อัตราส่วนทางการเงิน** (`finBalRatios` — Current Ratio/Working Capital/Debt Ratio/D-E/Equity Ratio · แต่ละตัวคลิกกางดูสูตร+ตัวเลข+ที่มา `finToggleBRatio`·`d.rOpen` · status good/warn/bad)
+  - **วิเคราะห์ฐานะการเงิน** (`finBalInsight` — สรุป+bullets+ข้อเสนอแนะ · เน้นส่วนของผู้ถือหุ้นติดลบ/YoY)
+- **★ เคสส่วนของผู้ถือหุ้นติดลบ (ทั้ง 2 บริษัท):** D/E โชว์ "ทุนติดลบ · คำนวณไม่ได้" · Equity Ratio ติดลบ = "ขาดทุนเกินทุน" · funding bar ติดลบ=แดง · ทดสอบไฟล์จริง: MBark สภาพคล่อง 1.36 · Benya 2.79 · Benya asset comp ลูกหนี้ 53% · YoY เห็นสินทรัพย์ Benya 66.6M→3.5M · **กระทบหน้าอื่น = 0**
+- **Balance ยังไม่มี toggle เดือน/ไตรมาส** (snapshot ณ วันที่ · ต้อง parse TB sheets เพิ่มถ้าจะทำ)
+
 ### 2026-07-11 — ★ งบการเงิน: ย้าย Exec Cash Flow เข้ากลุ่ม + P&L toggle เดือน/ไตรมาส + แดชบอร์ดวิเคราะห์ใต้ตาราง
 - **เจ้าของขอ (3 อย่าง):** (1) P&L+Balance คลิกดูรายเดือน/รายไตรมาส (2) เปลี่ยนชื่อ "Executive Cash Flow" → "งบกระแสเงินสด" ย้ายเข้ากลุ่ม "งบการเงิน" **บนสุด** (ก่อน กำไรขาดทุน/ฐานะ) (3) ใต้ตาราง P&L เพิ่มกราฟแท่ง รายได้/ค่าใช้จ่าย/กำไร + โครงสร้างค่าใช้จ่าย + วิเคราะห์ธุรกิจ (ตามภาพ mockup)
 - **ย้ายเมนู:** `execdash` เปลี่ยน `name:"งบกระแสเงินสด"` + `parent:"finstmt"` วางเป็น child แรกของ group (ก่อน finpnl/finbalance) · icon `banknote` · **render logic ห้ามแตะ = ไม่แตะ** (แค่ย้าย TOOLS entry) · **PRESENT_TOOLS เพิ่ม finstmt/finpnl/finbalance** (กันโหมดพรีเซนต์พังเพราะ execdash กลายเป็น child ใต้ group ที่ present filter ตัดออก)

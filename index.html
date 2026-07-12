@@ -15992,6 +15992,12 @@ function finInjectStyle(){
   .fin-hd-band{ color:#64748b; }
   .fin-hd-src{ display:flex; align-items:center; gap:5px; margin-top:6px; padding-top:6px; border-top:1px dashed var(--ln); color:#94a3b8; font-size:11px; }
   .fin-hd-src i{ width:12px; height:12px; }
+  /* balance ratios */
+  .fin-rt{ display:flex; align-items:center; gap:9px; padding:9px 2px; border-bottom:1px solid #f1f5f9; font-size:12.5px; }
+  .fin-rt .fin-chev{ width:14px; color:#94a3b8; font-size:11px; }
+  .fin-rt-n{ flex:1; color:#334155; font-weight:600; }
+  .fin-rt-v{ font-weight:800; color:var(--fg); font-variant-numeric:tabular-nums; }
+  .fin-rt-b{ font-size:11px; font-weight:700; padding:2px 9px; border-radius:20px; white-space:nowrap; }
   /* insight */
   .fin-insight{ background:linear-gradient(180deg,#f8fafc,#fff); border:1px solid var(--ln); border-radius:14px; padding:18px; }
   .fin-ins-head{ display:flex; align-items:center; gap:12px; margin-bottom:12px; }
@@ -16140,6 +16146,120 @@ function finBalTotals(balance){
     cash
   };
 }
+
+/* ===== Balance Sheet analytics ===== */
+function finBalCompute(b){
+  const find=nm=>{ for(const g of b.groups){ const l=g.lines.find(x=>x.name===nm); if(l) return l; } return null; };
+  const cv=nm=>{ const l=find(nm); return l&&l.cur!=null?l.cur:null; }, pv=nm=>{ const l=find(nm); return l&&l.prev!=null?l.prev:null; };
+  return { ta:cv("รวมสินทรัพย์"), taP:pv("รวมสินทรัพย์"), tl:cv("รวมหนี้สิน"), tlP:pv("รวมหนี้สิน"),
+    eq:cv("รวมส่วนของผู้ถือหุ้น"), eqP:pv("รวมส่วนของผู้ถือหุ้น"),
+    ca:cv("รวมสินทรัพย์หมุนเวียน"), caP:pv("รวมสินทรัพย์หมุนเวียน"),
+    cl:cv("รวมหนี้สินหมุนเวียน"), clP:pv("รวมหนี้สินหมุนเวียน"),
+    ncl:cv("รวมหนี้สินไม่หมุนเวียน"), nca:cv("รวมสินทรัพย์ไม่หมุนเวียน") };
+}
+const FIN_BAL_PALETTE=["#3b82f6","#06b6d4","#8b5cf6","#22c55e","#f59e0b","#ec4899","#14b8a6","#94a3b8"];
+function finBalAssetComp(b){
+  const g=b.groups.find(x=>x.key==="assets");
+  let lines=g.lines.filter(l=>l.type==="line" && l.cur!=null && Math.abs(l.cur)>0.01).map(l=>({name:l.name,value:l.cur}));
+  lines.sort((a,b)=>b.value-a.value);
+  if(lines.length>7){ const top=lines.slice(0,6); const rest=lines.slice(6).reduce((s,x)=>s+x.value,0); top.push({name:"อื่น ๆ",value:rest}); lines=top; }
+  const tot=lines.reduce((s,x)=>s+x.value,0)||1;
+  return lines.map((x,i)=>({name:x.name,value:x.value,pct:x.value/tot,color:FIN_BAL_PALETTE[i%FIN_BAL_PALETTE.length]}));
+}
+function finBalFunding(T){
+  const items=[{name:"หนี้สินหมุนเวียน",value:T.cl,color:"#f59e0b"},{name:"หนี้สินไม่หมุนเวียน",value:T.ncl,color:"#ef4444"},{name:"ส่วนของผู้ถือหุ้น",value:T.eq,color:"#22c55e"}].filter(x=>x.value!=null);
+  const base=Math.abs(T.ta)||1;
+  return items.map(x=>({name:x.name,value:x.value,color:x.value<0?"#dc2626":x.color,pct:x.value/base}));
+}
+function finBalRatios(T){
+  const R=[]; const P=(name,valueText,status,statusText,detail)=>R.push({name,valueText,status,statusText,detail});
+  if(T.ca!=null&&T.cl){ const cr=T.ca/T.cl; P("อัตราส่วนสภาพคล่อง (Current Ratio)",cr.toFixed(2)+" เท่า",cr>=1.5?"good":cr>=1?"warn":"bad",cr>=1.5?"แข็งแรง":cr>=1?"พอใช้":"ตึงตัว",
+    {formula:"สินทรัพย์หมุนเวียน ÷ หนี้สินหมุนเวียน",inputs:[{label:"รวมสินทรัพย์หมุนเวียน",value:T.ca},{label:"รวมหนี้สินหมุนเวียน",value:T.cl}],result:cr.toFixed(2)+" เท่า",bands:"≥ 1.5 = แข็งแรง · 1–1.5 = พอใช้ · < 1 = ตึงตัว",src:"งบแสดงฐานะการเงิน"}); }
+  if(T.ca!=null&&T.cl!=null){ const wc=T.ca-T.cl; P("เงินทุนหมุนเวียนสุทธิ (Working Capital)",fopFmt(wc)+" บาท",wc>0?"good":"bad",wc>0?"เป็นบวก":"ติดลบ",
+    {formula:"สินทรัพย์หมุนเวียน − หนี้สินหมุนเวียน",inputs:[{label:"รวมสินทรัพย์หมุนเวียน",value:T.ca},{label:"รวมหนี้สินหมุนเวียน",value:T.cl}],result:fopFmt(wc)+" บาท",bands:"เป็นบวก = มีสภาพคล่องหมุนเวียน · ติดลบ = ต้องเสริมเงินทุน",src:"งบแสดงฐานะการเงิน"}); }
+  if(T.tl!=null&&T.ta){ const dr=T.tl/T.ta; P("อัตราส่วนหนี้สินต่อสินทรัพย์ (Debt Ratio)",dr.toFixed(2)+" เท่า ("+(dr*100).toFixed(0)+"%)",dr<0.6?"good":dr<1?"warn":"bad",dr<0.6?"ปลอดภัย":dr<1?"เฝ้าระวัง":"หนี้เกินสินทรัพย์",
+    {formula:"หนี้สินรวม ÷ สินทรัพย์รวม",inputs:[{label:"รวมหนี้สิน",value:T.tl},{label:"รวมสินทรัพย์",value:T.ta}],result:dr.toFixed(2)+" เท่า",bands:"< 0.6 = ปลอดภัย · 0.6–1 = เฝ้าระวัง · > 1 = หนี้เกินสินทรัพย์",src:"งบแสดงฐานะการเงิน"}); }
+  if(T.tl!=null&&T.eq!=null){ const neg=T.eq<0, de=T.eq!==0?T.tl/T.eq:null; P("อัตราส่วนหนี้สินต่อทุน (D/E)",neg?"ทุนติดลบ":(de!=null?de.toFixed(2)+" เท่า":"—"),neg?"bad":(de<1.5?"good":de<3?"warn":"bad"),neg?"ต้องเพิ่มทุน":(de<1.5?"เหมาะสม":"หนี้สูง"),
+    {formula:"หนี้สินรวม ÷ ส่วนของผู้ถือหุ้น",inputs:[{label:"รวมหนี้สิน",value:T.tl},{label:"รวมส่วนของผู้ถือหุ้น",value:T.eq}],result:neg?"คำนวณไม่ได้ (ส่วนของผู้ถือหุ้นติดลบ)":de.toFixed(2)+" เท่า",bands:"< 1.5 = เหมาะสม · 1.5–3 = สูง · ทุนติดลบ = ต้องเพิ่มทุน",src:"งบแสดงฐานะการเงิน"}); }
+  if(T.eq!=null&&T.ta){ const er=T.eq/T.ta; P("อัตราส่วนส่วนของผู้ถือหุ้น (Equity Ratio)",(er*100).toFixed(0)+"%",er>=0.4?"good":er>0?"warn":"bad",er>=0.4?"ทุนหนา":er>0?"ทุนบาง":"ขาดทุนเกินทุน",
+    {formula:"ส่วนของผู้ถือหุ้น ÷ สินทรัพย์รวม",inputs:[{label:"รวมส่วนของผู้ถือหุ้น",value:T.eq},{label:"รวมสินทรัพย์",value:T.ta}],result:(er*100).toFixed(0)+"%",bands:"≥ 40% = ทุนหนา · 0–40% = ทุนบาง · ติดลบ = ขาดทุนเกินทุน",src:"งบแสดงฐานะการเงิน"}); }
+  return R;
+}
+function finBalInsight(b,T){
+  const f=v=>fopFmt(v), asof=(b.asOf||"").replace(/^ณ\s*/,"");
+  const pcCh=(c,p)=>(p&&p!==0)?((c-p)/Math.abs(p)*100).toFixed(0)+"%":"—";
+  let summary=`ณ ${asof} บริษัทมีสินทรัพย์รวม <b>${f(T.ta)}</b> บาท`
+    +(T.taP!=null?` (${T.ta>=T.taP?"เพิ่มขึ้น":"ลดลง"} ${pcCh(T.ta,T.taP)} จากปีก่อน)`:``)
+    +` · เงินทุนมาจากหนี้สิน <b>${f(T.tl)}</b> บาท และส่วนของผู้ถือหุ้น <b style="color:${T.eq<0?'#dc2626':'#059669'}">${f(T.eq)}</b> บาท`
+    +(T.eq!=null&&T.eq<0?` — <b style="color:#dc2626">ส่วนของผู้ถือหุ้นติดลบ (ขาดทุนสะสมเกินทุน)</b> คือจุดที่ต้องเร่งแก้`:``)+".";
+  const B=[];
+  if(T.ca!=null&&T.cl){ const cr=T.ca/T.cl; B.push({t:cr>=1?"good":"bad",x:`สภาพคล่อง ${cr.toFixed(2)} เท่า — สินทรัพย์หมุนเวียน ${f(T.ca)} เทียบหนี้สินหมุนเวียน ${f(T.cl)}`}); }
+  if(T.tl!=null&&T.ta){ const dr=T.tl/T.ta; B.push({t:dr<1?"warn":"bad",x:`หนี้สินคิดเป็น ${(dr*100).toFixed(0)}% ของสินทรัพย์`+(dr>1?" (หนี้มากกว่าสินทรัพย์)":"")}); }
+  if(T.eq!=null&&T.eqP!=null) B.push({t:T.eq>=T.eqP?"good":"bad",x:`ส่วนของผู้ถือหุ้น ${f(T.eq)} บาท ${T.eq>=T.eqP?"ดีขึ้น":"แย่ลง"}จากปีก่อน (${f(T.eqP)})`});
+  if(T.taP!=null&&Math.abs(T.taP)>0){ const ch=(T.ta-T.taP)/Math.abs(T.taP); if(Math.abs(ch)>0.15) B.push({t:ch>0?"good":"warn",x:`สินทรัพย์รวม${ch>0?"เพิ่ม":"ลด"} ${(Math.abs(ch)*100).toFixed(0)}% จากปีก่อน (${f(T.taP)} → ${f(T.ta)})`}); }
+  if(T.cash!=null) {}
+  const Rc=[];
+  if(T.eq!=null&&T.eq<0) Rc.push("เพิ่มทุน / แปลงเงินกู้กรรมการเป็นทุน (debt-to-equity) เพื่อแก้ส่วนของผู้ถือหุ้นติดลบ");
+  if(T.ca!=null&&T.cl&&T.ca/T.cl<1.2) Rc.push("ดูแลสภาพคล่อง — เร่งเก็บลูกหนี้ / ลดสินค้าคงคลัง ให้สินทรัพย์หมุนเวียนคุ้มหนี้ระยะสั้น");
+  if(T.tl!=null&&T.ta&&T.tl/T.ta>0.7) Rc.push("ลดภาระหนี้ — สัดส่วนหนี้ต่อสินทรัพย์สูง ควรทยอยชำระ / รีไฟแนนซ์ดอกเบี้ยต่ำ");
+  if(!Rc.length) Rc.push("รักษาโครงสร้างทุนให้แข็งแรงต่อเนื่อง");
+  return { summary, bullets:B, recs:Rc };
+}
+function finToggleBRatio(name){ const d=finState(); d.rOpen=d.rOpen||{}; d.rOpen[name]=!d.rOpen[name]; renderTool(); }
+function finRenderBalCharts(d){
+  if(!d.balance||!window.Chart) return;
+  const b=d.balance, comp=finBalAssetComp(b), T=finBalCompute(b);
+  finMakeChart("finChartBalAssets",{ type:"doughnut", data:{ labels:comp.map(c=>c.name), datasets:[{data:comp.map(c=>c.value),backgroundColor:comp.map(c=>c.color),borderWidth:2,borderColor:"#fff"}]},
+    options:{ responsive:true, maintainAspectRatio:false, cutout:"60%", plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>c.label+": "+fopFmt(c.parsed)}}} } });
+  const yTick={ ticks:{callback:v=>finKfmt(v),font:{size:10}}, grid:{color:"#f1f5f9"} };
+  finMakeChart("finChartBalYoY",{ type:"bar", data:{ labels:["สินทรัพย์รวม","หนี้สินรวม","ส่วนของผู้ถือหุ้น"], datasets:[
+      {label:b.curYear,data:[T.ta,T.tl,T.eq],backgroundColor:"#0d9488",borderRadius:4},
+      {label:b.prevYear,data:[T.taP,T.tlP,T.eqP],backgroundColor:"#cbd5e1",borderRadius:4}
+    ]}, options:{ responsive:true, maintainAspectRatio:false, plugins:{legend:{position:"top",labels:{boxWidth:12,font:{size:11}}},tooltip:{callbacks:{label:c=>c.dataset.label+": "+fopFmt(c.parsed.y)}}}, scales:{x:{grid:{display:false}},y:yTick} } });
+}
+function finBalAnalyticsHtml(d){
+  const b=d.balance, T=finBalCompute(b), comp=finBalAssetComp(b), fund=finBalFunding(T), R=finBalRatios(T), ins=finBalInsight(b,T);
+  const legend=comp.map(c=>`<div class="fin-leg"><span class="fin-dot" style="background:${c.color}"></span><span class="fin-leg-n">${esc(c.name)}</span><span class="fin-leg-p">${(c.pct*100).toFixed(0)}%</span></div>`).join("");
+  const fmax=Math.max(1,...fund.map(x=>Math.abs(x.value)));
+  const fundBars=fund.map(x=>`<div class="fin-tx"><div class="fin-tx-h"><span>${esc(x.name)}${x.value<0?' <span style="color:#dc2626;font-weight:700">(ติดลบ)</span>':''}</span><span class="fin-tx-v ${x.value<0?'neg':''}">${fopFmt(x.value)} บาท</span></div><div class="fin-tx-bar"><span style="width:${Math.max(2,Math.abs(x.value)/fmax*100)}%;background:${x.color}"></span></div></div>`).join("");
+  const ratioRows=R.map(r=>{
+    const open=!!(d.rOpen && d.rOpen[r.name]); const dt=r.detail;
+    const scol=r.status==="good"?"#16a34a":r.status==="warn"?"#d97706":"#dc2626";
+    const inputs=(dt.inputs||[]).filter(x=>x.value!=null).map(x=>`<div class="fin-hd-in"><span>${esc(x.label)}</span><b>${fopFmt(x.value)}</b></div>`).join("");
+    const det=open?`<div class="fin-hd">
+      <div class="fin-hd-row"><span class="fin-hd-k">สูตร</span><span class="fin-hd-f">${esc(dt.formula)}</span></div>
+      ${inputs}
+      <div class="fin-hd-row"><span class="fin-hd-k">ผลลัพธ์</span><b class="fin-hd-res">${esc(dt.result)}</b></div>
+      <div class="fin-hd-row"><span class="fin-hd-k">เกณฑ์</span><span class="fin-hd-band">${esc(dt.bands)}</span></div>
+      <div class="fin-hd-src"><i data-lucide="file-text"></i> ที่มา: ${esc(dt.src)}</div>
+    </div>`:"";
+    return `<div class="fin-rt-wrap"><div class="fin-rt fin-ss-click" onclick="finToggleBRatio('${esc(r.name)}')">
+      <span class="fin-chev">${open?"▾":"▸"}</span><span class="fin-rt-n">${esc(r.name)}</span>
+      <span class="fin-rt-v">${esc(r.valueText)}</span><span class="fin-rt-b" style="background:${scol}1f;color:${scol}">${esc(r.statusText)}</span>
+    </div>${det}</div>`;
+  }).join("");
+  const bico={good:'<i data-lucide="check-circle" style="color:#059669"></i>',bad:'<i data-lucide="alert-circle" style="color:#dc2626"></i>',warn:'<i data-lucide="alert-triangle" style="color:#d97706"></i>'};
+  const bullets=ins.bullets.map(x=>`<div class="fin-ins-b">${bico[x.t]||""}<span>${x.x}</span></div>`).join("");
+  const recs=ins.recs.map((r,i)=>`<div class="fin-rec"><span class="fin-rec-n">${i+1}</span><span>${r}</span></div>`).join("");
+  return `
+  <div class="fin-anal">
+    <div class="fin-grid2">
+      <div class="fin-card"><div class="fin-card-h">โครงสร้างสินทรัพย์</div>
+        <div class="fin-donut-wrap"><div class="fin-donut-box"><canvas id="finChartBalAssets"></canvas></div><div class="fin-legend">${legend}</div></div></div>
+      <div class="fin-card"><div class="fin-card-h">แหล่งเงินทุน (หนี้สิน & ส่วนของผู้ถือหุ้น)</div><div class="fin-card-sub">สัดส่วนต่อสินทรัพย์รวม ${fopFmt(T.ta)} บาท</div>${fundBars}</div>
+    </div>
+    <div class="fin-grid2">
+      <div class="fin-card"><div class="fin-card-h">เทียบปีก่อน (${b.curYear} vs ${b.prevYear})</div><div class="fin-chart-box"><canvas id="finChartBalYoY"></canvas></div></div>
+      <div class="fin-card"><div class="fin-card-h">อัตราส่วนทางการเงิน <span class="fin-hint"><i data-lucide="mouse-pointer-click"></i> คลิกดูสูตร + ที่มา</span></div><div class="fin-card-sub">คำนวณจากงบแสดงฐานะการเงิน</div>${ratioRows}</div>
+    </div>
+    <div class="fin-insight">
+      <div class="fin-ins-head"><span class="fin-ins-ic"><i data-lucide="sparkles"></i></span><div><div class="fin-ins-t">วิเคราะห์ฐานะการเงิน</div><div class="fin-ins-s">สภาพคล่อง · โครงสร้างหนี้ · ส่วนของผู้ถือหุ้น</div></div><span class="fin-ins-badge">Auto Generated</span></div>
+      <div class="fin-ins-sum">${ins.summary}</div>
+      <div class="fin-ins-bullets">${bullets}</div>
+      <div class="fin-recs"><div class="fin-recs-h"><i data-lucide="lightbulb"></i> ข้อเสนอแนะ</div>${recs}</div>
+    </div>
+  </div>`;
+}
 function finBalanceHtml(d){
   const b=d.balance; const T=finBalTotals(b);
   const val=x=>x?x.cur:0;
@@ -16171,7 +16291,8 @@ function finBalanceHtml(d){
       <thead><tr><th class="bs-name">รายการ</th><th class="num">${b.curYear}</th><th class="num">${b.prevYear}</th></tr></thead>
       <tbody>${rows}</tbody>
     </table></div>
-  </div>`;
+  </div>
+  ${finBalAnalyticsHtml(d)}`;
 }
 function finEmptyHtml(which){
   const canW=fopCanWrite();
@@ -16448,6 +16569,7 @@ async function renderToolFinPage(which){
   main.innerHTML=`<div class="fin-page">${finHeroHtml(which,d)}${inner}</div>`;
   if(window.lucide) try{lucide.createIcons();}catch(e){}
   if(which==="pnl" && hasData){ try{ finRenderPnlCharts(d); }catch(e){ console.warn("[fin] charts",e); } }
+  if(which==="balance" && hasData){ try{ finRenderBalCharts(d); }catch(e){ console.warn("[fin] bal charts",e); } }
 }
 function renderToolFinPnl(){ return renderToolFinPage("pnl"); }
 function renderToolFinBalance(){ return renderToolFinPage("balance"); }

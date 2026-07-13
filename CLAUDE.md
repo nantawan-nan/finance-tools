@@ -104,6 +104,7 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 | `home` | `renderToolHome` | live | Hub grid + greeting "สวัสดี <user>" — auto-fill toolcard |
 | `execdash` | `renderToolExecDash` | live (admin only) | **★ ห้ามแก้ — นิ่งแล้ว** ใช้เป็น reference สี/สไตล์ |
 | `orders` | `renderToolOrders` | live | **ทะเบียนคำสั่งซื้อ** (Order Ledger) — รับรู้ออเดอร์ 4 ช่องทางก่อนมี IV · timeline ขาย→IV→รับชำระ→แบงค์ · ord* helpers |
+| `prodcost` | `renderToolProdCost` | live | **ต้นทุนผลิตภัณฑ์** (การขาย บนสุด) — การ์ดสินค้า: รูป (repo `product-cost/`) + ต้นทุน/หน่วยแยก 6 หมวด + ราคาขายแก้ได้ (`product_prices`) · `prod*` · data ใน `window.PRODUCT_COST` |
 | `dashboard` | `renderToolDashboard` | live | Sales Dashboard |
 | `bigseller` | `renderToolBigSeller` | live | **บันทึกขายเชื่อ (IV)** — เกาะ order_ledger · ส่งออก AutoKey + ตรวจการคีย์ด้วย 141.RWT · ivr* helpers (รื้อใหม่ 2026-06-27) |
 | `expressmatch` | (retired) | redirect | ★ ลบจาก sidebar 2026-06-27 · `state.tool='expressmatch'` → redirect ไป `bigseller` · function ยังอยู่ (dead) |
@@ -180,6 +181,15 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 - `phase0-foundation.sql` trigger `trg_sync_user_profile` ต้องเป็น `AFTER INSERT only` (ไม่ใช่ `INSERT OR UPDATE`)
 
 ## Recent changes (chronological)
+
+### 2026-07-12 — ★ หน้าใหม่: ต้นทุนผลิตภัณฑ์ (prodcost) — การ์ดสินค้า + รูป + ต้นทุนแยกรายการ (การขาย บนสุด)
+- **เจ้าของขอ:** อัปไฟล์ "Product Cost" (Benya + M Bark) → การ์ดผลิตภัณฑ์แนวตั้ง: ชื่อ → รูป → ราคาขาย → ต้นทุนแยกตามรายการ · วางบนสุดของกลุ่ม "การขาย"
+- **โครงไฟล์:** 1 ชีต = 1 สินค้า (ชื่อ row1 · ขนาด/MOQ row8 · รายการต้นทุน desc+price · Total) + **รูปฝังในชีต** · **★ ไม่มีราคาขายในไฟล์** (มีแต่ต้นทุน)
+- **Pre-parse + commit** (client แกะรูปจาก xlsx ไม่ได้): `scratchpad/gen_prodcost.py` (openpyxl `data_only=True` · แกะรูปใหญ่สุด/ชีต → resize 560px → `product-cost/{co}-{n}.png` · categorize รายการ 6 หมวด: วัตถุดิบ/บรรจุภัณฑ์/ค่าแรง/ขนส่ง/VAT/อื่นๆ · match SKU จากชีตสรุป M Bark ด้วย total) → embed `window.PRODUCT_COST` (ก่อน `applyCompanyTheme`) · **รันซ้ำเมื่อได้ไฟล์ใหม่**
+- **ราคาขาย = แก้ไขได้ → cloud** (`product_prices` · migration `product-pricing.sql`): คลิกช่องราคาขาย กรอกเอง → upsert → คำนวณกำไร/มาร์จิน (ไฟล์ไม่มีราคา จึงให้กรอก) · `prodLoad`/`prodSavePrice`/`prodCommitPrice` · gate `fopCanWrite`
+- **โมดูล `prod*`** (`renderToolProdCost`): การ์ดต่อสินค้า — ชื่อ+SKU chip+ขนาด · รูป (object-fit contain · null→placeholder) · ราคาขาย(แก้ได้)+ต้นทุน/หน่วย · กำไร/มาร์จิน · **แถบสัดส่วนต้นทุน 6 หมวด** + legend · ปุ่มกางดูรายการต้นทุนทั้งหมด · grid `auto-fill minmax(268px)` · CSS `.prod-*` · hero gradient ตามบริษัท
+- **ทดสอบ preview:** 11 สินค้า (Benya 5 · M Bark 6) · Tear Stain ต้นทุน 83.11 = ผลรวมหมวด · ราคา 180→มาร์จิน 53.8% · รูปโหลด 200 · benya-5 ไม่มีรูป→placeholder (ชีตนั้นไม่มีรูป) · **กระทบหน้าอื่น = 0**
+- **ยังไม่ทำ:** อัปไฟล์ในแอป (ตอนนี้ pre-parse) · ดึงราคาขายอัตโนมัติจาก sku_master
 
 ### 2026-07-11 (2) — งบแสดงฐานะการเงิน: แดชบอร์ดวิเคราะห์ใต้ตาราง (โครงสร้าง/YoY/อัตราส่วน/สรุป)
 - **เจ้าของขอ:** หน้างบแสดงฐานะการเงินอยากได้วิเคราะห์ด้วย (แบบ P&L)

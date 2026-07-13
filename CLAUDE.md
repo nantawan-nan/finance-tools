@@ -182,6 +182,13 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-13 (2) — งบกำไรขาดทุน + งบแสดงฐานะการเงิน: เพิ่มโหมดนำเสนอ (reuse edTogglePresent)
+- **เจ้าของขอ:** เพิ่มโหมดนำเสนอในหน้า P&L + งบฐานะ
+- **reuse `edTogglePresent`** (เต็มจอ + `sb-hidden` + ปุ่มออกลอย `#edPresentBar` + Esc + ไฮไลต์ตามเมาส์ · generic ไม่ผูก ed DOM) — ปุ่ม "นำเสนอ" (`.fin-btn-present`) ใน `finHeroHtml` (pnl+balance ที่มีข้อมูล)
+- **ขยาย selector ไฮไลต์เมาส์** ใน `edEnterPresent` เพิ่ม `.fin-card, .fin-kpi` (tr/canvas/h1-3 จับได้อยู่แล้ว)
+- **CSS ใน `finInjectStyle`:** `body.ed-present` → ซ่อน `.fin-acts` · กระจกฝ้า (`backdrop-filter blur`) ให้ `.fin-kpi/.fin-sheet/.fin-card/.fin-hscore/.fin-hsubs/.fin-insight` · `.fin-hscore` คงพื้นเข้ม
+- **verify preview:** ปุ่มโผล่ · กดเข้า→ ed-present + sb-hidden + fin-acts none + kpi backdrop blur + exit bar · กดออกคืนปกติ · **กระทบหน้าอื่น = 0** (แตะ 1 บรรทัดใน edEnterPresent selector · ที่เหลือเพิ่มใน fin)
+
 ### 2026-07-13 — งบแสดงฐานะการเงิน: เอาคอลัมน์ปีก่อน (2567) ออก (เจ้าของแจ้งเป็นข้อมูลบริษัทอื่นในไฟล์)
 - **เจ้าของเช็คแล้ว:** เลขคอลัมน์ 2567 ในไฟล์เป็นข้อมูลบริษัทอื่นที่ลอกมาผิด → เอาออกจากการแสดงผลทั้งหมด
 - **แก้ (display only · parser ยังอ่าน prev ไว้):** (1) `finBalanceHtml` ตารางเหลือคอลัมน์เดียว (curYear · colspan 3→2 · ตัด `cur(l.prev)` + empty acc td) (2) `finRenderBalCharts` ลบกราฟ `finChartBalYoY` (เหลือโดนัทโครงสร้างสินทรัพย์) (3) `finBalAnalyticsHtml` การ์ดอัตราส่วนเต็มความกว้างแทนแถว YoY (4) `finBalInsight` ตัด bullet/summary ที่อ้างปีก่อน (T.taP/T.eqP) → เพิ่ม working capital + equity ติดลบ bullet แทน

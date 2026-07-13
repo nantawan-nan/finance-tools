@@ -9026,7 +9026,7 @@ function edEnterPresent(){
   _edPresentEl = null;
   _edPresentMove = (e)=>{
     const tgt = (e.target && e.target.closest)
-      ? e.target.closest("tr, .card, canvas, h1, h2, h3, button, select")
+      ? e.target.closest("tr, .card, .fin-card, .fin-kpi, canvas, h1, h2, h3, button, select")
       : null;
     if(tgt === _edPresentEl) return;
     if(_edPresentEl) _edPresentEl.classList.remove("ed-spot");
@@ -16022,6 +16022,25 @@ function finInjectStyle(){
   .fin-recs-h i{ width:15px; height:15px; }
   .fin-rec{ display:flex; align-items:flex-start; gap:9px; font-size:12.5px; color:#334155; line-height:1.6; margin-bottom:6px; }
   .fin-rec-n{ flex-shrink:0; width:19px; height:19px; border-radius:50%; background:#f59e0b; color:#fff; font-size:11px; font-weight:700; display:flex; align-items:center; justify-content:center; }
+  .fin-btn.fin-btn-present{ background:rgba(255,255,255,.24); border-color:rgba(255,255,255,.5); }
+  .fin-btn.fin-btn-present:hover{ background:rgba(255,255,255,.38); }
+  /* โหมดนำเสนอ (reuse edTogglePresent · body.ed-present) — กระจกฝ้าให้การ์ด fin + ซ่อนปุ่ม */
+  body.ed-present .fin-acts{ display:none!important; }
+  body.ed-present .fin-page{ padding:6px 8px 40px; }
+  body.ed-present .fin-hero{ box-shadow:0 10px 40px rgba(31,38,135,.18); }
+  body.ed-present .fin-kpi,
+  body.ed-present .fin-sheet,
+  body.ed-present .fin-card,
+  body.ed-present .fin-hscore,
+  body.ed-present .fin-hsubs,
+  body.ed-present .fin-insight{
+    background:rgba(255,255,255,.6)!important;
+    -webkit-backdrop-filter:blur(20px) saturate(180%); backdrop-filter:blur(20px) saturate(180%);
+    border:1px solid rgba(255,255,255,.65)!important;
+    box-shadow:0 8px 30px rgba(31,38,135,.12), inset 0 1px 0 rgba(255,255,255,.6)!important;
+    border-radius:18px!important;
+  }
+  body.ed-present .fin-hscore{ background:rgba(15,23,42,.82)!important; }
   @media print{ .sidebar,#sb,.topbar,.crumb,.fin-noprint,.company-switch{ display:none!important; } .main{ margin:0!important; padding:0!important; } .fin-hero{ box-shadow:none; } }
   `;
   document.head.appendChild(s);
@@ -16051,6 +16070,7 @@ function finHeroHtml(which, d){
       ${canW?`<button class="fin-btn" onclick="finUpload()"><i data-lucide="upload"></i> อัปโหลดข้อมูล</button>`:``}
       ${(which==="pnl"&&d.pnl)?`<button class="fin-btn" onclick="finTogglePnlDetail()"><i data-lucide="list"></i> ${finPnlAllOpen(d)?"ย่อทุกกลุ่ม":"กางรายบัญชีทุกกลุ่ม"}</button>`:``}
       ${((which==="pnl"&&d.pnl)||(which==="balance"&&d.balance))?`<button class="fin-btn" onclick="finPrint()"><i data-lucide="printer"></i> พิมพ์ / PDF</button>`:``}
+      ${((which==="pnl"&&d.pnl)||(which==="balance"&&d.balance))?`<button class="fin-btn fin-btn-present" onclick="edTogglePresent()"><i data-lucide="presentation"></i> นำเสนอ</button>`:``}
     </div>
   </div>`;
 }

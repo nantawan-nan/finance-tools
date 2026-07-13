@@ -15903,6 +15903,19 @@ function finInjectStyle(){
   .fin-kpi .k-val.acc{ color:var(--acc); }
   .fin-kpi .k-badge{ display:inline-block; margin-top:10px; font-size:13px; font-weight:700; padding:3px 11px; border-radius:20px;
     background:color-mix(in srgb, var(--acc,var(--brand)) 10%, #fff); color:var(--acc,var(--mut)); }
+  /* แถบสมการงบดุล: สินทรัพย์ = หนี้สิน + ส่วนของผู้ถือหุ้น */
+  .fin-baleq{ display:flex; align-items:center; justify-content:center; gap:14px; flex-wrap:wrap; background:#fff; border:1px solid var(--ln);
+    border-radius:14px; padding:15px 20px; margin-bottom:10px; box-shadow:0 2px 8px rgba(15,23,42,.06); }
+  .fin-baleq .beq-side{ display:flex; flex-direction:column; align-items:center; gap:2px; }
+  .fin-baleq .beq-l{ font-size:12.5px; color:var(--mut); }
+  .fin-baleq .beq-v{ font-size:19px; font-weight:800; color:var(--fg); font-variant-numeric:tabular-nums; }
+  .fin-baleq .beq-v.neg{ color:var(--red); }
+  .fin-baleq .beq-op{ font-size:22px; font-weight:700; color:#94a3b8; }
+  .fin-baleq .beq-badge{ font-size:13px; font-weight:800; padding:5px 13px; border-radius:20px; }
+  .fin-baleq .beq-badge.ok{ background:#ecfdf5; color:#059669; } .fin-baleq .beq-badge.bad{ background:#fef2f2; color:#dc2626; }
+  .fin-baleq-note{ background:#eff6ff; border:1px solid #bfdbfe; color:#1e40af; border-radius:10px; padding:10px 14px; font-size:13px; margin-bottom:18px; line-height:1.6; }
+  .fin-baleq-note b{ font-weight:800; }
+  @media(max-width:640px){ .fin-baleq{ gap:8px; padding:12px; } .fin-baleq .beq-v{ font-size:16px; } .fin-baleq .beq-op{ font-size:18px; } }
   .fin-sheet{ background:#fff; border:1px solid var(--ln); border-radius:14px; padding:18px 20px; box-shadow:0 2px 8px rgba(15,23,42,.06); }
   .fin-sheet-h{ display:flex; align-items:baseline; gap:10px; margin-bottom:14px; }
   .fin-sheet-h h3{ margin:0; font-size:23px; font-weight:800; color:var(--fg); }
@@ -16328,12 +16341,22 @@ function finBalAnalyticsHtml(d){
 function finBalanceHtml(d){
   const b=d.balance; const T=finBalTotals(b);
   const val=x=>x?x.cur:0;
+  const A=val(T.assets), L=val(T.liab), E=val(T.equity), LE=L+E, balanced=Math.abs(A-LE)<1;
   const kpis=`<div class="fin-kpis">
-    ${finKpi("รวมสินทรัพย์", finFmt(val(T.assets)), "layers", "#3b82f6")}
-    ${finKpi("รวมหนี้สิน", finFmt(val(T.liab)), "credit-card", "#e0863f")}
-    ${finKpi("ส่วนของผู้ถือหุ้น", finFmt(val(T.equity)), "wallet", val(T.equity)>=0?"#16a34a":"#dc2626", val(T.equity)<0?"ส่วนของผู้ถือหุ้นติดลบ":"", true)}
-    ${finKpi("เงินสดและรายการเทียบเท่า", finFmt(val(T.cash)), "banknote", "#0d9488")}
-  </div>`;
+    ${finKpi("รวมสินทรัพย์", finFmt(A), "layers", "#3b82f6", "ด้านซ้ายของงบ")}
+    ${finKpi("รวมหนี้สิน", finFmt(L), "credit-card", "#e0863f")}
+    ${finKpi("ส่วนของผู้ถือหุ้น", finFmt(E), "wallet", E>=0?"#16a34a":"#dc2626", E<0?"ขาดทุนเกินทุน (ติดลบ)":"", true)}
+    ${finKpi("หนี้สิน + ส่วนของผู้ถือหุ้น", finFmt(LE), "scale", balanced?"#16a34a":"#dc2626", balanced?"= สินทรัพย์ · สมดุล ✓":"ตรวจสอบ", true)}
+  </div>
+  <div class="fin-baleq">
+    <div class="beq-side"><span class="beq-l">สินทรัพย์รวม</span><span class="beq-v">${finFmt(A)}</span></div>
+    <span class="beq-op">=</span>
+    <div class="beq-side"><span class="beq-l">หนี้สิน</span><span class="beq-v">${finFmt(L)}</span></div>
+    <span class="beq-op">+</span>
+    <div class="beq-side"><span class="beq-l">ส่วนของผู้ถือหุ้น</span><span class="beq-v ${E<0?'neg':''}">${finFmt(E)}</span></div>
+    <span class="beq-badge ${balanced?'ok':'bad'}">${balanced?'สมดุล ✓':'ไม่สมดุล'}</span>
+  </div>
+  ${E<0?`<div class="fin-baleq-note">ℹ️ ส่วนของผู้ถือหุ้น<b>ติดลบ</b> (ขาดทุนสะสมเกินทุน) — หนี้สิน ${finFmt(L)} หักด้วยส่วนที่ติดลบ ${finFmt(-E)} จึงเหลือ ${finFmt(LE)} เท่ากับสินทรัพย์พอดี · เงินสดในมือ ${finFmt(val(T.cash))}</div>`:``}`;
   const cur=v=>`<td class="num ${(v!=null&&v<0)?'neg':''}">${v==null?"":finFmt(v)}</td>`;
   let rows="";
   b.groups.forEach((grp,gi)=>{

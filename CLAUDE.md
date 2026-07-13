@@ -182,6 +182,11 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-13 (10) — Executive Cash Flow: ปุ่ม toolbar คลีน (ghost ขาว+ไอคอน แทน gradient สีจัด · ป้ายสั้น)
+- **เจ้าของขอ (ต่อจากข้อ 9):** ให้หน้า Exec (`edRenderDashboard`) คลีนตาแบบภาพอ้างอิงด้วย — ปุ่มเดิมเป็น gradient สีจัด (ส้ม/ฟ้า/คราม) รก
+- **แก้:** นำเสนอ/พิมพ์ PDF/ทั้งรายงาน/ล้าง&เริ่มใหม่ → `btn ghost btn sm` (ขาวโปร่ง) + `<i data-lucide>` (monitor/printer/file-text/rotate-ccw) · **อัปโหลดเพิ่ม เก็บสีเขียว (CTA หลัก)** + icon plus · ป้ายสั้นลง ("พิมพ์ทั้งรายงาน"→"ทั้งรายงาน" · "อัปไฟล์เพิ่ม (รวมปี)"→"อัปโหลดเพิ่ม") · onclick/ฟังก์ชันเดิมไม่แตะ (edTogglePresent/edPrint/edExportFullPDF/edAddFile/edReset)
+- **กระทบหน้าอื่น = 0** · render logic/ตัวเลข Exec ไม่แตะ (แค่ปุ่ม presentation) · verify: 4 ปุ่ม ghost + 1 เขียว ทุกปุ่มมีไอคอน
+
 ### 2026-07-13 (9) — Cash Flow Forecast: หัวเพจคลีนแบบ Exec (โลโก้ + toolbar) + คืนปุ่ม "รายละเอียดเพิ่มเติม"
 - **เจ้าของขอ:** หัวหน้า `renderToolCashflowStaff` ให้คลีนตาแบบหน้างบกระแสเงินสด (Exec) · เดิม page-head ธรรมดา (h1+badge + sub ยาว "ประมาณการ · period · ยอดธนาคาร ณ · หน่วย" + ปุ่ม Snapshot เดี่ยว)
 - **แก้:** mirror header ของ edRenderDashboard — `<img co.logo>` 40px + h1+badge + sub เหลือ "หน่วย: บาท" · toolbar ขวา 2 ปุ่ม ghost+icon: **รายละเอียดเพิ่มเติม** (`cffToggleStaffDetail` · เดิม def ไว้แต่ไม่มีปุ่มเรียก = dead → คืนชีวิต · toggle KPI/ไฮไลต์/timeline) + **Snapshot** · ตัด period/ยอดธนาคารออกจาก sub (ยังโชว์ในตัวรายงาน)

@@ -9668,12 +9668,12 @@ function edRenderDashboard(){
             <option value="landscape" ${d.pdfOrient!=='portrait'?'selected':''}>📄 แนวนอน (หลายหน้า)</option>
             <option value="portrait" ${d.pdfOrient==='portrait'?'selected':''}>📐 แนวตั้ง (ย่อ 1 หน้า)</option>
           </select>
-          <button class="btn ed-hide-present" onclick="edTogglePresent()" style="background:linear-gradient(135deg,#f59e0b,#d97706);border:none" title="โหมดนำเสนอเต็มจอ + ไฮไลต์ตามเมาส์ (กด Esc เพื่อออก)">🖥️ นำเสนอ</button>
-          <button class="btn ed-hide-present" onclick="edPrint()" style="background:linear-gradient(135deg,#4F8AF7,#3b82f6);border:none" title="พิมพ์เฉพาะหัวข้อที่เปิดอยู่">พิมพ์ PDF</button>
-          <button class="btn ed-hide-present" onclick="edExportFullPDF()" style="background:linear-gradient(135deg,#6366f1,#4f46e5);border:none" title="รวมทั้ง 6 หัวข้อเป็น PDF ไฟล์เดียว">พิมพ์ทั้งรายงาน</button>
+          <button class="btn ghost btn sm ed-hide-present" onclick="edTogglePresent()" title="โหมดนำเสนอเต็มจอ + ไฮไลต์ตามเมาส์ (กด Esc เพื่อออก)"><i data-lucide="monitor"></i>นำเสนอ</button>
+          <button class="btn ghost btn sm ed-hide-present" onclick="edPrint()" title="พิมพ์เฉพาะหัวข้อที่เปิดอยู่"><i data-lucide="printer"></i>พิมพ์ PDF</button>
+          <button class="btn ghost btn sm ed-hide-present" onclick="edExportFullPDF()" title="รวมทั้ง 6 หัวข้อเป็น PDF ไฟล์เดียว"><i data-lucide="file-text"></i>ทั้งรายงาน</button>
           ${canEditExec ? `
-          <button class="btn ed-hide-present" onclick="edAddFile()" style="background:linear-gradient(135deg,#10b981,#059669);border:none" title="อัปไฟล์ปีอื่นเพิ่ม — ปีที่มีอยู่ยังอยู่ครบ (เดือนซ้ำของใหม่ทับ)">+ อัปไฟล์เพิ่ม (รวมปี)</button>
-          <button class="btn ghost btn sm ed-hide-present" onclick="edReset()" title="ล้างข้อมูลทั้งหมดแล้วเริ่มอัปใหม่">ล้าง &amp; เริ่มใหม่</button>` : ""}
+          <button class="btn ed-hide-present" onclick="edAddFile()" style="background:linear-gradient(135deg,#10b981,#059669);border:none" title="อัปไฟล์ปีอื่นเพิ่ม — ปีที่มีอยู่ยังอยู่ครบ (เดือนซ้ำของใหม่ทับ)"><i data-lucide="plus"></i>อัปโหลดเพิ่ม</button>
+          <button class="btn ghost btn sm ed-hide-present" onclick="edReset()" title="ล้างข้อมูลทั้งหมดแล้วเริ่มอัปใหม่"><i data-lucide="rotate-ccw"></i>ล้าง &amp; เริ่มใหม่</button>` : ""}
         </div>
       </div>
       <!-- ★ ตัวเลือกช่วงเวลา = แถวของตัวเอง (กันดันปุ่มนำเสนอ/พิมพ์ เวลาแถวเดือนโผล่) -->

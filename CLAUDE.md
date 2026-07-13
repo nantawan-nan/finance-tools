@@ -182,6 +182,14 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-13 (3) — ต้นทุนผลิตภัณฑ์: ราคาขายจากยอดขายจริง + %ต้นทุน/%กำไร + hero รวยขึ้น + รูปข้าวเบายอดม่วง
+- **เจ้าของขอ:** (1) ราคาขายดึงจากยอดขายล่าสุด (ทะเบียนคำสั่งซื้อ) "ค่าที่ขายมากสุดใช้ค่านั้น" (2) hero ต้นทุนเฉลี่ยจืดไป + เพิ่ม %ต้นทุน/%กำไรต่อการ์ด จากราคาขายล่าสุด (3) ลบกล่องเหลือง (4) เพิ่มรูปข้าวเบายอดม่วง Benya
+- **`prodLoadSales`** โหลด `order_ledger.items` (paginate · ข้าม cancelled) → ต่อ SKU เก็บ `{price:qty}` → **qty-weighted mode** (ราคาที่ขายจำนวนชิ้นมากสุด) · `prodEffPrice(p,d)` = กรอกเอง(override) > จากยอดขาย(match `p.sku` upper) > ไม่มี · badge "จากยอดขาย · N ชิ้น"/"กรอกเอง"
+- **%ต้นทุน/%กำไร** (`prod-split`): costPct=ต้นทุน/ราคาขาย · profitPct=1−costPct · แถบ ต้นทุน(ส้ม)+กำไร(เขียว) + กำไร ฿/ชิ้น · ไม่มีราคา→placeholder
+- **hero รวยขึ้น:** 4 tiles กระจก (จำนวนสินค้า/ต้นทุนเฉลี่ย/ราคาขายเฉลี่ย/มาร์จินเฉลี่ย · จาก effPrice) · ลบ `.prod-noteline` (กล่องเหลือง)
+- **รูป benya-5:** ไฟล์ Benya ชีตข้าวเบายอดม่วงไม่มีรูป → เจ้าของแปะรูป (Downloads `196982_*.jpg`) → resize→`product-cost/benya-5.png` · แก้ `"img":null`→path ใน PRODUCT_COST
+- **★ ข้อจำกัด:** ราคาจากยอดขายต้อง **SKU ในทะเบียนคำสั่งซื้อ = SKU ในไฟล์ต้นทุน** (M Bark มี 4/6 SKU · **Benya ไม่มี SKU ในไฟล์ต้นทุน → auto-price ไม่ทำงาน ต้องกรอกเอง**) · verify preview: TS1001 180฿ (1,240 ชิ้น) ต้นทุน 46%/กำไร 54% · manual override ได้ · กระทบหน้าอื่น = 0
+
 ### 2026-07-13 (2) — งบกำไรขาดทุน + งบแสดงฐานะการเงิน: เพิ่มโหมดนำเสนอ (reuse edTogglePresent)
 - **เจ้าของขอ:** เพิ่มโหมดนำเสนอในหน้า P&L + งบฐานะ
 - **reuse `edTogglePresent`** (เต็มจอ + `sb-hidden` + ปุ่มออกลอย `#edPresentBar` + Esc + ไฮไลต์ตามเมาส์ · generic ไม่ผูก ed DOM) — ปุ่ม "นำเสนอ" (`.fin-btn-present`) ใน `finHeroHtml` (pnl+balance ที่มีข้อมูล)

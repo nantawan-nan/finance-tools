@@ -15903,33 +15903,32 @@ function finInjectStyle(){
   .fin-kpi .k-val.acc{ color:var(--acc); }
   .fin-kpi .k-badge{ display:inline-block; margin-top:10px; font-size:13px; font-weight:700; padding:3px 11px; border-radius:20px;
     background:color-mix(in srgb, var(--acc,var(--brand)) 10%, #fff); color:var(--acc,var(--mut)); }
-  /* สมการบัญชี — สินทรัพย์ = หนี้สินและส่วนของเจ้าของ (2 การ์ดเท่ากัน + แตกย่อย) */
-  .fin-cfhero{ background:#fff; border:1px solid var(--ln); border-radius:16px; padding:18px 20px; margin-bottom:18px; box-shadow:0 2px 10px rgba(15,23,42,.06); }
-  .fin-cfhero .cfh-head{ display:flex; justify-content:space-between; align-items:baseline; margin-bottom:14px; flex-wrap:wrap; gap:8px; }
-  .fin-cfhero .cfh-title{ font-size:17px; font-weight:800; color:var(--fg); } .fin-cfhero .cfh-title span{ font-size:12px; font-weight:600; color:var(--mut); margin-left:6px; }
-  .fin-cfhero .cfh-meta{ font-size:12.5px; color:var(--mut); }
-  .fin-cfhero .cfh-eq{ display:grid; grid-template-columns:1fr auto 1fr; align-items:center; gap:14px; margin-bottom:16px; }
-  @media(max-width:640px){ .fin-cfhero .cfh-eq{ grid-template-columns:1fr; } .fin-cfhero .cfh-eqsign{ transform:rotate(90deg); } }
-  .fin-cfhero .cfh-eqsign{ font-size:32px; font-weight:800; color:var(--mut); text-align:center; }
-  .fin-cfhero .cfh-card{ border-radius:14px; padding:16px 18px; color:#fff; box-shadow:0 6px 18px rgba(15,23,42,.14); }
-  .fin-cfhero .cfh-ct{ display:flex; align-items:center; gap:7px; font-size:14px; font-weight:700; margin-bottom:8px; }
-  .fin-cfhero .cfh-dot{ width:9px; height:9px; border-radius:50%; background:rgba(255,255,255,.85); flex-shrink:0; }
-  .fin-cfhero .cfh-cv{ font-size:33px; font-weight:800; letter-spacing:-.7px; font-variant-numeric:tabular-nums; line-height:1.03; }
-  .fin-cfhero .cfh-sub{ font-size:11.5px; font-weight:600; opacity:.9; margin-top:7px; letter-spacing:.2px; }
-  .fin-cfhero .cfh-break{ background:var(--bg,#f8fafc); border:1px solid var(--ln); border-radius:12px; padding:13px 16px; }
-  .fin-cfhero .cfh-brk-lbl{ font-size:12px; font-weight:700; color:var(--mut); margin-bottom:10px; }
-  .fin-cfhero .cfh-brk-row{ display:grid; grid-template-columns:1fr auto 1fr; align-items:center; gap:12px; }
-  @media(max-width:520px){ .fin-cfhero .cfh-brk-row{ grid-template-columns:1fr; } .fin-cfhero .cfh-brk-plus{ transform:rotate(90deg); } }
-  .fin-cfhero .cfh-brk{ display:flex; flex-direction:column; gap:2px; }
-  .fin-cfhero .cfh-brk-t{ font-size:13px; font-weight:700; color:var(--fg); }
-  .fin-cfhero .cfh-brk-v{ font-size:23px; font-weight:800; font-variant-numeric:tabular-nums; letter-spacing:-.4px; color:var(--fg); }
-  .fin-cfhero .cfh-brk-note{ font-size:11px; color:var(--mut); }
-  .fin-cfhero .cfh-brk-plus{ font-size:24px; font-weight:800; color:var(--mut); }
-  .fin-cfhero .cfh-brk-bar{ display:flex; height:7px; border-radius:5px; overflow:hidden; margin-top:12px; background:#e2e8f0; }
-  .fin-cfhero .cfh-brk-bar span{ display:block; height:100%; }
-  .fin-cfhero .cfh-brk-bar .lia{ background:#f59e0b; }
-  .fin-cfhero .cfh-warn{ margin-top:11px; font-size:12px; font-weight:600; color:#b91c1c; background:#FDF1F2; border:1px solid #F7D6DB; border-radius:9px; padding:8px 12px; }
-  @media(max-width:640px){ .fin-cfhero .cfh-cv{ font-size:27px; } .fin-cfhero .cfh-brk-v{ font-size:20px; } }
+  /* สมการบัญชี — การ์ดสินทรัพย์ (ซ้าย) = กลุ่มหนี้สิน+ส่วนของผู้ถือหุ้น (ขวา · แตก 2 การ์ด) */
+  .fin-cfhero{ margin-bottom:18px; }
+  .fin-cfhero .cfh-eq2{ display:grid; grid-template-columns:0.82fr 1.45fr; gap:16px; align-items:stretch; }
+  @media(max-width:860px){ .fin-cfhero .cfh-eq2{ grid-template-columns:1fr; } }
+  .fin-cfhero .cfh-asset,.fin-cfhero .cfh-src{ background:#fff; border:1px solid var(--ln); border-radius:16px; box-shadow:0 2px 12px rgba(15,23,42,.06); }
+  .fin-cfhero .cfh-asset{ padding:22px 24px; display:flex; flex-direction:column; justify-content:center; }
+  .fin-cfhero .cfh-src{ padding:18px 20px; }
+  .fin-cfhero .cfh-ic{ width:44px; height:44px; border-radius:13px; display:flex; align-items:center; justify-content:center; margin-bottom:12px; }
+  .fin-cfhero .cfh-ic svg{ width:23px; height:23px; }
+  .fin-cfhero .ic-asset{ background:color-mix(in srgb,var(--brand) 15%,#fff); color:var(--brand); }
+  .fin-cfhero .ic-liab{ background:#FEF1E4; color:#E08A45; }
+  .fin-cfhero .ic-eq{ background:#E7FAF3; color:#0E9A88; }
+  .fin-cfhero .ic-eqn{ background:#FDECEC; color:#dc2626; }
+  .fin-cfhero .cfh-lbl{ font-size:13.5px; font-weight:700; color:var(--mut); margin-bottom:8px; }
+  .fin-cfhero .cfh-lbl span{ font-size:11.5px; font-weight:600; opacity:.7; }
+  .fin-cfhero .cfh-big{ font-size:36px; font-weight:800; letter-spacing:-1px; font-variant-numeric:tabular-nums; line-height:1.0; color:var(--fg); }
+  .fin-cfhero .cfh-asset .cfh-big{ font-size:46px; }
+  .fin-cfhero .cfh-big.brand{ color:var(--brand); }
+  .fin-cfhero .cfh-as{ font-size:12px; color:var(--mut); margin-top:9px; }
+  .fin-cfhero .cfh-src-h{ font-size:15px; font-weight:800; color:var(--fg); margin-bottom:13px; }
+  .fin-cfhero .cfh-src-h span{ font-size:12.5px; font-weight:600; color:var(--mut); }
+  .fin-cfhero .cfh-src-row{ display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+  @media(max-width:560px){ .fin-cfhero .cfh-src-row{ grid-template-columns:1fr; } }
+  .fin-cfhero .cfh-sub-card{ background:#FBFCFE; border:1px solid var(--ln); border-radius:13px; padding:16px 18px; }
+  .fin-cfhero .cfh-sub-card.neg{ background:#FEF6F6; border-color:#F6D5DA; }
+  @media(max-width:640px){ .fin-cfhero .cfh-asset .cfh-big{ font-size:36px; } .fin-cfhero .cfh-big{ font-size:30px; } }
   .fin-sheet{ background:#fff; border:1px solid var(--ln); border-radius:14px; padding:18px 20px; box-shadow:0 2px 8px rgba(15,23,42,.06); }
   .fin-sheet-h{ display:flex; align-items:baseline; gap:10px; margin-bottom:14px; }
   .fin-sheet-h h3{ margin:0; font-size:23px; font-weight:800; color:var(--fg); }
@@ -16356,36 +16355,33 @@ function finBalanceHtml(d){
   const b=d.balance; const T=finBalTotals(b);
   const val=x=>x?x.cur:0;
   const A=val(T.assets), L=val(T.liab), E=A-L, cash=val(T.cash);
-  const inGrad  = state.company==="mbark" ? "linear-gradient(140deg,#7FA8EC,#5680D0)" : "linear-gradient(140deg,#1AC7AE,#0C9180)";
-  const outGrad = state.company==="mbark" ? "linear-gradient(140deg,#F4B27C,#E08A45)" : "linear-gradient(140deg,#EF93B7,#DD6093)";
   const LE=L+E;                       // หนี้สิน + ส่วนของเจ้าของ = สินทรัพย์ (สมดุลเสมอ)
-  const bal=Math.abs(A-LE)<0.01;      // สมการบัญชีสมดุลไหม
   const negE=E<0, eqCol=negE?"#dc2626":"#0E9A88";
-  const shareL=LE?Math.abs(L)/(Math.abs(L)+Math.abs(E)||1)*100:50;
   const kpis=`<div class="fin-cfhero">
-    <div class="cfh-head"><div class="cfh-title">สมการบัญชี <span>Accounting Equation</span></div><div class="cfh-meta">${esc(b.asOf)} · เงินสด ${finFmt(cash)}${bal?` · <b style="color:#0E9A88">สมดุล ✓</b>`:` · <b style="color:#dc2626">ไม่สมดุล</b>`}</div></div>
-    <div class="cfh-eq">
-      <div class="cfh-card" style="background:${inGrad}">
-        <div class="cfh-ct"><span class="cfh-dot"></span>สินทรัพย์</div>
-        <div class="cfh-cv">${finFmt(A)}</div>
-        <div class="cfh-sub">ASSETS · สิ่งที่กิจการมี</div>
+    <div class="cfh-eq2">
+      <div class="cfh-asset">
+        <div class="cfh-ic ic-asset"><i data-lucide="landmark"></i></div>
+        <div class="cfh-lbl">รวมสินทรัพย์ <span>· Total assets</span></div>
+        <div class="cfh-big brand">${finFmt(A)}</div>
+        <div class="cfh-as">ณ ${esc(b.asOf)}</div>
       </div>
-      <div class="cfh-eqsign">=</div>
-      <div class="cfh-card" style="background:${outGrad}">
-        <div class="cfh-ct"><span class="cfh-dot"></span>หนี้สินและส่วนของเจ้าของ</div>
-        <div class="cfh-cv">${finFmt(LE)}</div>
-        <div class="cfh-sub">LIABILITIES + EQUITY · แหล่งที่มาของเงินทุน</div>
+      <div class="cfh-src">
+        <div class="cfh-src-h">หนี้สินและส่วนของผู้ถือหุ้น <span>· แหล่งเงินทุน = รวมสินทรัพย์ ${finFmt(LE)}</span></div>
+        <div class="cfh-src-row">
+          <div class="cfh-sub-card">
+            <div class="cfh-ic ic-liab"><i data-lucide="lock"></i></div>
+            <div class="cfh-lbl">รวมหนี้สิน <span>· Total liabilities</span></div>
+            <div class="cfh-big">${finFmt(L)}</div>
+            <div class="cfh-as">ณ ${esc(b.asOf)}</div>
+          </div>
+          <div class="cfh-sub-card${negE?" neg":""}">
+            <div class="cfh-ic ${negE?"ic-eqn":"ic-eq"}"><i data-lucide="user"></i></div>
+            <div class="cfh-lbl">ส่วนของผู้ถือหุ้น <span>· Total equity</span></div>
+            <div class="cfh-big" style="color:${eqCol}">${finFmt(E)}</div>
+            <div class="cfh-as">ณ ${esc(b.asOf)}</div>
+          </div>
+        </div>
       </div>
-    </div>
-    <div class="cfh-break">
-      <div class="cfh-brk-lbl">"หนี้สินและส่วนของเจ้าของ" แตกออกเป็น</div>
-      <div class="cfh-brk-row">
-        <div class="cfh-brk"><span class="cfh-brk-t">หนี้สิน</span><span class="cfh-brk-v">${finFmt(L)}</span><span class="cfh-brk-note">เงินที่ต้องจ่ายคืน</span></div>
-        <div class="cfh-brk-plus">+</div>
-        <div class="cfh-brk"><span class="cfh-brk-t">ส่วนของเจ้าของ</span><span class="cfh-brk-v" style="color:${eqCol}">${finFmt(E)}</span><span class="cfh-brk-note">${negE?"ติดลบ — ขาดทุนสะสมเกินทุน":"ทุน + กำไรสะสม"}</span></div>
-      </div>
-      <div class="cfh-brk-bar"><span class="lia" style="width:${shareL}%"></span><span class="eq" style="width:${100-shareL}%;background:${negE?'#dc2626':'#0E9A88'}"></span></div>
-      ${negE?`<div class="cfh-warn">⚠ ส่วนของเจ้าของติดลบ ${finFmt(E)} — หนี้สินมากกว่าสินทรัพย์ (ขาดทุนสะสมเกินทุนจดทะเบียน)</div>`:''}
     </div>
   </div>`;
   const cur=v=>`<td class="num ${(v!=null&&v<0)?'neg':''}">${v==null?"":finFmt(v)}</td>`;

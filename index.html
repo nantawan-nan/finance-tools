@@ -15903,19 +15903,26 @@ function finInjectStyle(){
   .fin-kpi .k-val.acc{ color:var(--acc); }
   .fin-kpi .k-badge{ display:inline-block; margin-top:10px; font-size:13px; font-weight:700; padding:3px 11px; border-radius:20px;
     background:color-mix(in srgb, var(--acc,var(--brand)) 10%, #fff); color:var(--acc,var(--mut)); }
-  /* แถบสมการงบดุล: สินทรัพย์ = หนี้สิน + ส่วนของผู้ถือหุ้น */
-  .fin-baleq{ display:flex; align-items:center; justify-content:center; gap:14px; flex-wrap:wrap; background:#fff; border:1px solid var(--ln);
-    border-radius:14px; padding:15px 20px; margin-bottom:10px; box-shadow:0 2px 8px rgba(15,23,42,.06); }
-  .fin-baleq .beq-side{ display:flex; flex-direction:column; align-items:center; gap:2px; }
-  .fin-baleq .beq-l{ font-size:12.5px; color:var(--mut); }
-  .fin-baleq .beq-v{ font-size:19px; font-weight:800; color:var(--fg); font-variant-numeric:tabular-nums; }
-  .fin-baleq .beq-v.neg{ color:var(--red); }
-  .fin-baleq .beq-op{ font-size:22px; font-weight:700; color:#94a3b8; }
-  .fin-baleq .beq-badge{ font-size:13px; font-weight:800; padding:5px 13px; border-radius:20px; }
-  .fin-baleq .beq-badge.ok{ background:#ecfdf5; color:#059669; } .fin-baleq .beq-badge.bad{ background:#fef2f2; color:#dc2626; }
-  .fin-baleq-note{ background:#eff6ff; border:1px solid #bfdbfe; color:#1e40af; border-radius:10px; padding:10px 14px; font-size:13px; margin-bottom:18px; line-height:1.6; }
-  .fin-baleq-note b{ font-weight:800; }
-  @media(max-width:640px){ .fin-baleq{ gap:8px; padding:12px; } .fin-baleq .beq-v{ font-size:16px; } .fin-baleq .beq-op{ font-size:18px; } }
+  /* ภาพรวมฐานะการเงิน — ฟีลเดียวกับ Exec Cash Flow (การ์ด gradient + กล่องสรุป) */
+  .fin-cfhero{ background:#fff; border:1px solid var(--ln); border-radius:16px; padding:18px 20px; margin-bottom:18px; box-shadow:0 2px 10px rgba(15,23,42,.06); }
+  .fin-cfhero .cfh-head{ display:flex; justify-content:space-between; align-items:baseline; margin-bottom:14px; flex-wrap:wrap; gap:8px; }
+  .fin-cfhero .cfh-title{ font-size:17px; font-weight:800; color:var(--fg); } .fin-cfhero .cfh-title span{ font-size:12px; font-weight:600; color:var(--mut); margin-left:6px; }
+  .fin-cfhero .cfh-meta{ font-size:12.5px; color:var(--mut); }
+  .fin-cfhero .cfh-row{ display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-bottom:12px; }
+  @media(max-width:640px){ .fin-cfhero .cfh-row{ grid-template-columns:1fr; } }
+  .fin-cfhero .cfh-card{ border-radius:14px; padding:16px 18px; color:#fff; box-shadow:0 6px 18px rgba(15,23,42,.14); }
+  .fin-cfhero .cfh-ct{ display:flex; align-items:center; gap:7px; font-size:14px; font-weight:700; margin-bottom:8px; }
+  .fin-cfhero .cfh-dot{ width:9px; height:9px; border-radius:50%; background:rgba(255,255,255,.85); flex-shrink:0; }
+  .fin-cfhero .cfh-tag{ margin-left:auto; font-size:11px; font-weight:700; background:rgba(255,255,255,.22); padding:3px 10px; border-radius:20px; }
+  .fin-cfhero .cfh-cv{ font-size:33px; font-weight:800; letter-spacing:-.7px; font-variant-numeric:tabular-nums; line-height:1.03; }
+  .fin-cfhero .cfh-cbar{ height:6px; background:rgba(255,255,255,.28); border-radius:4px; overflow:hidden; margin-top:12px; }
+  .fin-cfhero .cfh-cbar span{ display:block; height:100%; background:rgba(255,255,255,.92); border-radius:4px; }
+  .fin-cfhero .cfh-net{ display:flex; align-items:center; justify-content:space-between; gap:12px; border:1px solid; border-radius:12px; padding:13px 17px; flex-wrap:wrap; }
+  .fin-cfhero .cfh-net-l{ display:flex; align-items:center; gap:11px; }
+  .fin-cfhero .cfh-net-ic{ width:30px; height:30px; border-radius:50%; color:#fff; display:flex; align-items:center; justify-content:center; font-size:17px; font-weight:700; flex-shrink:0; }
+  .fin-cfhero .cfh-net-l b{ font-size:15px; } .fin-cfhero .cfh-net-l span{ display:block; font-size:12px; color:var(--mut); margin-top:1px; }
+  .fin-cfhero .cfh-net-v{ font-size:29px; font-weight:800; font-variant-numeric:tabular-nums; letter-spacing:-.5px; }
+  @media(max-width:640px){ .fin-cfhero .cfh-cv{ font-size:27px; } .fin-cfhero .cfh-net-v{ font-size:24px; } }
   .fin-sheet{ background:#fff; border:1px solid var(--ln); border-radius:14px; padding:18px 20px; box-shadow:0 2px 8px rgba(15,23,42,.06); }
   .fin-sheet-h{ display:flex; align-items:baseline; gap:10px; margin-bottom:14px; }
   .fin-sheet-h h3{ margin:0; font-size:23px; font-weight:800; color:var(--fg); }
@@ -16341,22 +16348,32 @@ function finBalAnalyticsHtml(d){
 function finBalanceHtml(d){
   const b=d.balance; const T=finBalTotals(b);
   const val=x=>x?x.cur:0;
-  const A=val(T.assets), L=val(T.liab), E=val(T.equity), LE=L+E, balanced=Math.abs(A-LE)<1;
-  const kpis=`<div class="fin-kpis">
-    ${finKpi("รวมสินทรัพย์", finFmt(A), "layers", "#3b82f6", "ด้านซ้ายของงบ")}
-    ${finKpi("รวมหนี้สิน", finFmt(L), "credit-card", "#e0863f")}
-    ${finKpi("ส่วนของผู้ถือหุ้น", finFmt(E), "wallet", E>=0?"#16a34a":"#dc2626", E<0?"ขาดทุนเกินทุน (ติดลบ)":"", true)}
-    ${finKpi("หนี้สิน + ส่วนของผู้ถือหุ้น", finFmt(LE), "scale", balanced?"#16a34a":"#dc2626", balanced?"= สินทรัพย์ · สมดุล ✓":"ตรวจสอบ", true)}
-  </div>
-  <div class="fin-baleq">
-    <div class="beq-side"><span class="beq-l">สินทรัพย์รวม</span><span class="beq-v">${finFmt(A)}</span></div>
-    <span class="beq-op">=</span>
-    <div class="beq-side"><span class="beq-l">หนี้สิน</span><span class="beq-v">${finFmt(L)}</span></div>
-    <span class="beq-op">+</span>
-    <div class="beq-side"><span class="beq-l">ส่วนของผู้ถือหุ้น</span><span class="beq-v ${E<0?'neg':''}">${finFmt(E)}</span></div>
-    <span class="beq-badge ${balanced?'ok':'bad'}">${balanced?'สมดุล ✓':'ไม่สมดุล'}</span>
-  </div>
-  ${E<0?`<div class="fin-baleq-note">ℹ️ ส่วนของผู้ถือหุ้น<b>ติดลบ</b> (ขาดทุนสะสมเกินทุน) — หนี้สิน ${finFmt(L)} หักด้วยส่วนที่ติดลบ ${finFmt(-E)} จึงเหลือ ${finFmt(LE)} เท่ากับสินทรัพย์พอดี · เงินสดในมือ ${finFmt(val(T.cash))}</div>`:``}`;
+  const A=val(T.assets), L=val(T.liab), E=A-L, cash=val(T.cash);
+  const inGrad  = state.company==="mbark" ? "linear-gradient(140deg,#7FA8EC,#5680D0)" : "linear-gradient(140deg,#1AC7AE,#0C9180)";
+  const outGrad = state.company==="mbark" ? "linear-gradient(140deg,#F4B27C,#E08A45)" : "linear-gradient(140deg,#EF93B7,#DD6093)";
+  const mx=Math.max(Math.abs(A),Math.abs(L),1);
+  const negE=E<0, netCol=negE?"#dc2626":"#0E9A88", netBg=negE?"#FDF1F2":"#E9FBF4", netBd=negE?"#F7D6DB":"#BFEFE4";
+  const kpis=`<div class="fin-cfhero">
+    <div class="cfh-head"><div class="cfh-title">ภาพรวมฐานะการเงิน <span>Financial Position</span></div><div class="cfh-meta">${esc(b.asOf)} · เงินสด ${finFmt(cash)}</div></div>
+    <div class="cfh-row">
+      <div class="cfh-card" style="background:${inGrad}">
+        <div class="cfh-ct"><span class="cfh-dot"></span>สินทรัพย์รวม<span class="cfh-tag">▲ มีอยู่</span></div>
+        <div class="cfh-cv">${finFmt(A)}</div>
+        <div class="cfh-cbar"><span style="width:${Math.max(4,Math.abs(A)/mx*100)}%"></span></div>
+      </div>
+      <div class="cfh-card" style="background:${outGrad}">
+        <div class="cfh-ct"><span class="cfh-dot"></span>หนี้สินรวม<span class="cfh-tag">▼ เป็นหนี้</span></div>
+        <div class="cfh-cv">${finFmt(L)}</div>
+        <div class="cfh-cbar"><span style="width:${Math.max(4,Math.abs(L)/mx*100)}%"></span></div>
+      </div>
+    </div>
+    <div class="cfh-net" style="background:${netBg};border-color:${netBd}">
+      <div class="cfh-net-l"><span class="cfh-net-ic" style="background:${netCol}">${negE?"↓":"↑"}</span>
+        <div><b style="color:${netCol}">ส่วนของผู้ถือหุ้น</b><span>${negE?"หนี้สินมากกว่าสินทรัพย์ — ส่วนของผู้ถือหุ้นติดลบ (ขาดทุนเกินทุน)":"สินทรัพย์มากกว่าหนี้สิน — ส่วนของผู้ถือหุ้นเป็นบวก"}</span></div>
+      </div>
+      <div class="cfh-net-v" style="color:${netCol}">${finFmt(E)}</div>
+    </div>
+  </div>`;
   const cur=v=>`<td class="num ${(v!=null&&v<0)?'neg':''}">${v==null?"":finFmt(v)}</td>`;
   let rows="";
   b.groups.forEach((grp,gi)=>{

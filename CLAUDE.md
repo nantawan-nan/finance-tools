@@ -182,6 +182,12 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-13 (5) — งบกำไรขาดทุน: คลิกยอดรวมย่อย → popup แยกรายบัญชี (drill-down)
+- **เจ้าของขอ:** ตอนยุบกลุ่ม คลิกยอดในช่องเดือน → เห็นว่าประกอบด้วยบัญชีอะไรบ้าง · คลิกช่องรวม → เห็นทุกเดือน
+- **`subP` เพิ่ม param `secKey`** → cells มี `onclick="finDrillPnl(secKey, monthKey|'all')"` + class `.fin-drill` (hover ไฮไลต์) · 6 บรรทัดรวม (รายได้/ต้นทุนขาย/รวมขาย/รวมบริหาร/ขายและบริหาร/ต้นทุนการเงิน) · gross/ebit/net (คำนวณ) ไม่ผูก
+- **`finDrillPnl(secKey,periodKey)`:** ใช้ periodized pnl เดียวกับตาราง (month/quarter) · `opex`=selling+admin · gap สินค้าคงเหลือ (subtotal−ผลรวมบัญชีมีรหัส) โชว์เป็นบรรทัด "การเปลี่ยนแปลงสินค้าคงเหลือ" (reconcile ยอด) · periodKey='all'→ตารางบัญชี×ทุกเดือน+รวม · เดือนเดียว→ลิสต์เรียงยอดมาก→น้อย · `finModal`/`finCloseModal`/`finModalKey` (Esc/click-outside · z-index 100000 อยู่บนโหมดนำเสนอ)
+- **verify preview:** 42 cells คลิกได้ · COGS ม.ค.=7 บัญชี รวม 365,131.81 (ตรง cell) · admin all=27 บัญชี · **กระทบหน้าอื่น = 0** (subP + fin* ใหม่)
+
 ### 2026-07-13 (4) — งบกำไรขาดทุน + งบฐานะ: ขยายฟอนต์ + กรอบสี KPI ล้อ Exec Cash Flow + ตัวเลขวิ่ง
 - **เจ้าของขอ:** ตัวอักษรใหญ่/ชัดขึ้น · สีกรอบการ์ดล้อกับหน้า Exec Cash Flow · ตัวเลข count-up ตอนเปลี่ยนหน้า
 - **ฟอนต์ใหญ่ขึ้น:** KPI k-val 22→29px · ตาราง P&L 12.5→14px · Balance 13→14.5px · หัวข้อ 16→19px · padding เพิ่ม

@@ -16041,6 +16041,28 @@ function finInjectStyle(){
     border-radius:18px!important;
   }
   body.ed-present .fin-hscore{ background:rgba(15,23,42,.82)!important; }
+  /* drill-down: คลิกยอดรวมย่อย */
+  .fin-tbl td.fin-drill{ cursor:pointer; position:relative; }
+  .fin-tbl td.fin-drill:hover{ background:color-mix(in srgb,var(--brand) 9%,#fff)!important; box-shadow:inset 0 0 0 1.5px color-mix(in srgb,var(--brand) 35%,#fff); border-radius:4px; }
+  .fin-modal-ov{ position:fixed; inset:0; z-index:100000; background:rgba(15,23,42,.5); display:none; align-items:center; justify-content:center; padding:20px;
+    -webkit-backdrop-filter:blur(2px); backdrop-filter:blur(2px); }
+  .fin-modal-box{ background:#fff; border-radius:16px; max-width:920px; width:100%; max-height:86vh; overflow:auto; box-shadow:0 24px 60px rgba(15,23,42,.32); padding:20px 22px; }
+  .fin-modal-h{ display:flex; align-items:center; gap:12px; margin-bottom:4px; }
+  .fin-modal-h h3{ margin:0; font-size:19px; font-weight:800; color:var(--fg); flex:1; }
+  .fin-modal-x{ background:#f1f5f9; border:0; width:32px; height:32px; border-radius:8px; cursor:pointer; font-size:15px; color:#64748b; flex-shrink:0; }
+  .fin-modal-x:hover{ background:#e2e8f0; }
+  .fin-modal-sub{ font-size:13px; color:var(--mut); margin-bottom:14px; }
+  .fin-modal-tblwrap{ overflow-x:auto; }
+  table.fin-modal-tbl{ width:100%; border-collapse:collapse; font-size:14px; }
+  table.fin-modal-tbl th, table.fin-modal-tbl td{ padding:8px 12px; border-bottom:1px solid #f1f5f9; white-space:nowrap; }
+  table.fin-modal-tbl thead th{ background:#f8fafc; color:var(--mut); font-weight:700; font-size:12.5px; text-align:right; position:sticky; top:0; }
+  table.fin-modal-tbl thead th:first-child{ text-align:left; }
+  table.fin-modal-tbl td.dn{ text-align:left; color:#334155; }
+  table.fin-modal-tbl td.num{ text-align:right; font-variant-numeric:tabular-nums; color:#334155; }
+  table.fin-modal-tbl td.dtot{ font-weight:700; color:var(--fg); background:#f8fafc; }
+  table.fin-modal-tbl .dc{ color:#94a3b8; font-size:12px; }
+  table.fin-modal-tbl tr.drow-tot td{ font-weight:800; color:var(--fg); border-top:2px solid var(--brand); background:#f1f5f9; }
+  table.fin-modal-tbl td.neg{ color:var(--red); }
   @media print{ .sidebar,#sb,.topbar,.crumb,.fin-noprint,.company-switch{ display:none!important; } .main{ margin:0!important; padding:0!important; } .fin-hero{ box-shadow:none; } }
   `;
   document.head.appendChild(s);
@@ -16115,11 +16137,13 @@ function finPnlHtml(d){
   };
   // ยอดรวมย่อย + %ของรายได้ (บนบรรทัดรวม) + %ต่อเดือนในแต่ละช่อง
   const pctOfRev=line=> C.rev.total ? line.total/C.rev.total : null;
-  const subP=(label,line,showPct)=>{
-    const cells=line.m.map(v=>`<td class="num ${v<0?'neg':''}">${finCell(v)}</td>`).join("");
+  const subP=(label,line,showPct,secKey)=>{
+    const clk=!!secKey;
+    const cells=line.m.map((v,i)=>`<td class="num ${v<0?'neg':''} ${clk?'fin-drill':''}" ${clk?`onclick="finDrillPnl('${secKey}','${M[i].key}')" title="ดูรายบัญชี ${esc(M[i].label)}"`:''}>${finCell(v)}</td>`).join("");
     const chip = showPct ? ` <span class="fin-pctlbl">${finPct(pctOfRev(line))} ของรายได้</span>` : "";
     const totPct = showPct ? `<div class="fin-totpct">${finPct(pctOfRev(line))}</div>` : "";
-    return `<tr class="fin-sub"><td class="fin-name" colspan="2">${esc(label)}${chip}</td>${cells}<td class="num tot-col">${finCell(line.total)}${totPct}</td></tr>`;
+    const totCell = `<td class="num tot-col ${clk?'fin-drill':''}" ${clk?`onclick="finDrillPnl('${secKey}','all')" title="ดูรายบัญชีทุกเดือน"`:''}>${finCell(line.total)}${totPct}</td>`;
+    return `<tr class="fin-sub"><td class="fin-name" colspan="2">${esc(label)}${chip}</td>${cells}${totCell}</tr>`;
   };
   const sub=(label,line)=>rowLine("fin-sub",label,line);
   // หัวข้อกลุ่ม — คลิกเพื่อกาง/ย่อรายบัญชี
@@ -16129,22 +16153,22 @@ function finPnlHtml(d){
   let body="";
   body+=sec("รายได้","revenue");
   if(secOpen("revenue")){ body+=accRows(C.acc.revenue); body+=gapRow("revenue","รายได้อื่น (ปรับปรุง)"); }
-  body+=subP("รวมรายได้",C.rev,false);
+  body+=subP("รวมรายได้",C.rev,false,"revenue");
   body+=sec("ต้นทุนขาย","cogs");
   if(secOpen("cogs")){ body+=accRows(C.acc.cogs); body+=gapRow("cogs","การเปลี่ยนแปลงสินค้าคงเหลือ"); }
-  body+=subP("ต้นทุนขาย",C.cogs,true);
+  body+=subP("ต้นทุนขาย",C.cogs,true,"cogs");
   body+=rowLine("fin-hl-g","กำไร(ขาดทุน)ขั้นต้น",C.gross);
   body+=pctRow("% Gross Margin",C.grossMarg);
   body+=sec("ค่าใช้จ่ายในการขายและบริหาร","opex");
   if(secOpen("opex")){ body+=accRows(C.acc.selling); body+=gapRow("selling","ค่าใช้จ่ายในการขายอื่น"); }
-  body+=subP("รวมค่าใช้จ่ายในการขาย",C.sell,true);
+  body+=subP("รวมค่าใช้จ่ายในการขาย",C.sell,true,"selling");
   if(secOpen("opex")){ body+=accRows(C.acc.admin); body+=gapRow("admin","ค่าใช้จ่ายในการบริหารอื่น"); }
-  body+=subP("รวมค่าใช้จ่ายในการบริหาร",C.adm,true);
-  body+=subP("รวมค่าใช้จ่ายขายและบริหาร",C.opex,true);
+  body+=subP("รวมค่าใช้จ่ายในการบริหาร",C.adm,true,"admin");
+  body+=subP("รวมค่าใช้จ่ายขายและบริหาร",C.opex,true,"opex");
   body+=rowLine("fin-sub","กำไร(ขาดทุน)ก่อนต้นทุนทางการเงิน",C.ebit);
   body+=sec("ต้นทุนทางการเงิน","finance");
   if(secOpen("finance")){ body+=accRows(C.acc.finance); }
-  body+=subP("ต้นทุนทางการเงิน",C.fin,true);
+  body+=subP("ต้นทุนทางการเงิน",C.fin,true,"finance");
   body+=rowLine(C.net.total>=0?"fin-hl-g":"fin-hl-r","กำไร(ขาดทุน)สุทธิ",C.net);
   body+=pctRow("% Net Margin",C.netMarg);
   const periodToggle=`<div class="fin-period">
@@ -16325,6 +16349,54 @@ function finTogglePnlSection(key){ const d=finState(); d.pnlOpen=d.pnlOpen||{}; 
 function finTogglePnlDetail(){ const d=finState(); const open=!finPnlAllOpen(d); const o={}; FIN_PNL_SECS.forEach(k=>o[k]=open); d.pnlOpen=o; renderTool(); }
 function finToggleBLine(key){ const d=finState(); d.bOpen[key]=!d.bOpen[key]; renderTool(); }
 function finSetPnlPeriod(p){ const d=finState(); d.pnlPeriod=p; renderTool(); }
+
+/* ---- Drill-down: คลิกยอดรวมย่อย → popup แยกรายบัญชี ---- */
+const FIN_SEC_NAME={revenue:"รายได้",cogs:"ต้นทุนขาย",selling:"ค่าใช้จ่ายในการขาย",admin:"ค่าใช้จ่ายในการบริหาร",opex:"ค่าใช้จ่ายขายและบริหาร",finance:"ต้นทุนทางการเงิน"};
+const FIN_SEC_SUB={revenue:"rev",cogs:"cogs",selling:"sell",admin:"adm",opex:"opex",finance:"fin"};
+function finDrillPnl(secKey, periodKey){
+  const d=finState(); if(!d.pnl) return;
+  const pnl = d.pnlPeriod==="quarter" ? finQuarterize(d.pnl) : d.pnl;
+  const M=pnl.months, C=finPnlCompute(pnl);
+  const accts = (secKey==="opex") ? pnl.accounts.filter(a=>a.section==="selling"||a.section==="admin")
+              : pnl.accounts.filter(a=>a.section===secKey);
+  const subLine = C[FIN_SEC_SUB[secKey]] || { m:M.map(()=>0), total:0 };
+  const codedM = M.map((m)=> accts.reduce((s,a)=>s+(a.mv[m.key]||0),0));
+  const codedTot = accts.reduce((s,a)=>s+(a.total||0),0);
+  const gapM = subLine.m.map((v,i)=>finR2(v-codedM[i]));
+  const gapTot = finR2(subLine.total-codedTot);
+  const hasGap = Math.abs(gapTot)>0.01;
+  const secName = FIN_SEC_NAME[secKey]||secKey;
+  let body, sub;
+  if(periodKey==="all"){
+    const thM = M.map(m=>`<th class="num">${esc(m.label)}</th>`).join("");
+    let rows = accts.slice().sort((a,b)=>Math.abs(b.total)-Math.abs(a.total)).map(a=>
+      `<tr><td class="dn">${a.code?`<span class="dc">${esc(a.code)}</span> `:""}${esc(a.name)}</td>${M.map(m=>`<td class="num ${((a.mv[m.key]||0)<0)?'neg':''}">${finCell(a.mv[m.key]||0)}</td>`).join("")}<td class="num dtot">${finCell(a.total)}</td></tr>`).join("");
+    if(hasGap) rows+=`<tr><td class="dn">การเปลี่ยนแปลงสินค้าคงเหลือ</td>${M.map((m,i)=>`<td class="num ${gapM[i]<0?'neg':''}">${finCell(gapM[i])}</td>`).join("")}<td class="num dtot">${finCell(gapTot)}</td></tr>`;
+    rows+=`<tr class="drow-tot"><td class="dn">รวม ${esc(secName)}</td>${M.map((m,i)=>`<td class="num ${subLine.m[i]<0?'neg':''}">${finCell(subLine.m[i])}</td>`).join("")}<td class="num">${finCell(subLine.total)}</td></tr>`;
+    body=`<div class="fin-modal-tblwrap"><table class="fin-modal-tbl"><thead><tr><th>บัญชี</th>${thM}<th class="num">รวม</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+    sub=`หน่วย: บาท · แยกรายบัญชีทุก${d.pnlPeriod==="quarter"?"ไตรมาส":"เดือน"} · ${accts.length} บัญชี`;
+  } else {
+    const mi=M.findIndex(m=>m.key===periodKey);
+    const lbl=(M[mi]||{}).label || periodKey;
+    let list=accts.map(a=>({name:a.name,code:a.code,v:a.mv[periodKey]||0})).filter(x=>Math.abs(x.v)>0.001).sort((a,b)=>Math.abs(b.v)-Math.abs(a.v));
+    let rows=list.map(x=>`<tr><td class="dn">${x.code?`<span class="dc">${esc(x.code)}</span> `:""}${esc(x.name)}</td><td class="num ${x.v<0?'neg':''}">${finCell(x.v)}</td></tr>`).join("");
+    if(hasGap && mi>=0 && Math.abs(gapM[mi])>0.01) rows+=`<tr><td class="dn">การเปลี่ยนแปลงสินค้าคงเหลือ</td><td class="num ${gapM[mi]<0?'neg':''}">${finCell(gapM[mi])}</td></tr>`;
+    const tv = mi>=0?subLine.m[mi]:0;
+    rows+=`<tr class="drow-tot"><td class="dn">รวม ${esc(secName)}</td><td class="num ${tv<0?'neg':''}">${finCell(tv)}</td></tr>`;
+    body=`<div class="fin-modal-tblwrap"><table class="fin-modal-tbl"><thead><tr><th>บัญชี</th><th class="num">${esc(lbl)}</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+    sub=`หน่วย: บาท · ${esc(lbl)} · ${list.length} บัญชี`;
+  }
+  finModal(esc(secName)+" — แยกรายบัญชี", body, sub);
+}
+function finModal(title, body, sub){
+  let ov=document.getElementById("finModal");
+  if(!ov){ ov=document.createElement("div"); ov.id="finModal"; ov.className="fin-modal-ov"; ov.onclick=e=>{ if(e.target===ov) finCloseModal(); }; document.body.appendChild(ov); }
+  ov.innerHTML=`<div class="fin-modal-box"><div class="fin-modal-h"><h3>${title}</h3><button class="fin-modal-x" onclick="finCloseModal()">✕</button></div>${sub?`<div class="fin-modal-sub">${sub}</div>`:""}${body}</div>`;
+  ov.style.display="flex";
+  document.addEventListener("keydown", finModalKey);
+}
+function finCloseModal(){ const ov=document.getElementById("finModal"); if(ov) ov.style.display="none"; document.removeEventListener("keydown", finModalKey); }
+function finModalKey(e){ if(e.key==="Escape") finCloseModal(); }
 function finToggleHScore(name){ const d=finState(); d.hOpen=d.hOpen||{}; d.hOpen[name]=!d.hOpen[name]; renderTool(); }
 
 /* ---- รวมรายเดือน → รายไตรมาส (สำหรับ toggle มุมมอง) ---- */

@@ -15975,7 +15975,9 @@ function finInjectStyle(){
   .fin-par-badge{ display:inline-flex; align-items:baseline; gap:8px; background:color-mix(in srgb,var(--brand) 10%,#fff); border-radius:10px; padding:6px 13px; }
   .fin-par-badge b{ font-size:22px; font-weight:800; color:var(--brand); letter-spacing:-.5px; } .fin-par-badge span{ font-size:12px; color:var(--mut); }
   .fin-par-tot{ font-size:12.5px; color:var(--mut); font-weight:600; }
-  .fin-par-row{ display:grid; grid-template-columns:minmax(84px,1.2fr) 2fr auto 48px; align-items:center; gap:10px; padding:8px 0; border-bottom:1px solid #f5f7fa; }
+  .fin-par-row{ display:grid; grid-template-columns:30px minmax(78px,1.2fr) 2fr auto 48px; align-items:center; gap:10px; padding:8px 0; border-bottom:1px solid #f5f7fa; }
+  .fin-par-ic{ width:28px; height:28px; border-radius:8px; display:flex; align-items:center; justify-content:center; background:color-mix(in srgb,currentColor 13%,#fff); flex-shrink:0; }
+  .fin-par-ic i{ width:16px; height:16px; }
   .fin-par-n{ font-size:14px; font-weight:600; color:#334155; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .fin-par-row.oth .fin-par-n{ color:#94a3b8; font-weight:500; }
   .fin-par-bar{ height:16px; background:#f1f5f9; border-radius:8px; overflow:hidden; }
@@ -15986,7 +15988,7 @@ function finInjectStyle(){
   .fin-par-row.oth .fin-par-p{ color:#94a3b8; font-weight:600; }
   .fin-par-div{ font-size:12px; color:#94a3b8; margin:9px 0 3px; padding-top:8px; border-top:1px dashed var(--ln); font-weight:600; }
   .fin-par-empty{ color:#94a3b8; padding:20px; text-align:center; }
-  @media(max-width:560px){ .fin-par-row{ grid-template-columns:minmax(70px,1fr) 1.4fr auto 44px; } }
+  @media(max-width:560px){ .fin-par-row{ grid-template-columns:28px minmax(60px,1fr) 1.3fr auto 44px; gap:7px; } }
   /* health */
   .fin-health{ display:grid; grid-template-columns:280px 1fr; gap:16px; }
   @media(max-width:820px){ .fin-health{ grid-template-columns:1fr; } }
@@ -16568,7 +16570,31 @@ function finRenderPnlCharts(d){
 }
 
 /* ---- Analytics section HTML (ใต้ตาราง P&L) ---- */
-/* Pareto breakdown — เรียงมาก→น้อย · ไฮไลต์ TOP 80% · แถบ + %ของทั้งหมด (สไตล์นำเสนอ) */
+/* จับคู่ไอคอน lucide ตามชื่อรายการ (รายได้/ค่าใช้จ่าย/สินทรัพย์/เงินทุน) */
+function finItemIcon(name){
+  const n=name||"";
+  if(/โฆษณา|แอด|ยิงแอด/.test(n)) return "megaphone";
+  if(/เงินเดือน|บุคลากร|พนักงาน|ค่าจ้าง|สวัสดิการ|ค่าตำแหน่ง/.test(n)) return "users";
+  if(/ขนส่ง|จัดส่ง|ส่งสินค้า/.test(n)) return "truck";
+  if(/platform|แพลตฟอร์ม|shopee|tiktok|lazada/i.test(n)) return "smartphone";
+  if(/ที่ปรึกษา|บริการ/.test(n)) return "handshake";
+  if(/รายได้จากการขาย|ขายสินค้า/.test(n)) return "shopping-cart";
+  if(/ดอกเบี้ย/.test(n)) return "percent";
+  if(/ธรรมเนียม|คอมมิช|commission/i.test(n)) return "receipt";
+  if(/ต้นทุน|วัตถุดิบ|ผลิต|บรรจุ/.test(n)) return "package";
+  if(/ภาษี|vat/i.test(n)) return "landmark";
+  if(/เงินสด|เงินฝาก|เทียบเท่า/.test(n)) return "banknote";
+  if(/ลูกหนี้/.test(n)) return "hand-coins";
+  if(/สินค้าคงเหลือ|คงเหลือ/.test(n)) return "boxes";
+  if(/ที่ดิน|อาคาร|อุปกรณ์/.test(n)) return "building-2";
+  if(/ไม่มีตัวตน|สิทธิบัตร/.test(n)) return "file-badge";
+  if(/เงินกู้|กู้ยืม/.test(n)) return "landmark";
+  if(/ทุน|หุ้น/.test(n)) return "coins";
+  if(/เจ้าหนี้/.test(n)) return "file-text";
+  if(/บริหาร/.test(n)) return "briefcase";
+  return "circle-dollar-sign";
+}
+/* Pareto breakdown — เรียงมาก→น้อย · ไฮไลต์ TOP 80% · ไอคอน + แถบ + %ของทั้งหมด (สไตล์นำเสนอ) */
 function finParetoBlock(items, accentDefault){
   const arr=(items||[]).filter(x=>x&&Math.abs(x.value)>0.001).sort((a,b)=>Math.abs(b.value)-Math.abs(a.value));
   if(!arr.length) return `<div class="fin-par-empty">— ไม่มีข้อมูล</div>`;
@@ -16580,7 +16606,9 @@ function finParetoBlock(items, accentDefault){
   let dividerShown=false;
   rows.forEach(r=>{
     if(!r.top && !dividerShown){ html+=`<div class="fin-par-div">ที่เหลืออีก ${((1-topPct)*100).toFixed(0)}% (${rows.length-topN} รายการย่อย)</div>`; dividerShown=true; }
+    const col=r.top?(r.color||accentDefault):"#94a3b8";
     html+=`<div class="fin-par-row ${r.top?'top':'oth'}">
+      <div class="fin-par-ic" style="color:${col}"><i data-lucide="${finItemIcon(r.name)}"></i></div>
       <div class="fin-par-n" title="${esc(r.name)}">${esc(r.name)}</div>
       <div class="fin-par-bar"><span style="width:${Math.max(3,Math.abs(r.value)/max*100)}%;background:${r.top?(r.color||accentDefault):'#cbd5e1'}"></span></div>
       <div class="fin-par-v ${r.value<0?'neg':''}">${fopFmt(r.value)}</div>

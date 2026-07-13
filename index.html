@@ -16194,17 +16194,14 @@ function finBalRatios(T){
 }
 function finBalInsight(b,T){
   const f=v=>fopFmt(v), asof=(b.asOf||"").replace(/^ณ\s*/,"");
-  const pcCh=(c,p)=>(p&&p!==0)?((c-p)/Math.abs(p)*100).toFixed(0)+"%":"—";
   let summary=`ณ ${asof} บริษัทมีสินทรัพย์รวม <b>${f(T.ta)}</b> บาท`
-    +(T.taP!=null?` (${T.ta>=T.taP?"เพิ่มขึ้น":"ลดลง"} ${pcCh(T.ta,T.taP)} จากปีก่อน)`:``)
     +` · เงินทุนมาจากหนี้สิน <b>${f(T.tl)}</b> บาท และส่วนของผู้ถือหุ้น <b style="color:${T.eq<0?'#dc2626':'#059669'}">${f(T.eq)}</b> บาท`
     +(T.eq!=null&&T.eq<0?` — <b style="color:#dc2626">ส่วนของผู้ถือหุ้นติดลบ (ขาดทุนสะสมเกินทุน)</b> คือจุดที่ต้องเร่งแก้`:``)+".";
   const B=[];
   if(T.ca!=null&&T.cl){ const cr=T.ca/T.cl; B.push({t:cr>=1?"good":"bad",x:`สภาพคล่อง ${cr.toFixed(2)} เท่า — สินทรัพย์หมุนเวียน ${f(T.ca)} เทียบหนี้สินหมุนเวียน ${f(T.cl)}`}); }
+  if(T.ca!=null&&T.cl!=null){ const wc=T.ca-T.cl; B.push({t:wc>0?"good":"bad",x:`เงินทุนหมุนเวียนสุทธิ ${f(wc)} บาท ${wc>0?"(เป็นบวก)":"(ติดลบ)"}`}); }
   if(T.tl!=null&&T.ta){ const dr=T.tl/T.ta; B.push({t:dr<1?"warn":"bad",x:`หนี้สินคิดเป็น ${(dr*100).toFixed(0)}% ของสินทรัพย์`+(dr>1?" (หนี้มากกว่าสินทรัพย์)":"")}); }
-  if(T.eq!=null&&T.eqP!=null) B.push({t:T.eq>=T.eqP?"good":"bad",x:`ส่วนของผู้ถือหุ้น ${f(T.eq)} บาท ${T.eq>=T.eqP?"ดีขึ้น":"แย่ลง"}จากปีก่อน (${f(T.eqP)})`});
-  if(T.taP!=null&&Math.abs(T.taP)>0){ const ch=(T.ta-T.taP)/Math.abs(T.taP); if(Math.abs(ch)>0.15) B.push({t:ch>0?"good":"warn",x:`สินทรัพย์รวม${ch>0?"เพิ่ม":"ลด"} ${(Math.abs(ch)*100).toFixed(0)}% จากปีก่อน (${f(T.taP)} → ${f(T.ta)})`}); }
-  if(T.cash!=null) {}
+  if(T.eq!=null&&T.eq<0){ B.push({t:"bad",x:`ส่วนของผู้ถือหุ้นติดลบ ${f(T.eq)} บาท — ต้องเพิ่มทุนหรือแปลงหนี้เป็นทุน`}); }
   const Rc=[];
   if(T.eq!=null&&T.eq<0) Rc.push("เพิ่มทุน / แปลงเงินกู้กรรมการเป็นทุน (debt-to-equity) เพื่อแก้ส่วนของผู้ถือหุ้นติดลบ");
   if(T.ca!=null&&T.cl&&T.ca/T.cl<1.2) Rc.push("ดูแลสภาพคล่อง — เร่งเก็บลูกหนี้ / ลดสินค้าคงคลัง ให้สินทรัพย์หมุนเวียนคุ้มหนี้ระยะสั้น");
@@ -16218,11 +16215,6 @@ function finRenderBalCharts(d){
   const b=d.balance, comp=finBalAssetComp(b), T=finBalCompute(b);
   finMakeChart("finChartBalAssets",{ type:"doughnut", data:{ labels:comp.map(c=>c.name), datasets:[{data:comp.map(c=>c.value),backgroundColor:comp.map(c=>c.color),borderWidth:2,borderColor:"#fff"}]},
     options:{ responsive:true, maintainAspectRatio:false, cutout:"60%", plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>c.label+": "+fopFmt(c.parsed)}}} } });
-  const yTick={ ticks:{callback:v=>finKfmt(v),font:{size:10}}, grid:{color:"#f1f5f9"} };
-  finMakeChart("finChartBalYoY",{ type:"bar", data:{ labels:["สินทรัพย์รวม","หนี้สินรวม","ส่วนของผู้ถือหุ้น"], datasets:[
-      {label:b.curYear,data:[T.ta,T.tl,T.eq],backgroundColor:"#0d9488",borderRadius:4},
-      {label:b.prevYear,data:[T.taP,T.tlP,T.eqP],backgroundColor:"#cbd5e1",borderRadius:4}
-    ]}, options:{ responsive:true, maintainAspectRatio:false, plugins:{legend:{position:"top",labels:{boxWidth:12,font:{size:11}}},tooltip:{callbacks:{label:c=>c.dataset.label+": "+fopFmt(c.parsed.y)}}}, scales:{x:{grid:{display:false}},y:yTick} } });
 }
 function finBalAnalyticsHtml(d){
   const b=d.balance, T=finBalCompute(b), comp=finBalAssetComp(b), fund=finBalFunding(T), R=finBalRatios(T), ins=finBalInsight(b,T);
@@ -16255,10 +16247,7 @@ function finBalAnalyticsHtml(d){
         <div class="fin-donut-wrap"><div class="fin-donut-box"><canvas id="finChartBalAssets"></canvas></div><div class="fin-legend">${legend}</div></div></div>
       <div class="fin-card"><div class="fin-card-h">แหล่งเงินทุน (หนี้สิน & ส่วนของผู้ถือหุ้น)</div><div class="fin-card-sub">สัดส่วนต่อสินทรัพย์รวม ${fopFmt(T.ta)} บาท</div>${fundBars}</div>
     </div>
-    <div class="fin-grid2">
-      <div class="fin-card"><div class="fin-card-h">เทียบปีก่อน (${b.curYear} vs ${b.prevYear})</div><div class="fin-chart-box"><canvas id="finChartBalYoY"></canvas></div></div>
-      <div class="fin-card"><div class="fin-card-h">อัตราส่วนทางการเงิน <span class="fin-hint"><i data-lucide="mouse-pointer-click"></i> คลิกดูสูตร + ที่มา</span></div><div class="fin-card-sub">คำนวณจากงบแสดงฐานะการเงิน</div>${ratioRows}</div>
-    </div>
+    <div class="fin-card"><div class="fin-card-h">อัตราส่วนทางการเงิน <span class="fin-hint"><i data-lucide="mouse-pointer-click"></i> คลิกดูสูตร + ที่มา</span></div><div class="fin-card-sub">คำนวณจากงบแสดงฐานะการเงิน ณ ${esc((b.asOf||"").replace(/^ณ\s*/,""))}</div>${ratioRows}</div>
     <div class="fin-insight">
       <div class="fin-ins-head"><span class="fin-ins-ic"><i data-lucide="sparkles"></i></span><div><div class="fin-ins-t">วิเคราะห์ฐานะการเงิน</div><div class="fin-ins-s">สภาพคล่อง · โครงสร้างหนี้ · ส่วนของผู้ถือหุ้น</div></div><span class="fin-ins-badge">Auto Generated</span></div>
       <div class="fin-ins-sum">${ins.summary}</div>
@@ -16279,15 +16268,15 @@ function finBalanceHtml(d){
   const cur=v=>`<td class="num ${(v!=null&&v<0)?'neg':''}">${v==null?"":finFmt(v)}</td>`;
   let rows="";
   b.groups.forEach((grp,gi)=>{
-    rows+=`<tr class="bs-grp"><td class="bs-name" colspan="3">${esc(grp.name)}</td></tr>`;
+    rows+=`<tr class="bs-grp"><td class="bs-name" colspan="2">${esc(grp.name)}</td></tr>`;
     grp.lines.forEach((l,li)=>{
       const key=gi+"-"+li;
-      if(l.type==="subheader"){ rows+=`<tr class="bs-sub"><td class="bs-name" colspan="3">${esc(l.name)}</td></tr>`; return; }
-      if(l.type==="subtotal"){ rows+=`<tr class="bs-subtotal"><td class="bs-name">${esc(l.name)}</td>${cur(l.cur)}${cur(l.prev)}</tr>`; return; }
-      if(l.type==="total"){ rows+=`<tr class="bs-total"><td class="bs-name">${esc(l.name)}</td>${cur(l.cur)}${cur(l.prev)}</tr>`; return; }
+      if(l.type==="subheader"){ rows+=`<tr class="bs-sub"><td class="bs-name" colspan="2">${esc(l.name)}</td></tr>`; return; }
+      if(l.type==="subtotal"){ rows+=`<tr class="bs-subtotal"><td class="bs-name">${esc(l.name)}</td>${cur(l.cur)}</tr>`; return; }
+      if(l.type==="total"){ rows+=`<tr class="bs-total"><td class="bs-name">${esc(l.name)}</td>${cur(l.cur)}</tr>`; return; }
       const has=l.accounts&&l.accounts.length; const open=!!d.bOpen[key];
-      rows+=`<tr class="bs-line"><td class="bs-name ${has?'has':''}" ${has?`onclick="finToggleBLine('${key}')"`:''}>${has?`<span class="chev">${open?"▾":"▸"}</span>`:`<span class="chev"></span>`}${esc(l.name)}</td>${cur(l.cur)}${cur(l.prev)}</tr>`;
-      if(has&&open){ l.accounts.forEach(a=>{ rows+=`<tr class="bs-acc"><td class="bs-name">${esc(a.code)} ${esc(a.name)}</td><td class="num ${a.amount<0?'neg':''}">${finFmt(a.amount)}</td><td class="num"></td></tr>`; }); }
+      rows+=`<tr class="bs-line"><td class="bs-name ${has?'has':''}" ${has?`onclick="finToggleBLine('${key}')"`:''}>${has?`<span class="chev">${open?"▾":"▸"}</span>`:`<span class="chev"></span>`}${esc(l.name)}</td>${cur(l.cur)}</tr>`;
+      if(has&&open){ l.accounts.forEach(a=>{ rows+=`<tr class="bs-acc"><td class="bs-name">${esc(a.code)} ${esc(a.name)}</td><td class="num ${a.amount<0?'neg':''}">${finFmt(a.amount)}</td></tr>`; }); }
     });
   });
   return `${kpis}
@@ -16295,7 +16284,7 @@ function finBalanceHtml(d){
   <div class="fin-sheet">
     <div class="fin-sheet-h"><h3>งบแสดงฐานะการเงิน</h3><span class="fin-unit">${esc(b.asOf)} · หน่วย: บาท · คลิกรายการเพื่อดูบัญชีย่อย</span></div>
     <div class="fin-tblwrap"><table class="fin-bs">
-      <thead><tr><th class="bs-name">รายการ</th><th class="num">${b.curYear}</th><th class="num">${b.prevYear}</th></tr></thead>
+      <thead><tr><th class="bs-name">รายการ</th><th class="num">${b.curYear} (บาท)</th></tr></thead>
       <tbody>${rows}</tbody>
     </table></div>
   </div>

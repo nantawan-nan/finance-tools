@@ -182,6 +182,11 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-13 — งบแสดงฐานะการเงิน: เอาคอลัมน์ปีก่อน (2567) ออก (เจ้าของแจ้งเป็นข้อมูลบริษัทอื่นในไฟล์)
+- **เจ้าของเช็คแล้ว:** เลขคอลัมน์ 2567 ในไฟล์เป็นข้อมูลบริษัทอื่นที่ลอกมาผิด → เอาออกจากการแสดงผลทั้งหมด
+- **แก้ (display only · parser ยังอ่าน prev ไว้):** (1) `finBalanceHtml` ตารางเหลือคอลัมน์เดียว (curYear · colspan 3→2 · ตัด `cur(l.prev)` + empty acc td) (2) `finRenderBalCharts` ลบกราฟ `finChartBalYoY` (เหลือโดนัทโครงสร้างสินทรัพย์) (3) `finBalAnalyticsHtml` การ์ดอัตราส่วนเต็มความกว้างแทนแถว YoY (4) `finBalInsight` ตัด bullet/summary ที่อ้างปีก่อน (T.taP/T.eqP) → เพิ่ม working capital + equity ติดลบ bullet แทน
+- **ถ้าไฟล์แก้ prev-year ถูกต้องแล้วอยากได้ comparison กลับ = ใส่ display กลับ (parser ยังมี prev)** · verify preview: header "2569 (บาท)" เดียว · ไม่มี YoY chart · ratios 5 · insight ไม่มี "ปีก่อน" · **กระทบหน้าอื่น = 0**
+
 ### 2026-07-12 — ★ หน้าใหม่: ต้นทุนผลิตภัณฑ์ (prodcost) — การ์ดสินค้า + รูป + ต้นทุนแยกรายการ (การขาย บนสุด)
 - **เจ้าของขอ:** อัปไฟล์ "Product Cost" (Benya + M Bark) → การ์ดผลิตภัณฑ์แนวตั้ง: ชื่อ → รูป → ราคาขาย → ต้นทุนแยกตามรายการ · วางบนสุดของกลุ่ม "การขาย"
 - **โครงไฟล์:** 1 ชีต = 1 สินค้า (ชื่อ row1 · ขนาด/MOQ row8 · รายการต้นทุน desc+price · Total) + **รูปฝังในชีต** · **★ ไม่มีราคาขายในไฟล์** (มีแต่ต้นทุน)

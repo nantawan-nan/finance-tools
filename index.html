@@ -16563,8 +16563,6 @@ function finRenderPnlCharts(d){
     ]}, options:{ responsive:true, maintainAspectRatio:false, interaction:{mode:"index",intersect:false},
       plugins:{ legend:{position:"top",labels:{boxWidth:12,font:{size:11}}}, tooltip:{callbacks:{label:c=>c.dataset.label+": "+fopFmt(c.parsed.y)}} },
       scales:{ x:{grid:{display:false}}, y:yTick } } });
-  finMakeChart("finChartDonut",{ type:"doughnut", data:{ labels:cats.map(c=>c.name), datasets:[{data:cats.map(c=>c.total),backgroundColor:cats.map(c=>c.color),borderWidth:2,borderColor:"#fff"}]},
-    options:{ responsive:true, maintainAspectRatio:false, cutout:"60%", plugins:{ legend:{display:false}, tooltip:{callbacks:{label:c=>c.label+": "+fopFmt(c.parsed)}} } } });
   finMakeChart("finChartTrend",{ type:"line", data:{ labels, datasets:[{data:netA,borderColor:"#dc2626",backgroundColor:"rgba(220,38,38,.12)",fill:true,borderWidth:2,tension:0.35,pointRadius:3,pointBackgroundColor:"#fff",pointBorderColor:"#dc2626"}]},
     options:{ responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>fopFmt(c.parsed.y)}}}, scales:{x:{grid:{display:false}},y:yTick} } });
 }
@@ -16657,13 +16655,7 @@ function finAnalyticsHtml(d){
     </div>
     <div class="fin-grid2">
       <div class="fin-card"><div class="fin-card-h">รายได้ · ค่าใช้จ่าย · กำไรสุทธิ ${M.length?"ราย"+(pnl.months.length>6?"ไตรมาส":"เดือน"):""}</div><div class="fin-chart-box"><canvas id="finChartMonthly"></canvas></div></div>
-      <div class="fin-card"><div class="fin-card-h">โครงสร้างค่าใช้จ่ายทั้งหมด</div>
-        <div class="fin-donut-wrap"><div class="fin-donut-box"><canvas id="finChartDonut"></canvas></div><div class="fin-legend">${legend}</div></div>
-      </div>
-    </div>
-    <div class="fin-grid2">
-      <div class="fin-card"><div class="fin-card-h">ค่าใช้จ่ายสูงสุด (${M.length} ${pnl.months.length>6?"ไตรมาส":"เดือน"})</div><div class="fin-card-sub">ค่าใช้จ่ายอันดับต้น ๆ ที่เป็นตัวแปรหลักของผลกำไร</div>${topBars}</div>
-      <div class="fin-card"><div class="fin-card-h">แนวโน้มกำไร(ขาดทุน)สุทธิรายเดือน</div><div class="fin-chart-box"><canvas id="finChartTrend"></canvas></div></div>
+      <div class="fin-card"><div class="fin-card-h">แนวโน้มกำไร(ขาดทุน)สุทธิ${pnl.months.length>6?"รายไตรมาส":"รายเดือน"}</div><div class="fin-chart-box"><canvas id="finChartTrend"></canvas></div></div>
     </div>
     <div class="fin-health">
       <div class="fin-hscore">

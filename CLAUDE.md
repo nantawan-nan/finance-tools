@@ -185,7 +185,7 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 ### 2026-07-13 (6) — งบกำไรขาดทุน + งบฐานะ: สัดส่วน Pareto (TOP 80%) แบบนำเสนอ ต่อท้ายงบ
 - **เจ้าของขอ:** เห็นสัดส่วนรายได้/ค่าใช้จ่ายชัด ๆ แบบสไลด์นำเสนอ (อ้างภาพ PresentX · TOP 80%)
 - **`finParetoBlock(items, accent)`** — sort desc · ไฮไลต์ TOP 80% (cumulative<0.8=แถบสีเข้ม · ที่เหลือ=เทา) · badge "TOP X% · N รายการหลัก" + divider + **ไอคอน (`finItemIcon` match ชื่อ→lucide)** + แถบ + %ของทั้งหมด · CSS `.fin-par-*` grid [ไอคอน|ชื่อ|แถบ|ยอด|%] · ไอคอนสีตามหมวด(top)/เทา(other)
-- **P&L** (ต้นสุดของ analytics · หลังตาราง): แหล่งรายได้ (`C.acc.revenue` positive) + สัดส่วนค่าใช้จ่าย (`finExpenseCats` 6 หมวด)
+- **P&L** (ต้นสุดของ analytics · หลังตาราง): แหล่งรายได้ (`C.acc.revenue` positive) + สัดส่วนค่าใช้จ่าย (`finExpenseCats` 6 หมวด) · **เอาโดนัท "โครงสร้างค่าใช้จ่าย" + "ค่าใช้จ่ายสูงสุด" ออก (ซ้ำกับ Pareto)** → เหลือ 2 กราฟ (monthly combo + net trend) คู่กัน · ลบ `finChartDonut`
 - **Balance:** สัดส่วนสินทรัพย์ (`finBalAssetComp`) + แหล่งเงินทุน (liabeq lines cur>0 = หนี้สิน+ทุนบวก)
 - **verify preview:** P&L รายได้ TOP 97% (รายได้จากการขาย 96.9%) · ค่าใช้จ่าย TOP 92% (ค่าโฆษณา 30/เงินเดือน 24/ต้นทุน 19/ค่าธรรมเนียม 19) · Balance สินทรัพย์ TOP 81% · เงินทุน TOP 89% · **กระทบหน้าอื่น = 0**
 

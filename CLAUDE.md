@@ -182,6 +182,11 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-13 (9) — Cash Flow Forecast: หัวเพจคลีนแบบ Exec (โลโก้ + toolbar) + คืนปุ่ม "รายละเอียดเพิ่มเติม"
+- **เจ้าของขอ:** หัวหน้า `renderToolCashflowStaff` ให้คลีนตาแบบหน้างบกระแสเงินสด (Exec) · เดิม page-head ธรรมดา (h1+badge + sub ยาว "ประมาณการ · period · ยอดธนาคาร ณ · หน่วย" + ปุ่ม Snapshot เดี่ยว)
+- **แก้:** mirror header ของ edRenderDashboard — `<img co.logo>` 40px + h1+badge + sub เหลือ "หน่วย: บาท" · toolbar ขวา 2 ปุ่ม ghost+icon: **รายละเอียดเพิ่มเติม** (`cffToggleStaffDetail` · เดิม def ไว้แต่ไม่มีปุ่มเรียก = dead → คืนชีวิต · toggle KPI/ไฮไลต์/timeline) + **Snapshot** · ตัด period/ยอดธนาคารออกจาก sub (ยังโชว์ในตัวรายงาน)
+- **กระทบหน้าอื่น = 0** · `periodLabel` const เหลือ unused ใน func (ไม่ error) · verify: logo 40px + "Cash Flow Forecast" M Bark + sub หน่วย:บาท + 2 ปุ่มมีไอคอน
+
 ### 2026-07-13 (8) — คะแนนสุขภาพการเงิน: โชว์ "สเกลคะแนน" ในป๊อปอัพ (ตอบ "ทำไม Current Ratio >2 ได้ 93 ไม่ใช่ 100")
 - **หัวหน้าถาม:** สภาพคล่อง 93 มายังไง · ถ้า >2 = ดี ทำไมไม่ 100 · ป๊อปอัพเดิมโชว์แค่ "เกณฑ์ป้ายสถานะ" (`≥2=ดี`) ไม่โชว์สเกลตัวเลข → ดูเหมือนคะแนนโผล่ลอย ๆ
 - **คำตอบ:** คะแนนเป็นสเกลไล่ระดับ 0–100 (จุดยึด `finScoreLinear` pts) ไม่ใช่ผ่าน/ไม่ผ่าน · Current Ratio: 0.5→12 · 1→45 · 1.5→70 · **2→85 (เข้าเขตดี)** · 3→95 (เพดาน · สภาพคล่องสูงเกิน=เงินจม ไม่ให้เต็ม) · 93 = ratio 2.79 (Benya) interp ระหว่าง 2(85)–3(95)

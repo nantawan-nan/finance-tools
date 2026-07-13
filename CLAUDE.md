@@ -182,6 +182,12 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-13 (4) — งบกำไรขาดทุน + งบฐานะ: ขยายฟอนต์ + กรอบสี KPI ล้อ Exec Cash Flow + ตัวเลขวิ่ง
+- **เจ้าของขอ:** ตัวอักษรใหญ่/ชัดขึ้น · สีกรอบการ์ดล้อกับหน้า Exec Cash Flow · ตัวเลข count-up ตอนเปลี่ยนหน้า
+- **ฟอนต์ใหญ่ขึ้น:** KPI k-val 22→29px · ตาราง P&L 12.5→14px · Balance 13→14.5px · หัวข้อ 16→19px · padding เพิ่ม
+- **KPI กรอบสี (accent):** `finKpi` เปลี่ยน param `variant`→`accent` (hex) + `accVal` · `--acc` → `border-top:4px` + ไอคอนสี + badge สี · รายได้/สินทรัพย์=teal · ต้นทุน/หนี้สิน=ส้ม · กำไรขั้นต้น/สุทธิ/ทุน=เขียว(บวก)/แดง(ลบ) (ล้อ in/out ของ Exec)
+- **ตัวเลขวิ่ง:** reuse `edAnimMoney(main)` ท้าย `renderToolFinPage` (edFmt==fopFmt) · guard `_finAnimKey=which+company` → วิ่งเฉพาะเข้าหน้า/สลับบริษัท ไม่วิ่งซ้ำตอน toggle · **กระทบหน้าอื่น = 0** (แก้ fin CSS + finKpi + 8 callers)
+
 ### 2026-07-13 (3) — ต้นทุนผลิตภัณฑ์: ราคาขายจากยอดขายจริง + %ต้นทุน/%กำไร + hero รวยขึ้น + รูปข้าวเบายอดม่วง
 - **เจ้าของขอ:** (1) ราคาขายดึงจากยอดขายล่าสุด (ทะเบียนคำสั่งซื้อ) "ค่าที่ขายมากสุดใช้ค่านั้น" (2) hero ต้นทุนเฉลี่ยจืดไป + เพิ่ม %ต้นทุน/%กำไรต่อการ์ด จากราคาขายล่าสุด (3) ลบกล่องเหลือง (4) เพิ่มรูปข้าวเบายอดม่วง Benya
 - **`prodLoadSales`** โหลด `order_ledger.items` (paginate · ข้าม cancelled) → ต่อ SKU เก็บ `{price:qty}` → **qty-weighted mode** (ราคาที่ขายจำนวนชิ้นมากสุด) · `prodEffPrice(p,d)` = กรอกเอง(override) > จากยอดขาย(match `p.sku` upper) > ไม่มี · badge "จากยอดขาย · N ชิ้น"/"กรอกเอง"

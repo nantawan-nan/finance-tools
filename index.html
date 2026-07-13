@@ -15891,26 +15891,26 @@ function finInjectStyle(){
     padding:7px 13px; border-radius:10px; font-size:12.5px; font-weight:600; cursor:pointer; backdrop-filter:blur(6px); }
   .fin-btn:hover{ background:rgba(255,255,255,.28); }
   .fin-btn i{ width:15px; height:15px; }
-  .fin-kpis{ display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-bottom:18px; }
+  .fin-kpis{ display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-bottom:20px; }
   @media(max-width:900px){ .fin-kpis{ grid-template-columns:repeat(2,1fr); } }
-  .fin-kpi{ background:#fff; border:1px solid var(--ln); border-radius:14px; padding:15px 17px; box-shadow:0 1px 3px rgba(15,23,42,.05); }
-  .fin-kpi .k-ic{ width:30px; height:30px; border-radius:9px; display:flex; align-items:center; justify-content:center; margin-bottom:9px;
-    background:color-mix(in srgb, var(--brand) 12%, #fff); color:var(--brand); }
-  .fin-kpi .k-ic i{ width:17px; height:17px; }
-  .fin-kpi .k-lbl{ font-size:12px; color:var(--mut); margin-bottom:3px; }
-  .fin-kpi .k-val{ font-size:22px; font-weight:800; color:var(--fg); letter-spacing:-.4px; font-variant-numeric:tabular-nums; }
-  .fin-kpi .k-badge{ display:inline-block; margin-top:7px; font-size:11px; font-weight:600; padding:2px 8px; border-radius:20px;
-    background:#f1f5f9; color:var(--mut); }
-  .fin-kpi.k-green{ border-top:3px solid var(--grn); } .fin-kpi.k-green .k-val{ color:var(--grn); } .fin-kpi.k-green .k-ic{ background:#ecfdf5; color:var(--grn); }
-  .fin-kpi.k-red{ border-top:3px solid var(--red); } .fin-kpi.k-red .k-val{ color:var(--red); } .fin-kpi.k-red .k-ic{ background:#fef2f2; color:var(--red); } .fin-kpi.k-red .k-badge{ background:#fef2f2; color:var(--red); }
-  .fin-sheet{ background:#fff; border:1px solid var(--ln); border-radius:14px; padding:16px 18px; box-shadow:0 1px 3px rgba(15,23,42,.05); }
-  .fin-sheet-h{ display:flex; align-items:baseline; gap:10px; margin-bottom:12px; }
-  .fin-sheet-h h3{ margin:0; font-size:16px; font-weight:800; color:var(--fg); }
-  .fin-unit{ font-size:11.5px; color:var(--mut); }
+  /* KPI การ์ด — กรอบสีล้อกับ Exec Cash Flow (border-top สี + ไอคอนสี) */
+  .fin-kpi{ background:#fff; border:1px solid var(--ln); border-top:4px solid var(--acc,var(--brand)); border-radius:14px; padding:17px 19px; box-shadow:0 2px 8px rgba(15,23,42,.06); }
+  .fin-kpi .k-ic{ width:36px; height:36px; border-radius:10px; display:flex; align-items:center; justify-content:center; margin-bottom:11px;
+    background:color-mix(in srgb, var(--acc,var(--brand)) 15%, #fff); color:var(--acc,var(--brand)); }
+  .fin-kpi .k-ic i{ width:20px; height:20px; }
+  .fin-kpi .k-lbl{ font-size:13.5px; color:var(--mut); margin-bottom:5px; font-weight:600; }
+  .fin-kpi .k-val{ font-size:29px; font-weight:800; color:var(--fg); letter-spacing:-.6px; font-variant-numeric:tabular-nums; line-height:1.08; }
+  .fin-kpi .k-val.acc{ color:var(--acc); }
+  .fin-kpi .k-badge{ display:inline-block; margin-top:9px; font-size:12px; font-weight:700; padding:3px 10px; border-radius:20px;
+    background:color-mix(in srgb, var(--acc,var(--brand)) 10%, #fff); color:var(--acc,var(--mut)); }
+  .fin-sheet{ background:#fff; border:1px solid var(--ln); border-radius:14px; padding:18px 20px; box-shadow:0 2px 8px rgba(15,23,42,.06); }
+  .fin-sheet-h{ display:flex; align-items:baseline; gap:10px; margin-bottom:14px; }
+  .fin-sheet-h h3{ margin:0; font-size:19px; font-weight:800; color:var(--fg); }
+  .fin-unit{ font-size:12.5px; color:var(--mut); }
   .fin-tblwrap{ overflow-x:auto; }
-  table.fin-tbl{ width:100%; border-collapse:collapse; font-size:12.5px; }
-  table.fin-tbl th, table.fin-tbl td{ padding:6px 9px; border-bottom:1px solid #f1f5f9; white-space:nowrap; }
-  table.fin-tbl thead th{ position:sticky; top:0; background:#f8fafc; color:var(--mut); font-weight:700; font-size:11.5px; text-align:right; border-bottom:1px solid var(--ln); }
+  table.fin-tbl{ width:100%; border-collapse:collapse; font-size:14px; }
+  table.fin-tbl th, table.fin-tbl td{ padding:8px 11px; border-bottom:1px solid #f1f5f9; white-space:nowrap; }
+  table.fin-tbl thead th{ position:sticky; top:0; background:#f8fafc; color:var(--mut); font-weight:700; font-size:12.5px; text-align:right; border-bottom:1px solid var(--ln); }
   table.fin-tbl thead th:first-child{ text-align:left; }
   table.fin-tbl td.fin-name{ text-align:left; color:var(--fg); }
   table.fin-tbl td.num{ text-align:right; font-variant-numeric:tabular-nums; color:#334155; }
@@ -15928,9 +15928,9 @@ function finInjectStyle(){
   .fin-tbl tr.fin-pct td{ font-style:italic; color:var(--mut); font-size:11.5px; }
   .fin-tbl td.tot-col{ background:#f8fafc; font-weight:700; border-left:1px solid var(--ln); }
   /* balance sheet */
-  table.fin-bs{ width:100%; border-collapse:collapse; font-size:13px; }
-  table.fin-bs th, table.fin-bs td{ padding:7px 10px; border-bottom:1px solid #f1f5f9; }
-  table.fin-bs thead th{ background:#f8fafc; color:var(--mut); font-weight:700; font-size:11.5px; }
+  table.fin-bs{ width:100%; border-collapse:collapse; font-size:14.5px; }
+  table.fin-bs th, table.fin-bs td{ padding:9px 12px; border-bottom:1px solid #f1f5f9; }
+  table.fin-bs thead th{ background:#f8fafc; color:var(--mut); font-weight:700; font-size:12.5px; }
   table.fin-bs thead th.num, table.fin-bs td.num{ text-align:right; font-variant-numeric:tabular-nums; }
   table.fin-bs td.bs-name{ text-align:left; }
   table.fin-bs tr.bs-grp td{ background:var(--brand); color:#fff; font-weight:800; font-size:13.5px; }
@@ -16074,11 +16074,11 @@ function finHeroHtml(which, d){
     </div>
   </div>`;
 }
-function finKpi(lbl,val,icon,variant,badge){
-  return `<div class="fin-kpi ${variant||''}">
+function finKpi(lbl,val,icon,accent,badge,accVal){
+  return `<div class="fin-kpi" style="--acc:${accent||'var(--brand)'}">
     <div class="k-ic"><i data-lucide="${icon}"></i></div>
     <div class="k-lbl">${lbl}</div>
-    <div class="k-val">${val}</div>
+    <div class="k-val ${accVal?'acc':''}">${val}</div>
     ${badge?`<div class="k-badge">${badge}</div>`:``}
   </div>`;
 }
@@ -16087,10 +16087,10 @@ function finPnlHtml(d){
   const pnl = period==="quarter" ? finQuarterize(d.pnl) : d.pnl;
   const C=finPnlCompute(pnl); const M=pnl.months;
   const kpis=`<div class="fin-kpis">
-    ${finKpi("รายได้รวม", finFmt(C.rev.total), "trending-up", "")}
-    ${finKpi("ต้นทุนขายรวม", finFmt(C.cogs.total), "package", "")}
-    ${finKpi("กำไรขั้นต้น (Gross Profit)", finFmt(C.gross.total), "badge-percent", C.gross.total>=0?"k-green":"k-red", "Margin "+finPct(C.grossMarg.total))}
-    ${finKpi("กำไร(ขาดทุน)สุทธิ", finFmt(C.net.total), C.net.total>=0?"trending-up":"trending-down", C.net.total>=0?"k-green":"k-red", (C.net.total>=0?"กำไร ":"ขาดทุน ")+finPct(C.netMarg.total))}
+    ${finKpi("รายได้รวม", finFmt(C.rev.total), "trending-up", "#0d9488")}
+    ${finKpi("ต้นทุนขายรวม", finFmt(C.cogs.total), "package", "#e0863f")}
+    ${finKpi("กำไรขั้นต้น (Gross Profit)", finFmt(C.gross.total), "badge-percent", C.gross.total>=0?"#16a34a":"#dc2626", "Margin "+finPct(C.grossMarg.total), true)}
+    ${finKpi("กำไร(ขาดทุน)สุทธิ", finFmt(C.net.total), C.net.total>=0?"trending-up":"trending-down", C.net.total>=0?"#16a34a":"#dc2626", (C.net.total>=0?"กำไร ":"ขาดทุน ")+finPct(C.netMarg.total), true)}
   </div>`;
   const ncols = M.length;
   const numTd=(v,extra)=>`<td class="num ${extra||''} ${v<0?'neg':''}">${finCell(v)}</td>`;
@@ -16280,10 +16280,10 @@ function finBalanceHtml(d){
   const b=d.balance; const T=finBalTotals(b);
   const val=x=>x?x.cur:0;
   const kpis=`<div class="fin-kpis">
-    ${finKpi("รวมสินทรัพย์", finFmt(val(T.assets)), "layers", "")}
-    ${finKpi("รวมหนี้สิน", finFmt(val(T.liab)), "credit-card", "")}
-    ${finKpi("ส่วนของผู้ถือหุ้น", finFmt(val(T.equity)), "wallet", val(T.equity)>=0?"":"k-red", val(T.equity)<0?"ส่วนของผู้ถือหุ้นติดลบ":"")}
-    ${finKpi("เงินสดและรายการเทียบเท่า", finFmt(val(T.cash)), "banknote", "")}
+    ${finKpi("รวมสินทรัพย์", finFmt(val(T.assets)), "layers", "#3b82f6")}
+    ${finKpi("รวมหนี้สิน", finFmt(val(T.liab)), "credit-card", "#e0863f")}
+    ${finKpi("ส่วนของผู้ถือหุ้น", finFmt(val(T.equity)), "wallet", val(T.equity)>=0?"#16a34a":"#dc2626", val(T.equity)<0?"ส่วนของผู้ถือหุ้นติดลบ":"", true)}
+    ${finKpi("เงินสดและรายการเทียบเท่า", finFmt(val(T.cash)), "banknote", "#0d9488")}
   </div>`;
   const cur=v=>`<td class="num ${(v!=null&&v<0)?'neg':''}">${v==null?"":finFmt(v)}</td>`;
   let rows="";
@@ -16586,7 +16586,12 @@ async function renderToolFinPage(which){
   if(window.lucide) try{lucide.createIcons();}catch(e){}
   if(which==="pnl" && hasData){ try{ finRenderPnlCharts(d); }catch(e){ console.warn("[fin] charts",e); } }
   if(which==="balance" && hasData){ try{ finRenderBalCharts(d); }catch(e){ console.warn("[fin] bal charts",e); } }
+  // ตัวเลขวิ่ง count-up เฉพาะตอนเข้าหน้า/สลับบริษัท (ไม่วิ่งซ้ำตอน toggle ในหน้า)
+  const _ak = which+"|"+state.company;
+  if(hasData && _finAnimKey!==_ak){ try{ edAnimMoney(main); }catch(e){} }
+  _finAnimKey=_ak;
 }
+let _finAnimKey="";
 function renderToolFinPnl(){ return renderToolFinPage("pnl"); }
 function renderToolFinBalance(){ return renderToolFinPage("balance"); }
 

@@ -15970,6 +15970,23 @@ function finInjectStyle(){
   .fin-tx-h span:first-child{ color:#334155; font-weight:600; } .fin-tx-v{ color:var(--mut); font-variant-numeric:tabular-nums; }
   .fin-tx-bar{ height:8px; background:#f1f5f9; border-radius:6px; overflow:hidden; }
   .fin-tx-bar span{ display:block; height:100%; border-radius:6px; }
+  /* Pareto breakdown (สัดส่วนแบบนำเสนอ) */
+  .fin-par-head{ display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:10px; flex-wrap:wrap; }
+  .fin-par-badge{ display:inline-flex; align-items:baseline; gap:8px; background:color-mix(in srgb,var(--brand) 10%,#fff); border-radius:10px; padding:6px 13px; }
+  .fin-par-badge b{ font-size:22px; font-weight:800; color:var(--brand); letter-spacing:-.5px; } .fin-par-badge span{ font-size:12px; color:var(--mut); }
+  .fin-par-tot{ font-size:12.5px; color:var(--mut); font-weight:600; }
+  .fin-par-row{ display:grid; grid-template-columns:minmax(84px,1.2fr) 2fr auto 48px; align-items:center; gap:10px; padding:8px 0; border-bottom:1px solid #f5f7fa; }
+  .fin-par-n{ font-size:14px; font-weight:600; color:#334155; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .fin-par-row.oth .fin-par-n{ color:#94a3b8; font-weight:500; }
+  .fin-par-bar{ height:16px; background:#f1f5f9; border-radius:8px; overflow:hidden; }
+  .fin-par-bar span{ display:block; height:100%; border-radius:8px; }
+  .fin-par-v{ font-size:14px; font-weight:700; color:var(--fg); font-variant-numeric:tabular-nums; text-align:right; white-space:nowrap; }
+  .fin-par-v.neg{ color:var(--red); }
+  .fin-par-p{ font-size:13.5px; font-weight:800; color:var(--brand); text-align:right; }
+  .fin-par-row.oth .fin-par-p{ color:#94a3b8; font-weight:600; }
+  .fin-par-div{ font-size:12px; color:#94a3b8; margin:9px 0 3px; padding-top:8px; border-top:1px dashed var(--ln); font-weight:600; }
+  .fin-par-empty{ color:#94a3b8; padding:20px; text-align:center; }
+  @media(max-width:560px){ .fin-par-row{ grid-template-columns:minmax(70px,1fr) 1.4fr auto 44px; } }
   /* health */
   .fin-health{ display:grid; grid-template-columns:280px 1fr; gap:16px; }
   @media(max-width:820px){ .fin-health{ grid-template-columns:1fr; } }
@@ -16262,6 +16279,8 @@ function finRenderBalCharts(d){
 }
 function finBalAnalyticsHtml(d){
   const b=d.balance, T=finBalCompute(b), comp=finBalAssetComp(b), fund=finBalFunding(T), R=finBalRatios(T), ins=finBalInsight(b,T);
+  const liabItems=[]; const _leG=b.groups.find(g=>g.key==="liabeq");
+  if(_leG) _leG.lines.forEach(l=>{ if(l.type==="line" && l.cur!=null && l.cur>0) liabItems.push({name:l.name,value:l.cur}); });
   const legend=comp.map(c=>`<div class="fin-leg"><span class="fin-dot" style="background:${c.color}"></span><span class="fin-leg-n">${esc(c.name)}</span><span class="fin-leg-p">${(c.pct*100).toFixed(0)}%</span></div>`).join("");
   const fmax=Math.max(1,...fund.map(x=>Math.abs(x.value)));
   const fundBars=fund.map(x=>`<div class="fin-tx"><div class="fin-tx-h"><span>${esc(x.name)}${x.value<0?' <span style="color:#dc2626;font-weight:700">(ติดลบ)</span>':''}</span><span class="fin-tx-v ${x.value<0?'neg':''}">${fopFmt(x.value)} บาท</span></div><div class="fin-tx-bar"><span style="width:${Math.max(2,Math.abs(x.value)/fmax*100)}%;background:${x.color}"></span></div></div>`).join("");
@@ -16286,6 +16305,10 @@ function finBalAnalyticsHtml(d){
   const recs=ins.recs.map((r,i)=>`<div class="fin-rec"><span class="fin-rec-n">${i+1}</span><span>${r}</span></div>`).join("");
   return `
   <div class="fin-anal">
+    <div class="fin-grid2">
+      <div class="fin-card fin-par-card"><div class="fin-card-h">สัดส่วนสินทรัพย์ (Assets)</div><div class="fin-card-sub">ต่อสินทรัพย์รวม · เรียงมาก→น้อย · ไฮไลต์ TOP 80%</div>${finParetoBlock(comp,'#3b82f6')}</div>
+      <div class="fin-card fin-par-card"><div class="fin-card-h">แหล่งเงินทุน (Funding Sources)</div><div class="fin-card-sub">หนี้สิน + ทุน (เฉพาะที่เป็นบวก) · ไฮไลต์ TOP 80%</div>${finParetoBlock(liabItems,'#e0863f')}</div>
+    </div>
     <div class="fin-grid2">
       <div class="fin-card"><div class="fin-card-h">โครงสร้างสินทรัพย์</div>
         <div class="fin-donut-wrap"><div class="fin-donut-box"><canvas id="finChartBalAssets"></canvas></div><div class="fin-legend">${legend}</div></div></div>
@@ -16545,9 +16568,32 @@ function finRenderPnlCharts(d){
 }
 
 /* ---- Analytics section HTML (ใต้ตาราง P&L) ---- */
+/* Pareto breakdown — เรียงมาก→น้อย · ไฮไลต์ TOP 80% · แถบ + %ของทั้งหมด (สไตล์นำเสนอ) */
+function finParetoBlock(items, accentDefault){
+  const arr=(items||[]).filter(x=>x&&Math.abs(x.value)>0.001).sort((a,b)=>Math.abs(b.value)-Math.abs(a.value));
+  if(!arr.length) return `<div class="fin-par-empty">— ไม่มีข้อมูล</div>`;
+  const total=arr.reduce((s,x)=>s+Math.abs(x.value),0)||1;
+  const max=Math.abs(arr[0].value)||1;
+  let cum=0; const rows=arr.map(x=>{ const pct=Math.abs(x.value)/total; const before=cum; cum+=pct; return {name:x.name,value:x.value,color:x.color||accentDefault,pct,top:before<0.8}; });
+  const topPct=rows.filter(r=>r.top).reduce((s,r)=>s+r.pct,0), topN=rows.filter(r=>r.top).length;
+  let html=`<div class="fin-par-head"><div class="fin-par-badge"><b>TOP ${(topPct*100).toFixed(0)}%</b><span>${topN} รายการหลัก</span></div><div class="fin-par-tot">รวม ${fopFmt(total)} บาท</div></div>`;
+  let dividerShown=false;
+  rows.forEach(r=>{
+    if(!r.top && !dividerShown){ html+=`<div class="fin-par-div">ที่เหลืออีก ${((1-topPct)*100).toFixed(0)}% (${rows.length-topN} รายการย่อย)</div>`; dividerShown=true; }
+    html+=`<div class="fin-par-row ${r.top?'top':'oth'}">
+      <div class="fin-par-n" title="${esc(r.name)}">${esc(r.name)}</div>
+      <div class="fin-par-bar"><span style="width:${Math.max(3,Math.abs(r.value)/max*100)}%;background:${r.top?(r.color||accentDefault):'#cbd5e1'}"></span></div>
+      <div class="fin-par-v ${r.value<0?'neg':''}">${fopFmt(r.value)}</div>
+      <div class="fin-par-p">${(r.pct*100).toFixed(1)}%</div>
+    </div>`;
+  });
+  return html;
+}
 function finAnalyticsHtml(d){
   const pnl=d.pnl, C=finPnlCompute(pnl), M=pnl.months;
   const cats=finExpenseCats(pnl,C);
+  const revItems=C.acc.revenue.filter(a=>a.total>0).map(a=>({name:a.name,value:a.total}));
+  const expItems=cats.map(c=>({name:c.name,value:c.total,color:c.color}));
   const H=finHealth(pnl,d.balance,C);
   const ins=finInsight(pnl,d.balance,C,H);
   const totExp=cats.reduce((s,c)=>s+c.total,0)||1;
@@ -16577,6 +16623,10 @@ function finAnalyticsHtml(d){
   const recs=ins.recs.map((r,i)=>`<div class="fin-rec"><span class="fin-rec-n">${i+1}</span><span>${r}</span></div>`).join("");
   return `
   <div class="fin-anal">
+    <div class="fin-grid2">
+      <div class="fin-card fin-par-card"><div class="fin-card-h">แหล่งรายได้ (Revenue Sources)</div><div class="fin-card-sub">สัดส่วนต่อรายได้รวม · เรียงมาก→น้อย · ไฮไลต์ TOP 80%</div>${finParetoBlock(revItems,'#0d9488')}</div>
+      <div class="fin-card fin-par-card"><div class="fin-card-h">สัดส่วนค่าใช้จ่าย (Expense Breakdown)</div><div class="fin-card-sub">ต่อค่าใช้จ่ายทั้งหมด · ไฮไลต์ TOP 80%</div>${finParetoBlock(expItems,'#ef4444')}</div>
+    </div>
     <div class="fin-grid2">
       <div class="fin-card"><div class="fin-card-h">รายได้ · ค่าใช้จ่าย · กำไรสุทธิ ${M.length?"ราย"+(pnl.months.length>6?"ไตรมาส":"เดือน"):""}</div><div class="fin-chart-box"><canvas id="finChartMonthly"></canvas></div></div>
       <div class="fin-card"><div class="fin-card-h">โครงสร้างค่าใช้จ่ายทั้งหมด</div>

@@ -16042,6 +16042,16 @@ function finInjectStyle(){
   .fin-hd-in b{ font-variant-numeric:tabular-nums; color:var(--fg); }
   .fin-hd-res{ color:var(--brand); font-variant-numeric:tabular-nums; }
   .fin-hd-band{ color:#64748b; }
+  .fin-sc-anchors{ display:flex; flex-wrap:wrap; align-items:center; gap:3px; }
+  .fin-sc-a{ font-size:11.5px; color:#475569; background:#f1f5f9; border:1px solid #e2e8f0; border-radius:6px; padding:2px 7px; font-variant-numeric:tabular-nums; }
+  .fin-sc-a b{ color:#334155; }
+  .fin-sc-a.hot{ background:color-mix(in srgb,var(--brand) 14%,#fff); border-color:var(--brand); color:var(--brand); font-weight:700; }
+  .fin-sc-a.hot b{ color:var(--brand); }
+  .fin-sc-ar{ color:#cbd5e1; font-size:11px; }
+  .fin-sc-note{ padding:5px 0 2px 88px; color:#94a3b8; font-size:11px; line-height:1.5; }
+  .fin-sc-exp{ margin:5px 0 2px; padding:7px 10px; background:color-mix(in srgb,var(--brand) 7%,#fff); border-left:3px solid var(--brand); border-radius:0 8px 8px 0; color:#334155; font-size:12px; line-height:1.55; }
+  .fin-sc-exp b{ color:var(--brand); font-variant-numeric:tabular-nums; }
+  .fin-sc-cap{ margin-top:5px; padding:6px 10px; background:#FDF1F2; border:1px solid #F7D6DB; border-radius:8px; color:#b91c1c; font-size:11.5px; }
   .fin-hd-src{ display:flex; align-items:center; gap:5px; margin-top:6px; padding-top:6px; border-top:1px dashed var(--ln); color:#94a3b8; font-size:11px; }
   .fin-hd-src i{ width:12px; height:12px; }
   /* balance ratios */
@@ -16521,6 +16531,30 @@ function finScoreLinear(v,pts){
   for(let i=0;i<pts.length-1;i++){ const [v0,s0]=pts[i],[v1,s1]=pts[i+1]; if(v<=v1) return s0+(s1-s0)*(v-v0)/(v1-v0); }
   return pts[pts.length-1][1];
 }
+/* แสดงสเกลแปลงค่า→คะแนน + จุดที่ค่าเราตกอยู่ (ตอบคำถาม "ทำไมได้ N คะแนน") */
+function finScaleHtml(dt,score){
+  if(!dt||!dt.scale) return "";
+  const unit=dt.unit||"x";
+  const fmt=v=> unit==='%' ? (v*100).toFixed(0)+"%" : v.toFixed(v%1===0?1:2)+" เท่า";
+  const pts=dt.scale, raw=dt.raw;
+  const anchors=pts.map(([v,s])=>{
+    let hot=false;
+    if(raw!=null){ for(let i=0;i<pts.length-1;i++){ if(raw>pts[i][0]&&raw<=pts[i+1][0]&&(pts[i][0]===v||pts[i+1][0]===v)){hot=true;break;} } if(raw<=pts[0][0]&&pts[0][0]===v)hot=true; if(raw>=pts[pts.length-1][0]&&pts[pts.length-1][0]===v)hot=true; }
+    return `<span class="fin-sc-a${hot?" hot":""}">${fmt(v)} → <b>${s}</b></span>`;
+  }).join('<span class="fin-sc-ar">›</span>');
+  const dir=dt.desc?"ยิ่งต่ำยิ่งได้คะแนนมาก":"ยิ่งสูงยิ่งได้คะแนนมาก";
+  let expl="";
+  if(raw!=null){
+    const rf=`<b>${fmt(raw)}</b>`;
+    if(raw<=pts[0][0]) expl=`ค่าของเรา ${rf} ต่ำกว่าเกณฑ์แรก → คิดคะแนนปลายสเกล = ${pts[0][1]}`;
+    else if(raw>=pts[pts.length-1][0]) expl=`ค่าของเรา ${rf} เกินเกณฑ์สุดท้าย → คิดคะแนนปลายสเกล = ${pts[pts.length-1][1]}`;
+    else { for(let i=0;i<pts.length-1;i++){ const[v0,s0]=pts[i],[v1,s1]=pts[i+1]; if(raw<=v1){ expl=`ค่าของเรา ${rf} อยู่ระหว่าง ${fmt(v0)} (${s0} คะแนน) กับ ${fmt(v1)} (${s1} คะแนน) → คำนวณไล่ระดับเชิงเส้น = <b>${score} คะแนน</b>`; break; } } }
+  }
+  return `<div class="fin-hd-row"><span class="fin-hd-k">สเกลคะแนน</span><span class="fin-sc-anchors">${anchors}</span></div>
+    <div class="fin-sc-note">คะแนนเป็นสเกลไล่ระดับ 0–100 (${dir}) ไม่ใช่ผ่าน/ไม่ผ่าน · ค่าตัวเลขข้างบนคือจุดยึด แล้วคำนวณเชิงเส้นระหว่างจุด</div>
+    ${expl?`<div class="fin-sc-exp">${expl}</div>`:""}
+    ${dt.cap?`<div class="fin-sc-cap">⚠ ${esc(dt.cap)}</div>`:""}`;
+}
 function finHealth(pnl,balance,C){
   const rev=C.rev.total||1;
   const netMargin=C.net.total/rev, grossMargin=C.gross.total/rev, opexRatio=C.opex.total/rev;
@@ -16528,39 +16562,50 @@ function finHealth(pnl,balance,C){
   const bf=nm=>{ if(!balance) return null; for(const g of balance.groups){ const l=g.lines.find(x=>x.name===nm); if(l&&l.cur!=null) return l.cur; } return null; };
   const ca=bf("รวมสินทรัพย์หมุนเวียน"), cl=bf("รวมหนี้สินหมุนเวียน"), tl=bf("รวมหนี้สิน"), ta=bf("รวมสินทรัพย์"), eq=bf("รวมส่วนของผู้ถือหุ้น");
   const curRatio=(ca!=null&&cl)?ca/cl:null, debtRatio=(tl!=null&&ta)?tl/ta:null;
-  const sLiq=curRatio!=null?finScoreLinear(curRatio,[[0.5,12],[1,45],[1.5,70],[2,85],[3,95]]):50;
-  const sProf=finScoreLinear(netMargin,[[-0.5,5],[-0.2,20],[0,45],[0.05,68],[0.15,92]]);
-  const sGrow=finScoreLinear(growth,[[-0.5,10],[0,50],[0.3,75],[0.8,90],[1.5,97]]);
-  const sEff=finScoreLinear(opexRatio,[[0.2,95],[0.4,75],[0.6,55],[0.9,32],[1.5,12]]);
-  let sRisk=debtRatio!=null?finScoreLinear(debtRatio,[[0.3,90],[0.6,65],[1,42],[2,20],[4,8]]):50;
-  if(eq!=null&&eq<0) sRisk=Math.min(sRisk,12);
+  const ptsLiq=[[0.5,12],[1,45],[1.5,70],[2,85],[3,95]];
+  const ptsProf=[[-0.5,5],[-0.2,20],[0,45],[0.05,68],[0.15,92]];
+  const ptsGrow=[[-0.5,10],[0,50],[0.3,75],[0.8,90],[1.5,97]];
+  const ptsEff=[[0.2,95],[0.4,75],[0.6,55],[0.9,32],[1.5,12]];
+  const ptsRisk=[[0.3,90],[0.6,65],[1,42],[2,20],[4,8]];
+  const sLiq=curRatio!=null?finScoreLinear(curRatio,ptsLiq):50;
+  const sProf=finScoreLinear(netMargin,ptsProf);
+  const sGrow=finScoreLinear(growth,ptsGrow);
+  const sEff=finScoreLinear(opexRatio,ptsEff);
+  let sRisk=debtRatio!=null?finScoreLinear(debtRatio,ptsRisk):50;
+  const riskCapped=(eq!=null&&eq<0);
+  if(riskCapped) sRisk=Math.min(sRisk,12);
   const m0=C.rev.m[0], m1=C.rev.m[C.rev.m.length-1];
   const subs=[
     {name:"สภาพคล่อง",score:Math.round(sLiq),weight:0.20,detail:{
       metric:"อัตราส่วนสภาพคล่อง (Current Ratio)", formula:"สินทรัพย์หมุนเวียน ÷ หนี้สินหมุนเวียน",
       inputs:[{label:"รวมสินทรัพย์หมุนเวียน",value:ca},{label:"รวมหนี้สินหมุนเวียน",value:cl}],
       result: curRatio!=null?curRatio.toFixed(2)+" เท่า":"— (ยังไม่มีข้อมูลงบแสดงฐานะการเงิน)",
-      src:"งบแสดงฐานะการเงิน", bands:"≥ 2 เท่า = ดี · ~1 เท่า = เฝ้าระวัง · < 1 เท่า = เสี่ยง"}},
+      src:"งบแสดงฐานะการเงิน", bands:"≥ 2 เท่า = ดี · ~1 เท่า = เฝ้าระวัง · < 1 เท่า = เสี่ยง",
+      scale:ptsLiq, raw:curRatio, unit:"x"}},
     {name:"ความสามารถทำกำไร",score:Math.round(sProf),weight:0.30,detail:{
       metric:"อัตรากำไรสุทธิ (Net Margin)", formula:"กำไร(ขาดทุน)สุทธิ ÷ รายได้รวม",
       inputs:[{label:"กำไร(ขาดทุน)สุทธิ",value:C.net.total},{label:"รายได้รวม",value:C.rev.total}],
       result:(netMargin*100).toFixed(1)+"%", src:"งบกำไรขาดทุน",
-      bands:"≥ 15% = ดี · 0–5% = พอใช้ · ติดลบ = ต้องแก้ไข"}},
+      bands:"≥ 15% = ดี · 0–5% = พอใช้ · ติดลบ = ต้องแก้ไข",
+      scale:ptsProf, raw:netMargin, unit:"%"}},
     {name:"การเติบโต",score:Math.round(sGrow),weight:0.15,detail:{
       metric:"การเติบโตของรายได้ (เดือนแรก → เดือนล่าสุด)", formula:"(รายได้เดือนล่าสุด − รายได้เดือนแรก) ÷ รายได้เดือนแรก",
       inputs:[{label:"รายได้เดือนล่าสุด",value:m1},{label:"รายได้เดือนแรก",value:m0}],
       result:(growth*100).toFixed(0)+"%", src:"งบกำไรขาดทุน (รายเดือน)",
-      bands:"> 80% = ดีมาก · 0–30% = ปกติ · ติดลบ = หดตัว"}},
+      bands:"> 80% = ดีมาก · 0–30% = ปกติ · ติดลบ = หดตัว",
+      scale:ptsGrow, raw:growth, unit:"%"}},
     {name:"ประสิทธิภาพ",score:Math.round(sEff),weight:0.15,detail:{
       metric:"สัดส่วนค่าใช้จ่ายขายและบริหารต่อรายได้ (OPEX Ratio)", formula:"รวมค่าใช้จ่ายขายและบริหาร ÷ รายได้รวม",
       inputs:[{label:"รวมค่าใช้จ่ายขายและบริหาร",value:C.opex.total},{label:"รายได้รวม",value:C.rev.total}],
       result:(opexRatio*100).toFixed(0)+"%", src:"งบกำไรขาดทุน",
-      bands:"< 30% = ดี · ~60% = เฝ้าระวัง · > 90% = ต้องแก้ไข (ยิ่งต่ำยิ่งดี)"}},
+      bands:"< 30% = ดี · ~60% = เฝ้าระวัง · > 90% = ต้องแก้ไข (ยิ่งต่ำยิ่งดี)",
+      scale:ptsEff, raw:opexRatio, unit:"%", desc:true}},
     {name:"ความเสี่ยง",score:Math.round(sRisk),weight:0.20,detail:{
       metric:"อัตราส่วนหนี้สินต่อสินทรัพย์ (Debt Ratio)", formula:"หนี้สินรวม ÷ สินทรัพย์รวม",
       inputs:[{label:"รวมหนี้สิน",value:tl},{label:"รวมสินทรัพย์",value:ta}].concat((eq!=null&&eq<0)?[{label:"ส่วนของผู้ถือหุ้น (ติดลบ = เสี่ยงสูง)",value:eq}]:[]),
       result: debtRatio!=null?debtRatio.toFixed(2)+" เท่า"+((eq!=null&&eq<0)?" · ส่วนของผู้ถือหุ้นติดลบ":""):"—",
-      src:"งบแสดงฐานะการเงิน", bands:"< 0.5 เท่า = ดี · ~1 เท่า = เฝ้าระวัง · > 2 เท่า = เสี่ยง (ยิ่งต่ำยิ่งดี)"}},
+      src:"งบแสดงฐานะการเงิน", bands:"< 0.5 เท่า = ดี · ~1 เท่า = เฝ้าระวัง · > 2 เท่า = เสี่ยง (ยิ่งต่ำยิ่งดี)",
+      scale:ptsRisk, raw:debtRatio, unit:"x", desc:true, cap:riskCapped?"ส่วนของผู้ถือหุ้นติดลบ (ขาดทุนเกินทุน) → จำกัดคะแนนไม่เกิน 12 ไม่ว่า Debt Ratio จะเป็นเท่าไหร่":null}},
   ];
   subs.forEach(s=>{ s.label=s.score>=70?"ดี":s.score>=45?"เฝ้าระวัง":"ต้องดำเนินการ"; s.color=s.score>=70?"#22c55e":s.score>=45?"#f59e0b":"#ef4444"; });
   const overall=Math.round(sLiq*0.2+sProf*0.3+sGrow*0.15+sEff*0.15+sRisk*0.2);
@@ -16685,7 +16730,8 @@ function finAnalyticsHtml(d){
       <div class="fin-hd-row"><span class="fin-hd-k">สูตร</span><span class="fin-hd-f">${esc(dt.formula||"")}</span></div>
       ${inputs}
       <div class="fin-hd-row"><span class="fin-hd-k">ผลลัพธ์</span><b class="fin-hd-res">${esc(dt.result||"")}</b></div>
-      <div class="fin-hd-row"><span class="fin-hd-k">เกณฑ์ให้คะแนน</span><span class="fin-hd-band">${esc(dt.bands||"")}</span></div>
+      <div class="fin-hd-row"><span class="fin-hd-k">เกณฑ์ (ป้ายสถานะ)</span><span class="fin-hd-band">${esc(dt.bands||"")}</span></div>
+      ${finScaleHtml(dt,s.score)}
       <div class="fin-hd-src"><i data-lucide="file-text"></i> ที่มา: ${esc(dt.src||"")} · ถ่วงน้ำหนัก ${((s.weight||0)*100).toFixed(0)}% ของคะแนนรวม</div>
     </div>`:"";
     return `<div class="fin-ss-wrap"><div class="fin-sub-score fin-ss-click" onclick="finToggleHScore('${esc(s.name)}')">

@@ -16351,7 +16351,7 @@ function finBalAnalyticsHtml(d){
       <div class="fin-card"><div class="fin-card-h">แหล่งเงินทุน (หนี้สิน & ส่วนของผู้ถือหุ้น)</div><div class="fin-card-sub">สัดส่วนต่อสินทรัพย์รวม ${fopFmt(T.ta)} บาท</div>${fundBars}</div>
     </div>
     <div class="fin-card"><div class="fin-card-h">อัตราส่วนทางการเงิน <span class="fin-hint"><i data-lucide="mouse-pointer-click"></i> คลิกดูสูตร + ที่มา</span></div><div class="fin-card-sub">คำนวณจากงบแสดงฐานะการเงิน ณ ${esc((b.asOf||"").replace(/^ณ\s*/,""))}</div>${ratioRows}</div>
-    ${finHealthBlock(d)}
+    ${finBalHealthBlock(d)}
     <div class="fin-insight">
       <div class="fin-ins-head"><span class="fin-ins-ic"><i data-lucide="sparkles"></i></span><div><div class="fin-ins-t">วิเคราะห์ฐานะการเงิน</div><div class="fin-ins-s">สภาพคล่อง · โครงสร้างหนี้ · ส่วนของผู้ถือหุ้น</div></div><span class="fin-ins-badge">Auto Generated</span></div>
       <div class="fin-ins-sum">${ins.summary}</div>
@@ -16710,12 +16710,12 @@ function finParetoBlock(items, accentDefault){
   return html;
 }
 /* บล็อกคะแนนสุขภาพการเงิน (gauge + 5 มิติ) — ใช้ร่วมทั้งหน้า P&L และงบฐานะ · ต้องมีทั้ง pnl+balance */
-function finHealthBlock(d){
-  if(!d.pnl || !d.balance) return "";
-  let C; try{ C=finPnlCompute(d.pnl); }catch(e){ return ""; }
-  const H=finHealth(d.pnl,d.balance,C);
+/* renderer กลาง — วาด gauge + 5 มิติ จาก H {overall, subs} (ใช้ทั้ง P&L และงบฐานะ) */
+function finRenderHealth(H, caption){
+  if(!H) return "";
   const gcol=H.overall>=70?"#22c55e":H.overall>=45?"#f59e0b":"#ef4444";
   const gstat=H.overall>=70?"ดี":H.overall>=45?"เฝ้าระวัง":"ต้องดำเนินการ";
+  const d=finState();
   const subBars=H.subs.map(s=>{
     const open=!!(d.hOpen && d.hOpen[s.name]); const dt=s.detail||{};
     const inputs=(dt.inputs||[]).filter(x=>x.value!=null).map(x=>`<div class="fin-hd-in"><span>${esc(x.label)}</span><b>${fopFmt(x.value)}</b></div>`).join("");
@@ -16730,7 +16730,7 @@ function finHealthBlock(d){
     </div>`:"";
     return `<div class="fin-ss-wrap"><div class="fin-sub-score fin-ss-click" onclick="finToggleHScore('${esc(s.name)}')">
       <div class="fin-ss-l"><span class="fin-chev">${open?"▾":"▸"}</span><span class="fin-dot" style="background:${s.color}"></span>${esc(s.name)}</div>
-      <div class="fin-ss-bar"><span style="width:${s.score}%;background:${s.color}"></span></div>
+      <div class="fin-ss-bar"><span style="width:${Math.max(0,s.score)}%;background:${s.color}"></span></div>
       <div class="fin-ss-v">${s.score}</div><div class="fin-ss-lb" style="color:${s.color}">${s.label}</div>
     </div>${det}</div>`;
   }).join("");
@@ -16742,10 +16742,74 @@ function finHealthBlock(d){
       </div>
       <div class="fin-hsubs">
         <div class="fin-card-h">คะแนนย่อยรายมิติ <span class="fin-hint"><i data-lucide="mouse-pointer-click"></i> คลิกแต่ละมิติเพื่อดูสูตร + ตัวเลขที่ใช้</span></div>
-        <div class="fin-card-sub">คำนวณจากงบกำไรขาดทุน + งบแสดงฐานะการเงิน · คะแนนรวม = ถ่วงน้ำหนัก (ทำกำไร 30% · สภาพคล่อง 20% · ความเสี่ยง 20% · เติบโต 15% · ประสิทธิภาพ 15%)</div>
+        <div class="fin-card-sub">${caption}</div>
         ${subBars}
       </div>
     </div>`;
+}
+/* คะแนนหน้า P&L — ทำกำไร/เติบโต/ประสิทธิภาพ (งบกำไรขาดทุน) + สภาพคล่อง/ความเสี่ยง (งบฐานะ) */
+function finHealthBlock(d){
+  if(!d.pnl || !d.balance) return "";
+  let C; try{ C=finPnlCompute(d.pnl); }catch(e){ return ""; }
+  const H=finHealth(d.pnl,d.balance,C);
+  return finRenderHealth(H, "คำนวณจากงบกำไรขาดทุน + งบแสดงฐานะการเงิน · คะแนนรวม = ถ่วงน้ำหนัก (ทำกำไร 30% · สภาพคล่อง 20% · ความเสี่ยง 20% · เติบโต 15% · ประสิทธิภาพ 15%)");
+}
+/* ★ คะแนนหน้างบฐานะ — คิดจาก "อัตราส่วนงบแสดงฐานะการเงิน" ล้วน (5 ตัวที่แสดงในตารางด้านบน) */
+function finBalHealth(T){
+  if(T.ta==null || T.ta===0) return null;
+  const curRatio=(T.ca!=null&&T.cl)?T.ca/T.cl:null;
+  const wc=(T.ca!=null&&T.cl!=null)?T.ca-T.cl:null;
+  const wcRatio=(wc!=null&&T.cl)?wc/T.cl:null;
+  const debtRatio=(T.tl!=null&&T.ta)?T.tl/T.ta:null;
+  const eqNeg=(T.eq!=null&&T.eq<0);
+  const de=(T.tl!=null&&T.eq&&T.eq>0)?T.tl/T.eq:null;
+  const eqRatio=(T.eq!=null&&T.ta)?T.eq/T.ta:null;
+  const ptsLiq=[[0.5,15],[1,48],[1.5,78],[2.5,95]];
+  const ptsWC=[[-0.5,10],[0,45],[0.3,72],[0.8,92]];
+  const ptsDebt=[[0.3,92],[0.6,72],[1,42],[2,18],[5,6]];
+  const ptsDE=[[0.5,92],[1.5,70],[3,40],[6,15]];
+  const ptsEq=[[-1,3],[0,30],[0.2,60],[0.4,82],[0.6,95]];
+  const sLiq = curRatio!=null?finScoreLinear(curRatio,ptsLiq):50;
+  const sWC  = wcRatio!=null?finScoreLinear(wcRatio,ptsWC):50;
+  const sDebt= debtRatio!=null?finScoreLinear(debtRatio,ptsDebt):50;
+  const sDE  = eqNeg?5:(de!=null?finScoreLinear(de,ptsDE):50);
+  const sEq  = eqRatio!=null?finScoreLinear(eqRatio,ptsEq):50;
+  const subs=[
+    {name:"สภาพคล่อง (Current Ratio)",score:Math.round(sLiq),weight:0.25,detail:{
+      metric:"อัตราส่วนสภาพคล่อง (Current Ratio)", formula:"สินทรัพย์หมุนเวียน ÷ หนี้สินหมุนเวียน",
+      inputs:[{label:"รวมสินทรัพย์หมุนเวียน",value:T.ca},{label:"รวมหนี้สินหมุนเวียน",value:T.cl}],
+      result: curRatio!=null?curRatio.toFixed(2)+" เท่า":"—", src:"งบแสดงฐานะการเงิน",
+      bands:"≥ 1.5 เท่า = แข็งแรง · 1–1.5 = พอใช้ · < 1 = ตึงตัว", scale:ptsLiq, raw:curRatio, unit:"x"}},
+    {name:"เงินทุนหมุนเวียนสุทธิ (Working Capital)",score:Math.round(sWC),weight:0.10,detail:{
+      metric:"เงินทุนหมุนเวียนสุทธิ เทียบหนี้สินหมุนเวียน", formula:"(สินทรัพย์หมุนเวียน − หนี้สินหมุนเวียน) ÷ หนี้สินหมุนเวียน",
+      inputs:[{label:"เงินทุนหมุนเวียนสุทธิ (WC)",value:wc},{label:"รวมหนี้สินหมุนเวียน",value:T.cl}],
+      result: wc!=null?fopFmt(wc)+" บาท"+(wcRatio!=null?" ("+(wcRatio*100).toFixed(0)+"% ของหนี้ระยะสั้น)":""):"—", src:"งบแสดงฐานะการเงิน",
+      bands:"เป็นบวก = มีกันชนสภาพคล่อง · ติดลบ = ต้องเสริมเงินทุน", scale:ptsWC, raw:wcRatio, unit:"%"}},
+    {name:"หนี้สินต่อสินทรัพย์ (Debt Ratio)",score:Math.round(sDebt),weight:0.25,detail:{
+      metric:"อัตราส่วนหนี้สินต่อสินทรัพย์ (Debt Ratio)", formula:"หนี้สินรวม ÷ สินทรัพย์รวม",
+      inputs:[{label:"รวมหนี้สิน",value:T.tl},{label:"รวมสินทรัพย์",value:T.ta}],
+      result: debtRatio!=null?debtRatio.toFixed(2)+" เท่า ("+(debtRatio*100).toFixed(0)+"%)":"—", src:"งบแสดงฐานะการเงิน",
+      bands:"< 0.6 = ปลอดภัย · 0.6–1 = เฝ้าระวัง · > 1 = หนี้เกินสินทรัพย์ (ยิ่งต่ำยิ่งดี)", scale:ptsDebt, raw:debtRatio, unit:"x", desc:true}},
+    {name:"หนี้สินต่อทุน (D/E)",score:Math.round(sDE),weight:0.20,detail:{
+      metric:"อัตราส่วนหนี้สินต่อทุน (D/E)", formula:"หนี้สินรวม ÷ ส่วนของผู้ถือหุ้น",
+      inputs:[{label:"รวมหนี้สิน",value:T.tl},{label:"รวมส่วนของผู้ถือหุ้น",value:T.eq}],
+      result: eqNeg?"ทุนติดลบ — คำนวณไม่ได้":(de!=null?de.toFixed(2)+" เท่า":"—"), src:"งบแสดงฐานะการเงิน",
+      bands:"< 1.5 = เหมาะสม · 1.5–3 = หนี้สูง · ทุนติดลบ = ต้องเพิ่มทุน (ยิ่งต่ำยิ่งดี)", scale:ptsDE, raw:eqNeg?null:de, unit:"x", desc:true,
+      cap:eqNeg?"ส่วนของผู้ถือหุ้นติดลบ → D/E คำนวณไม่ได้ · ให้คะแนนต่ำสุด (5)":null}},
+    {name:"ส่วนของผู้ถือหุ้น (Equity Ratio)",score:Math.round(sEq),weight:0.20,detail:{
+      metric:"อัตราส่วนส่วนของผู้ถือหุ้น (Equity Ratio)", formula:"ส่วนของผู้ถือหุ้น ÷ สินทรัพย์รวม",
+      inputs:[{label:"รวมส่วนของผู้ถือหุ้น",value:T.eq},{label:"รวมสินทรัพย์",value:T.ta}],
+      result: eqRatio!=null?(eqRatio*100).toFixed(0)+"%":"—", src:"งบแสดงฐานะการเงิน",
+      bands:"≥ 40% = ทุนหนา · 0–40% = ทุนบาง · ติดลบ = ขาดทุนเกินทุน", scale:ptsEq, raw:eqRatio, unit:"%"}},
+  ];
+  subs.forEach(s=>{ s.label=s.score>=70?"ดี":s.score>=45?"เฝ้าระวัง":"ต้องดำเนินการ"; s.color=s.score>=70?"#22c55e":s.score>=45?"#f59e0b":"#ef4444"; });
+  const overall=Math.round(subs.reduce((sum,s)=>sum+s.score*s.weight,0));
+  return { overall, subs };
+}
+function finBalHealthBlock(d){
+  if(!d.balance) return "";
+  const H=finBalHealth(finBalCompute(d.balance));
+  return finRenderHealth(H, "คำนวณจากอัตราส่วนงบแสดงฐานะการเงิน (5 ตัวด้านบน) · คะแนนรวม = ถ่วงน้ำหนัก (สภาพคล่อง 25% · หนี้สินต่อสินทรัพย์ 25% · หนี้สินต่อทุน 20% · ส่วนของผู้ถือหุ้น 20% · เงินทุนหมุนเวียน 10%)");
 }
 function finAnalyticsHtml(d){
   const pnl=d.pnl, C=finPnlCompute(pnl), M=pnl.months;

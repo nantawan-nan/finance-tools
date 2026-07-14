@@ -182,6 +182,12 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-13 (12) — งบฐานะ: คะแนนสุขภาพคิดจาก "อัตราส่วนงบฐานะ" ล้วน (ไม่ใช่ก๊อป P&L)
+- **เจ้าของท้วง:** คะแนนหน้างบฐานะเอา finHealth ของ P&L มาวาง (มีทำกำไร/เติบโตจากงบกำไรขาดทุน) — ต้องคิดจาก 5 อัตราส่วนที่แสดงในตารางด้านบนของหน้านั้นเอง
+- **`finBalHealth(T)` (ใหม่):** คะแนน 5 มิติ = 5 ratio ของ `finBalRatios` เป๊ะ — สภาพคล่อง (Current Ratio · 25%) · เงินทุนหมุนเวียนสุทธิ (WC÷CL · 10%) · หนี้สินต่อสินทรัพย์ (Debt Ratio · 25% · desc) · หนี้สินต่อทุน (D/E · 20% · desc · ทุนติดลบ→5) · ส่วนของผู้ถือหุ้น (Equity Ratio · 20%) · แต่ละตัว `finScoreLinear` pts ตาม band ที่โชว์ + scale/raw/unit/desc/cap ครบ (drilldown finScaleHtml ได้)
+- **refactor:** แยก renderer กลาง `finRenderHealth(H,caption)` · `finHealthBlock` (P&L) + `finBalHealthBlock` (งบฐานะ) เป็น wrapper บาง ๆ · งบฐานะเรียก finBalHealthBlock แทน finHealthBlock
+- **verify (seed MBark):** สภาพคล่อง 1.36→70 · WC 74 · Debt 5.15→6 · D/E ทุนติดลบ→5 · Equity -415%→3 · **overall 28** (P&L ยัง 34 คนละชุด · มิติตรงกับตาราง ratio) · กระทบหน้าอื่น = 0
+
 ### 2026-07-13 (11) — งบฐานะ: เพิ่มคะแนนสุขภาพการเงิน + Exec period picker = การ์ดเดียวสะอาด
 - **เจ้าของขอ 2 อย่าง:** (1) หัว Exec ยังรก (3 แถวเลือกช่วงเวลาลอย ๆ) (2) เพิ่มคะแนนสุขภาพการเงินในหน้างบแสดงฐานะการเงินด้วย
 - **(1) `edPeriodPicker` = การ์ดเดียว** (bg ขาว + border + radius 12 + shadow) · 3 ส่วนเรียงข้างกัน **ช่วงเวลา | ไตรมาส·ปี | เดือน·ปี** คั่นด้วยเส้นตั้ง (แทน 3 แถว full-width ลอยบนพื้น) · flex-wrap เมื่อจอแคบ · แต่ละ section = label เล็ก + chips

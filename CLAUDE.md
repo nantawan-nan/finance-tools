@@ -182,6 +182,14 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-14 (4) — ★ หน้าใหม่: ทะเบียนคุมเงินทดรองจ่าย (advance) — คุมเบิกทดรองรายพนักงาน · เคลียร์ · คงค้าง
+- **เจ้าของขอ:** หน้าใกล้ ๆ เงินสดย่อย · คุมว่าพนักงานแต่ละคน (คลิกดูรายคน) เบิกเงินทดรองค่าอะไร (คลิกดูรายค่าใช้จ่าย) · เบิกแล้วเคลียร์ยัง · เคลียร์กับชุดไหน · คนนี้มีกี่วง คงค้างเท่าไหร่
+- **Migration `supabase/advance-register.sql`** (idempotent · RLS ปิด เหมือน petty_cash): ตาราง `advances`(company_id/employee_name/advance_no[ชุดเบิก]/advance_date/purpose[ค่าอะไร]/category/amount/cleared_amount/clear_no[ชุดเคลียร์]/clear_date/status/note/soft-delete) + index co/emp
+- **โมดูล `adv*`** (`renderToolAdvance` · dispatch `t.id==="advance"` · TOOLS หลัง `tasks`/เงินสดย่อย · icon receipt-text): **2 view** — (1) สรุปรายคน (`advByPerson`: ชื่อ · จำนวนวง · เบิกรวม · เคลียร์แล้ว · คงค้าง · คลิกชื่อ→ (2) รายคน) · (2) person view = วงของคนนั้น (ชุดเบิก · ค่าอะไร · ยอด · เคลียร์แล้ว · คงค้าง · สถานะ badge · เคลียร์กับชุด) + filter chip ทั้งหมด/ยังค้าง/เคลียร์แล้ว · form เพิ่ม/แก้ (`advSave`/`advDelete` · prefill ชื่อเมื่อเพิ่มจาก person view)
+- **สถานะ** `advStatusOf`: cleared=0→ยังไม่เคลียร์(แดง) · <amount→เคลียร์บางส่วน(ส้ม) · =amount→เคลียร์แล้ว(เขียว) · `advOutstanding`=amount−cleared · KPI: เบิกทั้งหมด/เคลียร์แล้ว/คงค้าง/จำนวนคน
+- **กระทบหน้าอื่น = 0** · reuse `pcNum`/`fopCompanyId`/`fopCanWrite`/`fopDate`/`esc` · verify (mock): KPI เบิก 16,000·เคลียร์ 6,200·คงค้าง 9,800 · person สมชาย 2 วง (AV-001 เคลียร์แล้ว·AV-004 บางส่วน คงค้าง 1,800·CL-014) · form prefill ชื่อ
+- **guard company-switch:** `if((!d.loaded || d._co!==state.company) && !d.busy)` (บทเรียนจาก docs)
+
 ### 2026-07-14 (3) — งบกำไรขาดทุน: เอา banner seed ออก + กราฟรายเดือนใหญ่+เลขบนแท่ง + การ์ดจุดคุ้มทุน
 - **เจ้าของขอ 3 อย่าง:** (1) เอา banner เหลือง "แสดงข้อมูลตัวอย่าง" ออก (2) กราฟ "รายได้·ค่าใช้จ่าย·กำไรสุทธิ รายเดือน" ขยาย + ใส่เลขบนหัวแท่ง (เช่น +788K) (3) เพิ่มบทวิเคราะห์จุดคุ้มทุน (ต้องขายกี่บาทถึงไม่ขาดทุน)
 - **(1)** ลบ `.fin-seednote` ทั้ง P&L + งบฐานะ (replace_all)

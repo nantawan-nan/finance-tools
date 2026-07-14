@@ -19173,21 +19173,27 @@ async function brecLoadOverview(){
   const accts = d.accounts || [];
   const stats = {};
   accts.forEach(a => { stats[a.id] = { bankN:0, expressN:0, matchedBankIds:new Set(), matchedExIds:new Set(), pendingMatchN:0, confirmedMatchN:0, lastUpload:null }; });
-  // 1) bank + express rows count
+  // ★ กรองตามงวดที่เลือก (เดือน/ช่วงวัน) — overview โชว์เฉพาะเดือนที่เลือก (default = เดือนปัจจุบัน)
+  const { from, to } = brecComputePeriod(d);
+  // 1) bank + express rows — เฉพาะรายการในงวด · เก็บ id ไว้ filter matches
+  const bankInRange = new Set(), exInRange = new Set();
   const [bkRes, exRes] = await Promise.all([
-    sb.from("brec_bank_rows").select("bank_account_id").eq("company_id",co).is("deleted_at",null).limit(100000),
-    sb.from("brec_express_rows").select("bank_account_id").eq("company_id",co).is("deleted_at",null).limit(100000)
+    sb.from("brec_bank_rows").select("id,bank_account_id").eq("company_id",co).is("deleted_at",null).gte("txn_date",from).lte("txn_date",to).limit(100000),
+    sb.from("brec_express_rows").select("id,bank_account_id").eq("company_id",co).is("deleted_at",null).gte("txn_date",from).lte("txn_date",to).limit(100000)
   ]);
-  (bkRes.data||[]).forEach(r => { if(stats[r.bank_account_id]) stats[r.bank_account_id].bankN++; });
-  (exRes.data||[]).forEach(r => { if(stats[r.bank_account_id]) stats[r.bank_account_id].expressN++; });
-  // 2) matches — distinct bank/express rows ที่มี confirmed match + pending count
+  (bkRes.data||[]).forEach(r => { if(stats[r.bank_account_id]){ stats[r.bank_account_id].bankN++; bankInRange.add(r.id); } });
+  (exRes.data||[]).forEach(r => { if(stats[r.bank_account_id]){ stats[r.bank_account_id].expressN++; exInRange.add(r.id); } });
+  // 2) matches — นับเฉพาะคู่ที่แถว (bank/express) อยู่ในงวดที่เลือก
   const { data:mRows } = await sb.from("brec_matches").select("bank_account_id,status,express_row_id,bank_row_id").eq("company_id",co).is("deleted_at",null).limit(100000);
   (mRows||[]).forEach(m => {
     const s = stats[m.bank_account_id]; if(!s) return;
+    const bkIn = m.bank_row_id && bankInRange.has(m.bank_row_id);
+    const exIn = m.express_row_id && exInRange.has(m.express_row_id);
+    if(!bkIn && !exIn) return;   // คู่นี้ไม่อยู่ในงวด → ข้าม
     if(m.status === "confirmed"){
       s.confirmedMatchN++;
-      if(m.bank_row_id) s.matchedBankIds.add(m.bank_row_id);
-      if(m.express_row_id) s.matchedExIds.add(m.express_row_id);
+      if(bkIn) s.matchedBankIds.add(m.bank_row_id);
+      if(exIn) s.matchedExIds.add(m.express_row_id);
     } else {
       s.pendingMatchN++;
     }
@@ -19261,9 +19267,16 @@ function brecRenderOverview(d, t, co){
     <div style="display:flex;align-items:center;justify-content:space-between;gap:18px;flex-wrap:wrap">
       <div>
         <h1>🏦 ภาพรวมบัญชีธนาคาร — ${esc(co.name)}</h1>
-        <div class="sub">กระทบยอด Express ↔ Bank Statement · คลิกการ์ดเพื่อเข้าดูรายละเอียดบัญชี</div>
+        <div class="sub">กระทบยอด Express ↔ Bank Statement · สรุปเฉพาะงวด <b>${esc(brecMonthLabel(d.period.month))}</b> · คลิกการ์ดเพื่อเข้าดูรายละเอียดบัญชี</div>
       </div>
-      <button class="brec-btn primary" onclick="brecLoadOverview().then(brecRefresh)" style="background:rgba(255,255,255,.16);color:#fff;border-color:rgba(255,255,255,.28);font-weight:700"><i data-lucide="refresh-cw"></i> รีเฟรชสถิติ</button>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <div class="brec-ov-mstep">
+          <button onclick="brecMonthStep(-1)" title="เดือนก่อนหน้า"><i data-lucide="chevron-left"></i></button>
+          <span class="lbl">${esc(brecMonthLabel(d.period.month))}</span>
+          <button onclick="brecMonthStep(1)" title="เดือนถัดไป"><i data-lucide="chevron-right"></i></button>
+        </div>
+        <button class="brec-btn primary" onclick="brecLoadOverview().then(brecRefresh)" style="background:rgba(255,255,255,.16);color:#fff;border-color:rgba(255,255,255,.28);font-weight:700"><i data-lucide="refresh-cw"></i> รีเฟรชสถิติ</button>
+      </div>
     </div>
     <div class="brec-ov-kpis">
       <div class="brec-ov-k"><div class="l">บัญชีทั้งหมด</div><div class="v">${totalAccounts.toLocaleString("th-TH")}</div><div class="s">บัญชีในระบบ</div></div>
@@ -20395,6 +20408,12 @@ function brecInjectCSS(){
   .brec-mstep button:hover{background:var(--brand-soft);color:var(--brand-dark)}
   .brec-mstep button i{width:16px;height:16px}
   .brec-mstep .lbl{min-width:90px;text-align:center;font-size:13.5px;font-weight:700;color:var(--ink,#0f172a);font-feature-settings:'tnum'}
+  /* month stepper บน hero โปร่งใส (พื้นเข้ม) */
+  .brec-ov-mstep{display:inline-flex;align-items:center;gap:2px;border:1px solid rgba(255,255,255,.28);border-radius:9px;background:rgba(255,255,255,.16);padding:2px;height:36px;box-sizing:border-box}
+  .brec-ov-mstep button{border:none;background:transparent;color:#fff;width:30px;height:28px;border-radius:7px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0}
+  .brec-ov-mstep button:hover{background:rgba(255,255,255,.24)}
+  .brec-ov-mstep button i{width:16px;height:16px}
+  .brec-ov-mstep .lbl{min-width:96px;text-align:center;font-size:14px;font-weight:800;color:#fff;font-feature-settings:'tnum'}
   .brec-row.matched{border-left:3px solid #16a34a;padding-left:7px}
   .brec-row.suggested{border-left:3px solid #d97706;padding-left:7px}
   .brec-row.unex{border-left:3px solid var(--brand);padding-left:7px}
@@ -20521,7 +20540,12 @@ function brecRefresh(){ renderToolBankRec(); }
 
 function brecSetTab(t){ const d=brecGet(); d.tab=t; d.sel.ex.clear(); d.sel.bk.clear(); brecRefresh(); }
 function brecSetPeriodMode(m){ const d=brecGet(); d.period.mode=m; brecLoad().then(brecRefresh); }
-function brecSetMonth(v){ const d=brecGet(); d.period.month=v; brecLoad().then(brecRefresh); }
+function brecSetMonth(v){ const d=brecGet(); d.period.month=v; brecReloadForPeriod(d); }
+/* เปลี่ยนงวดแล้วโหลดใหม่ตาม view: overview → recompute สถิติภาพรวม · detail → โหลด rows ของบัญชี */
+function brecReloadForPeriod(d){
+  if(d.view === "overview"){ brecLoadOverview().then(brecRefresh); }
+  else { brecLoad().then(brecRefresh); }
+}
 const BREC_TH_MON = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
 function brecMonthLabel(ym){ if(!ym) return '—'; const [y,m]=ym.split('-').map(Number); return `${BREC_TH_MON[(m||1)-1]} ${y}`; }
 function brecMonthStep(delta){
@@ -20529,7 +20553,7 @@ function brecMonthStep(delta){
   let [y,m]=(d.period.month||new Date().toISOString().slice(0,7)).split('-').map(Number);
   m+=delta; while(m<1){m+=12;y--;} while(m>12){m-=12;y++;}
   d.period.month=`${y}-${String(m).padStart(2,'0')}`;
-  brecLoad().then(brecRefresh);
+  brecReloadForPeriod(d);
 }
 /* ★ หมายเหตุรายแถว (user_note) — บันทึกเงียบ ๆ ตอน blur · อัป local ก่อนกัน re-render ทับ · ไม่ re-render (กัน focus หลุด) */
 async function brecSetRowNote(side, id, val){

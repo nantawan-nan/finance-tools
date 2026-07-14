@@ -11877,7 +11877,9 @@ function docSet(k,v){ docGet()[k]=v; renderToolDocs(); }
 async function renderToolDocs(){
   const main=document.getElementById("main");
   const d=docGet();
-  if(!d.loaded && !d.busy){
+  // ★ โหลดใหม่เมื่อยังไม่โหลด "หรือ" เพิ่งสลับบริษัท (state.docs เป็น object เดียวใช้ร่วมทุกบริษัท —
+  //    เดิมเช็คแค่ !d.loaded → สลับบริษัทแล้ว d.loaded ค้าง true ของบริษัทเก่า → โชว์รายการบริษัทเก่า/ว่าง)
+  if((!d.loaded || d._co!==state.company) && !d.busy){
     main.innerHTML=`<div class="page-head"><h1>Document Center · คลังเอกสาร</h1></div><div class="card"><div class="empty">⏳ กำลังโหลด…</div></div>`;
     try{ await docLoad(); }catch(e){ main.innerHTML=`<div class="page-head"><h1>Document Center</h1></div><div class="card"><div style="color:#dc2626;padding:14px">โหลดไม่สำเร็จ: ${esc(fopErr(e))}<div style="font-size:12px;color:#64748b;margin-top:6px">ถ้าเพิ่ง deploy ครั้งแรก — ตาราง/บัคเก็ตอาจยังสร้างไม่เสร็จ รอสักครู่แล้วรีเฟรช</div></div></div>`; return; }
   }

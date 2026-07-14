@@ -182,8 +182,14 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
-### 2026-07-14 — Document Center: ปุ่ม "🛟 กู้คืนจากที่เก็บ" (สแกน Storage → เติมทะเบียนที่หาย)
-- **เจ้าของแจ้ง:** เคยอัปเอกสารใน Document Center แต่ตอนนี้หาย (โชว์ 0 ไฟล์ · หน้า Benya)
+### 2026-07-14 (2) — ★ Document Center: แก้บั๊กจริง — เอกสารไม่ได้หาย (renderToolDocs ไม่โหลดใหม่ตอนสลับบริษัท)
+- **อาการ:** Benya โชว์ 0 ไฟล์ · แต่ปุ่มกู้คืนรายงาน "ที่เก็บมี 2 ไฟล์ · ตรงกับทะเบียนครบแล้ว" → **ข้อมูลอยู่ครบ ไม่ได้หาย** · เป็นบั๊กแสดงผล
+- **ต้นเหตุ:** `state.docs` เป็น object เดียวใช้ร่วมทุกบริษัท (`docGet` ไม่ได้ key ต่อบริษัท) · `renderToolDocs` โหลดใหม่เฉพาะ `if(!d.loaded && !d.busy)` → เปิด Docs ตอนอยู่ M Bark (0 ไฟล์ · loaded=true, _co=mbark) แล้วสลับมา Benya → `d.loaded` ยังค้าง true → **ข้ามการโหลด** → โชว์ rows ว่างของ M Bark · (การ reset ตอนสลับบริษัทอยู่ใน `docLoad` แต่ไม่เคยถูกเรียก) · ปุ่มกู้คืน `await docLoad()` เข้าไปข้างในเลย reset+query ถูก → เจอ 2 ไฟล์
+- **แก้ (1 บรรทัด):** guard เป็น `if((!d.loaded || d._co!==state.company) && !d.busy)` → สลับบริษัทแล้วโหลดใหม่เสมอ · verify (stub): สถานะค้าง mbark→สลับ benya→docLoad ถูกเรียก·rows=2·โชว์ครบ·KPI 2
+- **กระทบหน้าอื่น = 0** (โมดูลอื่น key state ต่อบริษัทอยู่แล้ว · docs เป็นเคสเดียวที่ใช้ object ร่วม)
+
+### 2026-07-14 — Document Center: ปุ่ม "🛟 กู้คืนจากที่เก็บ" (สแกน Storage → เติมทะเบียนที่หาย · safety net)
+- **เจ้าของแจ้ง:** เคยอัปเอกสารใน Document Center แต่ตอนนี้หาย (โชว์ 0 ไฟล์ · หน้า Benya) — ภายหลังพบว่าเป็นบั๊กแสดงผล (ดูข้อ (2) ด้านบน) · ปุ่มกู้คืนยังเก็บไว้เป็น safety net
 - **วินิจฉัย:** repo/migration ไม่มี DELETE/soft-delete `documents` เลย · insert+load ใช้ `fopCompanyId()` เหมือนกัน (ไม่ mismatch) · หน้าอื่นของ Benya (AP/orders) โหลดได้ = RLS/access ปกติ → ไฟล์น่าจะยังอยู่ใน Supabase Storage แต่ **แถวตารางหาย** หรือ **อัปไว้คนละบริษัท**
 - **`docScanStorage()` (ใหม่):** list bucket `documents` ใต้ `{CODE}/` (โฟลเดอร์ปี → ไฟล์ · โฟลเดอร์ = `id===null`) → เทียบกับ `storage_path` ในตาราง → ไฟล์ที่ขาด (orphan) = re-insert แถว `documents` (title/file_name = ชื่อในที่เก็บ · category=other · note="กู้คืนจากที่เก็บ") · ถ้าที่เก็บว่าง → แจ้ง "อาจอยู่บริษัทอื่น สลับบริษัท" · gate เขียนด้วย `docCanWrite`
 - **UI:** ปุ่มส้ม "🛟 กู้คืนจากที่เก็บ" ข้าง ZIP · empty state ใบ้ให้กดกู้คืน/สลับบริษัท · ข้อความสถานะที่ `#docZipMsg`

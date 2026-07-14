@@ -8899,41 +8899,39 @@ function edPeriodPicker(data, mf){
     yearBtns += btn(mf==='all', 'all', 'ทั้งปี '+(Number(years[0])+543));
   }
 
-  // แถวไตรมาส (เมื่อเลือกปีแล้ว)
-  let qRow = "";
+  // ไตรมาส (chips เท่านั้น — label อยู่ใน section)
+  let qChips = "", qLabel = "";
   if(actYear){
     const moy = (data.months||[]).filter(m => m.key.slice(0,4)===actYear).map(m => Number(m.key.slice(5,7)));
     const wholeVal = multi ? 'year:'+actYear : 'all';
     const QS = [[1,'Q1','ม.ค.–มี.ค.'],[2,'Q2','เม.ย.–มิ.ย.'],[3,'Q3','ก.ค.–ก.ย.'],[4,'Q4','ต.ค.–ธ.ค.']];
     const has = q => moy.some(m => Math.ceil(m/3)===q);
-    qRow = `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:7px">
-      <span style="font-size:11.5px;color:var(--ink-3);font-weight:600">ไตรมาส ปี ${Number(actYear)+543}</span>
-      ${btn(mf===wholeVal, wholeVal, 'ทั้งปี')}
-      ${QS.filter(q => has(q[0])).map(q => btn(mf==='q:'+actYear+':'+q[0], 'q:'+actYear+':'+q[0], q[1], q[2])).join("")}
-    </div>`;
+    qLabel = `ไตรมาส · ปี ${Number(actYear)+543}`;
+    qChips = btn(mf===wholeVal, wholeVal, 'ทั้งปี') + QS.filter(q => has(q[0])).map(q => btn(mf==='q:'+actYear+':'+q[0], 'q:'+actYear+':'+q[0], q[1], q[2])).join("");
   }
 
-  // ★ แถวเดือน (เมื่อเลือกปีแล้ว) — เลือกเดือนเดียวได้ (mf = "YYYY.MM")
-  let mRow = "";
+  // เดือน (chips เท่านั้น) — เลือกเดือนเดียวได้ (mf = "YYYY.MM")
+  let mChips = "", mLabel = "";
   if(actYear){
     const TH_MON_SHORT = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
     const mList = [...new Set((data.months||[]).filter(m => m.key.slice(0,4)===actYear).map(m => Number(m.key.slice(5,7))))].sort((a,b)=>a-b);
     if(mList.length){
-      mRow = `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:7px">
-        <span style="font-size:11.5px;color:var(--ink-3);font-weight:600">เดือน ปี ${Number(actYear)+543}</span>
-        ${mList.map(m => { const key = actYear+'.'+String(m).padStart(2,'0'); return btn(mf===key, key, TH_MON_SHORT[m-1]); }).join("")}
-      </div>`;
+      mLabel = `เดือน · ปี ${Number(actYear)+543}`;
+      mChips = mList.map(m => { const key = actYear+'.'+String(m).padStart(2,'0'); return btn(mf===key, key, TH_MON_SHORT[m-1]); }).join("");
     }
   }
 
-  return `<div style="display:flex;flex-direction:column;gap:0;align-items:flex-start">
-    <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-      <span style="font-size:11.5px;color:var(--ink-3);font-weight:600;margin-right:2px">ช่วงเวลา</span>
-      ${yearBtns}
-    </div>
-    ${qRow}
-    ${mRow}
+  // ★ การ์ดเดียว สะอาดตา — 3 ส่วนเรียงข้างกัน (ช่วงเวลา | ไตรมาส | เดือน) คั่นด้วยเส้น
+  const section = (label, chips) => `<div style="display:flex;flex-direction:column;gap:7px;min-width:0">
+    <span style="font-size:10.5px;color:var(--ink-3);font-weight:700;letter-spacing:.3px">${label}</span>
+    <div style="display:flex;gap:6px;flex-wrap:wrap">${chips}</div>
   </div>`;
+  const divider = `<div style="width:1px;align-self:stretch;background:var(--glass-border,#e6edf7);flex-shrink:0"></div>`;
+  const parts = [section('ช่วงเวลา', yearBtns)];
+  if(qChips) parts.push(divider, section(qLabel, qChips));
+  if(mChips) parts.push(divider, section(mLabel, mChips));
+
+  return `<div style="display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap;background:#fff;border:1px solid var(--glass-border,#e6edf7);border-radius:12px;padding:12px 16px;box-shadow:0 1px 3px rgba(15,23,42,.05)">${parts.join("")}</div>`;
 }
 
 /* ===== โหมดนำเสนอ (present mode) — เต็มจอ + ไฮไลต์ตามเมาส์ ===== */
@@ -16353,6 +16351,7 @@ function finBalAnalyticsHtml(d){
       <div class="fin-card"><div class="fin-card-h">แหล่งเงินทุน (หนี้สิน & ส่วนของผู้ถือหุ้น)</div><div class="fin-card-sub">สัดส่วนต่อสินทรัพย์รวม ${fopFmt(T.ta)} บาท</div>${fundBars}</div>
     </div>
     <div class="fin-card"><div class="fin-card-h">อัตราส่วนทางการเงิน <span class="fin-hint"><i data-lucide="mouse-pointer-click"></i> คลิกดูสูตร + ที่มา</span></div><div class="fin-card-sub">คำนวณจากงบแสดงฐานะการเงิน ณ ${esc((b.asOf||"").replace(/^ณ\s*/,""))}</div>${ratioRows}</div>
+    ${finHealthBlock(d)}
     <div class="fin-insight">
       <div class="fin-ins-head"><span class="fin-ins-ic"><i data-lucide="sparkles"></i></span><div><div class="fin-ins-t">วิเคราะห์ฐานะการเงิน</div><div class="fin-ins-s">สภาพคล่อง · โครงสร้างหนี้ · ส่วนของผู้ถือหุ้น</div></div><span class="fin-ins-badge">Auto Generated</span></div>
       <div class="fin-ins-sum">${ins.summary}</div>
@@ -16710,16 +16709,11 @@ function finParetoBlock(items, accentDefault){
   });
   return html;
 }
-function finAnalyticsHtml(d){
-  const pnl=d.pnl, C=finPnlCompute(pnl), M=pnl.months;
-  const cats=finExpenseCats(pnl,C);
-  const revItems=C.acc.revenue.filter(a=>a.total>0).map(a=>({name:a.name,value:a.total}));
-  const expItems=cats.map(c=>({name:c.name,value:c.total,color:c.color}));
-  const H=finHealth(pnl,d.balance,C);
-  const ins=finInsight(pnl,d.balance,C,H);
-  const totExp=cats.reduce((s,c)=>s+c.total,0)||1;
-  const legend=cats.map(c=>`<div class="fin-leg"><span class="fin-dot" style="background:${c.color}"></span><span class="fin-leg-n">${esc(c.name)}</span><span class="fin-leg-p">${(c.pct*100).toFixed(0)}%</span></div>`).join("");
-  const topBars=cats.map(c=>`<div class="fin-tx"><div class="fin-tx-h"><span>${esc(c.name)}</span><span class="fin-tx-v">${fopFmt(c.total)} · ${(c.pct*100).toFixed(0)}%</span></div><div class="fin-tx-bar"><span style="width:${Math.max(2,c.total/cats[0].total*100)}%;background:${c.color}"></span></div></div>`).join("");
+/* บล็อกคะแนนสุขภาพการเงิน (gauge + 5 มิติ) — ใช้ร่วมทั้งหน้า P&L และงบฐานะ · ต้องมีทั้ง pnl+balance */
+function finHealthBlock(d){
+  if(!d.pnl || !d.balance) return "";
+  let C; try{ C=finPnlCompute(d.pnl); }catch(e){ return ""; }
+  const H=finHealth(d.pnl,d.balance,C);
   const gcol=H.overall>=70?"#22c55e":H.overall>=45?"#f59e0b":"#ef4444";
   const gstat=H.overall>=70?"ดี":H.overall>=45?"เฝ้าระวัง":"ต้องดำเนินการ";
   const subBars=H.subs.map(s=>{
@@ -16740,6 +16734,26 @@ function finAnalyticsHtml(d){
       <div class="fin-ss-v">${s.score}</div><div class="fin-ss-lb" style="color:${s.color}">${s.label}</div>
     </div>${det}</div>`;
   }).join("");
+  return `<div class="fin-health">
+      <div class="fin-hscore">
+        <div class="fin-h-title">คะแนนสุขภาพทางการเงิน</div>
+        <div class="fin-gauge" style="background:conic-gradient(${gcol} ${H.overall*3.6}deg, #334155 0)"><div class="fin-gauge-in"><div class="fin-gauge-num">${H.overall}</div><div class="fin-gauge-den">/100</div></div></div>
+        <div class="fin-h-pill" style="background:${gcol}"><span class="fin-dot" style="background:#fff"></span>${gstat}</div>
+      </div>
+      <div class="fin-hsubs">
+        <div class="fin-card-h">คะแนนย่อยรายมิติ <span class="fin-hint"><i data-lucide="mouse-pointer-click"></i> คลิกแต่ละมิติเพื่อดูสูตร + ตัวเลขที่ใช้</span></div>
+        <div class="fin-card-sub">คำนวณจากงบกำไรขาดทุน + งบแสดงฐานะการเงิน · คะแนนรวม = ถ่วงน้ำหนัก (ทำกำไร 30% · สภาพคล่อง 20% · ความเสี่ยง 20% · เติบโต 15% · ประสิทธิภาพ 15%)</div>
+        ${subBars}
+      </div>
+    </div>`;
+}
+function finAnalyticsHtml(d){
+  const pnl=d.pnl, C=finPnlCompute(pnl), M=pnl.months;
+  const cats=finExpenseCats(pnl,C);
+  const revItems=C.acc.revenue.filter(a=>a.total>0).map(a=>({name:a.name,value:a.total}));
+  const expItems=cats.map(c=>({name:c.name,value:c.total,color:c.color}));
+  const H=finHealth(pnl,d.balance,C);
+  const ins=finInsight(pnl,d.balance,C,H);
   const bico={good:'<i data-lucide="check-circle" style="color:#059669"></i>',bad:'<i data-lucide="alert-circle" style="color:#dc2626"></i>',warn:'<i data-lucide="alert-triangle" style="color:#d97706"></i>'};
   const bullets=ins.bullets.map(b=>`<div class="fin-ins-b">${bico[b.t]||""}<span>${b.x}</span></div>`).join("");
   const recs=ins.recs.map((r,i)=>`<div class="fin-rec"><span class="fin-rec-n">${i+1}</span><span>${r}</span></div>`).join("");
@@ -16753,18 +16767,7 @@ function finAnalyticsHtml(d){
       <div class="fin-card"><div class="fin-card-h">รายได้ · ค่าใช้จ่าย · กำไรสุทธิ ${M.length?"ราย"+(pnl.months.length>6?"ไตรมาส":"เดือน"):""}</div><div class="fin-chart-box"><canvas id="finChartMonthly"></canvas></div></div>
       <div class="fin-card"><div class="fin-card-h">แนวโน้มกำไร(ขาดทุน)สุทธิ${pnl.months.length>6?"รายไตรมาส":"รายเดือน"}</div><div class="fin-chart-box"><canvas id="finChartTrend"></canvas></div></div>
     </div>
-    <div class="fin-health">
-      <div class="fin-hscore">
-        <div class="fin-h-title">คะแนนสุขภาพทางการเงิน</div>
-        <div class="fin-gauge" style="background:conic-gradient(${gcol} ${H.overall*3.6}deg, #334155 0)"><div class="fin-gauge-in"><div class="fin-gauge-num">${H.overall}</div><div class="fin-gauge-den">/100</div></div></div>
-        <div class="fin-h-pill" style="background:${gcol}"><span class="fin-dot" style="background:#fff"></span>${gstat}</div>
-      </div>
-      <div class="fin-hsubs">
-        <div class="fin-card-h">คะแนนย่อยรายมิติ <span class="fin-hint"><i data-lucide="mouse-pointer-click"></i> คลิกแต่ละมิติเพื่อดูสูตร + ตัวเลขที่ใช้</span></div>
-        <div class="fin-card-sub">คำนวณจากงบกำไรขาดทุน + งบแสดงฐานะการเงิน · คะแนนรวม = ถ่วงน้ำหนัก (ทำกำไร 30% · สภาพคล่อง 20% · ความเสี่ยง 20% · เติบโต 15% · ประสิทธิภาพ 15%)</div>
-        ${subBars}
-      </div>
-    </div>
+    ${finHealthBlock(d)}
     <div class="fin-insight">
       <div class="fin-ins-head"><span class="fin-ins-ic"><i data-lucide="sparkles"></i></span><div><div class="fin-ins-t">สรุปเชิงผู้บริหาร (CFO Insight)</div><div class="fin-ins-s">วิเคราะห์จากงบการเงินจริง · ชี้ความเสี่ยงและข้อเสนอแนะ</div></div><span class="fin-ins-badge">Auto Generated</span></div>
       <div class="fin-ins-sum">${ins.summary}</div>

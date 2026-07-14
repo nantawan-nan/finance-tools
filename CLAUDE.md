@@ -182,6 +182,12 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-13 (11) — งบฐานะ: เพิ่มคะแนนสุขภาพการเงิน + Exec period picker = การ์ดเดียวสะอาด
+- **เจ้าของขอ 2 อย่าง:** (1) หัว Exec ยังรก (3 แถวเลือกช่วงเวลาลอย ๆ) (2) เพิ่มคะแนนสุขภาพการเงินในหน้างบแสดงฐานะการเงินด้วย
+- **(1) `edPeriodPicker` = การ์ดเดียว** (bg ขาว + border + radius 12 + shadow) · 3 ส่วนเรียงข้างกัน **ช่วงเวลา | ไตรมาส·ปี | เดือน·ปี** คั่นด้วยเส้นตั้ง (แทน 3 แถว full-width ลอยบนพื้น) · flex-wrap เมื่อจอแคบ · แต่ละ section = label เล็ก + chips
+- **(2) `finHealthBlock(d)` (ใหม่ · reusable):** แยกบล็อกคะแนนสุขภาพ (gauge + 5 มิติ + drilldown finScaleHtml) ออกจาก finAnalyticsHtml → เรียกทั้ง **P&L** (`finAnalyticsHtml`) และ **งบฐานะ** (`finBalAnalyticsHtml` · วางหลังการ์ดอัตราส่วน ก่อน insight) · guard `d.pnl && d.balance` (ไม่มี pnl → ไม่โชว์) · finToggleHScore/hOpen ใช้ร่วม (drilldown ทำงานทั้ง 2 หน้า)
+- **กระทบหน้าอื่น = 0** · P&L gauge เท่าเดิม (34) · verify: balance มี .fin-health + 5 มิติ · period = การ์ด radius 12 · refactor ลบ subBars/gcol/gstat ซ้ำใน finAnalyticsHtml
+
 ### 2026-07-13 (10) — Executive Cash Flow: ปุ่ม toolbar คลีน (ghost ขาว+ไอคอน แทน gradient สีจัด · ป้ายสั้น)
 - **เจ้าของขอ (ต่อจากข้อ 9):** ให้หน้า Exec (`edRenderDashboard`) คลีนตาแบบภาพอ้างอิงด้วย — ปุ่มเดิมเป็น gradient สีจัด (ส้ม/ฟ้า/คราม) รก
 - **แก้:** นำเสนอ/พิมพ์ PDF/ทั้งรายงาน/ล้าง&เริ่มใหม่ → `btn ghost btn sm` (ขาวโปร่ง) + `<i data-lucide>` (monitor/printer/file-text/rotate-ccw) · **อัปโหลดเพิ่ม เก็บสีเขียว (CTA หลัก)** + icon plus · ป้ายสั้นลง ("พิมพ์ทั้งรายงาน"→"ทั้งรายงาน" · "อัปไฟล์เพิ่ม (รวมปี)"→"อัปโหลดเพิ่ม") · onclick/ฟังก์ชันเดิมไม่แตะ (edTogglePresent/edPrint/edExportFullPDF/edAddFile/edReset)

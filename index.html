@@ -6669,10 +6669,9 @@ async function homeLoadStats(){
       orders=orders.concat(data);
       if(data.length<osz) break; ofrom+=osz;
     }
-    const [apRes, balRes, apDueRes, balDateRes] = await Promise.all([
+    const [apRes, balRes, balDateRes] = await Promise.all([
       sb.from("ap_invoices").select("amount_outstanding").eq("company_id",co).is("deleted_at",null),
       sb.rpc("fn_balance_as_of",{ p_company:co, p_as_of: todayISO }),
-      sb.from("ap_invoices").select("vendor_name,amount_outstanding,planned_payment_date,status,category").eq("company_id",co).is("deleted_at",null).not("planned_payment_date","is",null),
       sb.from("bank_balances").select("balance_date").eq("company_id",co).order("balance_date",{ascending:false}).limit(1)
     ]);
     // ★ สถิติออเดอร์ = เฉพาะ "เดือนปัจจุบัน" (ภาพรวมการทำงานเดือนนี้) · AP/เงินสด = ยอด ณ ปัจจุบัน (ไม่ผูกเดือน)
@@ -6688,17 +6687,26 @@ async function homeLoadStats(){
     const saleSum = active.reduce((s,o)=>s+Number(o.order_total||0),0);
     const cancelledSum = cancelledOrders.reduce((s,o)=>s+Number(o.order_total||0),0);
     const maxOrderDate = orders.reduce((mx,o)=> (o.order_date && o.order_date>mx)?o.order_date:mx, "");
-    // ★ ค่าใช้จ่ายถึงกำหนดชำระ "รอบใกล้สุด" = AP ที่กรอกวันชำระ (planned_payment_date) · จัดกลุ่มตามวัน
-    const apDue = (apDueRes.data||[]).filter(r=> r.status!=="paid" && Number(r.amount_outstanding||0)>0 && r.planned_payment_date);
-    const byDate={}; apDue.forEach(r=>{ (byDate[r.planned_payment_date]=byDate[r.planned_payment_date]||[]).push(r); });
-    const pdates=Object.keys(byDate).sort();
-    const upcoming=pdates.filter(dd=>dd>=todayISO);
-    const roundDate = upcoming.length? upcoming[0] : (pdates.length? pdates[pdates.length-1] : null);
+    // ★ ค่าใช้จ่ายถึงกำหนดชำระ "รอบใกล้สุด" — ใช้ logic เดียวกับ Cash Flow Forecast (รวมค่าใช้จ่ายประจำ/recurring ด้วย ไม่ใช่แค่ AP)
     let payRound=null;
-    if(roundDate){
-      const items=byDate[roundDate].map(r=>({name:r.vendor_name||r.category||"เจ้าหนี้", amount:Number(r.amount_outstanding||0)})).sort((a,b)=>b.amount-a.amount);
-      payRound={ date:roundDate, total:items.reduce((s,x)=>s+x.amount,0), count:items.length, items, overdue: roundDate<todayISO };
-    }
+    try{
+      await cffLoad();
+      const cd=cffGet();
+      if(cd && cd.data){
+        const pays=cffStaffPayments(cd.data, cd);
+        const byD={};
+        pays.forEach(p=>{ if(p.due_date && Number(p.amount||0)>0){ (byD[p.due_date]=byD[p.due_date]||[]).push(p); } });
+        const pdates=Object.keys(byD).sort();
+        const upcoming=pdates.filter(dd=>dd>=todayISO);
+        const roundDate = upcoming.length? upcoming[0] : (pdates.length? pdates[pdates.length-1] : null);
+        if(roundDate){
+          const agg={};
+          byD[roundDate].forEach(p=>{ const nm=p.vendor||p.category||"เจ้าหนี้"; agg[nm]=(agg[nm]||0)+Number(p.amount||0); });
+          const items=Object.entries(agg).map(([name,amount])=>({name,amount})).sort((a,b)=>b.amount-a.amount);
+          payRound={ date:roundDate, total:items.reduce((s,x)=>s+x.amount,0), count:items.length, items, overdue: roundDate<todayISO };
+        }
+      }
+    }catch(e){ console.warn("home payRound", e); }
     const lastBalDate = (balDateRes.data && balDateRes.data[0]) ? balDateRes.data[0].balance_date : null;
     state.home.stats = {
       ivPct: active.length? Math.round(withIv.length/active.length*100):0,

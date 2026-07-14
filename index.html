@@ -11697,6 +11697,47 @@ async function docLoad(force){
   d.rows=all; d.loaded=true; d.busy=false;
 }
 
+/* 🛟 กู้คืน — สแกนไฟล์จริงใน Supabase Storage ของบริษัทนี้ แล้วเติมทะเบียนที่หาย
+   (ใช้เมื่อไฟล์ยังอยู่ในที่เก็บ แต่แถวในตาราง documents หาย/ไม่โชว์) */
+async function docScanStorage(){
+  const d=docGet(); const code=docCode();
+  const msg=document.getElementById("docZipMsg");
+  const setMsg=t=>{ if(msg) msg.textContent=t; };
+  setMsg("🔎 กำลังสแกนไฟล์ในที่เก็บ ("+code+")…");
+  try{
+    await docLoad();
+    const known=new Set((d.rows||[]).map(r=>r.storage_path));
+    const files=[];
+    const { data: lv1, error: e1 } = await sb.storage.from(DOC_BUCKET).list(code, { limit:1000 });
+    if(e1) throw e1;
+    for(const ent of (lv1||[])){
+      const isFolder = ent.id===null || !ent.metadata;   // Supabase คืน id=null สำหรับโฟลเดอร์
+      if(isFolder){
+        const sub=`${code}/${ent.name}`;
+        const { data: lv2 } = await sb.storage.from(DOC_BUCKET).list(sub, { limit:1000 });
+        (lv2||[]).forEach(f=>{ if(f.id!==null){ files.push({ path:`${sub}/${f.name}`, name:f.name, size:(f.metadata&&f.metadata.size)||null, mime:(f.metadata&&f.metadata.mimetype)||null }); } });
+      } else {
+        files.push({ path:`${code}/${ent.name}`, name:ent.name, size:(ent.metadata&&ent.metadata.size)||null, mime:(ent.metadata&&ent.metadata.mimetype)||null });
+      }
+    }
+    const orphans=files.filter(f=>!known.has(f.path));
+    if(!files.length){ setMsg(`ℹ ไม่พบไฟล์ในที่เก็บของ ${code} เลย — เอกสารอาจถูกอัปไว้ที่ "บริษัทอื่น" (ลองสลับบริษัทที่ Sidebar) หรือยังไม่เคยอัปที่บริษัทนี้`); return; }
+    if(!orphans.length){ setMsg(`✓ ที่เก็บมี ${files.length} ไฟล์ · ตรงกับทะเบียนครบแล้ว (ไม่มีที่หาย)`); return; }
+    if(!docCanWrite()){ setMsg(`พบไฟล์ในที่เก็บ ${files.length} · หายจากทะเบียน ${orphans.length} ไฟล์ — ต้องใช้สิทธิ์เขียนเพื่อกู้คืน`); return; }
+    if(!confirm(`พบไฟล์ในที่เก็บของ ${code} ทั้งหมด ${files.length} ไฟล์\nหายจากทะเบียน ${orphans.length} ไฟล์\n\nกู้คืน ${orphans.length} ไฟล์กลับเข้าทะเบียนหรือไม่?\n(ชื่อไฟล์จะเป็นชื่อในที่เก็บ · เปิด/โหลดได้ปกติ · จัดหมวด/แก้ชื่อภายหลังได้)`)) { setMsg("ยกเลิกการกู้คืน"); return; }
+    setMsg(`กำลังกู้คืน ${orphans.length} ไฟล์…`);
+    const cid=await fopCompanyId();
+    const rows=orphans.map(f=>({ company_id:cid, title:f.name, category:"other", file_name:f.name, storage_path:f.path,
+      mime_type:f.mime||null, size_bytes:f.size||null, note:"กู้คืนจากที่เก็บ", uploaded_by:(AUTH&&AUTH.email)||null, created_by:(AUTH&&AUTH.email)||null }));
+    const { error:insErr } = await sb.from("documents").insert(rows);
+    if(insErr) throw insErr;
+    try{ docAudit("recover", orphans.length+" files"); }catch(_){}
+    setMsg(`✓ กู้คืน ${rows.length} ไฟล์เข้าทะเบียนแล้ว`);
+    docGet().loaded=false; await docLoad(true); renderToolDocs();
+    setTimeout(()=>{ const m2=document.getElementById("docZipMsg"); if(m2) m2.textContent=`✓ กู้คืน ${rows.length} ไฟล์สำเร็จ`; }, 300);
+  }catch(e){ setMsg("✗ สแกน/กู้คืนไม่สำเร็จ: "+fopErr(e)); console.warn("docScan",e); }
+}
+
 function docOpenUpload(){
   if(!docCanWrite()){ alert("บัญชีนี้ไม่มีสิทธิ์อัปโหลดเอกสาร"); return; }
   const cats=DOC_CATS.map(c=>`<option value="${c.k}">${esc(c.l)}</option>`).join("");
@@ -11865,6 +11906,7 @@ async function renderToolDocs(){
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         ${canW?`<button class="btn" style="background:var(--brand,#0d9488);color:#fff;border:0;padding:9px 16px;border-radius:10px;font-weight:700;cursor:pointer" onclick="docOpenUpload()">⬆ อัปโหลดเอกสาร</button>`:""}
         <button class="btn ghost" onclick="docDownloadAllZip()" ${d.busy?"disabled":""} style="border:1px solid #cbd5e1;background:#fff;color:#334155;padding:9px 14px;border-radius:10px;font-weight:600;cursor:pointer">⬇ ดาวน์โหลดทั้งหมด (ZIP)</button>
+        <button class="btn ghost" onclick="docScanStorage()" title="สแกนไฟล์จริงในที่เก็บ แล้วเติมทะเบียนที่หาย" style="border:1px solid #f59e0b;background:#fffbeb;color:#b45309;padding:9px 14px;border-radius:10px;font-weight:700;cursor:pointer">🛟 กู้คืนจากที่เก็บ</button>
         <button class="btn ghost" onclick="docGet().loaded=false;renderToolDocs()" style="border:1px solid #cbd5e1;background:#fff;color:#334155;padding:9px 12px;border-radius:10px;font-weight:600;cursor:pointer">⟳</button>
       </div>
     </div>
@@ -11891,7 +11933,7 @@ async function renderToolDocs(){
             <th style="text-align:left;padding:10px 12px;color:#64748b;font-size:11px;text-transform:uppercase">ผู้อัป / วันที่</th>
             <th style="text-align:right;padding:10px 12px;color:#64748b;font-size:11px;text-transform:uppercase">จัดการ</th>
           </tr></thead>
-          <tbody>${tr||`<tr><td colspan="6" style="text-align:center;color:#94a3b8;padding:34px">${rows.length?"— ไม่พบเอกสารตามตัวกรอง —":"— ยังไม่มีเอกสาร กดปุ่มอัปโหลดเอกสารเพื่อเริ่ม —"}</td></tr>`}</tbody>
+          <tbody>${tr||`<tr><td colspan="6" style="text-align:center;color:#94a3b8;padding:34px">${rows.length?"— ไม่พบเอกสารตามตัวกรอง —":`— ยังไม่มีเอกสารในทะเบียนของ ${esc(docCode())} —<br><span style="font-size:12px;color:#b45309">เคยอัปแล้วแต่หาย? กด <b>🛟 กู้คืนจากที่เก็บ</b> ด้านบน · หรืออาจอัปไว้ที่บริษัทอื่น (สลับบริษัทที่ Sidebar)</span>`}</td></tr>`}</tbody>
         </table>
       </div>
     </div>

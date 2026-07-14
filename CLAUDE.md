@@ -182,6 +182,13 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-14 — Document Center: ปุ่ม "🛟 กู้คืนจากที่เก็บ" (สแกน Storage → เติมทะเบียนที่หาย)
+- **เจ้าของแจ้ง:** เคยอัปเอกสารใน Document Center แต่ตอนนี้หาย (โชว์ 0 ไฟล์ · หน้า Benya)
+- **วินิจฉัย:** repo/migration ไม่มี DELETE/soft-delete `documents` เลย · insert+load ใช้ `fopCompanyId()` เหมือนกัน (ไม่ mismatch) · หน้าอื่นของ Benya (AP/orders) โหลดได้ = RLS/access ปกติ → ไฟล์น่าจะยังอยู่ใน Supabase Storage แต่ **แถวตารางหาย** หรือ **อัปไว้คนละบริษัท**
+- **`docScanStorage()` (ใหม่):** list bucket `documents` ใต้ `{CODE}/` (โฟลเดอร์ปี → ไฟล์ · โฟลเดอร์ = `id===null`) → เทียบกับ `storage_path` ในตาราง → ไฟล์ที่ขาด (orphan) = re-insert แถว `documents` (title/file_name = ชื่อในที่เก็บ · category=other · note="กู้คืนจากที่เก็บ") · ถ้าที่เก็บว่าง → แจ้ง "อาจอยู่บริษัทอื่น สลับบริษัท" · gate เขียนด้วย `docCanWrite`
+- **UI:** ปุ่มส้ม "🛟 กู้คืนจากที่เก็บ" ข้าง ZIP · empty state ใบ้ให้กดกู้คืน/สลับบริษัท · ข้อความสถานะที่ `#docZipMsg`
+- **หมายเหตุ:** ชื่อไฟล์เดิม (ภาษาไทย) อยู่ในแถวตารางที่หาย — กู้จากที่เก็บได้แค่ชื่อ ASCII `{stamp}.{ext}` (ไฟล์เปิด/โหลดได้ปกติ · เปลี่ยนชื่อ/จัดหมวดภายหลัง) · **กระทบหน้าอื่น = 0**
+
 ### 2026-07-13 (13) — หน้าแรก: KPI ทะเบียนคำสั่งซื้อ (ยอดขาย/ยกเลิก) + งานที่ต้องทำ = รอบจ่ายใกล้สุด + เตือนอัป STM
 - **เจ้าของขอ (จากข้อมูลจริง):** (1) KPI ใบแรก "การคีย์ IV" → **ทะเบียนคำสั่งซื้อ** (อัพข้อมูลถึงวันที่ · ขายทั้งหมดกี่ออเดอร์กี่บาท · ยกเลิกกี่ออเดอร์กี่บาท) · รอรับชำระ/เงินเข้าแบงค์คงไว้ (2) แทน "งานวันนี้ + Progress" ด้วย **ค่าใช้จ่ายถึงกำหนดชำระรอบใกล้สุด** (รายการ+ยอดรวม) + **เตือนฝ่ายการเงินอัปยอด STM**
 - **`homeLoadStats` เพิ่ม:** `cancelledSum` · `maxOrderDate` (max order_date ทุกออเดอร์ = ความสดข้อมูล) · **`payRound`** (query `ap_invoices` ที่มี `planned_payment_date` · group ตามวัน · เลือกวันใกล้สุด ≥ วันนี้ ไม่งั้นวันเลยกำหนดล่าสุด · {date,total,count,items,overdue}) · **`lastBalDate`** (max `bank_balances.balance_date`)

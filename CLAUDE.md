@@ -182,6 +182,13 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-13 (13) — หน้าแรก: KPI ทะเบียนคำสั่งซื้อ (ยอดขาย/ยกเลิก) + งานที่ต้องทำ = รอบจ่ายใกล้สุด + เตือนอัป STM
+- **เจ้าของขอ (จากข้อมูลจริง):** (1) KPI ใบแรก "การคีย์ IV" → **ทะเบียนคำสั่งซื้อ** (อัพข้อมูลถึงวันที่ · ขายทั้งหมดกี่ออเดอร์กี่บาท · ยกเลิกกี่ออเดอร์กี่บาท) · รอรับชำระ/เงินเข้าแบงค์คงไว้ (2) แทน "งานวันนี้ + Progress" ด้วย **ค่าใช้จ่ายถึงกำหนดชำระรอบใกล้สุด** (รายการ+ยอดรวม) + **เตือนฝ่ายการเงินอัปยอด STM**
+- **`homeLoadStats` เพิ่ม:** `cancelledSum` · `maxOrderDate` (max order_date ทุกออเดอร์ = ความสดข้อมูล) · **`payRound`** (query `ap_invoices` ที่มี `planned_payment_date` · group ตามวัน · เลือกวันใกล้สุด ≥ วันนี้ ไม่งั้นวันเลยกำหนดล่าสุด · {date,total,count,items,overdue}) · **`lastBalDate`** (max `bank_balances.balance_date`)
+- **KPI ใบ 1:** icon clipboard-list · value = saleSum เดือนนี้ · sub "ขายทั้งหมด N ออเดอร์" + "ยกเลิก M ออเดอร์ · ฿Y" (แดง) · tag "อัพถึง {maxOrderDate}" · ลิงก์ tool `orders`
+- **แถว 2 (แทน tasks/progress):** ซ้าย = การ์ด "ค่าใช้จ่ายที่ถึงกำหนดชำระ · รอบใกล้ที่สุด" (ยอดรวม + list 7 + "อีก N" + ลิงก์ cashflow · ว่าง→ชวนไปกรอกวันชำระที่ AP) · ขวา = การ์ดเตือน **อัปยอด STM** (แดงถ้า lastBalDate<วันนี้ · ลิงก์ bank_balance) + การ์ดอัปสเตทเมนต์ (bankrec)
+- **ลบ dead code:** `tasks`/`taskCounts`/`tf`/`visTasks`/`progress` (ของ mockup) · เก็บ `activity`/quick access/cash flow chart เดิม (เจ้าของไม่แตะ) · **กระทบหน้าอื่น = 0** · verify (mock): KPI ฿1,875,400 · payRound ฿214,000 7 แถว · STM stale แดง · งานเดิมหาย
+
 ### 2026-07-13 (12) — งบฐานะ: คะแนนสุขภาพคิดจาก "อัตราส่วนงบฐานะ" ล้วน (ไม่ใช่ก๊อป P&L)
 - **เจ้าของท้วง:** คะแนนหน้างบฐานะเอา finHealth ของ P&L มาวาง (มีทำกำไร/เติบโตจากงบกำไรขาดทุน) — ต้องคิดจาก 5 อัตราส่วนที่แสดงในตารางด้านบนของหน้านั้นเอง
 - **`finBalHealth(T)` (ใหม่):** คะแนน 5 มิติ = 5 ratio ของ `finBalRatios` เป๊ะ — สภาพคล่อง (Current Ratio · 25%) · เงินทุนหมุนเวียนสุทธิ (WC÷CL · 10%) · หนี้สินต่อสินทรัพย์ (Debt Ratio · 25% · desc) · หนี้สินต่อทุน (D/E · 20% · desc · ทุนติดลบ→5) · ส่วนของผู้ถือหุ้น (Equity Ratio · 20%) · แต่ละตัว `finScoreLinear` pts ตาม band ที่โชว์ + scale/raw/unit/desc/cap ครบ (drilldown finScaleHtml ได้)

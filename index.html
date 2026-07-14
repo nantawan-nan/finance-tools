@@ -6669,25 +6669,42 @@ async function homeLoadStats(){
       orders=orders.concat(data);
       if(data.length<osz) break; ofrom+=osz;
     }
-    const [apRes, balRes] = await Promise.all([
+    const [apRes, balRes, apDueRes, balDateRes] = await Promise.all([
       sb.from("ap_invoices").select("amount_outstanding").eq("company_id",co).is("deleted_at",null),
-      sb.rpc("fn_balance_as_of",{ p_company:co, p_as_of: todayISO })
+      sb.rpc("fn_balance_as_of",{ p_company:co, p_as_of: todayISO }),
+      sb.from("ap_invoices").select("vendor_name,amount_outstanding,planned_payment_date,status,category").eq("company_id",co).is("deleted_at",null).not("planned_payment_date","is",null),
+      sb.from("bank_balances").select("balance_date").eq("company_id",co).order("balance_date",{ascending:false}).limit(1)
     ]);
     // ★ สถิติออเดอร์ = เฉพาะ "เดือนปัจจุบัน" (ภาพรวมการทำงานเดือนนี้) · AP/เงินสด = ยอด ณ ปัจจุบัน (ไม่ผูกเดือน)
     const curYm = todayISO.slice(0,7);
     const inMonth = o => String(o.order_date||"").slice(0,7)===curYm;
     const monthOrders = orders.filter(inMonth);
     const active = monthOrders.filter(o=>o.status!=="cancelled");
+    const cancelledOrders = monthOrders.filter(o=>o.status==="cancelled");
     const withIv = active.filter(o=>o.iv_no);
     const rePending = withIv.filter(o=>!o.re_no);
     const apSum = (apRes.data||[]).reduce((s,r)=>s+Number(r.amount_outstanding||0),0);
     const cash = (balRes.data||[]).reduce((s,r)=>s+Number(r.amount||0),0);
     const saleSum = active.reduce((s,o)=>s+Number(o.order_total||0),0);
+    const cancelledSum = cancelledOrders.reduce((s,o)=>s+Number(o.order_total||0),0);
+    const maxOrderDate = orders.reduce((mx,o)=> (o.order_date && o.order_date>mx)?o.order_date:mx, "");
+    // ★ ค่าใช้จ่ายถึงกำหนดชำระ "รอบใกล้สุด" = AP ที่กรอกวันชำระ (planned_payment_date) · จัดกลุ่มตามวัน
+    const apDue = (apDueRes.data||[]).filter(r=> r.status!=="paid" && Number(r.amount_outstanding||0)>0 && r.planned_payment_date);
+    const byDate={}; apDue.forEach(r=>{ (byDate[r.planned_payment_date]=byDate[r.planned_payment_date]||[]).push(r); });
+    const pdates=Object.keys(byDate).sort();
+    const upcoming=pdates.filter(dd=>dd>=todayISO);
+    const roundDate = upcoming.length? upcoming[0] : (pdates.length? pdates[pdates.length-1] : null);
+    let payRound=null;
+    if(roundDate){
+      const items=byDate[roundDate].map(r=>({name:r.vendor_name||r.category||"เจ้าหนี้", amount:Number(r.amount_outstanding||0)})).sort((a,b)=>b.amount-a.amount);
+      payRound={ date:roundDate, total:items.reduce((s,x)=>s+x.amount,0), count:items.length, items, overdue: roundDate<todayISO };
+    }
+    const lastBalDate = (balDateRes.data && balDateRes.data[0]) ? balDateRes.data[0].balance_date : null;
     state.home.stats = {
       ivPct: active.length? Math.round(withIv.length/active.length*100):0,
-      ivKeyed: withIv.length, ordTotal: active.length, cancelled: monthOrders.length-active.length,
+      ivKeyed: withIv.length, ordTotal: active.length, cancelled: cancelledOrders.length, cancelledSum,
       rePending: rePending.length, bankIn: active.filter(o=>o.bank_in_date).length,
-      apSum, cash, saleSum, _loaded:true
+      apSum, cash, saleSum, maxOrderDate, payRound, lastBalDate, _loaded:true
     };
   }catch(e){ console.warn("home stats", e); }
 }
@@ -6701,6 +6718,9 @@ function renderToolHome(){
   }
   const S = state.home.stats || {};
   const fmtB = (n)=> "฿"+Number(n||0).toLocaleString("th-TH",{maximumFractionDigits:0});
+  const todayISO = new Date().toISOString().slice(0,10);
+  const thD  = (iso)=> iso? new Date(iso).toLocaleDateString("th-TH",{day:"numeric",month:"short"}) : "—";
+  const thDY = (iso)=> iso? new Date(iso).toLocaleDateString("th-TH",{day:"numeric",month:"short",year:"numeric"}) : "—";
   const co = COMPANIES.find(c=>c.id===state.company);
   const userName = (AUTH.user && AUTH.user.user_metadata && AUTH.user.user_metadata.display_name)
     || (AUTH.email ? AUTH.email.split("@")[0] : "ทีมการเงิน");
@@ -6710,24 +6730,6 @@ function renderToolHome(){
   const dateLabel = today.toLocaleDateString("th-TH",{day:"numeric",month:"short",year:"numeric"});
   const fmt = (n)=> Number(n||0).toLocaleString("th-TH");
 
-  // ── ตัวอย่างข้อมูล (จะ wire ของจริงทีหลัง) ──
-  const tasks = [
-    { title:"คีย์ IV BigSeller รอบบ่าย (Shopee + TikTok)", due:"วันนี้ 16:00", dueColor:"#E23D4B", owner:"นันทวรรณ", oi:"น", pri:"เร่งด่วน", priColor:"#E23D4B", priBg:"#FDECEE", cat:"urgent", tool:"sales_orders" },
-    { title:"ตรวจรายการ Bank Reconciliation ที่ไม่ตรง 36 รายการ", due:"วันนี้", dueColor:"#E23D4B", owner:"นันทวรรณ", oi:"น", pri:"เร่งด่วน", priColor:"#E23D4B", priBg:"#FDECEE", cat:"urgent", tool:"bankrec" },
-    { title:"ติดตามรับชำระเงิน (RE) ค้าง 24 รายการ", due:"พรุ่งนี้", dueColor:"#E08C16", owner:"ทีม AR", oi:"A", pri:"ใกล้ครบกำหนด", priColor:"#C77E14", priBg:"#FBEFD7", cat:"due", tool:"sales_income" },
-    { title:"จ่ายเจ้าหนี้ใกล้ครบกำหนด 8 ราย", due:"23 มิ.ย.", dueColor:"#E08C16", owner:"ทีม AP", oi:"P", pri:"ใกล้ครบกำหนด", priColor:"#C77E14", priBg:"#FBEFD7", cat:"due", tool:"ap_outstanding" },
-    { title:"ตรวจสอบ Settlement Shopee/TikTok ประจำสัปดาห์", due:"25 มิ.ย.", dueColor:"#9AA8BF", owner:"นันทวรรณ", oi:"น", pri:"รอตรวจสอบ", priColor:"#5468FF", priBg:"#EEF0FF", cat:"review", tool:"sales_recon" },
-  ];
-  const taskCounts = { urgent: tasks.filter(t=>t.cat==="urgent").length, due: tasks.filter(t=>t.cat==="due").length, review: tasks.filter(t=>t.cat==="review").length };
-  const tf = state.home.taskFilter;
-  const visTasks = tf==="all" ? tasks : tasks.filter(t=>t.cat===tf);
-  const progress = [
-    { name:"คีย์ IV (ทุกช่องทาง)", status:"กำลังทำ", pct:86, color:"#0E9A88", bg:"#E6F7F1", date:"18 มิ.ย.", owner:"นันทวรรณ" },
-    { name:"รับชำระเงิน RE", status:"กำลังทำ", pct:78, color:"#E08C16", bg:"#FBEFD7", date:"17 มิ.ย.", owner:"ทีม AR" },
-    { name:"Bank Reconciliation", status:"เกือบเสร็จ", pct:97, color:"#0E9A88", bg:"#E6F7F1", date:"21 มิ.ย.", owner:"นันทวรรณ" },
-    { name:"กระทบยอดถอน Marketplace", status:"กำลังทำ", pct:64, color:"#5468FF", bg:"#EEF0FF", date:"21 มิ.ย.", owner:"นันทวรรณ" },
-    { name:"ปิดงบเจ้าหนี้ AP", status:"รอเริ่ม", pct:30, color:"#E23D4B", bg:"#FDECEE", date:"15 มิ.ย.", owner:"ทีม AP" },
-  ];
   const activity = [
     { who:"นันทวรรณ", text:"อัปโหลด Statement SCB เดือนมิถุนายน", time:"5 นาทีที่แล้ว", initial:"น", bg:"#E6F7F1", color:"#0E9A88" },
     { who:"นันทวรรณ", text:"กระทบยอด Marketplace Shopee 7 รายการ", time:"32 นาทีที่แล้ว", initial:"น", bg:"#E6F7F1", color:"#0E9A88" },
@@ -6770,72 +6772,59 @@ function renderToolHome(){
 
     <!-- KPI CARDS -->
     <div class="hd-kpis" style="display:grid;grid-template-columns:repeat(5,1fr);gap:16px;margin-top:22px">
-      ${kpiCard({ icon:"file-text", iconBg:"var(--brand-soft)", iconColor:"var(--brand-dark)", tag: S._loaded?"ข้อมูลจริง":"...", tagColor:"var(--brand-dark)", tagBg:"#E6F7F1", label:"การคีย์ IV", value:`${S.ivPct??'—'}<span style="font-size:16px;color:var(--ink3)">%</span>`, sub:`คีย์ ${S.ivKeyed??0}/${S.ordTotal??0} ออเดอร์`, bar:S.ivPct??0, barColor:"linear-gradient(90deg,var(--brand),var(--brand-dark))", link:"ดูทะเบียนคำสั่งซื้อ", tool:"orders" })}
+      ${kpiCard({ icon:"clipboard-list", iconBg:"var(--brand-soft)", iconColor:"var(--brand-dark)", tag: S._loaded?("อัพถึง "+thD(S.maxOrderDate)):"...", tagColor:"var(--brand-dark)", tagBg:"#E6F7F1", label:"ยอดขายเดือนนี้ (ทะเบียนคำสั่งซื้อ)", value: S._loaded?fmtB(S.saleSum):"—", sub:`ขายทั้งหมด ${S.ordTotal??0} ออเดอร์<br><span style="color:#E23D4B">ยกเลิก ${S.cancelled??0} ออเดอร์ · ${S._loaded?fmtB(S.cancelledSum):'—'}</span>`, link:"ดูทะเบียนคำสั่งซื้อ", tool:"orders" })}
       ${kpiCard({ icon:"hand-coins", iconBg:"#FBF1DC", iconColor:"#C77E14", tag:"ต้องติดตาม", tagColor:"#C77E14", tagBg:"#FBEFD7", label:"รอรับชำระ (RE)", value:`${S.rePending??'—'}<span style="font-size:15px;color:var(--ink3);font-weight:500"> ออเดอร์</span>`, sub:`มี IV แล้วแต่ยังไม่รับชำระ`, bar: (S.ivKeyed? Math.round((S.ivKeyed-(S.rePending||0))/S.ivKeyed*100):0), barColor:"linear-gradient(90deg,#F0A02E,#E08C16)", link:"ดูทะเบียนคำสั่งซื้อ", linkColor:"#C77E14", tool:"orders", delay:".06s" })}
       ${kpiCard({ icon:"git-compare-arrows", iconBg:"var(--brand-soft)", iconColor:"var(--brand-dark)", tag:"เงินเข้าแบงค์", tagColor:"var(--brand-dark)", tagBg:"#E6F7F1", label:"ออเดอร์เงินเข้าแบงค์แล้ว", value:`${S.bankIn??'—'}<span style="font-size:16px;color:var(--ink3)">/${S.ordTotal??0}</span>`, sub:`ติดตามถึง stage เงินเข้าบัญชี`, bar:(S.ordTotal? Math.round((S.bankIn||0)/S.ordTotal*100):0), barColor:"linear-gradient(90deg,var(--brand),var(--brand-dark))", link:"กระทบยอด", linkColor:"var(--brand-dark)", tool:"bankrec", delay:".12s" })}
       ${kpiCard({ icon:"file-warning", iconBg:"#FDECEE", iconColor:"#E23D4B", tag:"เจ้าหนี้", tagColor:"#E23D4B", tagBg:"#FDECEE", label:"AP Outstanding", value: S._loaded?fmtB(S.apSum):"—", sub:`ยอดเจ้าหนี้คงค้างจริง`, bar:54, barColor:"linear-gradient(90deg,#F36C79,#E23D4B)", link:"ตรวจสอบเจ้าหนี้", linkColor:"#E23D4B", tool:"ap_outstanding", delay:".18s" })}
       ${kpiCard({ dark:true, icon:"wallet", tag: S._loaded?"จริง":"...", label:"ยอดเงินในบัญชี ณ วันนี้ (รวม)", value: S._loaded?fmtB(S.cash):"—", sub:`ยอดล่าสุดที่บันทึก`, spark:true, tool:"bank_balance", delay:".24s" })}
     </div>
 
-    <!-- TASKS + PROGRESS -->
+    <!-- งานที่ต้องทำ: ค่าใช้จ่ายถึงกำหนดชำระ (รอบใกล้สุด) + เตือนอัปยอด STM -->
     <div class="hd-2col" style="display:grid;grid-template-columns:1.42fr 1fr;gap:18px;margin-top:18px;align-items:flex-start">
-      <div class="hd-card">
-        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
+      ${(()=>{
+        const PR = S.payRound;
+        return `<div class="hd-card">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px">
           <div>
-            <div style="font-size:18px;font-weight:700">งานที่ต้องดำเนินการวันนี้</div>
-            <div style="font-size:13.5px;color:var(--ink3);margin-top:2px">${dateLabel} · ทั้งหมด ${tasks.length} รายการ</div>
+            <div style="font-size:18px;font-weight:700">ค่าใช้จ่ายที่ถึงกำหนดชำระ · รอบใกล้ที่สุด</div>
+            <div style="font-size:13.5px;color:var(--ink3);margin-top:2px">${PR ? `${PR.overdue?'<span style=\"color:#E23D4B;font-weight:600\">⚠ เลยกำหนด · </span>':''}กำหนดชำระ ${thDY(PR.date)} · ${PR.count} รายการ` : (S._loaded?'ยังไม่มีบิลที่กรอกวันชำระเงิน':'กำลังโหลด…')}</div>
           </div>
-          <div style="display:flex;align-items:center;gap:7px;font-size:13px;color:var(--brand-dark);font-weight:600;background:#E6F7F1;padding:7px 13px;border-radius:9px;cursor:pointer" onclick="homeToggleTasks()">
-            <span>${state.home.tasksOpen?'ซ่อน':'แสดง'}</span><i data-lucide="chevron-${state.home.tasksOpen?'up':'down'}" style="width:16px;height:16px"></i>
-          </div>
+          ${PR? `<div style="text-align:right;flex:none"><div style="font-size:12px;color:var(--ink3)">รวมรอบนี้</div><div class="tnum" style="font-size:26px;font-weight:700;letter-spacing:-.5px;color:${PR.overdue?'#E23D4B':'var(--brand-dark)'}">${fmtB(PR.total)}</div></div>`:''}
         </div>
-        ${state.home.tasksOpen ? `
-        <div style="display:flex;gap:9px;margin-top:16px;flex-wrap:wrap">
-          <div class="hd-chip ${tf==='all'?'on':''}" onclick="homeSetTaskFilter('all')">ทั้งหมด</div>
-          <div class="hd-chip ${tf==='urgent'?'on':''}" onclick="homeSetTaskFilter('urgent')"><span style="width:7px;height:7px;border-radius:50%;background:#E23D4B"></span>เร่งด่วน ${taskCounts.urgent}</div>
-          <div class="hd-chip ${tf==='due'?'on':''}" onclick="homeSetTaskFilter('due')"><span style="width:7px;height:7px;border-radius:50%;background:#E08C16"></span>ใกล้ครบกำหนด ${taskCounts.due}</div>
-          <div class="hd-chip ${tf==='review'?'on':''}" onclick="homeSetTaskFilter('review')"><span style="width:7px;height:7px;border-radius:50%;background:#5468FF"></span>รอตรวจสอบ ${taskCounts.review}</div>
-        </div>
-        <div style="display:flex;flex-direction:column;gap:10px;margin-top:16px">
-          ${visTasks.map(t=>`<div class="hd-task" onclick="setTool('${t.tool}')">
-            <span style="width:4px;align-self:stretch;border-radius:3px;background:${t.priColor};flex:none"></span>
-            <div style="flex:1;min-width:0">
-              <div style="font-size:15px;font-weight:500">${esc(t.title)}</div>
-              <div style="display:flex;align-items:center;gap:14px;margin-top:6px;font-size:12.5px;color:var(--ink3)">
-                <span style="display:inline-flex;align-items:center;gap:5px;color:${t.dueColor};font-weight:500"><i data-lucide="clock" style="width:13px;height:13px"></i>${t.due}</span>
-                <span style="display:inline-flex;align-items:center;gap:6px"><span style="width:18px;height:18px;border-radius:50%;background:#E6F7F1;color:var(--brand-dark);font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center">${t.oi}</span>${esc(t.owner)}</span>
-              </div>
+        ${PR? `<div style="display:flex;flex-direction:column;gap:8px;margin-top:16px">
+          ${PR.items.slice(0,7).map(it=>`<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px 14px;background:#F8FAFC;border:1px solid #EEF2F7;border-radius:11px">
+            <div style="display:flex;align-items:center;gap:11px;min-width:0">
+              <span style="width:34px;height:34px;border-radius:9px;background:var(--brand-soft);color:var(--brand-dark);display:flex;align-items:center;justify-content:center;flex:none"><i data-lucide="receipt" style="width:17px;height:17px"></i></span>
+              <span style="font-size:14.5px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(it.name)}</span>
             </div>
-            <span style="font-size:12px;font-weight:600;color:${t.priColor};background:${t.priBg};padding:4px 11px;border-radius:999px;white-space:nowrap;flex:none">${t.pri}</span>
-            <i data-lucide="chevron-right" style="width:18px;height:18px;color:#C3CEDC;flex:none"></i>
-          </div>`).join("") || `<div style="padding:24px;text-align:center;color:var(--ink3)">ไม่มีงานในหมวดนี้</div>`}
-        </div>` : ''}
-      </div>
-
-      <div class="hd-card">
-        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;cursor:pointer" onclick="homeToggleProgress()">
-          <div>
-            <div style="font-size:18px;font-weight:700">Progress งานประจำเดือน</div>
-            <div style="font-size:13.5px;color:var(--ink3);margin-top:2px">${thMonth} ${thYear}</div>
-          </div>
-          <div style="display:flex;align-items:center;gap:7px;font-size:13px;color:var(--brand-dark);font-weight:600;background:#E6F7F1;padding:7px 13px;border-radius:9px;flex:none">
-            <span>${state.home.progressOpen?'ซ่อน':'แสดง'}</span><i data-lucide="chevron-${state.home.progressOpen?'up':'down'}" style="width:16px;height:16px"></i>
-          </div>
-        </div>
-        ${state.home.progressOpen ? `<div style="display:flex;flex-direction:column;gap:16px;margin-top:18px">
-          ${progress.map(p=>`<div>
-            <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
-              <div style="display:flex;align-items:center;gap:9px;min-width:0"><span style="width:9px;height:9px;border-radius:50%;background:${p.color};flex:none"></span><span style="font-size:14.5px;font-weight:500">${esc(p.name)}</span></div>
-              <span style="font-size:12px;font-weight:600;color:${p.color};background:${p.bg};padding:3px 10px;border-radius:999px;white-space:nowrap">${p.status}</span>
-            </div>
-            <div style="display:flex;align-items:center;gap:10px;margin-top:8px">
-              <div style="flex:1;height:7px;background:#EEF2F7;border-radius:5px;overflow:hidden"><div style="width:${p.pct}%;height:100%;background:${p.color};border-radius:5px"></div></div>
-              <span class="tnum" style="font-size:12.5px;font-weight:600;color:var(--ink2);width:34px;text-align:right">${p.pct}%</span>
-            </div>
-            <div style="margin-top:6px;font-size:12px;color:var(--ink3)">ล่าสุด ${p.date} · ${esc(p.owner)}</div>
+            <span class="tnum" style="font-size:15px;font-weight:700;flex:none">${fmtB(it.amount)}</span>
           </div>`).join("")}
-        </div>` : `<div style="margin-top:14px;font-size:13px;color:var(--ink3)">กดเพื่อดูความคืบหน้าแต่ละงาน (${progress.length} งาน)</div>`}
-      </div>
+          ${PR.count>7? `<div style="font-size:12.5px;color:var(--ink3);text-align:center;padding-top:2px">และอีก ${PR.count-7} รายการ</div>`:''}
+          <div class="hd-link" style="margin-top:8px;color:var(--brand-dark)" onclick="setTool('cashflow')">ดูรายละเอียดทั้งหมดใน Cash Flow Forecast <span>→</span></div>
+        </div>` : `<div style="padding:26px 20px;text-align:center;color:var(--ink3);font-size:13.5px">ยังไม่มีบิลเจ้าหนี้ที่กรอก "วันชำระเงิน"<br>ไปกรอกวันชำระที่หน้า AP Outstanding เพื่อให้ระบบเตือนรอบจ่าย<br><span class="hd-link" style="justify-content:center;color:var(--brand-dark);margin-top:8px" onclick="setTool('ap_outstanding')">ไปหน้า AP Outstanding <span>→</span></span></div>`}
+      </div>`;})()}
+
+      ${(()=>{
+        const stale = !S.lastBalDate || S.lastBalDate < todayISO;
+        const msg = S.lastBalDate
+          ? `ยอดเงินในบัญชีอัปล่าสุด <b>${thDY(S.lastBalDate)}</b>${stale?' — ควรอัปยอด STM ของวันนี้ให้ครบทุกบัญชี เพื่อให้ประมาณการกระแสเงินสดแม่นยำ':' — เป็นปัจจุบันแล้ววันนี้'}`
+          : `ยังไม่พบการบันทึกยอดเงินในบัญชี — เริ่มอัปยอด STM ลงระบบวันนี้`;
+        return `<div style="display:flex;flex-direction:column;gap:14px">
+        <div class="hd-card" style="border:1px solid ${stale?'#F7D6DB':'#CDEBDF'};background:${stale?'#FEF6F6':'#F1FBF6'}">
+          <div style="display:flex;align-items:flex-start;gap:13px">
+            <span style="width:44px;height:44px;border-radius:12px;background:${stale?'#FDECEC':'#E6F7F1'};color:${stale?'#DC2626':'var(--brand-dark)'};display:flex;align-items:center;justify-content:center;flex:none"><i data-lucide="${stale?'alert-triangle':'check-circle'}"></i></span>
+            <div style="min-width:0">
+              <div style="font-size:15.5px;font-weight:700">${stale?'ถึงเวลาอัปยอด STM ลงระบบ':'ยอด STM เป็นปัจจุบันแล้ว'}</div>
+              <div style="font-size:13px;color:var(--ink2);margin-top:5px;line-height:1.55">${msg}</div>
+              <div class="hd-link" style="margin-top:12px;color:${stale?'#DC2626':'var(--brand-dark)'}" onclick="setTool('bank_balance')">ไปอัปยอดเงินในบัญชี <span>→</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="hd-card" style="display:flex;align-items:center;gap:13px;padding:16px 18px;cursor:pointer" onclick="setTool('bankrec')">
+          <span style="width:44px;height:44px;border-radius:12px;background:#EEF0FF;color:#5468FF;display:flex;align-items:center;justify-content:center;flex:none"><i data-lucide="file-up"></i></span>
+          <div style="min-width:0"><div style="font-size:14.5px;font-weight:600">อัปสเตทเมนต์เพื่อกระทบยอด</div><div style="font-size:12.5px;color:var(--ink3);margin-top:2px">Bank Reconciliation · Express ↔ Statement</div></div>
+        </div>
+      </div>`;})()}
     </div>
 
     <!-- CASH FLOW -->

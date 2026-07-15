@@ -13518,6 +13518,16 @@ function apstParseBankNote(note){
   return { bank_code:bankCode, bank_name:bankCode?apstBankName(bankCode):null, account_no:acct, account_type:typeStr, raw:note };
 }
 
+/* วันที่ ISO ที่ valid เท่านั้น (bmpThaiDate อาจได้ "2026-06-00" จากวันที่ในรายงานที่ถูกตัดหลักหน้า) */
+function apstValidDate(iso){
+  const m=String(iso||"").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if(!m) return null;
+  const y=+m[1], mo=+m[2], da=+m[3];
+  if(mo<1||mo>12||da<1||da>31) return null;
+  return iso;
+}
+function apstThai(s){ return apstValidDate(bmpThaiDate(s)); }
+
 /* ---- parse รายงานจ่ายชำระหนี้ (Express CSV) → vouchers[] ---- */
 function apstParsePaymentReport(text){
   const rows = bmpParseCsvText(text);
@@ -13528,24 +13538,24 @@ function apstParsePaymentReport(text){
     if(c1==="รวมทั้งสิ้น" || /^รวม/.test(c3)) break;
     if(/^PS/i.test(c3)){                                   // PS header
       cur = {
-        ps_no:c3, pay_date:bmpThaiDate(c1), cancelled:(c2==="*"),
+        ps_no:c3, pay_date:apstThai(c1), cancelled:(c2==="*"),
         vendor:cell(r,4), gross:apstNum(cell(r,10)), net:apstNum(cell(r,13)),
         discount:apstNum(cell(r,16)), note:cell(r,18),
-        cheque_no:cell(r,19), cheque_date:bmpThaiDate(cell(r,20)),
+        cheque_no:cell(r,19), cheque_date:apstThai(cell(r,20)),
         bank_label:cell(r,21), status:cell(r,22), details:[]
       };
       vouchers.push(cur); continue;
     }
     if(!cur) continue;
     if(c5 && /^[A-Zก-๙]{1,3}\d{4,}/.test(c5)){             // detail (ใบรับ RR/RW/AC)
-      cur.details.push({ doc:c5, date:bmpThaiDate(cell(r,6)), ref:cell(r,7),
+      cur.details.push({ doc:c5, date:apstThai(cell(r,6)), ref:cell(r,7),
                          amount:apstNum(cell(r,8)), note:cell(r,11) });
       continue;
     }
     if(!c3 && !c5){                                        // continuation (เช็ค/ธนาคารมาบรรทัดถัดไป)
       const bk=cell(r,21);
       if(bk){ cur.bank_label=bk; cur.status=cell(r,22)||cur.status;
-              cur.cheque_date=bmpThaiDate(cell(r,20))||cur.cheque_date;
+              cur.cheque_date=apstThai(cell(r,20))||cur.cheque_date;
               const q=cell(r,19); if(q) cur.cheque_no=q; }
     }
   }
@@ -13718,7 +13728,7 @@ async function apstCommit(){
           usedNos.add(apstDocKey(no));
           const { data:ni, error:ie } = await sb.from("ap_invoices").insert({
             company_id:cid, vendor_id:vendor?vendor.id:null, vendor_name_raw:v.vendor||null,
-            invoice_no:no, invoice_date:d.date||payDate, due_date:d.date||payDate,
+            invoice_no:no, invoice_date:payDate, due_date:payDate,
             amount_total:d.amount, category:apoClassify(d.note||v.note, v.vendor, d.doc),
             remark:[d.note||v.note, "Express:"+d.doc].filter(Boolean).join(" · "), created_by:uid
           }).select("id,invoice_no").single();

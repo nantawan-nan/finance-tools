@@ -13418,7 +13418,7 @@ async function renderToolApOutstanding(){
       </div>
 
       <div id="apoBulkBar"></div>
-      <div id="apoTableContainer">${apoBuildTable(inv, enriched, canWrite, today)}</div>
+      <div id="apoTableContainer" style="overflow-x:auto;max-width:100%">${apoBuildTable(inv, enriched, canWrite, today)}</div>
 
       <div class="soon-note">
         <b>วันชำระเงิน</b> = วันที่ จนท. กำหนดจะจ่าย (กรอกในตารางได้เลย) — ใช้เป็น filter ใน Cash Flow Forecast<br>
@@ -13795,16 +13795,13 @@ async function apstUndoImport(){
   const cid=await fopCompanyId(); if(!cid) return;
   if(!confirm("ล้างการนำเข้ารายงานจ่ายทั้งหมด?\n\n• ลบใบสำคัญจ่าย (PS) + รายการจ่ายที่มาจากรายงาน\n• บิลที่ถูกจับคู่ → กลับเป็น \"ค้างจ่าย\"\n• บิลที่สร้างจากรายงาน → ลบทิ้ง\n\nใช้เมื่อนำเข้าผิดไฟล์แล้วอยากเริ่มใหม่ (แล้วค่อยอัปไฟล์ที่แก้แล้ว)")) return;
   try{
+    // ★ อิง pv_no (ไม่ใช่ voucher active) → ล้างครบแม้ voucher เคยถูกลบไปแล้ว (orphan payment)
+    const { data:pays } = await sb.from("ap_payments").select("id,ap_invoice_id,receipt_no")
+      .eq("company_id",cid).is("deleted_at",null).not("pv_no","is",null);
     const { data:vous } = await sb.from("ap_payment_vouchers").select("id").eq("company_id",cid).is("deleted_at",null);
     const vids=(vous||[]).map(v=>v.id);
-    if(!vids.length){ alert("ไม่มีการนำเข้ารายงานจ่ายให้ล้าง"); return; }
-    let pays=[];
-    for(let i=0;i<vids.length;i+=80){
-      const { data } = await sb.from("ap_payments").select("id,ap_invoice_id,receipt_no")
-        .eq("company_id",cid).is("deleted_at",null).in("voucher_id",vids.slice(i,i+80));
-      pays=pays.concat(data||[]);
-    }
-    const invIds=[...new Set(pays.map(p=>p.ap_invoice_id).filter(Boolean))];
+    if(!(pays&&pays.length) && !vids.length){ alert("ไม่มีการนำเข้ารายงานจ่ายให้ล้าง"); return; }
+    const invIds=[...new Set((pays||[]).map(p=>p.ap_invoice_id).filter(Boolean))];
     const invNoById={};
     for(let i=0;i<invIds.length;i+=200){
       const { data } = await sb.from("ap_invoices").select("id,invoice_no").in("id",invIds.slice(i,i+200));
@@ -13820,19 +13817,16 @@ async function apstUndoImport(){
         createdInvIds.add(p.ap_invoice_id);
     }
     const uid=AUTH.user?AUTH.user.id:null, now=new Date().toISOString();
-    for(let i=0;i<vids.length;i+=80){
-      const { error } = await sb.from("ap_payments").update({deleted_at:now,deleted_by:uid})
-        .in("voucher_id",vids.slice(i,i+80)).is("deleted_at",null);
-      if(error) throw error;
-    }
+    // ล้าง payment ทั้งหมดที่มาจากรายงาน (pv_no != null) ทีเดียว — ครอบ orphan ด้วย
+    { const { error } = await sb.from("ap_payments").update({deleted_at:now,deleted_by:uid})
+        .eq("company_id",cid).is("deleted_at",null).not("pv_no","is",null);
+      if(error) throw error; }
     const cInv=[...createdInvIds];
     for(let i=0;i<cInv.length;i+=150){
       await sb.from("ap_invoices").update({deleted_at:now,deleted_by:uid,status:"void"}).in("id",cInv.slice(i,i+150));
     }
-    for(let i=0;i<vids.length;i+=80){
-      await sb.from("ap_payment_vouchers").update({deleted_at:now,deleted_by:uid}).in("id",vids.slice(i,i+80));
-    }
-    alert(`ล้างแล้ว ✓\n• PS: ${vids.length}\n• รายการจ่าย: ${pays.length}\n• บิลที่สร้างจากรายงาน (ลบทิ้ง): ${cInv.length}\n\nบิลที่ถูกจับคู่กลับเป็น \"ค้างจ่าย\" แล้ว — นำเข้าไฟล์ที่แก้แล้วได้เลย`);
+    if(vids.length){ await sb.from("ap_payment_vouchers").update({deleted_at:now,deleted_by:uid}).eq("company_id",cid).is("deleted_at",null); }
+    alert(`ล้างแล้ว ✓\n• PS: ${vids.length}\n• รายการจ่าย: ${(pays||[]).length}\n• บิลที่สร้างจากรายงาน (ลบทิ้ง): ${cInv.length}\n\nบิลที่ถูกจับคู่กลับเป็น \"ค้างจ่าย\" แล้ว — นำเข้าไฟล์ที่แก้แล้วได้เลย`);
     state.apo[state.company]=null;
     apstRenderTab("paid");
   }catch(e){ alert("ล้างไม่สำเร็จ: "+fopErr(e)); }

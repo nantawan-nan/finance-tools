@@ -13698,9 +13698,10 @@ async function apstCommit(){
   try{
     const cid=imp.cid || await fopCompanyId();
     const accounts=apoGet().accounts || await fopLoadAccounts(cid);
-    // เลขบิลที่ใช้ไปแล้ว "ทั้งหมด" รวมบิลที่ soft-delete (unique constraint ครอบด้วย) กันชนตอนสร้างบิลใหม่
-    const { data:allNos } = await sb.from("ap_invoices").select("invoice_no").eq("company_id",cid);
-    const usedNos=new Set((allNos||[]).map(x=>apstDocKey(x.invoice_no)));
+    // บิล "ทั้งหมด" รวมที่ soft-delete (unique ครอบด้วย) → ถ้าชนบิลที่ถูกลบ ให้คืนชีพแทนสร้างใหม่ (กันบิลซ้ำพอก)
+    const { data:allInv } = await sb.from("ap_invoices").select("id,invoice_no,deleted_at").eq("company_id",cid);
+    const allByNo={};
+    (allInv||[]).forEach(x=>{ allByNo[apstDocKey(x.invoice_no)]={id:x.id, deleted:!!x.deleted_at}; });
     const uid=AUTH.user?AUTH.user.id:null;
     let nVou=0,nPay=0,nInv=0;
     for(const v of imp.vouchers){
@@ -13716,7 +13717,8 @@ async function apstCommit(){
         vendor_name:v.vendor||null, gross_amount:v.gross, net_amount:v.net, discount_amount:v.discount,
         bank_label:v.bank_label||null, bank_account_id:bankAcctId, cheque_no:v.cheque_no||null,
         cheque_date:v.cheque_date, cheque_status:v.status||null, pay_method:method, note:v.note||null,
-        source:"payment_report", updated_by:uid, created_by:uid
+        source:"payment_report", updated_by:uid, created_by:uid,
+        deleted_at:null, deleted_by:null      // ★ คืนชีพ voucher ที่เคยถูกล้าง (upsert by ps_no เจอตัวเก่าที่ soft-delete)
       },{ onConflict:"company_id,ps_no" }).select("id").single();
       if(ve) throw ve;
       nVou++;
@@ -13726,27 +13728,29 @@ async function apstCommit(){
         let inv=apstMatchDoc(d.doc, imp.invMap);
         if(inv && inv.status==="paid"){ imp.existKeys.add(key); continue; }  // จ่ายอยู่แล้ว → ข้าม
         if(!inv){
-          let no=d.doc, k=2; while(usedNos.has(apstDocKey(no))){ no=d.doc+"-"+k; k++; }
-          // insert + retry เติม suffix ถ้าเลขบิลชน (unique ครอบบิลที่ soft-delete ด้วย)
-          let ni=null, lastErr=null;
-          for(let attempt=0; attempt<8; attempt++){
-            const res = await sb.from("ap_invoices").insert({
-              company_id:cid, vendor_id:vendor?vendor.id:null, vendor_name_raw:v.vendor||null,
-              invoice_no:no, invoice_date:payDate, due_date:payDate,
-              amount_total:d.amount, category:apoClassify(d.note||v.note, v.vendor, d.doc),
-              remark:[d.note||v.note, "Express:"+d.doc].filter(Boolean).join(" · "), created_by:uid
-            }).select("id,invoice_no").single();
-            if(!res.error){ ni=res.data; break; }
-            lastErr=res.error;
-            if(/duplicate key|23505|unique constraint/i.test(res.error.message||"")){
-              usedNos.add(apstDocKey(no)); no=d.doc+"-"+(k++); continue;
-            }
-            break;
+          const fields={
+            company_id:cid, vendor_id:vendor?vendor.id:null, vendor_name_raw:v.vendor||null,
+            invoice_date:payDate, due_date:payDate, amount_total:d.amount,
+            category:apoClassify(d.note||v.note, v.vendor, d.doc),
+            remark:[d.note||v.note, "Express:"+d.doc].filter(Boolean).join(" · ")
+          };
+          const baseKey=apstDocKey(d.doc);
+          const hit=allByNo[baseKey];
+          let ni=null;
+          if(hit && hit.deleted){
+            // เลขบิลนี้เคยถูกลบไว้ → คืนชีพ + ปรับข้อมูล (ไม่สร้างเลขใหม่พอก -2 -3)
+            const res=await sb.from("ap_invoices").update({...fields, invoice_no:d.doc, deleted_at:null, deleted_by:null, status:"open", updated_by:uid}).eq("id",hit.id).select("id,invoice_no").single();
+            if(res.error) throw res.error;
+            ni=res.data; allByNo[baseKey]={id:ni.id, deleted:false};
+          } else {
+            // ไม่ชน หรือชนตัว active (rare) → insert · เติม suffix เฉพาะกรณีชน active จริง
+            let no=d.doc, k=2; while(allByNo[apstDocKey(no)] && !allByNo[apstDocKey(no)].deleted){ no=d.doc+"-"+(k++); }
+            const res=await sb.from("ap_invoices").insert({...fields, invoice_no:no, created_by:uid}).select("id,invoice_no").single();
+            if(res.error) throw res.error;
+            ni=res.data; allByNo[apstDocKey(ni.invoice_no)]={id:ni.id, deleted:false};
           }
-          if(!ni) throw lastErr;
-          usedNos.add(apstDocKey(ni.invoice_no));
           inv={id:ni.id, invoice_no:ni.invoice_no, status:"open"};
-          imp.invMap[apstDocKey(d.doc)]=inv;
+          imp.invMap[baseKey]=inv;
           nInv++;
         }
         const { error:pe } = await sb.from("ap_payments").insert({

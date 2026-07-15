@@ -184,6 +184,15 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-15 (2) — ★ แก้ db-migrate แดงค้างตั้งแต่ 29 มิ.ย. (index จับคู่ 1:1 เก่า ขัดกับ M-to-N)
+- **อาการ:** `db-migrate` workflow แดงทุก push ตั้งแต่ commit `8780e49` (29 มิ.ย.) → บดบังว่า migration ใหม่ลงจริงไหม (เขียวมาก่อน 28 ครั้ง · run เขียวสุดท้าย `f4b0911`)
+- **หา culprit:** annotations API ให้แค่ "exit code 1" · เพิ่ม `echo "::error title=... ::$ERRMSG"` ต่อไฟล์ที่ fail ใน `migrate.yml` → อ่านผ่าน check-runs annotations API (public) ได้ชื่อไฟล์+error จริง (เก็บ diagnostic นี้ไว้ถาวร)
+- **error จริง:** `bankrec-phase1.sql` → `could not create unique index uq_brec_match_express DETAIL: Key (express_row_id)=(...) is duplicated` (23505)
+- **root:** `uq_brec_match_express`/`uq_brec_match_bank` (UNIQUE บน express_row_id/bank_row_id เดี่ยว = จับคู่ 1:1) **ขัดกับฟีเจอร์ M-to-N matching** (2026-06-28 · 1 Express ↔ หลาย Bank group match ใส่ brec_matches หลายแถว/express) → พอ user เริ่มใช้ group match ~29 มิ.ย. → express_row_id ซ้ำ → CREATE UNIQUE INDEX fail ทุก run
+- **แก้:** `bankrec-phase1.sql` เปลี่ยน CREATE 2 ตัวนั้นเป็น **`DROP INDEX IF EXISTS`** (index เดี่ยวล้าสมัย · ความถูกต้องคู่คุมด้วย `uq_brec_match_pair (express_row_id,bank_row_id)` จาก `zz-bankrec-multi-match.sql` อยู่แล้ว) · เสริม `bankrec-phase-a-stable-key.sql` mark dup ค้างเป็น ambiguous + ห่อ CREATE UNIQUE INDEX ด้วย EXCEPTION (กันเคส edge)
+- **ผล:** migrate เขียวแล้ว (commit `ba79c06`) → ยืนยัน `zz-ap-payment-settlement.sql` (ฟีเจอร์ AP ข้างล่าง) ลงจริงครบ
+- **บทเรียน:** เพิ่มฟีเจอร์ M:N อย่าลืมถอด unique 1:1 เก่า · unique index บนตาราง user-data ควรห่อ `EXCEPTION` เหมือนไฟล์อื่นทั้ง repo (กัน migrate ทั้ง run แดงเพราะ data)
+
 ### 2026-07-15 — ★ AP: นำเข้ารายงานจ่ายชำระหนี้ → mark จ่ายแล้ว + แท็บ "จ่ายแล้ว/ตั้งโอน/ทะเบียนบัญชี" (โมดูล `apst*`)
 - **เจ้าของขอ:** การเงินอัปรายงานจ่ายชำระหนี้ (Express CSV) → ระบบอ่านว่า AP ตัวไหนจ่ายแล้ว (วันไหน/แบงค์ไหน/PS ไหน/RR ไหน) → ยืนยัน → ย้ายไปแท็บ "จ่ายแล้ว" (เห็นว่า 1 PS จ่ายกี่ RR) + ฟังก์ชัน **ตั้งโอน** (ดึงเลขบัญชีผู้รับ + ยอด + หมายเหตุ → ส่งออก/ก๊อปให้การเงินตั้งโอน)
 - **หน้า AP เป็น 4 แท็บ** (`apstTabBarHtml` · `apoSetTab` · `apoGet().tab`): เจ้าหนี้คงค้าง (เดิม) · **จ่ายแล้ว** (`apstRenderPaid`) · **ตั้งโอน** (`apstRenderTransfer`) · **ทะเบียนบัญชีผู้รับเงิน** (`apstRenderRegistry`) · แท็บใหม่โหลดข้อมูลเอง (`apstRenderTab` dispatch · renderToolApOutstanding = แท็บคงค้างล้วน · ตั้ง `d.tab='outstanding'`)

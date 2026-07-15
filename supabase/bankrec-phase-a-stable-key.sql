@@ -112,16 +112,49 @@ EXCEPTION WHEN OTHERS THEN
   RAISE NOTICE 'duplicate cleanup skipped: %', SQLERRM;
 END $$;
 
+-- 2b) Safety net: ถ้า cleanup ข้างบน abort กลางคัน (เช่น redirect match ชน unique(brec_matches))
+--     → ยังเหลือแถว stable-key ซ้ำ ที่ทำให้ CREATE UNIQUE INDEX ข้างล่าง fail ทุก run
+--     mark แถวซ้ำที่เหลือเป็น ambiguous=true (partial index มี WHERE ambiguous=false → สร้างได้)
+--     ★ ตรงกับ design ของไฟล์นี้ (รายการซ้ำจริง = ambiguous ให้ user ตัดสินเอง) · ไม่ลบข้อมูล
+UPDATE brec_express_rows e SET ambiguous = true, updated_at = now()
+ WHERE deleted_at IS NULL AND ambiguous = false
+   AND EXISTS (
+     SELECT 1 FROM brec_express_rows e2
+      WHERE e2.deleted_at IS NULL AND e2.ambiguous = false AND e2.id <> e.id
+        AND e2.bank_account_id = e.bank_account_id
+        AND e2.txn_date = e.txn_date
+        AND e2.withdrawal = e.withdrawal
+        AND e2.deposit = e.deposit
+        AND COALESCE(e2.doc_no,'') = COALESCE(e.doc_no,'')
+   );
+UPDATE brec_bank_rows b SET ambiguous = true, updated_at = now()
+ WHERE deleted_at IS NULL AND ambiguous = false
+   AND EXISTS (
+     SELECT 1 FROM brec_bank_rows b2
+      WHERE b2.deleted_at IS NULL AND b2.ambiguous = false AND b2.id <> b.id
+        AND b2.bank_account_id = b.bank_account_id
+        AND b2.txn_date = b.txn_date
+        AND b2.withdrawal = b.withdrawal
+        AND b2.deposit = b.deposit
+        AND COALESCE(b2.cheque_no,'') = COALESCE(b.cheque_no,'')
+        AND COALESCE(b2.ref_note,'') = COALESCE(b.ref_note,'')
+   );
+
 -- 3) Unique partial index — ป้องกัน insert ซ้ำที่ระดับ DB
 --    เงื่อนไข: WHERE deleted_at IS NULL AND ambiguous = false
 --    → soft-delete แล้ว insert ใหม่ได้ · ambiguous เก็บได้หลายแถว
-CREATE UNIQUE INDEX IF NOT EXISTS uniq_brec_ex_stable
-  ON brec_express_rows (bank_account_id, txn_date, withdrawal, deposit, COALESCE(doc_no,''))
-  WHERE deleted_at IS NULL AND ambiguous = false;
+--    ★ ห่อ EXCEPTION เหมือน unique index อื่นทั้ง repo — กัน migrate ทั้ง run แดงถ้ายังเหลือ dup edge
+DO $$ BEGIN
+  EXECUTE 'CREATE UNIQUE INDEX IF NOT EXISTS uniq_brec_ex_stable
+    ON brec_express_rows (bank_account_id, txn_date, withdrawal, deposit, COALESCE(doc_no,''''))
+    WHERE deleted_at IS NULL AND ambiguous = false';
+EXCEPTION WHEN OTHERS THEN RAISE NOTICE 'uniq_brec_ex_stable skipped: %', SQLERRM; END $$;
 
-CREATE UNIQUE INDEX IF NOT EXISTS uniq_brec_bk_stable
-  ON brec_bank_rows (bank_account_id, txn_date, withdrawal, deposit, COALESCE(cheque_no,''), COALESCE(ref_note,''))
-  WHERE deleted_at IS NULL AND ambiguous = false;
+DO $$ BEGIN
+  EXECUTE 'CREATE UNIQUE INDEX IF NOT EXISTS uniq_brec_bk_stable
+    ON brec_bank_rows (bank_account_id, txn_date, withdrawal, deposit, COALESCE(cheque_no,''''), COALESCE(ref_note,''''))
+    WHERE deleted_at IS NULL AND ambiguous = false';
+EXCEPTION WHEN OTHERS THEN RAISE NOTICE 'uniq_brec_bk_stable skipped: %', SQLERRM; END $$;
 
 -- 4) Optional: index สำหรับ query ambiguous เร็ว
 CREATE INDEX IF NOT EXISTS idx_brec_ex_ambig

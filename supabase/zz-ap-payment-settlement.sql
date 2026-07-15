@@ -54,3 +54,5 @@ GRANT ALL ON ap_payment_vouchers TO authenticated;
 GRANT ALL ON ap_payment_vouchers TO service_role;
 
 NOTIFY pgrst, 'reload schema';
+
+-- (diagnostic trigger: surface failing migration file in step summary)

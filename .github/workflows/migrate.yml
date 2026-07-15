@@ -46,8 +46,10 @@ jobs:
               echo "✅ $FILE — สำเร็จ"
               jq -r 'if type=="array" then last | to_entries[] | "   \(.key): \(.value)" else . end' /tmp/res.json 2>/dev/null || true
             else
+              ERRMSG=$(jq -r '.message // .error // .' /tmp/res.json 2>/dev/null | head -c 400)
               echo "❌ $FILE — ล้มเหลว (HTTP $RESPONSE)"
-              jq -r '.message // .error // .' /tmp/res.json 2>/dev/null || cat /tmp/res.json
+              echo "$ERRMSG"
+              echo "- ❌ \`$FILE\` (HTTP $RESPONSE) — $ERRMSG" >> "$GITHUB_STEP_SUMMARY"
               ALL_OK=false
             fi
           done

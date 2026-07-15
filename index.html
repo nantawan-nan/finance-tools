@@ -13698,7 +13698,9 @@ async function apstCommit(){
   try{
     const cid=imp.cid || await fopCompanyId();
     const accounts=apoGet().accounts || await fopLoadAccounts(cid);
-    const usedNos=new Set(Object.values(imp.invMap).map(x=>apstDocKey(x.invoice_no)));
+    // เลขบิลที่ใช้ไปแล้ว "ทั้งหมด" รวมบิลที่ soft-delete (unique constraint ครอบด้วย) กันชนตอนสร้างบิลใหม่
+    const { data:allNos } = await sb.from("ap_invoices").select("invoice_no").eq("company_id",cid);
+    const usedNos=new Set((allNos||[]).map(x=>apstDocKey(x.invoice_no)));
     const uid=AUTH.user?AUTH.user.id:null;
     let nVou=0,nPay=0,nInv=0;
     for(const v of imp.vouchers){
@@ -13725,14 +13727,24 @@ async function apstCommit(){
         if(inv && inv.status==="paid"){ imp.existKeys.add(key); continue; }  // จ่ายอยู่แล้ว → ข้าม
         if(!inv){
           let no=d.doc, k=2; while(usedNos.has(apstDocKey(no))){ no=d.doc+"-"+k; k++; }
-          usedNos.add(apstDocKey(no));
-          const { data:ni, error:ie } = await sb.from("ap_invoices").insert({
-            company_id:cid, vendor_id:vendor?vendor.id:null, vendor_name_raw:v.vendor||null,
-            invoice_no:no, invoice_date:payDate, due_date:payDate,
-            amount_total:d.amount, category:apoClassify(d.note||v.note, v.vendor, d.doc),
-            remark:[d.note||v.note, "Express:"+d.doc].filter(Boolean).join(" · "), created_by:uid
-          }).select("id,invoice_no").single();
-          if(ie) throw ie;
+          // insert + retry เติม suffix ถ้าเลขบิลชน (unique ครอบบิลที่ soft-delete ด้วย)
+          let ni=null, lastErr=null;
+          for(let attempt=0; attempt<8; attempt++){
+            const res = await sb.from("ap_invoices").insert({
+              company_id:cid, vendor_id:vendor?vendor.id:null, vendor_name_raw:v.vendor||null,
+              invoice_no:no, invoice_date:payDate, due_date:payDate,
+              amount_total:d.amount, category:apoClassify(d.note||v.note, v.vendor, d.doc),
+              remark:[d.note||v.note, "Express:"+d.doc].filter(Boolean).join(" · "), created_by:uid
+            }).select("id,invoice_no").single();
+            if(!res.error){ ni=res.data; break; }
+            lastErr=res.error;
+            if(/duplicate key|23505|unique constraint/i.test(res.error.message||"")){
+              usedNos.add(apstDocKey(no)); no=d.doc+"-"+(k++); continue;
+            }
+            break;
+          }
+          if(!ni) throw lastErr;
+          usedNos.add(apstDocKey(ni.invoice_no));
           inv={id:ni.id, invoice_no:ni.invoice_no, status:"open"};
           imp.invMap[apstDocKey(d.doc)]=inv;
           nInv++;

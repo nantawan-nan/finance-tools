@@ -130,13 +130,12 @@ CREATE TABLE IF NOT EXISTS brec_matches (
   deleted_by      uuid,
   version         int NOT NULL DEFAULT 1
 );
--- กันคู่ซ้ำ — แต่ละ row จับคู่ได้ครั้งเดียว
-CREATE UNIQUE INDEX IF NOT EXISTS uq_brec_match_express
-  ON brec_matches (express_row_id)
-  WHERE express_row_id IS NOT NULL AND deleted_at IS NULL;
-CREATE UNIQUE INDEX IF NOT EXISTS uq_brec_match_bank
-  ON brec_matches (bank_row_id)
-  WHERE bank_row_id IS NOT NULL AND deleted_at IS NULL;
+-- ★ เดิม: UNIQUE(express_row_id) + UNIQUE(bank_row_id) = จับคู่ 1:1 เท่านั้น
+--   M-to-N matching (zz-bankrec-multi-match.sql) จับ 1 Express ↔ หลาย Bank (group match)
+--   → index เดี่ยวขัดกับ data ใหม่ → CREATE fail ทุก run (23505 express_row_id ซ้ำ) = migrate แดงค้าง
+--   ความถูกต้องของ "คู่" คุมด้วย uq_brec_match_pair (express_row_id, bank_row_id) แทน
+DROP INDEX IF EXISTS uq_brec_match_express;
+DROP INDEX IF EXISTS uq_brec_match_bank;
 CREATE INDEX IF NOT EXISTS idx_brec_match_acct_date
   ON brec_matches (bank_account_id, txn_date)
   WHERE deleted_at IS NULL;

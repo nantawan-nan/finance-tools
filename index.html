@@ -13026,6 +13026,9 @@ function apoApplyChanges(){
   const countEl = document.getElementById("apoCount");
   if(countEl) countEl.textContent = inv.length + " จาก " + enriched.length + " รายการ";
 
+  const chipsEl = document.getElementById("apoCatChipsWrap");
+  if(chipsEl) chipsEl.innerHTML = apoCatChipsHtml(enriched, d.filter);
+
   const tEl = document.getElementById("apoTableContainer");
   if(tEl) tEl.innerHTML = apoBuildTable(inv, enriched, canWrite, today);
 
@@ -13392,26 +13395,26 @@ async function renderToolApOutstanding(){
         </div>` : ""}
       </div>
 
-      <!-- Filter bar: search ครอบทุกคอลัมน์ + planned + overdue + ล้าง -->
-      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;align-items:center;padding:10px;background:rgba(255,255,255,.5);border:1px solid var(--glass-border);border-radius:9px">
-        <div style="position:relative;flex:1;min-width:240px">
+      <!-- ประเภทเจ้าหนี้ = ชิปด้านบน คลิกได้หลายกล่อง/ล้างทั้งหมด -->
+      <div style="font-size:11.5px;color:var(--ink-3);margin:2px 0 6px;font-weight:600">ประเภทเจ้าหนี้ <span style="font-weight:400">(คลิกเลือกได้หลายอัน)</span></div>
+      <div id="apoCatChipsWrap">${apoCatChipsHtml(enriched, f)}</div>
+
+      <!-- Filter bar: search + planned + overdue + ล้าง -->
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;align-items:center;padding:10px 12px;background:rgba(255,255,255,.5);border:1px solid var(--glass-border);border-radius:9px">
+        <div style="position:relative;flex:1;min-width:240px;max-width:400px">
           <span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--ink-3);font-size:14px;pointer-events:none">🔍</span>
-          <input id="apoSearch" type="text" class="input" placeholder="ค้นหาทุกคอลัมน์ — IV / ผู้ขาย / ประเภท / วันที่ / ยอดเงิน" value="${esc(f.search)}"
+          <input id="apoSearch" type="text" class="input" placeholder="ค้นหา — เลขบิล / ผู้ขาย / วันที่ / ยอดเงิน" value="${esc(f.search)}"
             oninput="apoSetSearch(this.value)" style="width:100%;padding-left:32px;font-size:12.5px">
         </div>
-        <select class="input" onchange="apoSetCatFilter(this.value)" style="font-size:12px;min-width:150px" title="กรองตามประเภท">
-          <option value="all">ทุกประเภท</option>
-          ${APO_CATEGORIES.map(c => `<option value="${esc(c)}" ${(f.colFilters&&Array.isArray(f.colFilters.category)&&f.colFilters.category.length===1&&f.colFilters.category[0]===c)?'selected':''}>${esc(c)}</option>`).join("")}
-        </select>
-        <select class="input" onchange="apoSetFilter('planned', this.value)" style="font-size:12px;min-width:140px">
+        <select class="input" onchange="apoSetFilter('planned', this.value)" style="font-size:12px;width:160px;flex:none">
           <option value="all">วันชำระทั้งหมด</option>
-          <option value="set" ${f.planned==='set'?'selected':''}>กำหนดแล้ว</option>
+          <option value="set" ${f.planned==='set'?'selected':''}>กำหนดวันชำระแล้ว</option>
           <option value="unset" ${f.planned==='unset'?'selected':''}>ยังไม่กำหนด</option>
         </select>
-        <label class="opt" style="font-size:12px"><input type="checkbox" ${f.overdueOnly?'checked':''} onchange="apoSetFilter('overdueOnly', this.checked)">เฉพาะเกินกำหนด</label>
-        <label class="opt" style="font-size:12px" title="เปิดเพื่อดูบิลที่จ่ายครบแล้ว (ปกติซ่อนไว้) · ในโหมดนี้ติ๊กเพื่อยกเลิกการจ่ายได้"><input type="checkbox" ${f.showPaid?'checked':''} onchange="apoSetFilter('showPaid', this.checked)">แสดงที่จ่ายแล้ว</label>
-        <button id="apoClearBtn" class="btn ghost btn sm" onclick="apoClearFilter()" style="${apoHasAnyFilter()?'':'display:none'}">ล้างตัวกรองทั้งหมด</button>
-        <div id="apoCount" style="margin-left:auto;font-size:11.5px;color:var(--ink-3)">${inv.length} จาก ${enriched.length} รายการ</div>
+        <label class="opt" style="font-size:12px;white-space:nowrap"><input type="checkbox" ${f.overdueOnly?'checked':''} onchange="apoSetFilter('overdueOnly', this.checked)">เฉพาะเกินกำหนด</label>
+        <label class="opt" style="font-size:12px;white-space:nowrap" title="เปิดเพื่อดูบิลที่จ่ายครบแล้ว (ปกติซ่อนไว้)"><input type="checkbox" ${f.showPaid?'checked':''} onchange="apoSetFilter('showPaid', this.checked)">แสดงที่จ่ายแล้ว</label>
+        <button id="apoClearBtn" class="btn ghost btn sm" onclick="apoClearFilter()" style="${apoHasAnyFilter()?'':'display:none'};flex:none">ล้างตัวกรองทั้งหมด</button>
+        <div id="apoCount" style="margin-left:auto;font-size:11.5px;color:var(--ink-3);white-space:nowrap">${inv.length} จาก ${enriched.length} รายการ</div>
       </div>
 
       <div id="apoBulkBar"></div>
@@ -13434,6 +13437,20 @@ function apoNum(v){
   if(v == null || v === "") return 0;
   const n = parseFloat(String(v).replace(/[,\s]/g,""));
   return isNaN(n) ? 0 : n;
+}
+
+/* ประเภทเจ้าหนี้ = ชิปด้านบน · multi-select (toggle) · "ทั้งหมด" = ล้าง */
+function apoCatChipsHtml(enriched, f){
+  const sel = (f.colFilters && Array.isArray(f.colFilters.category)) ? f.colFilters.category : [];
+  const counts={};
+  (enriched||[]).forEach(r=>{ const c=r.category||"(ไม่ระบุ)"; counts[c]=(counts[c]||0)+1; });
+  const chip=(active,label,cnt,onclick)=>
+    `<button class="apo-catchip${active?' on':''}" onclick="${onclick}">${esc(label)}${cnt!=null?`<span class="c">${cnt}</span>`:''}</button>`;
+  let html=chip(sel.length===0,"ทั้งหมด",(enriched||[]).length,"apoClearCol('category')");
+  const shown=new Set();
+  APO_CATEGORIES.forEach(c=>{ shown.add(c); html+=chip(sel.includes(c), c, counts[c]||0, `apoToggleColVal('category',${JSON.stringify(c)})`); });
+  Object.keys(counts).forEach(c=>{ if(!shown.has(c)) html+=chip(sel.includes(c), c, counts[c], `apoToggleColVal('category',${JSON.stringify(c)})`); });
+  return `<div class="apo-catchips">${html}</div>`;
 }
 
 /* 8 ประเภท AP — ตามทะเบียนของผู้ใช้ */
@@ -13682,9 +13699,10 @@ function apstShowPreview(){
       <div class="stat warn"><div class="n">${cancelled.length}</div><div class="l">ยกเลิก (ข้าม)</div></div>
     </div>
     <div style="max-height:52vh;overflow:auto;margin-bottom:14px">${body||'<div class="empty">ไม่มีรายการ</div>'}</div>
+    ${!payCount&&active.length?`<div style="font-size:11.5px;color:var(--ink-3);text-align:right;margin-bottom:6px">ทุกรายการนำเข้าแล้ว — กดยืนยันเพื่อซ่อม/แสดงข้อมูล PS ในหน้า "จ่ายแล้ว"</div>`:""}
     <div style="display:flex;gap:8px;justify-content:flex-end">
       <button class="btn ghost" onclick="document.getElementById('fopModal').remove()">ยกเลิก</button>
-      <button id="apstCommitBtn" class="btn" onclick="apstCommit()" ${payCount?"":"disabled"}>ยืนยันบันทึกจ่าย (${payCount})</button>
+      <button id="apstCommitBtn" class="btn" onclick="apstCommit()" ${active.length?"":"disabled"}>${payCount?`ยืนยันบันทึกจ่าย (${payCount})`:"ยืนยัน / ซ่อมข้อมูล"}</button>
     </div>
   </div>`;
   document.body.appendChild(m);
@@ -13836,6 +13854,12 @@ function apstInjectStyle(){
   .apst-in{width:100%;padding:4px 6px;border:1px solid var(--glass-border);border-radius:6px;font-size:12px;background:#fff}
   .apst-chip{padding:5px 11px;border-radius:16px;border:1px solid var(--glass-border);background:rgba(255,255,255,.6);font-size:12px;cursor:pointer;white-space:nowrap}
   .apst-chip.on{background:var(--brand);color:#fff;border-color:var(--brand)}
+  .apo-catchips{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 12px}
+  .apo-catchip{padding:6px 13px;border-radius:16px;border:1px solid var(--glass-border);background:rgba(255,255,255,.65);font-size:12px;font-weight:600;color:var(--ink-2);cursor:pointer;display:inline-flex;align-items:center;gap:6px;transition:.12s;white-space:nowrap}
+  .apo-catchip:hover{border-color:var(--brand)}
+  .apo-catchip.on{background:var(--brand);color:#fff;border-color:var(--brand)}
+  .apo-catchip .c{font-size:10.5px;font-weight:700;background:rgba(0,0,0,.08);padding:1px 7px;border-radius:9px;line-height:1.5}
+  .apo-catchip.on .c{background:rgba(255,255,255,.28)}
   `;
   document.head.appendChild(s);
 }
@@ -13873,6 +13897,17 @@ async function apstRenderTab(tab){
 /* ---- โหลด vouchers + payments (จ่ายแล้ว/ตั้งโอน) ---- */
 async function apstLoadVouchers(){
   const cid=await fopCompanyId(); if(!cid) return {vouchers:[],byVoucher:{},vendors:{}};
+  // ★ self-heal: คืนชีพ voucher ที่ถูก soft-delete แต่ยังมี payment active (เกิดจากล้าง+นำเข้าใหม่ที่ทุกรายการถูกข้าม)
+  try{
+    const { data:ap } = await sb.from("ap_payments").select("voucher_id")
+      .eq("company_id",cid).is("deleted_at",null).not("voucher_id","is",null);
+    const vids=[...new Set((ap||[]).map(p=>p.voucher_id).filter(Boolean))];
+    for(let i=0;i<vids.length;i+=100){
+      const slice=vids.slice(i,i+100);
+      const { data:dead } = await sb.from("ap_payment_vouchers").select("id").in("id",slice).not("deleted_at","is",null);
+      if(dead&&dead.length) await sb.from("ap_payment_vouchers").update({deleted_at:null,deleted_by:null}).in("id",dead.map(x=>x.id));
+    }
+  }catch(e){ /* best-effort */ }
   const [vRes,pRes,venRes]=await Promise.all([
     sb.from("ap_payment_vouchers").select("*").eq("company_id",cid).is("deleted_at",null)
       .order("pay_date",{ascending:false,nullsFirst:false}).order("ps_no"),

@@ -184,6 +184,15 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-15 (3) — AP settlement: fix หน้าจ่ายแล้วว่าง (self-heal voucher) + วันที่/เลขบิลชน + ชิปประเภทเจ้าหนี้
+- **บั๊กจ่ายแล้วว่าง (ต่อ):** ล้างการนำเข้า soft-delete voucher → นำเข้าใหม่ที่ทุกรายการถูกข้าม (existKeys) → ปุ่มยืนยันขึ้น (0) กดไม่ได้ → voucher ไม่ถูกคืนชีพ → จ่ายแล้วว่างตลอด
+  - **`apstLoadVouchers` self-heal:** query payment active → หา voucher ที่ soft-delete แต่มี payment → `deleted_at=null` (ซ่อมเองตอนเปิดแท็บจ่ายแล้ว/ตั้งโอน · ไม่ต้องนำเข้าซ้ำ)
+  - ปุ่มยืนยัน preview: enable เมื่อมี voucher (`active.length`) ไม่ใช่แค่ payCount · label "ยืนยัน / ซ่อมข้อมูล" เมื่อ payCount=0
+  - `apstCommit` voucher upsert +`deleted_at:null` (คืนชีพ) · สร้างบิลชนตัว soft-delete → คืนชีพบิลเดิมแทนเติม -2 (`allByNo` incl deleted)
+- **วันที่ detail ถูกตัดหลักหน้า** (`0/06/2569`→`2026-06-00`) → `apstValidDate`/`apstThai` คืน null ถ้าไม่ valid · สร้างบิลใช้ payDate (วันจ่าย PS)
+- **UI หน้า AP Outstanding:** ประเภทเจ้าหนี้ = **ชิปด้านบน** (`apoCatChipsHtml` · multi-select toggle + "ทั้งหมด"=ล้าง + count) แทน dropdown หัวตาราง · `apoApplyChanges` re-render ชิป (`#apoCatChipsWrap`) · filter bar คุมความกว้าง (search max 400 · select 160 · nowrap) · CSS `.apo-catchip` ใน apstInjectStyle
+- **verify:** syntax OK · boot 0 error · apoCatChipsHtml render ถูก (count/on-state/หมวดนอก list) · ฟังก์ชันโหลดครบ
+
 ### 2026-07-15 (2) — ★ แก้ db-migrate แดงค้างตั้งแต่ 29 มิ.ย. (index จับคู่ 1:1 เก่า ขัดกับ M-to-N)
 - **อาการ:** `db-migrate` workflow แดงทุก push ตั้งแต่ commit `8780e49` (29 มิ.ย.) → บดบังว่า migration ใหม่ลงจริงไหม (เขียวมาก่อน 28 ครั้ง · run เขียวสุดท้าย `f4b0911`)
 - **หา culprit:** annotations API ให้แค่ "exit code 1" · เพิ่ม `echo "::error title=... ::$ERRMSG"` ต่อไฟล์ที่ fail ใน `migrate.yml` → อ่านผ่าน check-runs annotations API (public) ได้ชื่อไฟล์+error จริง (เก็บ diagnostic นี้ไว้ถาวร)

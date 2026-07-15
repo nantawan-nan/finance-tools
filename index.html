@@ -13339,6 +13339,8 @@ async function renderToolApOutstanding(){
   const co = COMPANIES.find(c=>c.id===state.company);
   const main = document.getElementById("main");
   const d = apoGet();
+  d.tab = "outstanding";
+  apstInjectStyle();
   apoSetupClickOutside();
 
   main.innerHTML = `
@@ -13368,6 +13370,7 @@ async function renderToolApOutstanding(){
       <h1>${esc(t.name)} <span class="badge">${esc(co.name)}</span></h1>
       <div class="sub">${esc(t.long)}</div>
     </div>
+    ${apstTabBarHtml("outstanding")}
     <div class="pill-stat" style="margin-bottom:14px">
       <div class="stat out"><div class="n">${fopFmt(totalOut)}</div><div class="l">คงค้างรวม</div></div>
       <div class="stat warn"><div class="n">${fopFmt(totalOverdue)}</div><div class="l">เกินกำหนด</div></div>
@@ -13381,8 +13384,10 @@ async function renderToolApOutstanding(){
         ${canWrite ? `<div style="display:flex;gap:8px;flex-wrap:wrap">
           <input id="apoXmlFile" type="file" accept=".xml" style="display:none" onchange="apoHandleXml(this.files[0])">
           <input id="apoCsvFile" type="file" accept=".csv" style="display:none" onchange="apoHandleCsv(this.files[0])">
+          <input id="apoPayFile" type="file" accept=".csv,.CSV" style="display:none" onchange="apoHandlePaymentReport(this.files[0])">
           <button class="btn ghost btn sm" onclick="document.getElementById('apoXmlFile').click()" title="ไฟล์ Express XML">⬆ Express XML</button>
           <button class="btn ghost btn sm" onclick="document.getElementById('apoCsvFile').click()">⬆ CSV</button>
+          <button class="btn ghost btn sm" onclick="document.getElementById('apoPayFile').click()" title="รายงานการจ่ายชำระหนี้ (CSV) → บันทึกจ่าย + ย้ายไปแท็บจ่ายแล้ว" style="border-color:var(--in);color:var(--in-ink,#0f766e)">⬆ รายงานจ่ายชำระ</button>
           <button class="btn btn sm" onclick="apoOpenAdd()">+ เพิ่มเอง</button>
         </div>` : ""}
       </div>
@@ -13450,6 +13455,612 @@ function apoClassify(remark, vendor, invNo){
   if(/มัดจำ|เบิกล่วงหน้า|เบิกทดรอง|ทดรอง|advance|deposit/.test(t)) return "เงินมัดจำ/เงินเบิกล่วงหน้า";
   if(/ค่าโทร|อินเตอร์เน็ต|truemove|true\b|ais|dtac|ค่าน้ำ|ค่าไฟ|ค่าเช่า|ภาษี|สรรพากร|ประกันสังคม|sso|กองทุน.*สำรอง|กบช|รายเดือน|subscription|license/.test(t)) return "ค่าใช้จ่ายประจำ";
   return "เจ้าหนี้การค้า";  // default
+}
+
+/* ============================================================
+   AP Payment Settlement (จ่ายชำระ) + ตั้งโอน + ทะเบียนบัญชีผู้รับเงิน
+   prefix apst  ·  reuse apo / fop / bmp helpers
+   - นำเข้ารายงานจ่ายชำระหนี้ (PS → RR/RW/AC) → จับคู่ AP / สร้างบิลใหม่ + ทำจ่าย
+   - แท็บ "จ่ายแล้ว" จัดกลุ่มตาม PS · แท็บ "ตั้งโอน" ส่งออกให้การเงิน
+   - ทะเบียนบัญชีผู้รับเงิน seed จากไฟล์ "ผู้จำหน่าย"
+   ============================================================ */
+
+/* ---- ธนาคาร: alias → code · code → ชื่อไทย · code → รหัสโอน 3 หลัก ---- */
+const APST_BANK_ALIAS = {
+  "scb":"SCB","ไทยพาณิชย์":"SCB","ไทยพาณิช":"SCB",
+  "kbank":"KBANK","kbank-sv":"KBANK","kb":"KBANK","กสิกร":"KBANK","กสิกรไทย":"KBANK",
+  "ktb":"KTB","กรุงไทย":"KTB",
+  "bbl":"BBL","กรุงเทพ":"BBL","ธนาคารกรุงเทพ":"BBL",
+  "bay":"BAY","กรุงศรี":"BAY","กรุงศรีอยุธยา":"BAY","krungsri":"BAY",
+  "ttb":"TTB","tmb":"TTB","ทหารไทย":"TTB","ธนชาต":"TTB","ทหารไทยธนชาต":"TTB",
+  "gsb":"GSB","ออมสิน":"GSB",
+  "uob":"UOB","cimb":"CIMB","hsbc":"HSBC","kkp":"KKP","เกียรตินาคิน":"KKP",
+  "tisco":"TISCO","icbc":"ICBC","baac":"BAAC","ธกส":"BAAC","ธ.ก.ส.":"BAAC",
+  "ghb":"GHB","อาคารสงเคราะห์":"GHB","citi":"CITI","อิสลาม":"ISBT","tbank":"TBANK"
+};
+const APST_BANK_MULTIWORD = [["lh bank","LHB"],["lhbank","LHB"],["land and houses","LHB"],
+  ["standard chartered","SCBT"],["mega syariah","MEGA"],["bank mega","MEGA"]];
+const APST_BANK_TH = {SCB:"ไทยพาณิชย์",KBANK:"กสิกรไทย",KTB:"กรุงไทย",BBL:"กรุงเทพ",BAY:"กรุงศรีอยุธยา",
+  TTB:"ทหารไทยธนชาต",GSB:"ออมสิน",UOB:"ยูโอบี",CIMB:"ซีไอเอ็มบี",HSBC:"HSBC",LHB:"แลนด์ แอนด์ เฮ้าส์",
+  KKP:"เกียรตินาคินภัทร",TISCO:"ทิสโก้",ICBC:"ไอซีบีซี",BAAC:"ธ.ก.ส.",GHB:"อาคารสงเคราะห์",ISBT:"อิสลาม",
+  TBANK:"ธนชาต",CITI:"ซิตี้แบงก์",SCBT:"สแตนดาร์ดชาร์เตอร์ด",MEGA:"Bank Mega Syariah"};
+const APST_BANK_CODE3 = {BBL:"002",KBANK:"004",KTB:"006",TTB:"011",SCB:"014",CITI:"017",SCBT:"020",
+  CIMB:"022",UOB:"024",BAY:"025",GSB:"030",HSBC:"031",GHB:"033",BAAC:"034",TBANK:"065",ISBT:"066",
+  TISCO:"067",KKP:"069",ICBC:"070",LHB:"073"};
+function apstBankName(code){ return APST_BANK_TH[String(code||"").toUpperCase()] || code || ""; }
+function apstBankCodeFromName(tok){
+  const t = String(tok||"").toLowerCase().trim().replace(/^ธ\.?/,"").replace(/^ธนาคาร/,"").trim();
+  return APST_BANK_ALIAS[t] || null;
+}
+function apstNum(v){ if(v==null||v==="")return 0; const n=parseFloat(String(v).replace(/[,\s]/g,"")); return isNaN(n)?0:n; }
+
+/* parse หมายเหตุบัญชี เช่น "กสิกรไทย/628-2-03946-8/ออมทรัพย์" · "SCB/420-046586-8" · "708-1-02313-6/กสิกรไทย" */
+function apstParseBankNote(note){
+  note = String(note||"").trim();
+  if(!note) return null;
+  if(/card/i.test(note) || /#/.test(note) || /\d{4}\s\d{4}\s\d{4}\s\d{4}/.test(note))
+    return { flag:"card", raw:note };
+  let bankCode=null, work=note;
+  for(const [al,code] of APST_BANK_MULTIWORD){
+    if(work.toLowerCase().includes(al)){ bankCode=code; work=work.replace(new RegExp(al,"i")," "); break; }
+  }
+  const toks = work.split(/[\/\s]+/).map(s=>s.trim()).filter(Boolean);
+  let acct=null; const typ=[];
+  for(const t of toks){
+    const digits=t.replace(/\D/g,"");
+    const bc=apstBankCodeFromName(t);
+    if(bc && !bankCode){ bankCode=bc; continue; }
+    if(!acct && /^[\d\-]+$/.test(t) && digits.length>=8 && digits.length<=13){ acct=t; continue; }
+    typ.push(t);
+  }
+  if(!acct) return { flag:"noacct", raw:note, bank_code:bankCode, bank_name:bankCode?apstBankName(bankCode):null };
+  const typeStr = typ.filter(x=>!apstBankCodeFromName(x)).join(" ");
+  return { bank_code:bankCode, bank_name:bankCode?apstBankName(bankCode):null, account_no:acct, account_type:typeStr, raw:note };
+}
+
+/* ---- parse รายงานจ่ายชำระหนี้ (Express CSV) → vouchers[] ---- */
+function apstParsePaymentReport(text){
+  const rows = bmpParseCsvText(text);
+  const cell = (r,i)=> (r && r[i]!=null) ? String(r[i]).trim() : "";
+  const vouchers=[]; let cur=null;
+  for(const r of rows){
+    const c1=cell(r,1), c2=cell(r,2), c3=cell(r,3), c5=cell(r,5);
+    if(c1==="รวมทั้งสิ้น" || /^รวม/.test(c3)) break;
+    if(/^PS/i.test(c3)){                                   // PS header
+      cur = {
+        ps_no:c3, pay_date:bmpThaiDate(c1), cancelled:(c2==="*"),
+        vendor:cell(r,4), gross:apstNum(cell(r,10)), net:apstNum(cell(r,13)),
+        discount:apstNum(cell(r,16)), note:cell(r,18),
+        cheque_no:cell(r,19), cheque_date:bmpThaiDate(cell(r,20)),
+        bank_label:cell(r,21), status:cell(r,22), details:[]
+      };
+      vouchers.push(cur); continue;
+    }
+    if(!cur) continue;
+    if(c5 && /^[A-Zก-๙]{1,3}\d{4,}/.test(c5)){             // detail (ใบรับ RR/RW/AC)
+      cur.details.push({ doc:c5, date:bmpThaiDate(cell(r,6)), ref:cell(r,7),
+                         amount:apstNum(cell(r,8)), note:cell(r,11) });
+      continue;
+    }
+    if(!c3 && !c5){                                        // continuation (เช็ค/ธนาคารมาบรรทัดถัดไป)
+      const bk=cell(r,21);
+      if(bk){ cur.bank_label=bk; cur.status=cell(r,22)||cur.status;
+              cur.cheque_date=bmpThaiDate(cell(r,20))||cur.cheque_date;
+              const q=cell(r,19); if(q) cur.cheque_no=q; }
+    }
+  }
+  return vouchers;
+}
+
+/* ---- helpers: normalize ชื่อ / doc / จับคู่ ---- */
+function apstNormName(s){
+  return String(s||"").replace(/\s+/g,"")
+    .replace(/บริษัท|จำกัด|\(มหาชน\)|มหาชน|ห้างหุ้นส่วนจำกัด|ห้างหุ้นส่วน|หจก\.?|บจก\.?|นางสาว|นาง|นาย|คุณ|น\.ส\.|ดร\.|ด\.ญ\.|ด\.ช\./g,"")
+    .toLowerCase();
+}
+function apstDocKey(s){ return String(s||"").replace(/\s/g,"").toUpperCase(); }
+function apstBuildInvMap(invoices){
+  const m={};
+  for(const inv of invoices){
+    if(inv.invoice_no) m[apstDocKey(inv.invoice_no)] = {id:inv.id,invoice_no:inv.invoice_no,status:inv.status,outstanding:Number(inv.amount_outstanding||0)};
+    const rm=(inv.remark||"").match(/Express:\s*([^\s·|]+)/i);
+    if(rm){ const k=apstDocKey(rm[1]); if(!m[k]) m[k]={id:inv.id,invoice_no:inv.invoice_no,status:inv.status,outstanding:Number(inv.amount_outstanding||0)}; }
+  }
+  return m;
+}
+function apstMatchDoc(doc, invMap){ return invMap[apstDocKey(doc)] || null; }
+function apstBuildVendorReg(vendors){
+  const byName={}, byCode={};
+  for(const v of vendors){ const k=apstNormName(v.name); if(k && !byName[k]) byName[k]=v; if(v.external_code) byCode[v.external_code]=v; }
+  return { byName, byCode, list:vendors };
+}
+function apstMatchVendor(name, reg){
+  const key=apstNormName(name); if(!key || !reg) return null;
+  if(reg.byName[key]) return reg.byName[key];
+  for(const k in reg.byName){ if(k && (k.startsWith(key) || key.startsWith(k))) return reg.byName[k]; }
+  return null;
+}
+/* บัญชีบริษัทที่จ่ายออก จากป้าย "SCB-4889" → bank_accounts ที่เลขลงท้ายตรง */
+function apstResolveBankAcct(label, accounts){
+  if(!label) return null;
+  const m=String(label).match(/(\d{3,})\s*$/); const digits=m?m[1]:"";
+  if(!digits) return null;
+  const hit=(accounts||[]).find(a=>String(a.account_no||"").replace(/\D/g,"").endsWith(digits));
+  return hit?hit.id:null;
+}
+
+/* ---- นำเข้ารายงานจ่ายชำระหนี้ ---- */
+async function apoHandlePaymentReport(file){
+  if(!file) return;
+  const cid=await fopCompanyId(); if(!cid){ alert("ไม่พบบริษัท — ลอง refresh"); return; }
+  let text; const buf=await file.arrayBuffer();
+  try{ text=new TextDecoder("utf-8",{fatal:true}).decode(buf); }
+  catch(_){ try{ text=new TextDecoder("windows-874").decode(buf); }
+            catch(__){ text=new TextDecoder("tis-620").decode(buf); } }
+  let vouchers;
+  try{ vouchers=apstParsePaymentReport(text); }catch(e){ alert("อ่านไฟล์ไม่สำเร็จ: "+fopErr(e)); return; }
+  if(!vouchers.length){ alert("อ่านรายงานไม่พบรายการ PS — ตรวจว่าเป็นไฟล์ 'รายงานการจ่ายชำระหนี้' (CSV)"); return; }
+  const [invRes,venRes,payRes]=await Promise.all([
+    sb.from("ap_invoices").select("id,invoice_no,remark,status,amount_outstanding,amount_total").eq("company_id",cid).is("deleted_at",null).limit(3000),
+    sb.from("vendors").select("id,name,external_code,bank_code,bank_name,bank_account_no,account_name,account_type,notify_email").eq("company_id",cid).is("deleted_at",null),
+    sb.from("ap_payments").select("pv_no,receipt_no").eq("company_id",cid).is("deleted_at",null).not("pv_no","is",null)
+  ]);
+  const existKeys=new Set((payRes.data||[]).map(p=>`${p.pv_no}|${apstDocKey(p.receipt_no)}`));
+  window._apstImport = {
+    vouchers, invMap:apstBuildInvMap(invRes.data||[]), vendorReg:apstBuildVendorReg(venRes.data||[]),
+    existKeys, fileName:file.name, cid
+  };
+  apstShowPreview();
+}
+
+/* สถานะรายบรรทัด (preview + commit ใช้ร่วม) */
+function apstLineStatus(v, d, imp){
+  if(imp.existKeys.has(`${v.ps_no}|${apstDocKey(d.doc)}`)) return {k:"dup", inv:apstMatchDoc(d.doc,imp.invMap)};
+  const inv=apstMatchDoc(d.doc, imp.invMap);
+  if(!inv) return {k:"create", inv:null};
+  if(inv.status==="paid") return {k:"paid", inv};
+  return {k:"match", inv};
+}
+
+function apstShowPreview(){
+  const imp=window._apstImport; if(!imp) return;
+  const active=imp.vouchers.filter(v=>!v.cancelled);
+  const cancelled=imp.vouchers.filter(v=>v.cancelled);
+  let nMatch=0,nCreate=0,nDup=0,nPaid=0,netSum=0,payCount=0;
+  const body = active.map(v=>{
+    const vendor=apstMatchVendor(v.vendor, imp.vendorReg);
+    netSum+=v.net;
+    const dets=v.details.filter(d=>d.amount>0);
+    const rows=dets.map(d=>{
+      const st=apstLineStatus(v,d,imp);
+      if(st.k==="match"){ nMatch++; payCount++; }
+      else if(st.k==="create"){ nCreate++; payCount++; }
+      else if(st.k==="dup") nDup++;
+      else if(st.k==="paid") nPaid++;
+      const badge = st.k==="match" ? `<span style="color:var(--in-ink,#0f766e);font-weight:700">✓ จับคู่ AP</span>`
+        : st.k==="create" ? `<span style="color:#2563eb;font-weight:700">+ สร้างบิลใหม่</span>`
+        : st.k==="dup" ? `<span style="color:var(--ink-3)">• นำเข้าแล้ว (ข้าม)</span>`
+        : `<span style="color:#b45309">จ่ายอยู่แล้ว (ข้าม)</span>`;
+      return `<tr>
+        <td><code style="font-size:11px">${esc(d.doc)}</code></td>
+        <td>${d.ref?`<span style="font-size:11px;color:var(--ink-3)">${esc(d.ref)}</span>`:""}</td>
+        <td style="text-align:right;font-variant-numeric:tabular-nums">${fopFmt(d.amount)}</td>
+        <td>${badge}${st.inv&&st.inv.invoice_no&&st.inv.invoice_no!==d.doc?` <span style="font-size:10px;color:var(--ink-3)">→ ${esc(st.inv.invoice_no)}</span>`:""}</td>
+      </tr>`;
+    }).join("");
+    const bankAcct=apstResolveBankAcct(v.bank_label, apoGet().accounts||[]);
+    return `<div style="border:1px solid var(--glass-border);border-radius:9px;margin-bottom:8px;overflow:hidden">
+      <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;padding:8px 11px;background:rgba(0,0,0,.03)">
+        <div><b style="font-size:13px">${esc(v.ps_no)}</b> · ${esc(v.vendor||"—")}
+          ${vendor?"":`<span style="font-size:10px;color:#b45309"> · ไม่พบในทะเบียน</span>`}</div>
+        <div style="font-size:11.5px;color:var(--ink-3)">${v.pay_date?fopDate(v.pay_date):"—"} · ${esc(v.bank_label||"—")}${bankAcct?"":' <span style="color:#b45309">(ไม่รู้บัญชี)</span>'} · ${esc(v.cheque_no||"")} · จ่ายสุทธิ <b>${fopFmt(v.net)}</b></div>
+      </div>
+      <table class="apst-tbl" style="font-size:12px"><tbody>${rows||`<tr><td colspan="4" style="color:var(--ink-3)">— ไม่มีรายการใบรับ —</td></tr>`}</tbody></table>
+    </div>`;
+  }).join("");
+
+  const m=document.createElement("div"); m.id="fopModal";
+  m.style.cssText="position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:1000;display:flex;align-items:flex-start;justify-content:center;padding:20px;overflow:auto";
+  m.innerHTML=`<div style="background:#fff;border-radius:14px;padding:22px;max-width:820px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.3);margin:auto">
+    <h3 style="margin:0 0 4px;font-size:16px;font-weight:800">นำเข้ารายงานจ่ายชำระหนี้</h3>
+    <div style="color:var(--ink-3);font-size:12px;margin-bottom:12px">${esc(imp.fileName)}</div>
+    <div class="pill-stat" style="margin-bottom:12px">
+      <div class="stat"><div class="n">${active.length}</div><div class="l">ใบสำคัญจ่าย (PS)</div></div>
+      <div class="stat in"><div class="n">${nMatch}</div><div class="l">จับคู่ AP</div></div>
+      <div class="stat"><div class="n" style="color:#2563eb">${nCreate}</div><div class="l">สร้างบิลใหม่</div></div>
+      <div class="stat"><div class="n" style="color:var(--ink-3)">${nDup+nPaid}</div><div class="l">ข้าม (ซ้ำ/จ่ายแล้ว)</div></div>
+      <div class="stat warn"><div class="n">${cancelled.length}</div><div class="l">ยกเลิก (ข้าม)</div></div>
+    </div>
+    <div style="max-height:52vh;overflow:auto;margin-bottom:14px">${body||'<div class="empty">ไม่มีรายการ</div>'}</div>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+      <button class="btn ghost" onclick="document.getElementById('fopModal').remove()">ยกเลิก</button>
+      <button id="apstCommitBtn" class="btn" onclick="apstCommit()" ${payCount?"":"disabled"}>ยืนยันบันทึกจ่าย (${payCount})</button>
+    </div>
+  </div>`;
+  document.body.appendChild(m);
+  m.addEventListener("click",e=>{ if(e.target===m) m.remove(); });
+}
+
+async function apstCommit(){
+  const imp=window._apstImport; if(!imp) return;
+  const btn=document.getElementById("apstCommitBtn"); if(btn){ btn.disabled=true; btn.textContent="กำลังบันทึก..."; }
+  const today=new Date().toISOString().slice(0,10);
+  try{
+    const cid=imp.cid || await fopCompanyId();
+    const accounts=apoGet().accounts || await fopLoadAccounts(cid);
+    const usedNos=new Set(Object.values(imp.invMap).map(x=>apstDocKey(x.invoice_no)));
+    const uid=AUTH.user?AUTH.user.id:null;
+    let nVou=0,nPay=0,nInv=0;
+    for(const v of imp.vouchers){
+      if(v.cancelled) continue;
+      const dets=v.details.filter(d=>d.amount>0);
+      if(!dets.length) continue;
+      const vendor=apstMatchVendor(v.vendor, imp.vendorReg);
+      const bankAcctId=apstResolveBankAcct(v.bank_label, accounts);
+      const method=(/^Q/i.test(v.cheque_no)||/เช็ค/.test(v.status||""))?"cheque":"transfer";
+      const payDate=v.pay_date||today;
+      const { data:vou, error:ve } = await sb.from("ap_payment_vouchers").upsert({
+        company_id:cid, ps_no:v.ps_no, pay_date:v.pay_date, vendor_id:vendor?vendor.id:null,
+        vendor_name:v.vendor||null, gross_amount:v.gross, net_amount:v.net, discount_amount:v.discount,
+        bank_label:v.bank_label||null, bank_account_id:bankAcctId, cheque_no:v.cheque_no||null,
+        cheque_date:v.cheque_date, cheque_status:v.status||null, pay_method:method, note:v.note||null,
+        source:"payment_report", updated_by:uid, created_by:uid
+      },{ onConflict:"company_id,ps_no" }).select("id").single();
+      if(ve) throw ve;
+      nVou++;
+      for(const d of dets){
+        const key=`${v.ps_no}|${apstDocKey(d.doc)}`;
+        if(imp.existKeys.has(key)) continue;                 // นำเข้าแล้ว → ข้าม (idempotent)
+        let inv=apstMatchDoc(d.doc, imp.invMap);
+        if(inv && inv.status==="paid"){ imp.existKeys.add(key); continue; }  // จ่ายอยู่แล้ว → ข้าม
+        if(!inv){
+          let no=d.doc, k=2; while(usedNos.has(apstDocKey(no))){ no=d.doc+"-"+k; k++; }
+          usedNos.add(apstDocKey(no));
+          const { data:ni, error:ie } = await sb.from("ap_invoices").insert({
+            company_id:cid, vendor_id:vendor?vendor.id:null, vendor_name_raw:v.vendor||null,
+            invoice_no:no, invoice_date:d.date||payDate, due_date:d.date||payDate,
+            amount_total:d.amount, category:apoClassify(d.note||v.note, v.vendor, d.doc),
+            remark:[d.note||v.note, "Express:"+d.doc].filter(Boolean).join(" · "), created_by:uid
+          }).select("id,invoice_no").single();
+          if(ie) throw ie;
+          inv={id:ni.id, invoice_no:ni.invoice_no, status:"open"};
+          imp.invMap[apstDocKey(d.doc)]=inv;
+          nInv++;
+        }
+        const { error:pe } = await sb.from("ap_payments").insert({
+          company_id:cid, ap_invoice_id:inv.id, paid_date:payDate, amount:d.amount,
+          bank_account_id:bankAcctId, pv_no:v.ps_no, voucher_id:vou.id, receipt_no:d.doc,
+          cheque_no:v.cheque_no||null, method, remark:d.note||null, created_by:uid
+        });
+        if(pe) throw pe;
+        imp.existKeys.add(key); nPay++;
+      }
+    }
+    const mo=document.getElementById("fopModal"); if(mo) mo.remove();
+    alert(`นำเข้าสำเร็จ ✓\n• ใบสำคัญจ่าย (PS): ${nVou}\n• บันทึกจ่าย: ${nPay} รายการ\n• สร้างบิลใหม่: ${nInv}`);
+    window._apstImport=null;
+    state.apo[state.company]=null;
+    apoGet().tab="paid";
+    apstRenderTab("paid");
+  }catch(e){ if(btn){ btn.disabled=false; btn.textContent="ยืนยันบันทึกจ่าย"; } alert("บันทึกไม่สำเร็จ: "+fopErr(e)); }
+}
+
+/* ---- Tab bar + dispatch ---- */
+function apstInjectStyle(){
+  if(document.getElementById("apstCSS")) return;
+  const s=document.createElement("style"); s.id="apstCSS";
+  s.textContent=`
+  .apst-tabs{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 14px}
+  .apst-tab{padding:8px 15px;border-radius:9px 9px 0 0;border:1px solid var(--glass-border);border-bottom:none;background:rgba(255,255,255,.5);font-size:13px;font-weight:700;color:var(--ink-2);cursor:pointer}
+  .apst-tab.on{background:var(--brand);color:#fff;border-color:var(--brand)}
+  .apst-tbl{width:100%;border-collapse:collapse;font-size:12.5px}
+  .apst-tbl th{position:sticky;top:0;background:var(--brand);color:#fff;padding:7px 9px;text-align:left;font-size:11.5px;white-space:nowrap;z-index:1}
+  .apst-tbl td{padding:6px 9px;border-bottom:1px solid var(--glass-border);vertical-align:top}
+  .apst-tbl tbody tr:hover td{background:rgba(0,0,0,.02)}
+  .apst-miss td{background:#fff7ed}
+  .apst-in{width:100%;padding:4px 6px;border:1px solid var(--glass-border);border-radius:6px;font-size:12px;background:#fff}
+  .apst-chip{padding:5px 11px;border-radius:16px;border:1px solid var(--glass-border);background:rgba(255,255,255,.6);font-size:12px;cursor:pointer;white-space:nowrap}
+  .apst-chip.on{background:var(--brand);color:#fff;border-color:var(--brand)}
+  `;
+  document.head.appendChild(s);
+}
+function apstTabBarHtml(active){
+  const tabs=[["outstanding","เจ้าหนี้คงค้าง"],["paid","จ่ายแล้ว"],["transfer","ตั้งโอน"],["registry","ทะเบียนบัญชีผู้รับเงิน"]];
+  return `<div class="apst-tabs">${tabs.map(([k,l])=>`<button class="apst-tab${k===active?" on":""}" onclick="apoSetTab('${k}')">${esc(l)}</button>`).join("")}</div>`;
+}
+function apoSetTab(t){
+  apoGet().tab=t;
+  if(t==="outstanding") renderToolApOutstanding();
+  else apstRenderTab(t);
+}
+async function apstRenderTab(tab){
+  apstInjectStyle();
+  const t=TOOLS.find(x=>x.id==="ap_outstanding");
+  const co=COMPANIES.find(c=>c.id===state.company);
+  const main=document.getElementById("main");
+  apoGet().tab=tab;
+  main.innerHTML=`
+    <div class="page-head"><h1>${esc(t.name)} <span class="badge">${esc(co.name)}</span></h1>
+      <div class="sub">${esc(t.long)}</div></div>
+    ${apstTabBarHtml(tab)}
+    <div class="card apo-page" id="apstBody"><div class="empty">กำลังโหลด...</div></div>`;
+  try{
+    if(tab==="paid") await apstRenderPaid();
+    else if(tab==="transfer") await apstRenderTransfer();
+    else if(tab==="registry") await apstRenderRegistry();
+  }catch(e){
+    const b=document.getElementById("apstBody");
+    if(b) b.innerHTML=`<div style="color:var(--out-ink)">โหลดไม่สำเร็จ: ${esc(fopErr(e))}</div>`;
+  }
+  if(window.lucide&&window.lucide.createIcons){ try{ window.lucide.createIcons(); }catch(e){} }
+}
+
+/* ---- โหลด vouchers + payments (จ่ายแล้ว/ตั้งโอน) ---- */
+async function apstLoadVouchers(){
+  const cid=await fopCompanyId(); if(!cid) return {vouchers:[],byVoucher:{},vendors:{}};
+  const [vRes,pRes,venRes]=await Promise.all([
+    sb.from("ap_payment_vouchers").select("*").eq("company_id",cid).is("deleted_at",null)
+      .order("pay_date",{ascending:false,nullsFirst:false}).order("ps_no"),
+    sb.from("ap_payments").select("id,voucher_id,ap_invoice_id,paid_date,amount,receipt_no,cheque_no,pv_no,remark,ap_invoices(invoice_no,vendor_name_raw)")
+      .eq("company_id",cid).is("deleted_at",null).not("voucher_id","is",null),
+    sb.from("vendors").select("id,name,external_code,bank_code,bank_name,bank_account_no,account_name,account_type,notify_email").eq("company_id",cid).is("deleted_at",null)
+  ]);
+  const byVoucher={};
+  for(const p of (pRes.data||[])){ (byVoucher[p.voucher_id]=byVoucher[p.voucher_id]||[]).push(p); }
+  const vendors={byId:{},byName:{}};
+  for(const v of (venRes.data||[])){ vendors.byId[v.id]=v; const k=apstNormName(v.name); if(k&&!vendors.byName[k]) vendors.byName[k]=v; }
+  return { vouchers:vRes.data||[], byVoucher, vendors };
+}
+function apstVendorForVoucher(v, vendors){
+  if(v.vendor_id && vendors.byId[v.vendor_id]) return vendors.byId[v.vendor_id];
+  const k=apstNormName(v.vendor_name);
+  if(vendors.byName[k]) return vendors.byName[k];
+  for(const kk in vendors.byName){ if(kk&&(kk.startsWith(k)||k.startsWith(kk))) return vendors.byName[kk]; }
+  return null;
+}
+
+/* ============ แท็บ "จ่ายแล้ว" — จัดกลุ่มตาม PS ============ */
+async function apstRenderPaid(){
+  const data=await apstLoadVouchers();
+  const d=apoGet();
+  const q=(d.paidSearch||"").toLowerCase();
+  let list=data.vouchers;
+  if(q) list=list.filter(v=>((v.ps_no||"")+" "+(v.vendor_name||"")+" "+(v.note||"")+" "+(v.cheque_no||"")).toLowerCase().includes(q));
+  const totalNet=list.reduce((s,v)=>s+Number(v.net_amount||0),0);
+  const multiRR=list.filter(v=>(data.byVoucher[v.id]||[]).length>1).length;
+  const body=list.map(v=>{
+    const pays=data.byVoucher[v.id]||[];
+    const rrChips=pays.map(p=>`<code style="font-size:10.5px;background:rgba(0,0,0,.05);padding:1px 5px;border-radius:4px;margin:1px">${esc(p.receipt_no||"—")}</code>`).join("");
+    const items=pays.map(p=>`<tr>
+        <td><code style="font-size:11px">${esc(p.receipt_no||"—")}</code></td>
+        <td>${esc((p.ap_invoices&&p.ap_invoices.invoice_no)||"")}</td>
+        <td>${esc(p.remark||"")}</td>
+        <td style="text-align:right;font-variant-numeric:tabular-nums">${fopFmt(p.amount)}</td>
+      </tr>`).join("");
+    return `<div style="border:1px solid var(--glass-border);border-radius:9px;margin-bottom:8px;overflow:hidden">
+      <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:9px 12px;background:rgba(0,0,0,.03);cursor:pointer" onclick="this.parentNode.querySelector('.apst-vdetail').classList.toggle('hide')">
+        <div><b style="font-size:13px">${esc(v.ps_no)}</b> · ${esc(v.vendor_name||"—")}
+          <span style="font-size:11px;color:var(--ink-3)"> · ${pays.length} ใบ ${pays.length>1?'<b style="color:#7c3aed">(หลายใบใน PS เดียว)</b>':""}</span>
+          <div style="margin-top:3px">${rrChips}</div></div>
+        <div style="text-align:right;font-size:11.5px;color:var(--ink-3)">
+          ${v.pay_date?fopDate(v.pay_date):"—"} · ${esc(v.bank_label||"")} · ${esc(v.cheque_no||"")}<br>
+          จ่ายสุทธิ <b style="font-size:13px;color:var(--ink-1)">${fopFmt(v.net_amount)}</b>${Number(v.discount_amount)?` <span style="color:#b45309">(หัก ${fopFmt(v.discount_amount)})</span>`:""}</div>
+      </div>
+      <div class="apst-vdetail hide"><table class="apst-tbl">
+        <thead><tr><th>ใบรับ</th><th>เลขบิล</th><th>รายละเอียด</th><th style="text-align:right">ยอด</th></tr></thead>
+        <tbody>${items}</tbody></table></div>
+    </div>`;
+  }).join("");
+  document.getElementById("apstBody").innerHTML=`
+    <style>.apst-vdetail.hide{display:none}</style>
+    <div class="pill-stat" style="margin-bottom:12px">
+      <div class="stat"><div class="n">${list.length}</div><div class="l">ใบสำคัญจ่าย (PS)</div></div>
+      <div class="stat in"><div class="n">${fopFmt(totalNet)}</div><div class="l">จ่ายสุทธิรวม</div></div>
+      <div class="stat"><div class="n" style="color:#7c3aed">${multiRR}</div><div class="l">PS ที่จ่ายหลายใบ</div></div>
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:10px;align-items:center;flex-wrap:wrap">
+      <input class="input" placeholder="🔍 ค้นหา PS / ผู้ขาย / เลขเช็ค / หมายเหตุ" value="${esc(d.paidSearch||"")}"
+        oninput="apoGet().paidSearch=this.value; clearTimeout(window._apstPaidT); window._apstPaidT=setTimeout(()=>apstRenderPaid(),200)" style="flex:1;min-width:240px;font-size:12.5px">
+      <span style="font-size:11.5px;color:var(--ink-3)">คลิกหัวการ์ดเพื่อดูใบรับในแต่ละ PS</span>
+    </div>
+    ${body||'<div class="empty">ยังไม่มีข้อมูลจ่าย — อัปรายงานจ่ายชำระหนี้ที่แท็บ "เจ้าหนี้คงค้าง"</div>'}`;
+}
+
+/* ============ แท็บ "ตั้งโอน" — จัดกลุ่มตาม PS + เลขบัญชีจากทะเบียน ============ */
+function apstTransferRows(list, vendors){
+  return list.map((v,i)=>{
+    const ven=apstVendorForVoucher(v, vendors);
+    return {
+      seq:i+1, ps_no:v.ps_no,
+      name:(ven&&(ven.account_name||ven.name))||v.vendor_name||"—",
+      amount:Number(v.net_amount||0),
+      bank_name:(ven&&(ven.bank_name||apstBankName(ven.bank_code)))||"",
+      bank_code3:(ven&&APST_BANK_CODE3[String(ven.bank_code||"").toUpperCase()])||"",
+      account_no:(ven&&ven.bank_account_no)||"",
+      account_name:(ven&&ven.account_name)||(ven&&ven.name)||v.vendor_name||"",
+      note:`${v.ps_no}${v.note?" - "+v.note:""}`,
+      email:(ven&&ven.notify_email)||"",
+      hasBank:!!(ven&&ven.bank_account_no)
+    };
+  });
+}
+async function apstRenderTransfer(){
+  const data=await apstLoadVouchers();
+  const d=apoGet();
+  const dates=[...new Set(data.vouchers.map(v=>v.pay_date).filter(Boolean))].sort().reverse();
+  if(!d.transferRound || !dates.includes(d.transferRound)) d.transferRound=dates[0]||"all";
+  const round=d.transferRound;
+  let list=data.vouchers.filter(v=>Number(v.net_amount||0)>0 && !v.cancelled);
+  if(round!=="all") list=list.filter(v=>v.pay_date===round);
+  const rows=apstTransferRows(list, data.vendors);
+  const total=rows.reduce((s,r)=>s+r.amount,0);
+  const missing=rows.filter(r=>!r.hasBank).length;
+  const chips=[`<button class="apst-chip${round==="all"?" on":""}" onclick="apoGet().transferRound='all';apstRenderTransfer()">ทุกรอบ</button>`]
+    .concat(dates.map(dt=>`<button class="apst-chip${round===dt?" on":""}" onclick="apoGet().transferRound='${dt}';apstRenderTransfer()">${fopDate(dt)}</button>`)).join("");
+  const trs=rows.map(r=>`<tr class="${r.hasBank?"":"apst-miss"}">
+      <td style="text-align:center">${r.seq}</td>
+      <td>${esc(r.name)}</td>
+      <td style="text-align:right;font-variant-numeric:tabular-nums;font-weight:700">${fopFmt(r.amount)}</td>
+      <td>${esc(r.bank_name)||'<span style="color:#b45309">—</span>'}</td>
+      <td><code>${esc(r.account_no)||'<span style="color:#b45309">ยังไม่มี</span>'}</code></td>
+      <td>${esc(r.account_name)}</td>
+      <td style="font-size:11px">${esc(r.note)}</td>
+      <td style="font-size:11px">${esc(r.email)||""}</td>
+    </tr>`).join("");
+  document.getElementById("apstBody").innerHTML=`
+    <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
+      <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center"><span style="font-size:12px;color:var(--ink-3)">รอบจ่าย:</span>${chips}</div>
+      <div style="display:flex;gap:8px">
+        <button class="btn ghost btn sm" onclick="apstCopyTransfer()">📋 คัดลอก</button>
+        <button class="btn btn sm" onclick="apstExportTransfer()">⬇ ส่งออก Excel</button>
+      </div>
+    </div>
+    <div class="pill-stat" style="margin-bottom:12px">
+      <div class="stat"><div class="n">${rows.length}</div><div class="l">รายการโอน</div></div>
+      <div class="stat in"><div class="n">${fopFmt(total)}</div><div class="l">ยอดโอนรวม</div></div>
+      ${missing?`<div class="stat warn"><div class="n">${missing}</div><div class="l">ยังไม่มีเลขบัญชี</div></div>`:""}
+    </div>
+    ${missing?`<div style="background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;padding:8px 12px;border-radius:8px;font-size:12px;margin-bottom:10px">มี ${missing} รายการยังไม่มีเลขบัญชี (แถบส้ม) — ไปเติมที่แท็บ <b>ทะเบียนบัญชีผู้รับเงิน</b></div>`:""}
+    <div style="overflow:auto">
+      <table class="apst-tbl">
+        <thead><tr><th>ลำดับ</th><th>ชื่อ</th><th style="text-align:right">จำนวนเงิน</th><th>ธนาคาร</th><th>เลขบัญชี</th><th>ชื่อบัญชี</th><th>หมายเหตุ</th><th>อีเมลแจ้งเตือน</th></tr></thead>
+        <tbody>${trs||'<tr><td colspan="8" class="empty">ไม่มีรายการในรอบนี้</td></tr>'}</tbody>
+      </table>
+    </div>`;
+  window._apstTransferRows=rows;
+}
+function apstTransferAoA(){
+  const rows=window._apstTransferRows||[];
+  const head=["ลำดับที่","ชื่อ","จำนวนเงิน","ชื่อธนาคาร","เลขบัญชี","ชื่อบัญชี","หมายเหตุ","อีเมลแจ้งเตือน"];
+  const body=rows.map(r=>[r.seq, r.name, r.amount, r.bank_name, r.account_no, r.account_name, r.note, r.email]);
+  return [head,...body];
+}
+function apstExportTransfer(){
+  const aoa=apstTransferAoA();
+  const ws=XLSX.utils.aoa_to_sheet(aoa);
+  ws["!cols"]=[{wch:7},{wch:30},{wch:14},{wch:16},{wch:16},{wch:26},{wch:34},{wch:24}];
+  const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,"ตั้งโอน");
+  const co=COMPANIES.find(c=>c.id===state.company);
+  const round=apoGet().transferRound||"all";
+  XLSX.writeFile(wb, `ตั้งโอน_${co?co.code:""}_${round}.xlsx`);
+}
+function apstCopyTransfer(){
+  const aoa=apstTransferAoA();
+  const tsv=aoa.map(r=>r.join("\t")).join("\n");
+  navigator.clipboard.writeText(tsv).then(()=>alert("คัดลอกแล้ว ✓ วางใน Excel/Sheet ได้เลย")).catch(()=>alert("คัดลอกไม่สำเร็จ"));
+}
+
+/* ============ แท็บ "ทะเบียนบัญชีผู้รับเงิน" ============ */
+async function apstRenderRegistry(){
+  const cid=await fopCompanyId();
+  const { data:vendors } = await sb.from("vendors").select("*").eq("company_id",cid).is("deleted_at",null).order("name");
+  const d=apoGet();
+  const q=(d.regSearch||"").toLowerCase();
+  let list=(vendors||[]);
+  if(q) list=list.filter(v=>((v.name||"")+" "+(v.external_code||"")+" "+(v.bank_account_no||"")+" "+(v.notify_email||"")).toLowerCase().includes(q));
+  const withBank=(vendors||[]).filter(v=>v.bank_account_no).length;
+  const withEmail=(vendors||[]).filter(v=>v.notify_email).length;
+  const canWrite=fopCanWrite();
+  const rows=list.slice(0,600).map(v=>`<tr data-vid="${v.id}">
+      <td><code style="font-size:11px">${esc(v.external_code||"")}</code></td>
+      <td style="min-width:150px">${esc(v.name)}</td>
+      <td><input class="apst-in" data-f="bank_name" value="${esc(v.bank_name||"")}" placeholder="ธนาคาร" style="width:110px"></td>
+      <td><input class="apst-in" data-f="bank_account_no" value="${esc(v.bank_account_no||"")}" placeholder="เลขบัญชี" style="width:130px"></td>
+      <td><input class="apst-in" data-f="account_name" value="${esc(v.account_name||"")}" placeholder="ชื่อบัญชี" style="width:150px"></td>
+      <td><input class="apst-in" data-f="notify_email" value="${esc(v.notify_email||"")}" placeholder="อีเมล" style="width:150px"></td>
+      <td>${canWrite?`<button class="btn ghost btn sm" onclick="apstSaveVendorRow('${v.id}')">บันทึก</button>`:""}</td>
+    </tr>`).join("");
+  document.getElementById("apstBody").innerHTML=`
+    <div class="pill-stat" style="margin-bottom:12px">
+      <div class="stat"><div class="n">${(vendors||[]).length}</div><div class="l">ผู้จำหน่ายทั้งหมด</div></div>
+      <div class="stat in"><div class="n">${withBank}</div><div class="l">มีเลขบัญชี</div></div>
+      <div class="stat"><div class="n">${withEmail}</div><div class="l">มีอีเมล</div></div>
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:10px;align-items:center;flex-wrap:wrap">
+      <input class="input" placeholder="🔍 ค้นหาผู้จำหน่าย / เลขบัญชี / อีเมล" value="${esc(d.regSearch||"")}"
+        oninput="apoGet().regSearch=this.value; clearTimeout(window._apstRegT); window._apstRegT=setTimeout(()=>apstRenderRegistry(),200)" style="flex:1;min-width:240px;font-size:12.5px">
+      ${canWrite?`<input id="apstVenFile" type="file" accept=".csv" style="display:none" onchange="apstImportVendorMaster(this.files[0])">
+        <button class="btn ghost btn sm" onclick="document.getElementById('apstVenFile').click()" title="ไฟล์รายละเอียดผู้จำหน่าย (CSV)">⬆ นำเข้าไฟล์ผู้จำหน่าย</button>`:""}
+      <span style="font-size:11.5px;color:var(--ink-3)">${list.length>600?`แสดง 600 จาก ${list.length}`:`${list.length} ราย`}</span>
+    </div>
+    <div style="overflow:auto;max-height:65vh">
+      <table class="apst-tbl">
+        <thead><tr><th>รหัส</th><th>ผู้จำหน่าย</th><th>ธนาคาร</th><th>เลขบัญชี</th><th>ชื่อบัญชี</th><th>อีเมลแจ้งเตือน</th><th></th></tr></thead>
+        <tbody>${rows||'<tr><td colspan="7" class="empty">ไม่พบผู้จำหน่าย</td></tr>'}</tbody>
+      </table>
+    </div>`;
+}
+async function apstSaveVendorRow(id){
+  const tr=document.querySelector(`tr[data-vid="${id}"]`); if(!tr) return;
+  const g=f=>{ const el=tr.querySelector(`[data-f="${f}"]`); return el?el.value.trim():""; };
+  const bankName=g("bank_name");
+  const bankCode=apstBankCodeFromName(bankName)||null;
+  try{
+    const { error } = await sb.from("vendors").update({
+      bank_name:bankName||null, bank_code:bankCode,
+      bank_account_no:g("bank_account_no")||null, account_name:g("account_name")||null,
+      notify_email:g("notify_email")||null, updated_by:AUTH.user?AUTH.user.id:null
+    }).eq("id",id);
+    if(error) throw error;
+    const btn=tr.querySelector("button"); if(btn){ btn.textContent="✓ บันทึกแล้ว"; setTimeout(()=>{ if(btn) btn.textContent="บันทึก"; },1500); }
+  }catch(e){ alert("บันทึกไม่สำเร็จ: "+fopErr(e)); }
+}
+/* parse ไฟล์ "รายละเอียดผู้จำหน่าย" (Express CSV) */
+function apstParseVendorMaster(text){
+  const rows=bmpParseCsvText(text);
+  const cell=(r,i)=>(r&&r[i]!=null)?String(r[i]).trim():"";
+  const out=[]; let cur=null;
+  for(const r of rows){
+    const code=cell(r,3), name=cell(r,4);
+    if(code && name && /^[A-Zก-๙]{1,3}[0-9.]+$/.test(code)){
+      if(cur) out.push(cur);
+      cur={code, name, note:"", tax:"", branch:""}; continue;
+    }
+    if(cur){
+      for(let i=0;i<r.length;i++){
+        const c=cell(r,i);
+        if(c==="หมายเหตุ" && i+1<r.length) cur.note=cell(r,i+1);
+        else if(c==="เลขที่ประจำตัวผู้เสียภาษี" && i+1<r.length) cur.tax=cell(r,i+1);
+        else if(c==="สาขา" && i+1<r.length) cur.branch=cell(r,i+1);
+      }
+    }
+  }
+  if(cur) out.push(cur);
+  return out;
+}
+async function apstImportVendorMaster(file){
+  if(!file) return;
+  const cid=await fopCompanyId(); if(!cid){ alert("ไม่พบบริษัท"); return; }
+  let text; const buf=await file.arrayBuffer();
+  try{ text=new TextDecoder("utf-8",{fatal:true}).decode(buf); }
+  catch(_){ try{ text=new TextDecoder("windows-874").decode(buf); }
+            catch(__){ text=new TextDecoder("tis-620").decode(buf); } }
+  const vends=apstParseVendorMaster(text);
+  if(!vends.length){ alert("อ่านไฟล์ไม่พบผู้จำหน่าย — ตรวจว่าเป็นไฟล์ 'รายละเอียดผู้จำหน่าย' (CSV)"); return; }
+  let bankN=0;
+  const payload=vends.map(v=>{
+    const b=apstParseBankNote(v.note);
+    const hasAcct=b && b.account_no;
+    if(hasAcct) bankN++;
+    return {
+      company_id:cid, external_code:v.code, name:v.name,
+      bank_code:(b&&b.bank_code)||null, bank_name:(b&&b.bank_name)||null,
+      bank_account_no:hasAcct?b.account_no:null,
+      account_name:hasAcct?v.name:null,
+      account_type:(b&&b.account_type)||null,
+      bank_note_raw:v.note||null,
+      created_by:AUTH.user?AUTH.user.id:null
+    };
+  });
+  if(!confirm(`นำเข้าผู้จำหน่าย ${payload.length} ราย (มีเลขบัญชี ${bankN} ราย)?\n\n· รายที่มีอยู่แล้วจะอัปเดตข้อมูลบัญชี (คงอีเมลเดิมไว้)\n· รายใหม่จะเพิ่มเข้าทะเบียน`)) return;
+  try{
+    for(let i=0;i<payload.length;i+=200){
+      const { error } = await sb.from("vendors").upsert(payload.slice(i,i+200), { onConflict:"company_id,external_code" });
+      if(error) throw error;
+    }
+    alert(`นำเข้าสำเร็จ ✓ ${payload.length} ราย (มีเลขบัญชี ${bankN})`);
+    apstRenderRegistry();
+  }catch(e){ alert("นำเข้าไม่สำเร็จ: "+fopErr(e)); }
 }
 
 /* parse Excel XML 2003 (Express AP report) — auto-detect MBark vs Benya layout */

@@ -86,7 +86,9 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 - `vendors`
 - `ap_invoices` — UNIQUE `(company_id, invoice_no)` กันคีย์ซ้ำจาก CSV/XML import
   - Fields: `due_date`, **`planned_payment_date`** (จนท. กรอกเอง), **`internal_note`** (หมายเหตุเพิ่ม), `category`
-- `ap_payments` + trigger `fn_ap_recompute` (auto-update `amount_paid` + `status`)
+- `ap_payments` + trigger `fn_ap_recompute` (auto-update `amount_paid` + `status`) · +`voucher_id`/`receipt_no`(RR/RW/AC)/`cheque_no` (จากนำเข้ารายงานจ่าย)
+- `ap_payment_vouchers` (PS) — 1 PS จ่ายได้หลาย RR · `ps_no` unique · gross/net/discount/bank_label/bank_account_id/cheque/note · seed จากนำเข้ารายงานจ่ายชำระหนี้ (`supabase/ap-payment-settlement.sql`)
+- `vendors` +ทะเบียนบัญชีผู้รับเงิน: `bank_code/bank_name/bank_account_no/account_name/account_type/notify_email/bank_note_raw` (seed จากไฟล์ "รายละเอียดผู้จำหน่าย" · parse ช่องหมายเหตุ)
 - `recurring_expenses` + `recurring_occurrences` + `fn_materialise_recurring()`
 - `csv_imports` (audit trail)
 - RLS: read = ทุก user ของ company, write = admin/finance_mgr/accountant/treasury
@@ -115,7 +117,7 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 | `bankrec` | `renderToolBankRec` | live | **Full Bank Reconciliation** (Phase 1) — Express XML ↔ Statement (SCB XLSX / BBL XLS) · strict same-date · brec* helpers · **แท็บ "🏷️ จัดหมวด (AI)"** เดาหมวดเงินรับ-จ่ายอัตโนมัติ (catbot* · self-learning · `catbot_rules`) |
 | `withdraw` | (none) | soon | กระทบยอดถอนเงิน |
 | `ap` | (replaced) | soon (เก่า) | — — |
-| `ap_outstanding` | `renderToolApOutstanding` | live | **AP จริง** (finops phase 1) |
+| `ap_outstanding` | `renderToolApOutstanding` | live | **AP จริง** (finops phase 1) · 4 แท็บ: คงค้าง · **จ่ายแล้ว** (กลุ่มตาม PS) · **ตั้งโอน** (ส่งออกให้การเงินโอน) · **ทะเบียนบัญชีผู้รับเงิน** · นำเข้ารายงานจ่ายชำระหนี้ → mark จ่าย+สร้างบิล (`apst*`) |
 | `bank_balance` | `renderToolBankBalance` | live | **ตารางกรอกยอดรายวัน** (chip เลือกวัน + "พรุ่งนี้" คาดการณ์ carry-forward) — bb* helpers |
 | `recurring` | `renderToolRecurring` | live | ค่าใช้จ่ายประจำ |
 | `cashflow` | `renderToolCashflowForecast` | live | **Cash Flow Forecast** — มี 2 view: 📋 พนักงาน (daily LINE) + 📊 ผู้บริหาร (30d) |
@@ -181,6 +183,19 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 - `phase0-foundation.sql` trigger `trg_sync_user_profile` ต้องเป็น `AFTER INSERT only` (ไม่ใช่ `INSERT OR UPDATE`)
 
 ## Recent changes (chronological)
+
+### 2026-07-15 — ★ AP: นำเข้ารายงานจ่ายชำระหนี้ → mark จ่ายแล้ว + แท็บ "จ่ายแล้ว/ตั้งโอน/ทะเบียนบัญชี" (โมดูล `apst*`)
+- **เจ้าของขอ:** การเงินอัปรายงานจ่ายชำระหนี้ (Express CSV) → ระบบอ่านว่า AP ตัวไหนจ่ายแล้ว (วันไหน/แบงค์ไหน/PS ไหน/RR ไหน) → ยืนยัน → ย้ายไปแท็บ "จ่ายแล้ว" (เห็นว่า 1 PS จ่ายกี่ RR) + ฟังก์ชัน **ตั้งโอน** (ดึงเลขบัญชีผู้รับ + ยอด + หมายเหตุ → ส่งออก/ก๊อปให้การเงินตั้งโอน)
+- **หน้า AP เป็น 4 แท็บ** (`apstTabBarHtml` · `apoSetTab` · `apoGet().tab`): เจ้าหนี้คงค้าง (เดิม) · **จ่ายแล้ว** (`apstRenderPaid`) · **ตั้งโอน** (`apstRenderTransfer`) · **ทะเบียนบัญชีผู้รับเงิน** (`apstRenderRegistry`) · แท็บใหม่โหลดข้อมูลเอง (`apstRenderTab` dispatch · renderToolApOutstanding = แท็บคงค้างล้วน · ตั้ง `d.tab='outstanding'`)
+- **Migration `supabase/ap-payment-settlement.sql`** (idempotent): (1) `vendors` +`bank_code/bank_name/bank_account_no/account_name/account_type/notify_email/bank_note_raw` (2) ตาราง **`ap_payment_vouchers`** (PS · unique `company_id,ps_no` · gross/net/discount/bank_label/bank_account_id/cheque/note · RLS ปิด) (3) `ap_payments` +`voucher_id/receipt_no/cheque_no`
+- **นำเข้า (ปุ่ม "⬆ รายงานจ่ายชำระ" ในแท็บคงค้าง):** `apoHandlePaymentReport` decode cp874 → `apstParsePaymentReport` (PS header cols: [1]วันจ่าย [2]`*`=ยกเลิก [3]PS [4]ผู้ขาย [10]gross [13]net [16]ส่วนลด+ภาษี [18]หมายเหตุ [19]เช็ค [21]แบงค์ [22]สถานะ · detail: [5]RR/RW/AC [6]วัน [7]ref [8]ยอด [11]note · เช็ค/แบงค์อาจมาบรรทัดถัดไป = continuation) → **preview modal** (จับคู่ AP `apstMatchDoc` ผ่าน invoice_no หรือ `Express:xxx` ใน remark · จับคู่ได้/สร้างใหม่/ข้ามซ้ำ/ยกเลิก) → `apstCommit`
+- **★ ทุกบรรทัดในรายงาน = บิลจ่ายแล้ว** (เจ้าของสั่ง): จับคู่ AP ไม่เจอ → **สร้าง ap_invoice ใหม่ + ทำจ่าย** (invoice_no=doc · collision→`-2`) · เจอ → insert ap_payment เต็มยอด detail (=gross clear บิล) · **idempotent** ด้วย existKeys `pv_no|receipt_no` (re-import ไม่ซ้ำ) · voucher upsert by ps_no · trigger `fn_ap_recompute` mark paid
+- **จ่ายแล้ว** = จัดกลุ่มตาม voucher (PS) · คลิกการ์ดดู RR ในแต่ละ PS · badge "หลายใบใน PS เดียว" · KPI PS/จ่ายสุทธิรวม/PS หลายใบ
+- **ตั้งโอน** = vouchers ต่อรอบ (chip วันจ่าย) → ตาราง ลำดับ/ชื่อ/จำนวนเงิน(net)/ธนาคาร/เลขบัญชี/ชื่อบัญชี/หมายเหตุ(`PSxxx - note`)/อีเมล · เลขบัญชีดึงจากทะเบียน vendors (match vendor_id หรือชื่อ) · แถวไม่มีเลขบัญชี=ส้ม · ส่งออก xlsx (`apstExportTransfer`) + ก๊อป TSV (`apstCopyTransfer`)
+- **ทะเบียนบัญชีผู้รับเงิน** = ตาราง vendors แก้ inline (ธนาคาร/เลขบัญชี/ชื่อบัญชี/อีเมล · `apstSaveVendorRow`) + **นำเข้าไฟล์ "รายละเอียดผู้จำหน่าย" (CSV)** (`apstImportVendorMaster`): parse เลขบัญชีจากช่อง "หมายเหตุ" (`apstParseBankNote` · รูปแบบ `ธนาคาร/เลขบัญชี[/ประเภท]` + กลับด้าน/เว้นวรรค/บัตรเครดิต) → upsert by external_code (**คงอีเมลเดิมไว้** ไม่อยู่ในไฟล์) · รายใหม่เว้นเลขบัญชีให้การเงินกรอก
+- **ธนาคาร:** `APST_BANK_ALIAS/TH/CODE3` (SCB→014 · KBANK→004 · ฯลฯ) · resolve บัญชีบริษัทจ่ายจาก `SCB-4889`→bank_accounts เลขลงท้ายตรง (`apstResolveBankAcct`)
+- **verify (Node harness กับไฟล์จริง 2 ไฟล์):** รายงานจ่าย 46 PS (ยกเลิก 2) · gross 1,431,511.70 + net 1,424,450.88 = ยอดรวมในรายงานเป๊ะ · PS จ่าย 2 RR ✓ · multiline PS ดึงเช็ค/แบงค์จาก continuation ✓ · 6 AC ✓ · ส่วนลด ✓ · ผู้จำหน่าย 376 ราย parse บัญชี 252/269 · syntax OK · boot 0 error · ฟังก์ชันโหลดครบในหน้าจริง · **กระทบหน้าอื่น = 0** (แท็บ+โมดูลใหม่ · แท็บคงค้างเดิมไม่แตะ logic)
+- **ยังไม่ทำ/หมายเหตุ:** ต้อง **push เพื่อรัน migration** ก่อนใช้ · การจ่ายจริง (ตัดเงินสด) source = ap_payments (net เก็บใน voucher สำหรับตั้งโอน) · โอนต่างประเทศ (PT Benya note block) ยังไม่ handle · รอเจ้าของ seed ทะเบียน + ทดสอบกับข้อมูลจริงหลัง deploy
 
 ### 2026-07-14 (4) — ★ หน้าใหม่: ทะเบียนคุมเงินทดรองจ่าย (advance) — คุมเบิกทดรองรายพนักงาน · เคลียร์ · คงค้าง
 - **เจ้าของขอ:** หน้าใกล้ ๆ เงินสดย่อย · คุมว่าพนักงานแต่ละคน (คลิกดูรายคน) เบิกเงินทดรองค่าอะไร (คลิกดูรายค่าใช้จ่าย) · เบิกแล้วเคลียร์ยัง · เคลียร์กับชุดไหน · คนนี้มีกี่วง คงค้างเท่าไหร่

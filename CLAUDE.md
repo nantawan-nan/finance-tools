@@ -184,6 +184,15 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-15 (4) — ★ AP Outstanding: redesign ตาม handoff (filter drawer + KPI แถบสี)
+- **เจ้าของส่ง handoff จาก Claude Design** (`for-design` ref) — เอาตามนี้เป๊ะ โดยเฉพาะ "สไลเซอร์แบบ drawer"
+- **เลิกสไลเซอร์ inline → filter drawer แผงเลื่อนขวา** (`apoFilterDrawerHtml` · ปุ่ม `⛭ ตัวกรอง` + badge นับ): 4 กลุ่ม (ประเภทค่าใช้จ่าย/อายุหนี้/ผู้ขาย/รอบจ่าย) · checkbox **3 สถานะ** (เลือกทั้งหมด ✓ / บางส่วน – / ไม่เลือก) ต่อกลุ่ม + master "(เลือกทั้งหมด)" + count · ปุ่ม "ล้างตัวกรอง"/"ดูผลลัพธ์"
+- **โมเดลตาม handoff:** `colFilters[col]` = array ค่าที่เลือก · `undefined`=เลือกทั้งหมด · `[]`=ไม่เลือกเลย (0 แถว) → **เลิกลบ empty array ใน apoGet** · `apoDrawerToggle` (undefined→เริ่มจาก allVals แล้ว toggle = deselect ทีละตัว) · `apoDrawerToggleAll` (all↔none) · `apoActiveFilters` (กลุ่มที่ไม่ได้เลือกครบ = active → pill + badge)
+- **KPI การ์ดแถบสีซ้าย** (`.apo-kpi` · คงค้าง #e11d48 · เกินกำหนด #d97706 · บิลเกิน #ea580c · ครบ30 #0d7c74) · **แปรตามตัวกรอง** (`apoKpis(inv)` recompute ใน apoApplyChanges + pill/badge/drawer re-render)
+- **filter bar:** ⛭ ตัวกรอง + ค้นหา + เฉพาะเกินกำหนด/แสดงที่จ่ายแล้ว + pills (× ลบ) + ล้างทั้งหมด + นับ · **สไลเซอร์นับจาก slicerBase (ตัด paid)**
+- **palette handoff** (teal #0d7c74 · #0f2e2b · #5c807a ...) scoped ใน apstInjectStyle · **verify browser:** drawer logic ครบ (toggle/all-none/filter/tri-state/active) · syntax OK · boot 0 error
+- **ยังไม่ทำ:** drawer สำหรับแท็บจ่ายแล้ว (handoff มี paidGroups) · header col-filter ▼ เดิมยังอยู่ (ไม่ขัดกับ drawer · เขียน colFilters ตัวเดียวกัน)
+
 ### 2026-07-15 (3) — AP settlement: fix หน้าจ่ายแล้วว่าง (self-heal voucher) + วันที่/เลขบิลชน + ชิปประเภทเจ้าหนี้
 - **บั๊กจ่ายแล้วว่าง (ต่อ):** ล้างการนำเข้า soft-delete voucher → นำเข้าใหม่ที่ทุกรายการถูกข้าม (existKeys) → ปุ่มยืนยันขึ้น (0) กดไม่ได้ → voucher ไม่ถูกคืนชีพ → จ่ายแล้วว่างตลอด
   - **`apstLoadVouchers` self-heal:** query payment active → หา voucher ที่ soft-delete แต่มี payment → `deleted_at=null` (ซ่อมเองตอนเปิดแท็บจ่ายแล้ว/ตั้งโอน · ไม่ต้องนำเข้าซ้ำ)

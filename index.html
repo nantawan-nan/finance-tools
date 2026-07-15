@@ -12672,11 +12672,10 @@ function apoGet(){
     if(Array.isArray(f[old]) && f[old].length){ f.colFilters[map[old]] = f[old].slice(); }
     delete f[old];
   }
-  // ทำให้ colFilters[k] เป็น Array<string> เสมอ
+  // ทำให้ colFilters[k] เป็น Array<string> เสมอ · empty array = "ไม่เลือกเลย" (drawer) เก็บไว้ ไม่ลบ
   for(const k in f.colFilters){
     const v = f.colFilters[k];
     if(!Array.isArray(v)) f.colFilters[k] = (v == null || v === "") ? [] : [String(v)];
-    if(f.colFilters[k].length === 0) delete f.colFilters[k];
   }
   return d;
 }
@@ -13043,19 +13042,29 @@ function apoApplyChanges(){
   const canWrite = fopCanWrite();
 
   const countEl = document.getElementById("apoCount");
-  if(countEl) countEl.textContent = inv.length + " จาก " + enriched.length + " รายการ";
+  if(countEl) countEl.innerHTML = `<b style="color:#0f2e2b">${inv.length}</b> จาก ${enriched.length} รายการ`;
 
-  // KPI แปรตามตัวกรอง/สไลเซอร์
+  // KPI แปรตามตัวกรอง
   const kpi = apoKpis(inv);
   const setTxt=(id,v)=>{ const el=document.getElementById(id); if(el) el.textContent=v; };
   setTxt("apoKpiOut", fopFmt(kpi.totalOut));
+  setTxt("apoKpiOutN", inv.length);
   setTxt("apoKpiOverdue", fopFmt(kpi.totalOverdue));
   setTxt("apoKpiOverdueN", kpi.overdueN);
   setTxt("apoKpiDue30", kpi.due30N);
 
   const slicerBase = d.filter.showPaid ? enriched : enriched.filter(r=>r.status!=='paid');
-  const chipsEl = document.getElementById("apoCatChipsWrap");
-  if(chipsEl) chipsEl.innerHTML = apoSlicersHtml(slicerBase, d.filter);
+  // pills + ปุ่มตัวกรอง badge + drawer
+  const pillsEl = document.getElementById("apoPillsWrap");
+  if(pillsEl) pillsEl.innerHTML = apoFilterPillsHtml(slicerBase);
+  const drawerEl = document.getElementById("apoDrawerWrap");
+  if(drawerEl) drawerEl.innerHTML = apoFilterDrawerHtml(slicerBase);
+  const fbtn = document.querySelector(".apo-filterbtn");
+  if(fbtn){
+    const n = apoActiveFilters(slicerBase).length;
+    fbtn.classList.toggle("on", n>0);
+    fbtn.innerHTML = `<span style="font-size:14px">⛭</span> ตัวกรอง${n?`<span class="apo-fd-badge">${n}</span>`:''}`;
+  }
 
   const tEl = document.getElementById("apoTableContainer");
   if(tEl) tEl.innerHTML = apoBuildTable(inv, enriched, canWrite, today);
@@ -13402,11 +13411,11 @@ async function renderToolApOutstanding(){
       <div class="sub">${esc(t.long)}</div>
     </div>
     ${apstTabBarHtml("outstanding")}
-    <div class="pill-stat" style="margin-bottom:12px">
-      <div class="stat out"><div class="n" id="apoKpiOut">${fopFmt(kpi.totalOut)}</div><div class="l">คงค้าง (ตามตัวกรอง)</div></div>
-      <div class="stat warn"><div class="n" id="apoKpiOverdue">${fopFmt(kpi.totalOverdue)}</div><div class="l">เกินกำหนด</div></div>
-      <div class="stat"><div class="n" id="apoKpiOverdueN">${kpi.overdueN}</div><div class="l">บิลเกินกำหนด</div></div>
-      <div class="stat in"><div class="n" id="apoKpiDue30">${kpi.due30N}</div><div class="l">ครบใน 30 วัน</div></div>
+    <div class="apo-kpis">
+      <div class="apo-kpi" style="--kc:#e11d48"><div class="apo-kpi-bar"></div><div class="apo-kpi-v"><span id="apoKpiOut">${fopFmt(kpi.totalOut)}</span><i>฿</i></div><div class="apo-kpi-l">คงค้าง (ตามตัวกรอง) · <span id="apoKpiOutN">${inv.length}</span> บิล</div></div>
+      <div class="apo-kpi" style="--kc:#d97706"><div class="apo-kpi-bar"></div><div class="apo-kpi-v"><span id="apoKpiOverdue">${fopFmt(kpi.totalOverdue)}</span><i>฿</i></div><div class="apo-kpi-l">ยอดเกินกำหนด</div></div>
+      <div class="apo-kpi" style="--kc:#ea580c"><div class="apo-kpi-bar"></div><div class="apo-kpi-v"><span id="apoKpiOverdueN">${kpi.overdueN}</span><i>บิล</i></div><div class="apo-kpi-l">บิลเกินกำหนด</div></div>
+      <div class="apo-kpi" style="--kc:#0d7c74"><div class="apo-kpi-bar"></div><div class="apo-kpi-v"><span id="apoKpiDue30">${kpi.due30N}</span><i>บิล</i></div><div class="apo-kpi-l">ครบใน 30 วัน</div></div>
     </div>
 
     <div class="card apo-page">
@@ -13423,37 +13432,33 @@ async function renderToolApOutstanding(){
         </div>` : ""}
       </div>
 
-      <!-- ประเภทเจ้าหนี้ = ชิปด้านบน คลิกได้หลายกล่อง/ล้างทั้งหมด -->
-      <div style="font-size:12px;color:var(--ink-3);margin:2px 0 6px;font-weight:600">ตัวกรอง (Slicer) <span style="font-weight:400">— คลิกเลือกได้หลายค่า · "ทั้งหมด" = ล้างกล่องนั้น · นับเฉพาะบิลคงค้าง</span></div>
-      <div id="apoCatChipsWrap">${apoSlicersHtml(slicerBase, f)}</div>
-
-      <!-- Filter bar: search + planned + overdue + ล้าง -->
-      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;align-items:center;padding:10px 12px;background:rgba(255,255,255,.5);border:1px solid var(--glass-border);border-radius:9px">
+      <!-- Filter bar: ⛭ ตัวกรอง (drawer) + search + checkbox + pills + ล้าง -->
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;align-items:center">
+        <button class="apo-filterbtn${apoActiveFilters(slicerBase).length?' on':''}" onclick="apoToggleDrawer()">
+          <span style="font-size:14px">⛭</span> ตัวกรอง${apoActiveFilters(slicerBase).length?`<span class="apo-fd-badge">${apoActiveFilters(slicerBase).length}</span>`:''}</button>
         <div style="position:relative;flex:1;min-width:240px;max-width:400px">
-          <span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--ink-3);font-size:14px;pointer-events:none">🔍</span>
-          <input id="apoSearch" type="text" class="input" placeholder="ค้นหา — เลขบิล / ผู้ขาย / วันที่ / ยอดเงิน" value="${esc(f.search)}"
-            oninput="apoSetSearch(this.value)" style="width:100%;padding-left:32px;font-size:12.5px">
+          <span style="position:absolute;left:11px;top:50%;transform:translateY(-50%);color:#9db8b2;font-size:13px;pointer-events:none">🔍</span>
+          <input id="apoSearch" type="text" placeholder="ค้นหา — เลขบิล / เลขเอกสาร / ผู้ขาย / คำอธิบาย / ยอดเงิน" value="${esc(f.search)}"
+            oninput="apoSetSearch(this.value)" style="width:100%;font-family:inherit;font-size:13px;color:#123b38;background:#f5faf8;border:1px solid #d7e8e3;border-radius:9px;padding:8px 12px 8px 32px;outline:none">
         </div>
-        <select class="input" onchange="apoSetFilter('planned', this.value)" style="font-size:12px;width:160px;flex:none">
-          <option value="all">วันชำระทั้งหมด</option>
-          <option value="set" ${f.planned==='set'?'selected':''}>กำหนดวันชำระแล้ว</option>
-          <option value="unset" ${f.planned==='unset'?'selected':''}>ยังไม่กำหนด</option>
-        </select>
-        <label class="opt" style="font-size:12px;white-space:nowrap"><input type="checkbox" ${f.overdueOnly?'checked':''} onchange="apoSetFilter('overdueOnly', this.checked)">เฉพาะเกินกำหนด</label>
-        <label class="opt" style="font-size:12px;white-space:nowrap" title="เปิดเพื่อดูบิลที่จ่ายครบแล้ว (ปกติซ่อนไว้)"><input type="checkbox" ${f.showPaid?'checked':''} onchange="apoSetFilter('showPaid', this.checked)">แสดงที่จ่ายแล้ว</label>
-        <button id="apoClearBtn" class="btn ghost btn sm" onclick="apoClearFilter()" style="${apoHasAnyFilter()?'':'display:none'};flex:none">ล้างตัวกรองทั้งหมด</button>
-        <div id="apoCount" style="margin-left:auto;font-size:11.5px;color:var(--ink-3);white-space:nowrap">${inv.length} จาก ${enriched.length} รายการ</div>
+        <label class="opt" style="font-size:12.5px;white-space:nowrap"><input type="checkbox" ${f.overdueOnly?'checked':''} onchange="apoSetFilter('overdueOnly', this.checked)">เฉพาะเกินกำหนด</label>
+        <label class="opt" style="font-size:12.5px;white-space:nowrap" title="เปิดเพื่อดูบิลที่จ่ายครบแล้ว (ปกติซ่อนไว้)"><input type="checkbox" ${f.showPaid?'checked':''} onchange="apoSetFilter('showPaid', this.checked)">แสดงที่จ่ายแล้ว</label>
+        <div id="apoPillsWrap" style="display:flex;gap:6px;flex-wrap:wrap">${apoFilterPillsHtml(slicerBase)}</div>
+        <div style="margin-left:auto;display:flex;align-items:center;gap:12px">
+          <button id="apoClearBtn" class="apo-clearbtn" onclick="apoClearFilter()" style="${apoHasAnyFilter()?'':'display:none'}">ล้างตัวกรองทั้งหมด</button>
+          <div id="apoCount" style="font-size:12.5px;color:#77948e;white-space:nowrap"><b style="color:#0f2e2b">${inv.length}</b> จาก ${enriched.length} รายการ</div>
+        </div>
       </div>
 
       <div id="apoBulkBar"></div>
       <div id="apoTableContainer" style="overflow-x:auto;max-width:100%">${apoBuildTable(inv, enriched, canWrite, today)}</div>
 
       <div class="soon-note">
-        <b>วันชำระเงิน</b> = วันที่ จนท. กำหนดจะจ่าย (กรอกในตารางได้เลย) — ใช้เป็น filter ใน Cash Flow Forecast<br>
-        <b>คำอธิบาย</b> = หมายเหตุจากระบบ + กดปุ่ม ✎ เพิ่มหมายเหตุเอง (ไม่จำกัดอักษร) · <b>🗑</b> = soft delete (audit log เก็บไว้)<br>
-        <b>Filter แต่ละคอลัมน์</b>: คลิก <b>▼</b> ที่หัวคอลัมน์ → ค้นหา + ติ๊ก checkbox (เหมือน Excel) · คลิกชื่อคอลัมน์เพื่อ sort
+        <b>ตัวกรอง (⛭)</b> = แผงเลื่อนขวา เลือกประเภท/อายุหนี้/ผู้ขาย/รอบจ่าย (ติ๊กได้หลายค่า · เลือกทั้งหมด/ไม่เลือก) · การ์ดยอดบนแปรตามตัวกรอง<br>
+        <b>วันชำระเงิน</b> = วันที่ จนท. กำหนดจะจ่าย (กรอกในตารางได้เลย) · <b>คำอธิบาย</b> กดปุ่ม ✎ เพิ่มหมายเหตุเอง · <b>🗑</b> = soft delete · คลิกหัวคอลัมน์เพื่อ sort
       </div>
     </div>
+    <div id="apoDrawerWrap">${apoFilterDrawerHtml(slicerBase)}</div>
   `;
   if(window.lucide && window.lucide.createIcons){ try{ window.lucide.createIcons(); }catch(e){} }
   apoUpdateIndeterminate();
@@ -13470,51 +13475,106 @@ function apoNum(v){
 /* escape ค่าสำหรับใส่ใน onclick="...('${v}')" (attribute เป็น double-quote → ใช้ single-quote ข้างใน) */
 function apoAttr(s){ return String(s).replace(/\\/g,"\\\\").replace(/'/g,"\\'").replace(/"/g,"&quot;"); }
 
-/* Slicer แบบ Excel — layout: "horizontal" (แนวยาว chip) · "grid" (N คอลัมน์) · "list" (แนวตั้ง+ค้นหา) */
-function apoSlicerBox(cfg, base, f){
-  const sel = (f.colFilters && Array.isArray(f.colFilters[cfg.col])) ? f.colFilters[cfg.col] : null;
-  const allActive = !sel;
-  const counts={}, order=[];
-  (base||[]).forEach(r=>{ let v=cfg.valueOf(r); if(v==null)v=""; v=String(v);
-    if(!(v in counts)){counts[v]=0; order.push(v);} counts[v]++; });
-  order.sort((a,b)=>counts[b]-counts[a]);
-  const fmt = cfg.fmt || (v=>v===""?"(ว่าง)":v);
-  const layout = cfg.layout || "list";
-  const items = order.map(v=>{
-    const on = allActive || sel.includes(v);
-    const lbl = fmt(v);
-    return `<button class="apo-sl-item${on?' on':''}" data-lbl="${esc(String(lbl).toLowerCase())}" onclick="apoToggleColVal('${cfg.col}','${apoAttr(v)}')"><span class="t">${esc(lbl)}</span><span class="c">${counts[v]}</span></button>`;
-  }).join("") || '<div style="padding:8px;color:var(--ink-3);font-size:11px">— ไม่มี —</div>';
-  let bodyCls="apo-sl-body", bodyStyle="";
-  if(layout==="grid"){ bodyCls+=" grid"; bodyStyle=`grid-template-columns:repeat(${cfg.cols||3},minmax(0,1fr))`; }
-  else if(layout==="horizontal"){ bodyCls+=" horiz"; }
-  const wrapCls = "apo-slicer"+(layout==="horizontal"?" wide":"");
-  const wStyle = (cfg.width && layout!=="horizontal") ? `width:${cfg.width}px;flex:none` : "";
-  return `<div class="${wrapCls}" style="${wStyle}">
-    <div class="apo-sl-head"><span class="apo-sl-title">${esc(cfg.label)}</span>
-      <span class="apo-sl-clear" onclick="apoClearCol('${cfg.col}')" title="เลือกทั้งหมด (ล้างตัวกรองนี้)">ทั้งหมด</span></div>
-    ${cfg.search?`<input class="apo-sl-search" placeholder="🔍 ค้นหา..." oninput="apoSlicerFilter('${cfg.col}',this.value)">`:""}
-    <div class="${bodyCls}" data-sl="${cfg.col}" style="${bodyStyle}">${items}</div>
-    <div class="apo-sl-foot">${sel?sel.length:order.length}/${order.length}</div>
-  </div>`;
+/* ===== Filter Drawer (แผงเลื่อนขวา · slicer แบบ checkbox 3 สถานะ) — ตาม handoff ===== */
+function apoDrawerGroups(base){
+  const grp=(col,title,valOf,labelOf,orderVals)=>{
+    const counts={}, order=[];
+    (base||[]).forEach(r=>{ let v=valOf(r); if(v==null)v=""; v=String(v);
+      if(!(v in counts)){counts[v]=0; order.push(v);} counts[v]++; });
+    let vals;
+    if(orderVals) vals = orderVals.filter(v=>v in counts).concat(order.filter(v=>orderVals.indexOf(v)<0));
+    else vals = order.slice().sort((a,b)=>counts[b]-counts[a]);
+    return { col, title, total:(base||[]).length,
+      options: vals.map(v=>({ val:v, label:(labelOf?labelOf(v):(v===""?"(ว่าง)":v)), count:counts[v] })) };
+  };
+  return [
+    grp("category","ประเภทค่าใช้จ่าย", r=>r.category||"", v=>v===""?"(ไม่ระบุ)":v, APO_CATEGORIES),
+    grp("age_bucket","อายุหนี้ (ครบกำหนด)", r=>r.age_bucket||"", null),
+    grp("vendor_name","ผู้ขาย", r=>r._vendor||"", null),
+    grp("planned_payment_date","รอบจ่าย", r=>r.planned_payment_date||"", v=>v===""?"(ยังไม่กำหนด)":fopDate(v))
+  ];
 }
-function apoSlicerFilter(col,q){
-  q=(q||"").toLowerCase();
-  const body=document.querySelector('[data-sl="'+col+'"]'); if(!body)return;
-  body.querySelectorAll('.apo-sl-item').forEach(it=>{ it.style.display = (it.getAttribute('data-lbl')||"").includes(q)?'':'none'; });
+/* กลุ่มที่ active = มี array และไม่ได้เลือกครบทุกค่า */
+function apoActiveFilters(base){
+  const cf=apoGet().filter.colFilters||{};
+  const out=[];
+  apoDrawerGroups(base).forEach(g=>{
+    const sel=cf[g.col];
+    if(Array.isArray(sel)){
+      const allVals=g.options.map(o=>o.val);
+      if(!allVals.every(v=>sel.includes(v))) out.push({col:g.col,title:g.title,sel:sel.length,total:allVals.length});
+    }
+  });
+  return out;
 }
-function apoSlicersHtml(base, f){
-  const cat={col:"category", label:"ประเภทค่าใช้จ่าย", valueOf:r=>r.category||"(ไม่ระบุ)", layout:"horizontal"};
-  const age={col:"age_bucket", label:"อายุหนี้ (ครบกำหนด)", valueOf:r=>r.age_bucket||"", layout:"grid", cols:3, width:330};
-  const ven={col:"vendor_name", label:"ผู้ขาย", valueOf:r=>r._vendor, layout:"list", search:true, width:240};
-  const rnd={col:"planned_payment_date", label:"รอบจ่าย", valueOf:r=>r.planned_payment_date||"", fmt:v=>v?fopDate(v):"(ยังไม่กำหนด)", layout:"list", width:170};
-  return `<div class="apo-slicers">
-    ${apoSlicerBox(cat, base, f)}
-    <div class="apo-sl-row">${apoSlicerBox(age,base,f)}${apoSlicerBox(ven,base,f)}${apoSlicerBox(rnd,base,f)}</div>
-  </div>`;
+function apoToggleDrawer(){ const d=apoGet(); d.filtersOpen=!d.filtersOpen; apoApplyChanges(); }
+function apoDrawerToggle(col,val){
+  const f=apoGet().filter; if(!f.colFilters)f.colFilters={};
+  const allVals=(window._apoDrawerVals&&window._apoDrawerVals[col])||[];
+  let cur = Array.isArray(f.colFilters[col]) ? f.colFilters[col].slice() : allVals.slice();
+  const i=cur.indexOf(val);
+  if(i>=0) cur.splice(i,1); else cur.push(val);
+  f.colFilters[col]=cur;
+  apoApplyChanges();
 }
-/* backward-compat alias */
-function apoCatChipsHtml(base, f){ return apoSlicersHtml(base, f); }
+function apoDrawerToggleAll(col){
+  const f=apoGet().filter; if(!f.colFilters)f.colFilters={};
+  const allVals=(window._apoDrawerVals&&window._apoDrawerVals[col])||[];
+  const cur = Array.isArray(f.colFilters[col]) ? f.colFilters[col] : allVals;
+  const all = allVals.every(v=>cur.includes(v));
+  f.colFilters[col] = all ? [] : allVals.slice();
+  apoApplyChanges();
+}
+function apoFilterPillsHtml(base){
+  const pills=apoActiveFilters(base);
+  return pills.map(p=>`<span class="apo-pill">${esc(p.title.split(" ")[0])} (${p.sel}/${p.total})<span onclick="apoClearCol('${p.col}')" style="cursor:pointer;font-weight:700;opacity:.65;margin-left:2px">×</span></span>`).join("");
+}
+function apoFilterDrawerHtml(base){
+  const f=apoGet().filter;
+  if(!apoGet().filtersOpen) return "";
+  const groups=apoDrawerGroups(base);
+  window._apoDrawerVals={};
+  const active=apoActiveFilters(base).length;
+  const box=(state,mark)=>`<span class="apo-fd-box ${state}">${mark}</span>`;
+  const groupsHtml=groups.map(g=>{
+    const allVals=g.options.map(o=>o.val);
+    window._apoDrawerVals[g.col]=allVals;
+    const sel = Array.isArray(f.colFilters&&f.colFilters[g.col]) ? f.colFilters[g.col] : null;
+    const checkedAll = !sel;
+    const items=g.options.map(o=>{
+      const on = checkedAll || sel.indexOf(o.val)>=0;
+      return `<div class="apo-fd-item" onclick="apoDrawerToggle('${g.col}','${apoAttr(o.val)}')">
+        ${box(on?'on':'off', on?'✓':'')}
+        <span class="apo-fd-lbl">${esc(o.label)}</span>
+        <span class="apo-fd-cnt">${o.count}</span></div>`;
+    }).join("");
+    const allChecked = checkedAll || allVals.every(v=>sel.indexOf(v)>=0);
+    const someChecked = !allChecked && sel && sel.length>0;
+    const mstate = allChecked?'on':(someChecked?'some':'off');
+    const mmark = allChecked?'✓':(someChecked?'–':'');
+    return `<div class="apo-fd-group">
+      <div class="apo-fd-gtitle">${esc(g.title)}</div>
+      <div class="apo-fd-boxwrap">
+        <div class="apo-fd-master" onclick="apoDrawerToggleAll('${g.col}')">
+          ${box(mstate,mmark)}<span class="apo-fd-lbl" style="font-weight:600;color:#0f2e2b">(เลือกทั้งหมด)</span>
+          <span class="apo-fd-cnt">${g.total}</span></div>
+        <div class="apo-fd-list">${items}</div>
+      </div></div>`;
+  }).join("");
+  return `<div class="apo-fd-overlay" onclick="apoToggleDrawer()"></div>
+    <div class="apo-fd-panel">
+      <div class="apo-fd-head">
+        <div style="display:flex;align-items:center;gap:9px"><span style="font-size:16px;font-weight:700;color:#0f2e2b">ตัวกรอง</span>${active?`<span class="apo-fd-badge">${active}</span>`:''}</div>
+        <button class="apo-fd-x" onclick="apoToggleDrawer()">✕</button></div>
+      <div class="apo-fd-body">${groupsHtml}</div>
+      <div class="apo-fd-foot">
+        <button class="apo-fd-clear" onclick="apoClearFilter()">ล้างตัวกรอง</button>
+        <button class="apo-fd-apply" onclick="apoToggleDrawer()">ดูผลลัพธ์</button>
+      </div></div>`;
+}
+/* backward-compat (ยังมีที่เรียก) */
+function apoCatChipsHtml(base, f){ return ""; }
+function apoSlicersHtml(base, f){ return ""; }
 
 /* 8 ประเภท AP — ตามทะเบียนของผู้ใช้ */
 const APO_CATEGORIES = [
@@ -13917,27 +13977,43 @@ function apstInjectStyle(){
   .apo-catchip.on{background:var(--brand);color:#fff;border-color:var(--brand)}
   .apo-catchip .c{font-size:10.5px;font-weight:700;background:rgba(0,0,0,.08);padding:1px 7px;border-radius:9px;line-height:1.5}
   .apo-catchip.on .c{background:rgba(255,255,255,.28)}
-  .apo-slicers{display:flex;flex-direction:column;gap:9px;margin:0 0 12px}
-  .apo-sl-row{display:flex;gap:9px;flex-wrap:wrap}
-  .apo-slicer{border:1px solid var(--glass-border);border-radius:10px;background:rgba(255,255,255,.65);display:flex;flex-direction:column;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.04)}
-  .apo-slicer.wide{width:100%}
-  .apo-sl-head{display:flex;justify-content:space-between;align-items:center;gap:6px;padding:6px 10px;background:var(--brand);color:#fff}
-  .apo-sl-title{font-size:12.5px;font-weight:700}
-  .apo-sl-clear{font-size:11px;cursor:pointer;background:rgba(255,255,255,.22);padding:2px 9px;border-radius:10px;white-space:nowrap}
-  .apo-sl-clear:hover{background:rgba(255,255,255,.4)}
-  .apo-sl-search{border:none;border-bottom:1px solid var(--glass-border);padding:6px 10px;font-size:11.5px;outline:none;background:transparent;font-family:inherit}
-  .apo-sl-body{max-height:150px;overflow-y:auto;padding:4px}
-  .apo-sl-body.horiz{display:flex;flex-wrap:wrap;gap:6px;align-content:flex-start;max-height:120px;padding:8px}
-  .apo-sl-body.grid{display:grid;gap:3px}
-  .apo-sl-item{display:flex;justify-content:space-between;align-items:center;gap:6px;width:100%;text-align:left;padding:5px 8px;border:none;background:none;border-radius:6px;font-size:12.5px;cursor:pointer;color:var(--ink-2);font-family:inherit}
-  .apo-sl-item:hover{background:rgba(0,0,0,.05)}
-  .apo-sl-item.on{background:color-mix(in srgb,var(--brand) 15%,#fff);color:var(--ink-1);font-weight:600}
-  .apo-sl-item .t{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .apo-sl-item .c{font-size:10.5px;color:var(--ink-3);flex:none}
-  .apo-sl-item.on .c{color:var(--brand);font-weight:700}
-  .apo-sl-body.horiz .apo-sl-item{width:auto;border:1px solid var(--glass-border);border-radius:16px;padding:5px 13px;background:rgba(255,255,255,.7)}
-  .apo-sl-body.horiz .apo-sl-item.on{border-color:var(--brand);background:color-mix(in srgb,var(--brand) 15%,#fff)}
-  .apo-sl-foot{padding:4px 10px;font-size:10.5px;color:var(--ink-3);border-top:1px solid var(--glass-border)}
+  /* KPI cards (handoff) */
+  .apo-kpis{display:flex;gap:12px;margin-bottom:12px;flex-wrap:wrap}
+  .apo-kpi{flex:1;min-width:180px;background:#fff;border:1px solid #dcece7;border-radius:13px;padding:12px 16px;box-shadow:0 1px 3px rgba(15,60,55,.06);position:relative;overflow:hidden}
+  .apo-kpi-bar{position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--kc)}
+  .apo-kpi-v{display:flex;align-items:baseline;gap:7px}
+  .apo-kpi-v span{font-size:25px;font-weight:700;letter-spacing:-.5px;color:var(--kc);font-variant-numeric:tabular-nums}
+  .apo-kpi-v i{font-size:12px;font-weight:600;color:#93aca6;font-style:normal}
+  .apo-kpi-l{font-size:12.5px;color:#5c807a;margin-top:2px}
+  /* filter button + pills */
+  .apo-filterbtn{display:inline-flex;align-items:center;gap:7px;font-family:inherit;font-size:12.5px;font-weight:600;cursor:pointer;padding:8px 13px;border-radius:9px;border:1px solid #cfe6e0;background:#fff;color:#0a5d57;white-space:nowrap}
+  .apo-filterbtn.on{border-color:#0d7c74;background:#eaf6f2}
+  .apo-clearbtn{font-size:12px;font-weight:600;color:#0d7c74;background:#eaf6f2;border:1px solid #bfe3db;border-radius:8px;padding:6px 12px;cursor:pointer;font-family:inherit}
+  .apo-pill{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:500;color:#0a5d57;background:#e3f4f1;border:1px solid #bfe3db;border-radius:999px;padding:3px 9px}
+  .apo-fd-badge{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 5px;border-radius:999px;background:#0d7c74;color:#fff;font-size:11px;font-weight:700}
+  /* Filter drawer */
+  .apo-fd-overlay{position:fixed;inset:0;background:rgba(15,46,43,.28);z-index:1200}
+  .apo-fd-panel{position:fixed;top:0;right:0;bottom:0;width:372px;max-width:92vw;background:#fff;box-shadow:-8px 0 34px rgba(15,60,55,.18);z-index:1201;display:flex;flex-direction:column;font-family:inherit}
+  .apo-fd-head{display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid #ebf3f0;flex-shrink:0}
+  .apo-fd-x{width:30px;height:30px;border:none;background:#f0f7f5;border-radius:8px;cursor:pointer;font-size:15px;color:#5c807a;line-height:1}
+  .apo-fd-x:hover{background:#e3f4f1}
+  .apo-fd-body{flex:1;overflow:auto;min-height:0;padding:16px 20px;display:flex;flex-direction:column;gap:18px}
+  .apo-fd-gtitle{font-size:11px;font-weight:700;letter-spacing:.4px;color:#7a9993;text-transform:uppercase;margin-bottom:7px}
+  .apo-fd-boxwrap{border:1px solid #e0edea;border-radius:10px;overflow:hidden}
+  .apo-fd-master{display:flex;align-items:center;gap:8px;padding:7px 11px;border-bottom:1px solid #eef4f2;cursor:pointer;background:#f4faf8}
+  .apo-fd-master:hover{background:#eaf6f2}
+  .apo-fd-list{max-height:230px;overflow:auto}
+  .apo-fd-item{display:flex;align-items:center;gap:8px;padding:6px 11px;cursor:pointer;font-size:12.5px;color:#3f6560}
+  .apo-fd-item:hover{background:#f4faf8}
+  .apo-fd-lbl{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .apo-fd-cnt{font-size:11px;color:#9db8b2;font-weight:700}
+  .apo-fd-box{width:16px;height:16px;border-radius:4px;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0;line-height:1;color:#fff}
+  .apo-fd-box.off{border:1.5px solid #b9d4cd;background:#fff}
+  .apo-fd-box.on{border:1.5px solid #0d7c74;background:#0d7c74}
+  .apo-fd-box.some{border:1.5px solid #0d7c74;background:#0d7c74}
+  .apo-fd-foot{display:flex;gap:10px;padding:14px 20px;border-top:1px solid #ebf3f0;flex-shrink:0}
+  .apo-fd-clear{flex:1;font-size:13px;font-weight:600;color:#0d7c74;background:#eaf6f2;border:1px solid #bfe3db;border-radius:9px;padding:9px 0;cursor:pointer;font-family:inherit}
+  .apo-fd-apply{flex:1;font-size:13px;font-weight:600;color:#fff;background:#0d7c74;border:1px solid #0d7c74;border-radius:9px;padding:9px 0;cursor:pointer;font-family:inherit}
   .apo-tbl{font-size:13px}
   .apo-tbl th{font-size:12px}
   .apo-tbl td{font-size:13px}

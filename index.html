@@ -13303,10 +13303,14 @@ function apoBuildTable(inv, enriched, canWrite, today){
     opts = opts || {};
     const sortable = opts.sortable !== false;
     const align = opts.align || "";
+    const active = opts.colMenu && Array.isArray((apoGet().filter.colFilters||{})[key]);
+    const caret = opts.colMenu ? `<span class="apo-hd-caret${active?' on':''}" onclick="apoHdrMenu(event,'${key}')" title="เรียง / กรอง (แบบ Excel)">▾</span>` : "";
+    const lblSty = "cursor:pointer;user-select:none;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap";
     return `<th data-col="${key}" style="${align?'text-align:'+align+';':''}vertical-align:middle;position:relative">
-      <div style="display:flex;align-items:center;gap:6px;overflow:hidden;${align==='right'?'justify-content:flex-end;':''}">
-        ${sortable ? `<span onclick="apoSetSort('${key}')" style="cursor:pointer;user-select:none;overflow:hidden;text-overflow:ellipsis">${esc(label)}${sortArrow(key)}</span>` : `<span style="overflow:hidden;text-overflow:ellipsis">${esc(label)}</span>`}
+      <div style="display:flex;align-items:center;gap:5px;${align==='right'?'justify-content:flex-end;':''}">
+        ${sortable ? `<span onclick="apoSetSort('${key}')" style="${lblSty}">${esc(label)}${sortArrow(key)}</span>` : `<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(label)}</span>`}
         ${opts.filter ? opts.filter : ""}
+        ${caret}
       </div>
       <span class="apo-rz" onmousedown="apoColResize(event,'${key}')" title="ลากเพื่อปรับความกว้าง"></span>
     </th>`;
@@ -13329,19 +13333,19 @@ function apoBuildTable(inv, enriched, canWrite, today){
     <thead>
       <tr>
         ${canWrite ? `<th style="text-align:center;width:32px;vertical-align:middle"><input type="checkbox" id="apoSelAll" onclick="apoToggleSelectAll(this.checked)" title="เลือก/ไม่เลือก ทุกรายการที่ค้างจ่ายในตัวกรองนี้" style="cursor:pointer"></th>` : ""}
-        ${th("invoice_no", "เลขที่บิล")}
-        ${th("_docno", "เลขเอกสารตั้งหนี้")}
-        ${th("vendor_name", "ผู้ขาย")}
+        ${th("invoice_no", "เลขที่บิล", { colMenu:true })}
+        ${th("_docno", "เลขเอกสารตั้งหนี้", { colMenu:true })}
+        ${th("vendor_name", "ผู้ขาย", { colMenu:true })}
         ${th("desc", "คำอธิบาย", { sortable: false })}
-        ${th("invoice_date", "วันที่บิล")}
-        ${th("due_date", "ครบกำหนด")}
-        ${th("planned_payment_date", "วันชำระเงิน", canWrite ? { filter: `<button onclick="event.stopPropagation();apoHdrPlannedPick(this)" title="ตั้งวันชำระเงินให้หลายแถวทีเดียว (แถวที่ติ๊กเลือก · ถ้าไม่ติ๊ก = ทุกแถวที่แสดง)" style="border:none;background:#eaf6f2;border-radius:5px;cursor:pointer;font-size:12px;padding:1px 4px;line-height:1.4">📅</button><input type="date" onchange="apoBulkSetPlanned(this.value)" style="width:0;height:0;opacity:0;position:absolute;pointer-events:none">` } : {})}
+        ${th("invoice_date", "วันที่บิล", { colMenu:true })}
+        ${th("due_date", "ครบกำหนด", { colMenu:true })}
+        ${th("planned_payment_date", "วันชำระเงิน", { colMenu:true, filter: canWrite ? `<button onclick="event.stopPropagation();apoHdrPlannedPick(this)" title="ตั้งวันชำระเงินให้หลายแถวทีเดียว (แถวที่ติ๊กเลือก · ถ้าไม่ติ๊ก = ทุกแถวที่แสดง)" style="border:none;background:#eaf6f2;border-radius:5px;cursor:pointer;font-size:12px;padding:1px 4px;line-height:1.4">📅</button><input type="date" onchange="apoBulkSetPlanned(this.value)" style="width:0;height:0;opacity:0;position:absolute;pointer-events:none">` : "" })}
         ${th("pay_from", "ตัดจากบัญชี", { sortable: false })}
         ${th("amount_total", "รวม", { align: "right" })}
         ${th("amount_outstanding", "คงค้าง", { align: "right" })}
-        ${th("category", "ประเภทค่าใช้จ่าย")}
-        ${th("age_bucket", "อายุหนี้")}
-        ${th("status", "สถานะ")}
+        ${th("category", "ประเภทค่าใช้จ่าย", { colMenu:true })}
+        ${th("age_bucket", "อายุหนี้", { colMenu:true })}
+        ${th("status", "สถานะ", { colMenu:true })}
         ${canWrite ? '<th style="text-align:center">จัดการ</th>' : ""}
       </tr>
     </thead>
@@ -13507,6 +13511,54 @@ function apoColResize(e, key){
     const d=apoGet(); if(!d.colWidths) d.colWidths={}; d.colWidths[key]=Math.round(w);
   };
   document.addEventListener('mousemove',move); document.addEventListener('mouseup',up);
+}
+
+/* ===== Excel-style header menu: ▾ = sort + filter (checkbox) ในตัวเดียว · popup ลอย (fixed) ไม่โดนบัง ===== */
+function apoColVal(r, col){ return col==="vendor_name" ? r._vendor : r[col]; }
+function apoCloseHdrMenu(){
+  const m=document.getElementById("apoHdrMenu"); if(m) m.remove();
+  document.removeEventListener("mousedown", apoHdrMenuOutside, true);
+}
+function apoHdrMenuOutside(e){ const m=document.getElementById("apoHdrMenu"); if(m && !m.contains(e.target)) apoCloseHdrMenu(); }
+function apoHmFilter(q){
+  q=(q||"").toLowerCase();
+  document.querySelectorAll("#apoHdrMenu .apo-hm-it[data-lbl]").forEach(it=>{ it.style.display=(it.getAttribute("data-lbl")||"").includes(q)?"":"none"; });
+}
+function apoSetSort2(col, dir){ const s=apoGet().sort; s.key=col; s.desc=(dir==="desc"); apoCloseHdrMenu(); apoApplyChanges(); }
+function apoHdrMenu(ev, col){
+  ev.preventDefault(); ev.stopPropagation();
+  const open = document.getElementById("apoHdrMenu");
+  if(open && open.getAttribute("data-col")===col){ apoCloseHdrMenu(); return; }
+  apoCloseHdrMenu();
+  const btn=ev.currentTarget, rect=btn.getBoundingClientRect();
+  const d=apoGet();
+  const base = d.filter.showPaid ? apoEnrich(d.invoices||[]) : apoEnrich(d.invoices||[]).filter(r=>r.status!=="paid");
+  const counts={}, order=[];
+  base.forEach(r=>{ let v=apoColVal(r,col); if(v==null)v=""; v=String(v); if(!(v in counts)){counts[v]=0;order.push(v);} counts[v]++; });
+  if(/date/.test(col)) order.sort(); else order.sort((a,b)=>String(a).localeCompare(String(b),"th"));
+  window._apoDrawerVals=window._apoDrawerVals||{}; window._apoDrawerVals[col]=order.slice();
+  const sel = Array.isArray((d.filter.colFilters||{})[col]) ? d.filter.colFilters[col] : null;
+  const fmt = /date/.test(col) ? (v=>v===""?"(ว่าง)":fopDate(v)) : (v=>v===""?"(ว่าง)":v);
+  const items = order.map(v=>{
+    const on = !sel || sel.indexOf(v)>=0;
+    const lbl = fmt(v);
+    return `<label class="apo-hm-it" data-lbl="${esc(String(lbl).toLowerCase())}"><input type="checkbox" ${on?'checked':''} onchange="apoDrawerToggle('${col}','${apoAttr(v)}')"><span>${esc(lbl)}</span><i>${counts[v]}</i></label>`;
+  }).join("");
+  const allChecked = !sel || order.every(v=>sel.indexOf(v)>=0);
+  const m=document.createElement("div"); m.id="apoHdrMenu"; m.className="apo-hm"; m.setAttribute("data-col",col);
+  m.innerHTML=`
+    <div class="apo-hm-sort" onclick="apoSetSort2('${col}','asc')">▲ เรียงจากน้อย → มาก (ก→ฮ)</div>
+    <div class="apo-hm-sort" onclick="apoSetSort2('${col}','desc')">▼ เรียงจากมาก → น้อย (ฮ→ก)</div>
+    <div class="apo-hm-div"></div>
+    <input class="apo-hm-search" placeholder="🔍 ค้นหาในรายการ..." oninput="apoHmFilter(this.value)">
+    <label class="apo-hm-it apo-hm-all"><input type="checkbox" ${allChecked?'checked':''} onchange="apoDrawerToggleAll('${col}')"><span>(เลือกทั้งหมด)</span><i>${base.length}</i></label>
+    <div class="apo-hm-list">${items||'<div style="padding:8px;color:#93aca6;font-size:12px">— ไม่มี —</div>'}</div>
+    <div class="apo-hm-foot"><button onclick="apoClearCol('${col}');apoCloseHdrMenu()">ล้างตัวกรอง</button><button class="pri" onclick="apoCloseHdrMenu()">ตกลง</button></div>`;
+  document.body.appendChild(m);
+  const mw=m.offsetWidth||270;
+  m.style.left = Math.max(6, Math.min(rect.left, window.innerWidth-mw-8))+"px";
+  m.style.top = Math.min(rect.bottom+4, window.innerHeight-m.offsetHeight-8)+"px";
+  setTimeout(()=>document.addEventListener("mousedown", apoHdrMenuOutside, true), 0);
 }
 
 /* ตั้ง "วันชำระเงิน" ให้หลายแถวทีเดียว จากปุ่ม 📅 ที่หัวคอลัมน์ */
@@ -14086,6 +14138,24 @@ function apstInjectStyle(){
   .apo-tbl code{font-size:12px}
   .apo-rz{position:absolute;top:0;right:0;width:9px;height:100%;cursor:col-resize;z-index:5;user-select:none;touch-action:none}
   .apo-rz:hover{background:linear-gradient(90deg,transparent,rgba(13,124,116,.45))}
+  .apo-hd-caret{flex:none;cursor:pointer;font-size:11px;color:#9db8b2;padding:0 3px;border-radius:4px;user-select:none}
+  .apo-hd-caret:hover{background:rgba(13,124,116,.12);color:#0d7c74}
+  .apo-hd-caret.on{color:#0d7c74;background:#d6ede7;font-weight:700}
+  .apo-hm{position:fixed;z-index:1300;background:#fff;border:1px solid #d3e6e0;border-radius:10px;box-shadow:0 12px 34px rgba(15,60,55,.22);width:266px;font-family:inherit;overflow:hidden;display:flex;flex-direction:column}
+  .apo-hm-sort{padding:8px 12px;font-size:12.5px;color:#2b524d;cursor:pointer}
+  .apo-hm-sort:hover{background:#f0f7f5}
+  .apo-hm-div{height:1px;background:#ebf3f0;margin:2px 0}
+  .apo-hm-search{margin:6px 10px;padding:6px 9px;border:1px solid #d7e8e3;border-radius:7px;font-size:12px;outline:none;font-family:inherit}
+  .apo-hm-all{border-top:1px solid #eef4f2;border-bottom:1px solid #eef4f2;background:#f4faf8;font-weight:600}
+  .apo-hm-list{max-height:230px;overflow:auto}
+  .apo-hm-it{display:flex;align-items:center;gap:8px;padding:5px 12px;font-size:12.5px;color:#3f6560;cursor:pointer}
+  .apo-hm-it:hover{background:#f4faf8}
+  .apo-hm-it input{accent-color:#0d7c74;width:15px;height:15px;cursor:pointer;flex:none}
+  .apo-hm-it span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .apo-hm-it i{font-style:normal;font-size:11px;color:#9db8b2;font-weight:700}
+  .apo-hm-foot{display:flex;gap:8px;padding:9px 10px;border-top:1px solid #ebf3f0}
+  .apo-hm-foot button{flex:1;font-size:12.5px;font-weight:600;padding:7px 0;border-radius:8px;cursor:pointer;font-family:inherit;border:1px solid #bfe3db;background:#eaf6f2;color:#0d7c74}
+  .apo-hm-foot button.pri{background:#0d7c74;color:#fff;border-color:#0d7c74}
   `;
   document.head.appendChild(s);
 }

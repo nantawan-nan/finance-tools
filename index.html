@@ -13335,7 +13335,7 @@ function apoBuildTable(inv, enriched, canWrite, today){
         ${th("desc", "คำอธิบาย", { sortable: false })}
         ${th("invoice_date", "วันที่บิล")}
         ${th("due_date", "ครบกำหนด")}
-        ${th("planned_payment_date", "วันชำระเงิน")}
+        ${th("planned_payment_date", "วันชำระเงิน", canWrite ? { filter: `<button onclick="event.stopPropagation();apoHdrPlannedPick(this)" title="ตั้งวันชำระเงินให้หลายแถวทีเดียว (แถวที่ติ๊กเลือก · ถ้าไม่ติ๊ก = ทุกแถวที่แสดง)" style="border:none;background:#eaf6f2;border-radius:5px;cursor:pointer;font-size:12px;padding:1px 4px;line-height:1.4">📅</button><input type="date" onchange="apoBulkSetPlanned(this.value)" style="width:0;height:0;opacity:0;position:absolute;pointer-events:none">` } : {})}
         ${th("pay_from", "ตัดจากบัญชี", { sortable: false })}
         ${th("amount_total", "รวม", { align: "right" })}
         ${th("amount_outstanding", "คงค้าง", { align: "right" })}
@@ -13507,6 +13507,36 @@ function apoColResize(e, key){
     const d=apoGet(); if(!d.colWidths) d.colWidths={}; d.colWidths[key]=Math.round(w);
   };
   document.addEventListener('mousemove',move); document.addEventListener('mouseup',up);
+}
+
+/* ตั้ง "วันชำระเงิน" ให้หลายแถวทีเดียว จากปุ่ม 📅 ที่หัวคอลัมน์ */
+function apoHdrPlannedPick(btn){
+  const inp = btn.parentNode.querySelector('input[type=date]');
+  if(inp){ try{ inp.showPicker(); }catch(_){ inp.focus(); inp.click(); } }
+}
+async function apoBulkSetPlanned(dateStr){
+  if(!dateStr) return;
+  const d=apoGet();
+  const enriched=apoEnrich(d.invoices||[]);
+  let rows=enriched.filter(r=>d.selected.has(String(r.id)));
+  let scopeTxt;
+  if(rows.length){ scopeTxt=`${rows.length} รายการที่เลือก (ติ๊กไว้)`; }
+  else { rows=apoFilterAndSort(enriched); scopeTxt=`${rows.length} รายการที่แสดงอยู่ (ตามตัวกรอง)`; }
+  if(!rows.length){ alert("ไม่มีรายการให้ตั้งวัน"); return; }
+  if(!confirm(`ตั้งวันชำระเงิน = ${fopDate(dateStr)}\nให้ ${scopeTxt}?`)) return;
+  try{
+    const cid=await fopCompanyId();
+    const ids=rows.map(r=>r.id);
+    for(let i=0;i<ids.length;i+=200){
+      const { error } = await sb.from("ap_invoices")
+        .update({ planned_payment_date:dateStr, updated_by:AUTH.user?AUTH.user.id:null })
+        .in("id", ids.slice(i,i+200));
+      if(error) throw error;
+    }
+    d.selected.clear();
+    state.apo[state.company]=null;
+    renderToolApOutstanding();
+  }catch(e){ alert("ตั้งวันไม่สำเร็จ: "+fopErr(e)); }
 }
 
 /* ===== Filter Drawer (แผงเลื่อนขวา · slicer แบบ checkbox 3 สถานะ) — ตาม handoff ===== */

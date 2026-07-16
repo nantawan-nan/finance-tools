@@ -184,6 +184,13 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-16 (2) — ★ ส่งออก IV: CSV = ข้อความล้วน (ถอด Excel text-lock `="..."` ที่ AutoKey คีย์ตามไปด้วย)
+- **เจ้าของแจ้ง:** ไฟล์ CSV ส่งออกไปคีย์ AutoKey มี `="` และ `"` นำหน้าทุกข้อความ (เช่น `="2607000001"` · `="260701GCDXV0AV"` · `="01/07/69"`)
+- **ต้นเหตุ:** `aoaToLockedCsv` (commit `9111ea0` · 29 มิ.ย.) ห่อ 5 คอลัมน์เสี่ยง (1=เลข IV · 2=เลขคำสั่งซื้อ · 3=วันที่ · 6=SKU · 11=ผัง SKU ค่าส่ง) ด้วย **Excel formula syntax `="value"`** กัน Excel แปลง order_id TikTok ยาว → scientific (5.8433E+17) + วันที่ `01/07/69`→`01/07/2569` · ได้ผลเฉพาะตอนเปิดใน Excel (decode formula → text) · **AutoKey อ่าน CSV ดิบ ไม่ strip → คีย์เครื่องหมายไปด้วย** (commit เดิมเขียนหมายเหตุเตือนเคสนี้ไว้แล้ว)
+- **แก้:** `aoaToLockedCsv` → **`aoaToCsv(aoa)`** (plain · quote เฉพาะค่าที่มี comma/quote/newline ตามมาตรฐาน CSV · CRLF · BOM เหมือนเดิม) · `ivrDoExport` fmt='csv' เรียกตัวใหม่ · **xlsx ไม่แตะ** (`forceTextCells` ล็อก cell type ในตัวไฟล์อยู่แล้ว ไม่ต้องพึ่งสูตร)
+- **★ ห้ามเอา `="..."` กลับมาใส่ CSV อีก** (คอมเมนต์เตือนไว้ทั้ง 2 จุด) — CSV = ให้ AutoKey อ่าน · อยากเปิดดู/แก้ใน Excel โดยเลข/วันที่ไม่เพี้ยน → **ใช้ปุ่มส่งออก .xlsx** · เปิด CSV ใน Excel แล้ว order_id เพี้ยน = ธรรมชาติของ CSV (trade-off ที่ยอมรับ)
+- **verify (หน้าจริง):** `aoaToCsv` output ไม่มี `="` · escape ถูก (`"ของ, มีคอมม่า"` · `"เขา ""อ้าง"" ว่า"`) · `aoaToLockedCsv` ไม่เหลือใน repo · syntax OK · boot 0 error · **กระทบหน้าอื่น = 0** (helper ใช้ที่เดียว = ivrDoExport)
+
 ### 2026-07-16 — ★ AP นำเข้า: identity = เลขเอกสารตั้งหนี้ (doc_no/RR) แทน "เลขที่บิล" + เตือนยอด/ผู้ขายเปลี่ยน
 - **บั๊กจริง (ผู้ใช้แจ้ง):** เลขที่บิลซ้ำได้ (เช่น `MEMO.2026-07-01` คนละ RR คนละคน) แต่ upsert คีย์ `company_id,invoice_no` → ทับกัน (อารียา 1000 → นันทวรรณ 5000)
 - **แก้ identity → doc_no (RR):** migration `supabase/zz-ap-docno-identity.sql` — เพิ่มคอลัมน์ `doc_no` + backfill จาก `remark` (`Express:xxx`) + **drop `ap_invoices_company_id_invoice_no_key`** + unique partial `(company_id,doc_no) WHERE doc_no NOT NULL` (ห่อ EXCEPTION)

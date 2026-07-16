@@ -13303,15 +13303,28 @@ function apoBuildTable(inv, enriched, canWrite, today){
     opts = opts || {};
     const sortable = opts.sortable !== false;
     const align = opts.align || "";
-    return `<th style="${align?'text-align:'+align+';':''}vertical-align:middle">
-      <div style="display:flex;align-items:center;gap:6px;${align==='right'?'justify-content:flex-end;':''}">
-        ${sortable ? `<span onclick="apoSetSort('${key}')" style="cursor:pointer;user-select:none">${esc(label)}${sortArrow(key)}</span>` : `<span>${esc(label)}</span>`}
+    return `<th data-col="${key}" style="${align?'text-align:'+align+';':''}vertical-align:middle;position:relative">
+      <div style="display:flex;align-items:center;gap:6px;overflow:hidden;${align==='right'?'justify-content:flex-end;':''}">
+        ${sortable ? `<span onclick="apoSetSort('${key}')" style="cursor:pointer;user-select:none;overflow:hidden;text-overflow:ellipsis">${esc(label)}${sortArrow(key)}</span>` : `<span style="overflow:hidden;text-overflow:ellipsis">${esc(label)}</span>`}
         ${opts.filter ? opts.filter : ""}
       </div>
+      <span class="apo-rz" onmousedown="apoColResize(event,'${key}')" title="ลากเพื่อปรับความกว้าง"></span>
     </th>`;
   };
 
+  const COLS = [
+    ...(canWrite ? [{key:'_cb', w:34}] : []),
+    {key:'invoice_no', w:120}, {key:'_docno', w:126}, {key:'vendor_name', w:150},
+    {key:'desc', w:300}, {key:'invoice_date', w:98}, {key:'due_date', w:150},
+    {key:'planned_payment_date', w:150}, {key:'pay_from', w:136}, {key:'amount_total', w:104},
+    {key:'amount_outstanding', w:110}, {key:'category', w:166}, {key:'age_bucket', w:124},
+    {key:'status', w:82}, ...(canWrite ? [{key:'_actions', w:200}] : [])
+  ];
+  const cw = apoGet().colWidths || {};
+  const colgroup = `<colgroup>${COLS.map(c=>`<col data-key="${c.key}" style="width:${cw[c.key]||c.w}px">`).join("")}</colgroup>`;
+
   return `<table class="apo-tbl">
+    ${colgroup}
     <thead>
       <tr>
         ${canWrite ? `<th style="text-align:center;width:32px;vertical-align:middle"><input type="checkbox" id="apoSelAll" onclick="apoToggleSelectAll(this.checked)" title="เลือก/ไม่เลือก ทุกรายการที่ค้างจ่ายในตัวกรองนี้" style="cursor:pointer"></th>` : ""}
@@ -13341,26 +13354,26 @@ function apoBuildTable(inv, enriched, canWrite, today){
       const selectable = payable || isPaid;   // จ่ายได้ (ค้าง) หรือ ยกเลิกจ่ายได้ (paid)
       return `<tr ${isOverdue?'class="warning-row"':''}>
         ${canWrite ? `<td style="text-align:center">${selectable ? `<input type="checkbox" class="apo-row-cb" data-id="${esc(String(r.id))}" data-paid="${isPaid?1:0}" ${d.selected.has(String(r.id))?'checked':''} onclick="apoToggleSelect('${esc(String(r.id))}',this.checked)" style="cursor:pointer" title="${isPaid?'ติ๊กเพื่อยกเลิกการจ่าย':'ติ๊กเพื่อจ่ายชำระ'}">` : ''}</td>` : ""}
-        <td><code style="font-size:11.5px">${esc(r.invoice_no)}</code></td>
-        <td>${r._docno?`<code style="font-size:11.5px;color:var(--brand)">${esc(r._docno)}</code>`:'<span style="color:var(--ink-3)">—</span>'}</td>
-        <td><div style="max-width:150px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${esc(r._vendor)}">${esc(r._vendor)}</div></td>
-        <td style="font-size:12.5px;color:var(--ink-2)" title="${esc(desc)}"><div style="display:flex;align-items:center;gap:4px;min-width:300px;max-width:440px"><span style="min-width:0;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(desc)}</span>${hasNote?'<span style="color:var(--in-ink);font-weight:700;flex:none">✎</span>':''}</div></td>
+        <td style="overflow:hidden"><code style="font-size:11.5px">${esc(r.invoice_no)}</code></td>
+        <td style="overflow:hidden">${r._docno?`<code style="font-size:11.5px;color:var(--brand)">${esc(r._docno)}</code>`:'<span style="color:var(--ink-3)">—</span>'}</td>
+        <td style="overflow:hidden"><div style="width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${esc(r._vendor)}">${esc(r._vendor)}</div></td>
+        <td style="font-size:12.5px;color:var(--ink-2);overflow:hidden" title="${esc(desc)}"><div style="display:flex;align-items:center;gap:4px;width:100%"><span style="min-width:0;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(desc)}</span>${hasNote?'<span style="color:var(--in-ink);font-weight:700;flex:none">✎</span>':''}</div></td>
         <td style="font-size:12.5px">${fopDate(r.invoice_date)}</td>
-        <td>${canWrite ? `<input type="date" value="${esc(r.due_date||'')}" onchange="apoSetDueDate('${r.id}', this.value)" style="font-size:12.5px;padding:4px 6px;border:1px solid var(--line);border-radius:6px;background:#fff;color:var(--ink);font-family:inherit;width:135px">` : `<span style="font-size:12.5px">${fopDate(r.due_date)}</span>`}</td>
-        <td>${canWrite ? `<input type="date" value="${esc(r.planned_payment_date||'')}" onchange="apoSetPlannedDate('${r.id}', this.value)" style="font-size:12.5px;padding:4px 6px;border:1px solid ${r.planned_payment_date?'var(--in)':'var(--line)'};border-radius:6px;background:${r.planned_payment_date?'var(--in-soft)':'#fff'};color:var(--ink);font-family:inherit;width:135px">` : (r.planned_payment_date ? fopDate(r.planned_payment_date) : '<span style="color:var(--ink-3)">—</span>')}</td>
+        <td>${canWrite ? `<input type="date" value="${esc(r.due_date||'')}" onchange="apoSetDueDate('${r.id}', this.value)" style="font-size:12.5px;padding:4px 6px;border:1px solid var(--line);border-radius:6px;background:#fff;color:var(--ink);font-family:inherit;width:100%">` : `<span style="font-size:12.5px">${fopDate(r.due_date)}</span>`}</td>
+        <td>${canWrite ? `<input type="date" value="${esc(r.planned_payment_date||'')}" onchange="apoSetPlannedDate('${r.id}', this.value)" style="font-size:12.5px;padding:4px 6px;border:1px solid ${r.planned_payment_date?'var(--in)':'var(--line)'};border-radius:6px;background:${r.planned_payment_date?'var(--in-soft)':'#fff'};color:var(--ink);font-family:inherit;width:100%">` : (r.planned_payment_date ? fopDate(r.planned_payment_date) : '<span style="color:var(--ink-3)">—</span>')}</td>
         <td>${(() => {
           if(!accounts.length) return '<span style="color:var(--ink-3);font-size:11px">— ยังไม่มีบัญชี —</span>';
           const sel = r.pay_from_account_id || defAcc;
           const isDefault = !r.pay_from_account_id;
           const a = accById[sel];
           if(!canWrite){ return `<span style="font-size:11.5px;color:var(--ink-2)" title="${esc(fopAccLabel(a))}">${esc(fopAccShort(a))}${isDefault?' <span style="color:var(--ink-3);font-size:10px">(ค่าเริ่มต้น)</span>':''}</span>`; }
-          return `<select onchange="apoSetPayAccount('${r.id}', this.value)" title="${esc(fopAccLabel(a))}${isDefault?' · ค่าเริ่มต้น — ยังไม่ได้เลือกเอง':''}" style="font-size:11px;padding:3px 5px;border:1px solid ${isDefault?'var(--line)':'var(--in)'};border-radius:6px;background:${isDefault?'#fff':'var(--in-soft)'};color:var(--ink);font-family:inherit;width:118px;max-width:118px">
+          return `<select onchange="apoSetPayAccount('${r.id}', this.value)" title="${esc(fopAccLabel(a))}${isDefault?' · ค่าเริ่มต้น — ยังไม่ได้เลือกเอง':''}" style="font-size:11.5px;padding:3px 5px;border:1px solid ${isDefault?'var(--line)':'var(--in)'};border-radius:6px;background:${isDefault?'#fff':'var(--in-soft)'};color:var(--ink);font-family:inherit;width:100%">
             ${fopAccOptionsShort(accounts, sel)}
           </select>`;
         })()}</td>
         <td style="text-align:right">${fopFmt(r.amount_total)}</td>
         <td style="text-align:right;font-weight:700;color:var(--out-ink)">${fopFmt(r.amount_outstanding)}</td>
-        <td>${canWrite ? `<select onchange="apoSetCategory('${r.id}', this.value)" style="font-size:12.5px;padding:4px 6px;border:1px solid var(--line);border-radius:6px;background:#fff;font-family:inherit;min-width:150px">
+        <td style="overflow:hidden">${canWrite ? `<select onchange="apoSetCategory('${r.id}', this.value)" style="font-size:12.5px;padding:4px 6px;border:1px solid var(--line);border-radius:6px;background:#fff;font-family:inherit;width:100%">
           ${APO_CATEGORIES.map(c => `<option value="${esc(c)}" ${r.category===c?'selected':''}>${esc(c)}</option>`).join("")}
         </select>` : `<span style="font-size:12.5px;color:var(--ink-2)">${esc(r.category||"—")}</span>`}</td>
         <td style="font-size:12px;font-weight:600;color:${apoAgeColor(r.age_bucket)};white-space:nowrap">${esc(r.age_bucket)}</td>
@@ -13474,6 +13487,24 @@ function apoNum(v){
 
 /* escape ค่าสำหรับใส่ใน onclick="...('${v}')" (attribute เป็น double-quote → ใช้ single-quote ข้างใน) */
 function apoAttr(s){ return String(s).replace(/\\/g,"\\\\").replace(/'/g,"\\'").replace(/"/g,"&quot;"); }
+
+/* ปรับความกว้างคอลัมน์แบบ Excel — ลากที่ขอบขวาหัวตาราง (เก็บใน state.colWidths) */
+function apoColResize(e, key){
+  e.preventDefault(); e.stopPropagation();
+  const table = document.querySelector('#apoTableContainer table.apo-tbl');
+  if(!table) return;
+  const col = table.querySelector('col[data-key="'+key+'"]'); if(!col) return;
+  const startX = e.clientX, startW = col.getBoundingClientRect().width;
+  document.body.style.cursor='col-resize'; document.body.style.userSelect='none';
+  let w = startW;
+  const move = ev=>{ w = Math.max(48, startW + (ev.clientX-startX)); col.style.width = w+'px'; };
+  const up = ()=>{
+    document.removeEventListener('mousemove',move); document.removeEventListener('mouseup',up);
+    document.body.style.cursor=''; document.body.style.userSelect='';
+    const d=apoGet(); if(!d.colWidths) d.colWidths={}; d.colWidths[key]=Math.round(w);
+  };
+  document.addEventListener('mousemove',move); document.addEventListener('mouseup',up);
+}
 
 /* ===== Filter Drawer (แผงเลื่อนขวา · slicer แบบ checkbox 3 สถานะ) — ตาม handoff ===== */
 function apoDrawerGroups(base){
@@ -14014,10 +14045,14 @@ function apstInjectStyle(){
   .apo-fd-foot{display:flex;gap:10px;padding:14px 20px;border-top:1px solid #ebf3f0;flex-shrink:0}
   .apo-fd-clear{flex:1;font-size:13px;font-weight:600;color:#0d7c74;background:#eaf6f2;border:1px solid #bfe3db;border-radius:9px;padding:9px 0;cursor:pointer;font-family:inherit}
   .apo-fd-apply{flex:1;font-size:13px;font-weight:600;color:#fff;background:#0d7c74;border:1px solid #0d7c74;border-radius:9px;padding:9px 0;cursor:pointer;font-family:inherit}
-  .apo-tbl{font-size:13px}
-  .apo-tbl th{font-size:12px}
-  .apo-tbl td{font-size:13px}
+  .apo-tbl{font-size:13px;table-layout:fixed;border-collapse:collapse;width:auto;min-width:100%}
+  .apo-tbl th{font-size:12px;border-right:1px solid #dbebe6;border-bottom:1px solid #cfe0da;background:#eef6f3}
+  .apo-tbl th:last-child{border-right:none}
+  .apo-tbl td{font-size:13px;border-right:1px solid #eef4f2;border-bottom:1px solid #eef4f2}
+  .apo-tbl td:last-child{border-right:none}
   .apo-tbl code{font-size:12px}
+  .apo-rz{position:absolute;top:0;right:-3px;width:7px;height:100%;cursor:col-resize;z-index:4;user-select:none}
+  .apo-rz:hover{background:rgba(13,124,116,.28)}
   `;
   document.head.appendChild(s);
 }

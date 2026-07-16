@@ -14121,6 +14121,13 @@ function apstInjectStyle(){
   .apst-tbl th{position:sticky;top:0;background:var(--brand);color:#fff;padding:7px 9px;text-align:left;font-size:11.5px;white-space:nowrap;z-index:1}
   .apst-tbl td{padding:6px 9px;border-bottom:1px solid var(--glass-border);vertical-align:top}
   .apst-tbl tbody tr:hover td{background:rgba(0,0,0,.02)}
+  .apst-ptbl{width:100%;border-collapse:collapse;font-size:12.5px;min-width:1000px}
+  .apst-ptbl th{position:sticky;top:0;z-index:2;background:#eef6f3;padding:9px 10px;border-bottom:1px solid #d3e6e0;border-right:1px solid #dbebe6;text-align:left;font-size:12px;font-weight:600;color:#3f6560}
+  .apst-ptbl th:last-child{border-right:none}
+  .apst-ptbl td{padding:6px 10px;border-bottom:1px solid #eef4f2;border-right:1px solid #eef4f2}
+  .apst-ptbl td:last-child{border-right:none}
+  .apst-ptbl tr.apst-prow:hover td{background:#f4faf8!important}
+  .apst-ptbl code{font-size:11.5px}
   .apst-miss td{background:#fff7ed}
   .apst-in{width:100%;padding:4px 6px;border:1px solid var(--glass-border);border-radius:6px;font-size:12px;background:#fff}
   .apst-chip{padding:5px 11px;border-radius:16px;border:1px solid var(--glass-border);background:rgba(255,255,255,.6);font-size:12px;cursor:pointer;white-space:nowrap}
@@ -14297,20 +14304,20 @@ function apstPaidActive(vouchers){
   apstPaidGroups(vouchers).forEach(g=>{ const sel=cf[g.col]; if(Array.isArray(sel)){ const allVals=g.options.map(o=>o.val); if(!allVals.every(v=>sel.includes(v))) out.push({col:g.col,title:g.title,sel:sel.length,total:allVals.length}); } });
   return out;
 }
-function apstPaidToggleDrawer(){ const d=apoGet(); d.paidDrawerOpen=!d.paidDrawerOpen; apstPaidRender(); }
+function apstPaidToggleDrawer(){ const d=apoGet(); d.paidDrawerOpen=!d.paidDrawerOpen; apstPaidApplyChanges(); }
 function apstPaidToggle(col,val){
   const cf=apstPaidState(); const allVals=(window._apstPaidVals&&window._apstPaidVals[col])||[];
   let cur=Array.isArray(cf[col])?cf[col].slice():allVals.slice();
   const i=cur.indexOf(val); if(i>=0)cur.splice(i,1); else cur.push(val);
-  cf[col]=cur; apstPaidRender();
+  cf[col]=cur; apstPaidApplyChanges();
 }
 function apstPaidToggleAll(col){
   const cf=apstPaidState(); const allVals=(window._apstPaidVals&&window._apstPaidVals[col])||[];
   const cur=Array.isArray(cf[col])?cf[col]:allVals; const all=allVals.every(v=>cur.includes(v));
-  cf[col]=all?[]:allVals.slice(); apstPaidRender();
+  cf[col]=all?[]:allVals.slice(); apstPaidApplyChanges();
 }
-function apstPaidClearFilters(){ apoGet().paidFilters={}; apstPaidRender(); }
-function apstPaidClearCol(col){ delete apstPaidState()[col]; apstPaidRender(); }
+function apstPaidClearFilters(){ apoGet().paidFilters={}; apstPaidApplyChanges(); }
+function apstPaidClearCol(col){ delete apstPaidState()[col]; apstPaidApplyChanges(); }
 function apstPaidPillsHtml(vouchers){
   return apstPaidActive(vouchers).map(p=>`<span class="apo-pill">${esc(p.title.split(" ")[0])} (${p.sel}/${p.total})<span onclick="apstPaidClearCol('${p.col}')" style="cursor:pointer;font-weight:700;opacity:.65;margin-left:2px">×</span></span>`).join("");
 }
@@ -14338,58 +14345,121 @@ async function apstRenderPaid(){
   apoGet()._paidData=data;
   apstPaidRender();
 }
+const APST_CAT_COLOR={
+  "เงินกู้ยืมและดอกเบี้ย":["#6d28d9","#f0ebfb"],"เจ้าหนี้การค้า":["#0d7c74","#e0f2ef"],
+  "ค่าใช้จ่ายประจำ":["#0369a1","#e4f0f8"],"เงินมัดจำ/เงินเบิกล่วงหน้า":["#b45309","#fbf0e0"],
+  "เงินสำรองจ่าย/เงินสดย่อย":["#be185d","#fbe6ef"],"เงินสดย่อย":["#7c3aed","#f0eafb"],
+  "เงินเดือนและค่าที่ปรึกษา":["#047857","#e2f2ec"]
+};
+function apstCatBadge(cat){
+  const c=APST_CAT_COLOR[cat]||["#64748b","#eef1f4"];
+  return `<span style="display:inline-block;max-width:100%;overflow:hidden;text-overflow:ellipsis;font-size:11px;font-weight:600;color:${c[0]};background:${c[1]};padding:2px 8px;border-radius:6px;white-space:nowrap">${esc(cat||"(ไม่ระบุ)")}</span>`;
+}
+function apstPaidList(data){
+  const d=apoGet();
+  const q=(d.paidSearch||"").toLowerCase();
+  let list=apstPaidApply(data.vouchers);
+  if(d.paidOnlyMulti) list=list.filter(v=>(data.byVoucher[v.id]||[]).length>1);
+  if(q) list=list.filter(v=>((v.ps_no||"")+" "+(v.vendor_name||"")+" "+(v.note||"")+" "+(v.cheque_no||"")+" "+((data.byVoucher[v.id]||[]).map(p=>p.receipt_no).join(" "))).toLowerCase().includes(q));
+  const s=d.paidSort||{key:"pay_date",desc:true};
+  const cnt=v=>(data.byVoucher[v.id]||[]).length;
+  const kf={ps:v=>v.ps_no||"",payee:v=>v.vendor_name||"",count:v=>cnt(v),date:v=>v.pay_date||"",net:v=>Number(v.net_amount||0)};
+  const f=kf[s.key]||kf.date;
+  return list.slice().sort((a,b)=>{ let av=f(a),bv=f(b);
+    if(typeof av==="string"){ const r=av.localeCompare(bv,"th"); return s.desc?-r:r; }
+    return s.desc?(bv-av):(av-bv); });
+}
+function apstPaidKpi(data,list){
+  return { totalNet:list.reduce((s,v)=>s+Number(v.net_amount||0),0),
+           multi:data.vouchers.filter(v=>(data.byVoucher[v.id]||[]).length>1).length };
+}
+function apstPaidSetSort(key){ const d=apoGet(); const s=d.paidSort||{key:"pay_date",desc:true};
+  d.paidSort = s.key===key ? {key, desc:!s.desc} : {key, desc:false}; apstPaidApplyChanges(); }
+function apstPaidToggleRow(id){
+  const r=document.querySelector('tr.apst-pdetail[data-vd="'+id+'"]'); if(r) r.style.display = r.style.display==="none"?"":"none";
+}
+function apstPaidTableHtml(list, data){
+  const d=apoGet(); const s=d.paidSort||{key:"pay_date",desc:true};
+  const ar=k=>s.key===k?(s.desc?" ▼":" ▲"):"";
+  const th=(k,l,al,so)=>`<th style="${al?"text-align:"+al+";":""}white-space:nowrap;${so?"cursor:pointer":""}" ${so?`onclick="apstPaidSetSort('${k}')"`:""}>${esc(l)}<span style="color:#0d7c74">${so?ar(k):""}</span></th>`;
+  const rows=list.map((v,idx)=>{
+    const pays=data.byVoucher[v.id]||[]; const cnt=pays.length;
+    const docs=pays.map(p=>p.receipt_no).filter(Boolean);
+    const docCell=docs.length?(esc(docs[0])+(docs.length>1?` <span style="color:#93aca6">+${docs.length-1}</span>`:"")):"—";
+    return `<tr class="apst-prow" style="background:${idx%2?"#fafcfb":"#fff"};cursor:pointer" onclick="apstPaidToggleRow('${v.id}')">
+      <td style="font-weight:700;color:#0f2e2b">${esc(v.ps_no)}</td>
+      <td style="overflow:hidden;text-overflow:ellipsis" title="${esc(v.vendor_name||"")}">${esc(v.vendor_name||"—")}</td>
+      <td style="text-align:center"><span style="font-size:11px;font-weight:700;padding:1px 8px;border-radius:999px;color:${cnt>1?"#7c3aed":"#5c807a"};background:${cnt>1?"#f0eafb":"#eef4f2"}">${cnt} ใบ</span></td>
+      <td style="color:#0d7c74;overflow:hidden;text-overflow:ellipsis"><code>${docCell}</code></td>
+      <td style="overflow:hidden">${apstCatBadge(v._cat)}</td>
+      <td style="white-space:nowrap">${v.pay_date?fopDate(v.pay_date):"—"}</td>
+      <td style="white-space:nowrap;font-weight:500;color:#3f6560">${esc(v.bank_label||"—")}</td>
+      <td style="color:#5c807a;overflow:hidden;text-overflow:ellipsis">${esc(v.cheque_no||"—")}</td>
+      <td style="color:#93aca6;white-space:nowrap">${v.cheque_status&&/จ่าย/.test(v.cheque_status)?esc(v.cheque_status):"—"}</td>
+      <td style="text-align:right;font-weight:700;color:#059669;white-space:nowrap">${fopFmt(v.net_amount)}${Number(v.discount_amount)?`<br><span style="font-size:10px;color:#b45309;font-weight:400">หัก ${fopFmt(v.discount_amount)}</span>`:""}</td>
+    </tr>
+    <tr class="apst-pdetail" data-vd="${v.id}" style="display:none"><td colspan="10" style="background:#f6fbfa;padding:0 0 0 24px">
+      <table style="width:100%;font-size:12px;border-collapse:collapse">
+        <thead><tr style="color:#7a9993"><th style="text-align:left;padding:5px 10px">ใบรับ</th><th style="text-align:left">เลขบิล</th><th style="text-align:left">รายละเอียด</th><th style="text-align:right;padding-right:14px">ยอด</th></tr></thead>
+        <tbody>${pays.map(p=>`<tr><td style="padding:3px 10px"><code>${esc(p.receipt_no||"—")}</code></td><td>${esc((p.ap_invoices&&p.ap_invoices.invoice_no)||"")}</td><td style="color:#5c807a">${esc(p.remark||"")}</td><td style="text-align:right;padding-right:14px;font-variant-numeric:tabular-nums">${fopFmt(p.amount)}</td></tr>`).join("")||`<tr><td colspan="4" style="padding:6px 10px;color:#93aca6">— ไม่มีใบรับผูกกับ PS นี้ —</td></tr>`}</tbody>
+      </table></td></tr>`;
+  }).join("");
+  return `<table class="apst-ptbl">
+    <thead><tr>
+      ${th("ps","เลขที่ PS","",true)}${th("payee","ผู้รับเงิน","",true)}${th("count","ใบ","center",true)}
+      <th style="white-space:nowrap">เลขเอกสาร</th><th style="white-space:nowrap">ประเภทค่าใช้จ่าย</th>
+      ${th("date","วันที่จ่าย","",true)}<th style="white-space:nowrap">บัญชีที่จ่าย</th>
+      <th style="white-space:nowrap">เลขอ้างอิง</th><th style="white-space:nowrap">สถานะเช็ค</th>
+      ${th("net","จ่ายสุทธิ","right",true)}
+    </tr></thead>
+    <tbody>${rows||`<tr><td colspan="10" class="empty" style="padding:30px">ยังไม่มีข้อมูลจ่าย — อัปรายงานจ่ายชำระหนี้ที่แท็บ "เจ้าหนี้คงค้าง"</td></tr>`}</tbody>
+  </table>`;
+}
+function apstPaidFootHtml(list){
+  const net=list.reduce((s,v)=>s+Number(v.net_amount||0),0);
+  return `<div style="display:flex;justify-content:space-between;align-items:center;padding:9px 14px;border-top:1px solid #ebf3f0;background:#f6fbfa;font-size:12.5px;border-radius:0 0 10px 10px;margin-top:-1px">
+    <span style="color:#5c807a">แสดง <b style="color:#0f2e2b">${list.length}</b> ใบสำคัญจ่าย</span>
+    <span style="color:#5c807a">รวมจ่ายสุทธิที่แสดง <b style="color:#059669">฿${fopFmt(net)}</b></span></div>`;
+}
 function apstPaidRender(){
   const d=apoGet(); const data=d._paidData; if(!data) return;
-  const q=(d.paidSearch||"").toLowerCase();
-  const onlyMulti=!!d.paidOnlyMulti;
-  let list=apstPaidApply(data.vouchers);
-  if(onlyMulti) list=list.filter(v=>(data.byVoucher[v.id]||[]).length>1);
-  if(q) list=list.filter(v=>((v.ps_no||"")+" "+(v.vendor_name||"")+" "+(v.note||"")+" "+(v.cheque_no||"")).toLowerCase().includes(q));
-  const totalNet=list.reduce((s,v)=>s+Number(v.net_amount||0),0);
-  const multiRR=list.filter(v=>(data.byVoucher[v.id]||[]).length>1).length;
+  apstInjectStyle();
+  if(!d.paidSort) d.paidSort={key:"pay_date",desc:true};
+  const list=apstPaidList(data); const kpi=apstPaidKpi(data,list);
   const active=apstPaidActive(data.vouchers).length;
-  const body=list.map(v=>{
-    const pays=data.byVoucher[v.id]||[];
-    const rrChips=pays.map(p=>`<code style="font-size:10.5px;background:rgba(0,0,0,.05);padding:1px 5px;border-radius:4px;margin:1px">${esc(p.receipt_no||"—")}</code>`).join("");
-    const items=pays.map(p=>`<tr>
-        <td><code style="font-size:11px">${esc(p.receipt_no||"—")}</code></td>
-        <td>${esc((p.ap_invoices&&p.ap_invoices.invoice_no)||"")}</td>
-        <td>${esc(p.remark||"")}</td>
-        <td style="text-align:right;font-variant-numeric:tabular-nums">${fopFmt(p.amount)}</td>
-      </tr>`).join("");
-    return `<div style="border:1px solid var(--glass-border);border-radius:9px;margin-bottom:8px;overflow:hidden">
-      <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:9px 12px;background:rgba(0,0,0,.03);cursor:pointer" onclick="this.parentNode.querySelector('.apst-vdetail').classList.toggle('hide')">
-        <div><b style="font-size:13px">${esc(v.ps_no)}</b> · ${esc(v.vendor_name||"—")}
-          <span style="font-size:11px;color:var(--ink-3)"> · ${pays.length} ใบ ${pays.length>1?'<b style="color:#7c3aed">(หลายใบใน PS เดียว)</b>':""}</span>
-          <div style="margin-top:3px">${rrChips}</div></div>
-        <div style="text-align:right;font-size:11.5px;color:var(--ink-3)">
-          ${v.pay_date?fopDate(v.pay_date):"—"} · ${esc(v.bank_label||"")} · ${esc(v.cheque_no||"")}<br>
-          จ่ายสุทธิ <b style="font-size:13px;color:var(--ink-1)">${fopFmt(v.net_amount)}</b>${Number(v.discount_amount)?` <span style="color:#b45309">(หัก ${fopFmt(v.discount_amount)})</span>`:""}</div>
-      </div>
-      <div class="apst-vdetail hide"><table class="apst-tbl">
-        <thead><tr><th>ใบรับ</th><th>เลขบิล</th><th>รายละเอียด</th><th style="text-align:right">ยอด</th></tr></thead>
-        <tbody>${items}</tbody></table></div>
-    </div>`;
-  }).join("");
   document.getElementById("apstBody").innerHTML=`
-    <style>.apst-vdetail.hide{display:none}</style>
     <div class="apo-kpis">
-      <div class="apo-kpi" style="--kc:#0d7c74"><div class="apo-kpi-bar"></div><div class="apo-kpi-v"><span>${list.length}</span><i>PS</i></div><div class="apo-kpi-l">ใบสำคัญจ่าย (ตามตัวกรอง)</div></div>
-      <div class="apo-kpi" style="--kc:#059669"><div class="apo-kpi-bar"></div><div class="apo-kpi-v"><span>${fopFmt(totalNet)}</span><i>฿</i></div><div class="apo-kpi-l">จ่ายสุทธิรวม</div></div>
-      <div class="apo-kpi" style="--kc:#7c3aed"><div class="apo-kpi-bar"></div><div class="apo-kpi-v"><span>${multiRR}</span><i>PS</i></div><div class="apo-kpi-l">PS ที่จ่ายหลายใบ</div></div>
+      <div class="apo-kpi" style="--kc:#0d7c74"><div class="apo-kpi-bar"></div><div class="apo-kpi-v"><span id="apstKpiN">${list.length}</span><i>PS</i></div><div class="apo-kpi-l">ใบสำคัญจ่าย (ตามตัวกรอง)</div></div>
+      <div class="apo-kpi" style="--kc:#059669"><div class="apo-kpi-bar"></div><div class="apo-kpi-v"><span id="apstKpiNet">${fopFmt(kpi.totalNet)}</span><i>฿</i></div><div class="apo-kpi-l">จ่ายสุทธิรวม</div></div>
+      <div class="apo-kpi" style="--kc:#7c3aed"><div class="apo-kpi-bar"></div><div class="apo-kpi-v"><span id="apstKpiMulti">${kpi.multi}</span><i>PS</i></div><div class="apo-kpi-l">PS ที่จ่ายหลายใบ</div></div>
     </div>
     <div style="display:flex;gap:10px;margin-bottom:10px;align-items:center;flex-wrap:wrap">
-      <button class="apo-filterbtn${active?' on':''}" onclick="apstPaidToggleDrawer()"><span style="font-size:14px">⛭</span> ตัวกรอง${active?`<span class="apo-fd-badge">${active}</span>`:''}</button>
+      <button class="apo-filterbtn${active?' on':''}" id="apstPaidFilterBtn" onclick="apstPaidToggleDrawer()"><span style="font-size:14px">⛭</span> ตัวกรอง${active?`<span class="apo-fd-badge">${active}</span>`:''}</button>
       <div style="position:relative;flex:1;min-width:240px;max-width:400px"><span style="position:absolute;left:11px;top:50%;transform:translateY(-50%);color:#9db8b2;font-size:13px;pointer-events:none">🔍</span>
-        <input placeholder="ค้นหา — PS / ผู้รับเงิน / เลขเช็ค / หมายเหตุ" value="${esc(d.paidSearch||"")}"
-          oninput="apoGet().paidSearch=this.value; clearTimeout(window._apstPaidT); window._apstPaidT=setTimeout(()=>apstPaidRender(),200)" style="width:100%;font-family:inherit;font-size:13px;color:#123b38;background:#f5faf8;border:1px solid #d7e8e3;border-radius:9px;padding:8px 12px 8px 32px;outline:none"></div>
-      <label class="opt" style="font-size:12.5px;white-space:nowrap"><input type="checkbox" ${onlyMulti?'checked':''} onchange="apoGet().paidOnlyMulti=this.checked; apstPaidRender()">เฉพาะที่จ่ายหลายใบ</label>
-      <div style="display:flex;gap:6px;flex-wrap:wrap">${apstPaidPillsHtml(data.vouchers)}</div>
+        <input id="apstPaidSearch" placeholder="ค้นหา — PS / ผู้รับเงิน / เลขเอกสาร / เลขอ้างอิง / หมายเหตุ" value="${esc(d.paidSearch||"")}"
+          oninput="apoGet().paidSearch=this.value; clearTimeout(window._apstPaidT); window._apstPaidT=setTimeout(apstPaidApplyChanges,150)" style="width:100%;font-family:inherit;font-size:13px;color:#123b38;background:#f5faf8;border:1px solid #d7e8e3;border-radius:9px;padding:8px 12px 8px 32px;outline:none"></div>
+      <label class="opt" style="font-size:12.5px;white-space:nowrap"><input type="checkbox" ${d.paidOnlyMulti?'checked':''} onchange="apoGet().paidOnlyMulti=this.checked; apstPaidApplyChanges()">เฉพาะที่จ่ายหลายใบ</label>
+      <div id="apstPaidPills" style="display:flex;gap:6px;flex-wrap:wrap">${apstPaidPillsHtml(data.vouchers)}</div>
       ${fopCanWrite()?`<button class="btn ghost btn sm" onclick="apstUndoImport()" title="ลบการนำเข้ารายงานจ่ายทั้งหมด แล้วเริ่มใหม่" style="border-color:var(--out);color:var(--out-ink)">↩ ล้างการนำเข้า</button>`:""}
-      <div style="margin-left:auto;font-size:12.5px;color:#77948e;white-space:nowrap"><b style="color:#0f2e2b">${list.length}</b> จาก ${data.vouchers.length} PS</div>
+      <div id="apstPaidCount" style="margin-left:auto;font-size:12.5px;color:#77948e;white-space:nowrap"><b style="color:#0f2e2b">${list.length}</b> จาก ${data.vouchers.length} PS</div>
     </div>
-    ${body||'<div class="empty">ยังไม่มีข้อมูลจ่าย — อัปรายงานจ่ายชำระหนี้ที่แท็บ "เจ้าหนี้คงค้าง"</div>'}
-    <div>${apstPaidDrawerHtml(data.vouchers)}</div>`;
+    <div id="apstPaidTableWrap" style="overflow-x:auto;max-width:100%">${apstPaidTableHtml(list,data)}</div>
+    <div id="apstPaidFoot">${apstPaidFootHtml(list)}</div>
+    <div id="apstPaidDrawerWrap">${apstPaidDrawerHtml(data.vouchers)}</div>`;
+}
+function apstPaidApplyChanges(){
+  const d=apoGet(); const data=d._paidData; if(!data) return;
+  const list=apstPaidList(data); const kpi=apstPaidKpi(data,list);
+  const set=(id,v)=>{ const e=document.getElementById(id); if(e) e.textContent=v; };
+  set("apstKpiN",list.length); set("apstKpiNet",fopFmt(kpi.totalNet)); set("apstKpiMulti",kpi.multi);
+  const tw=document.getElementById("apstPaidTableWrap"); if(tw) tw.innerHTML=apstPaidTableHtml(list,data);
+  const ft=document.getElementById("apstPaidFoot"); if(ft) ft.innerHTML=apstPaidFootHtml(list);
+  const pl=document.getElementById("apstPaidPills"); if(pl) pl.innerHTML=apstPaidPillsHtml(data.vouchers);
+  const cnt=document.getElementById("apstPaidCount"); if(cnt) cnt.innerHTML=`<b style="color:#0f2e2b">${list.length}</b> จาก ${data.vouchers.length} PS`;
+  const dw=document.getElementById("apstPaidDrawerWrap"); if(dw) dw.innerHTML=apstPaidDrawerHtml(data.vouchers);
+  const fb=document.getElementById("apstPaidFilterBtn");
+  if(fb){ const n=apstPaidActive(data.vouchers).length; fb.classList.toggle("on",n>0);
+    fb.innerHTML=`<span style="font-size:14px">⛭</span> ตัวกรอง${n?`<span class="apo-fd-badge">${n}</span>`:''}`; }
 }
 
 /* ============ แท็บ "ตั้งโอน" — จัดกลุ่มตาม PS + เลขบัญชีจากทะเบียน ============ */

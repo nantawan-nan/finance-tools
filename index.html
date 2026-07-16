@@ -13025,7 +13025,14 @@ function apoFilterAndSort(enriched){
     if(la !== lb) return la - lb;
     let av = a[s.key], bv = b[s.key];
     if(s.key === "vendor_name") { av = a._vendor; bv = b._vendor; }
-    if(typeof av === "number" || /amount/.test(s.key)){ av = Number(av||0); bv = Number(bv||0); }
+    const isAmt = /amount/.test(s.key);
+    if(!isAmt){
+      // ค่าว่าง (ไม่มีวัน/ไม่มีข้อมูล) → ท้ายสุดเสมอ ทั้ง น้อย→มาก และ มาก→น้อย (แบบ Excel)
+      const ae = (av==null||av===""), be = (bv==null||bv==="");
+      if(ae && be) return 0;
+      if(ae) return 1;
+      if(be) return -1;
+    } else { av = Number(av||0); bv = Number(bv||0); }
     if(av < bv) return s.desc ? 1 : -1;
     if(av > bv) return s.desc ? -1 : 1;
     return 0;

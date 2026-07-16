@@ -13328,19 +13328,19 @@ function apoBuildTable(inv, enriched, canWrite, today){
     <thead>
       <tr>
         ${canWrite ? `<th style="text-align:center;width:32px;vertical-align:middle"><input type="checkbox" id="apoSelAll" onclick="apoToggleSelectAll(this.checked)" title="เลือก/ไม่เลือก ทุกรายการที่ค้างจ่ายในตัวกรองนี้" style="cursor:pointer"></th>` : ""}
-        ${th("invoice_no", "เลขที่บิล", { filter: apoColFilter("invoice_no", dInvoice.values, dInvoice.counts) })}
+        ${th("invoice_no", "เลขที่บิล")}
         ${th("_docno", "เลขเอกสารตั้งหนี้")}
-        ${th("vendor_name", "ผู้ขาย", { filter: apoColFilter("vendor_name", dVendor.values, dVendor.counts) })}
+        ${th("vendor_name", "ผู้ขาย")}
         ${th("desc", "คำอธิบาย", { sortable: false })}
-        ${th("invoice_date", "วันที่บิล", { filter: apoColFilter("invoice_date", dInvDate.values, dInvDate.counts, fmtDate) })}
-        ${th("due_date", "ครบกำหนด", { filter: apoColFilter("due_date", dDueDate.values, dDueDate.counts, fmtDate) })}
-        ${th("planned_payment_date", "วันชำระเงิน", { filter: apoColFilter("planned_payment_date", dPlanned.values, dPlanned.counts, fmtDate) })}
+        ${th("invoice_date", "วันที่บิล")}
+        ${th("due_date", "ครบกำหนด")}
+        ${th("planned_payment_date", "วันชำระเงิน")}
         ${th("pay_from", "ตัดจากบัญชี", { sortable: false })}
         ${th("amount_total", "รวม", { align: "right" })}
         ${th("amount_outstanding", "คงค้าง", { align: "right" })}
-        ${th("category", "ประเภทค่าใช้จ่าย", { filter: apoColFilter("category", dCat.values, dCat.counts) })}
-        ${th("age_bucket", "อายุหนี้", { filter: apoColFilter("age_bucket", dAge.values, dAge.counts) })}
-        ${th("status", "สถานะ", { filter: apoColFilter("status", dStatus.values, dStatus.counts) })}
+        ${th("category", "ประเภทค่าใช้จ่าย")}
+        ${th("age_bucket", "อายุหนี้")}
+        ${th("status", "สถานะ")}
         ${canWrite ? '<th style="text-align:center">จัดการ</th>' : ""}
       </tr>
     </thead>

@@ -184,6 +184,15 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-16 — ★ AP นำเข้า: identity = เลขเอกสารตั้งหนี้ (doc_no/RR) แทน "เลขที่บิล" + เตือนยอด/ผู้ขายเปลี่ยน
+- **บั๊กจริง (ผู้ใช้แจ้ง):** เลขที่บิลซ้ำได้ (เช่น `MEMO.2026-07-01` คนละ RR คนละคน) แต่ upsert คีย์ `company_id,invoice_no` → ทับกัน (อารียา 1000 → นันทวรรณ 5000)
+- **แก้ identity → doc_no (RR):** migration `supabase/zz-ap-docno-identity.sql` — เพิ่มคอลัมน์ `doc_no` + backfill จาก `remark` (`Express:xxx`) + **drop `ap_invoices_company_id_invoice_no_key`** + unique partial `(company_id,doc_no) WHERE doc_no NOT NULL` (ห่อ EXCEPTION)
+- **นำเข้า XML (`apoHandleXml`):** dedup ในไฟล์ด้วย `doc_no||invoice_no` · จับคู่ DB ด้วย `doc_no` ก่อน (ไม่มี doc_no → invoice_no) · tag: `new`/`update`/`same` · **`update` = ยอดเปลี่ยน หรือ ผู้ขายเปลี่ยน** (`apstNormName` เทียบชื่อ · RR เดิมคนละคน = เตือนแดง ⚠) · preview โชว์ doc_no เด่น + เลขบิลรอง + "⚠ เดิม: {ผู้ขาย}"
+- **commit เลิก upsert-invoice_no:** มี `_exId` → update by id (คง planned/note/pay_from เดิม) · ไม่มี → insert (เลขบิลซ้ำได้) · CSV import จับด้วย invoice_no (doc_no ว่าง) แทน upsert
+- **apoEnrich `_docno`** อ่านจาก `r.doc_no` ก่อน (fallback remark) · apoLoad `select("*")` ได้ doc_no
+- **apst ไม่ตั้ง doc_no** (invoice ที่สร้างจากรายงานจ่าย · RR ซ้ำข้าม PS ได้ · ถ้าตั้งจะชน unique) · idempotency ยังใช้ existKeys
+- **verify browser:** อารียา≠นันทวรรณ (เตือน) · นาย อดิศร=อดิศร (ไม่เตือนผิด) · _docno column-first · syntax OK · boot 0 error · **ต้อง push ให้ migration รันก่อนใช้**
+
 ### 2026-07-15 (4) — ★ AP Outstanding: redesign ตาม handoff (filter drawer + KPI แถบสี)
 - **เจ้าของส่ง handoff จาก Claude Design** (`for-design` ref) — เอาตามนี้เป๊ะ โดยเฉพาะ "สไลเซอร์แบบ drawer"
 - **เลิกสไลเซอร์ inline → filter drawer แผงเลื่อนขวา** (`apoFilterDrawerHtml` · ปุ่ม `⛭ ตัวกรอง` + badge นับ): 4 กลุ่ม (ประเภทค่าใช้จ่าย/อายุหนี้/ผู้ขาย/รอบจ่าย) · checkbox **3 สถานะ** (เลือกทั้งหมด ✓ / บางส่วน – / ไม่เลือก) ต่อกลุ่ม + master "(เลือกทั้งหมด)" + count · ปุ่ม "ล้างตัวกรอง"/"ดูผลลัพธ์"

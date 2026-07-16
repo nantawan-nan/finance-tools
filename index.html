@@ -12942,7 +12942,7 @@ function apoEnrich(rawInv){
     age_bucket: apoAgeBucket(r.due_date, r.status),
     _vendor: (r.vendors&&r.vendors.name) || r.vendor_name_raw || "—",
     _planned: r.planned_payment_date || "",
-    _docno: (r.remark && (r.remark.match(/Express:\s*([^\s·|]+)/i)||[])[1]) || ""
+    _docno: r.doc_no || (r.remark && (r.remark.match(/Express:\s*([^\s·|]+)/i)||[])[1]) || ""
   }));
 }
 /* คำอธิบายที่ตัด "· Express:xxx" ออก (ย้ายไปคอลัมน์เลขเอกสารตั้งหนี้แล้ว) */
@@ -14779,57 +14779,46 @@ async function apoHandleXml(file){
   const { invoices, vendors } = parsed;
   if(!invoices.length){ alert("ไม่พบ invoice ใน XML"); return; }
 
-  // --- dedup ภายในไฟล์ ---
-  // ถ้า invoice_no ซ้ำกันในไฟล์ → เช็คว่าเป็นเจ้าหนี้เดียวกันหรือเปล่า
-  //   - เจ้าหนี้เดียวกัน = ซ้ำจริง เก็บตัวล่าสุด
-  //   - ต่างเจ้าหนี้ = Express ออก SL เลขซ้ำ → ใช้ doc_no (RR...) เป็น invoice_no แทน (RR ไม่ซ้ำ)
-  const seenInvoiceNo = new Map(); // invoice_no → vendor_code ที่เห็นครั้งแรก
+  // --- dedup ภายในไฟล์ ด้วย "เลขเอกสารตั้งหนี้ (doc_no/RR)" · ไม่มี doc_no → ใช้ invoice_no ---
+  //   เลขที่บิล (MEMO...) ซ้ำได้ · identity จริง = RR
+  const seenKey = new Map(); // key → index ใน deduped
   const dedupedInvoices = [];
   let dupCount = 0;
   for(const inv of invoices){
-    const prevVendor = seenInvoiceNo.get(inv.invoice_no);
-    if(prevVendor === undefined){
-      // ยังไม่เคยเห็น invoice_no นี้
-      seenInvoiceNo.set(inv.invoice_no, inv.vendor_code||inv.vendor_name);
-      dedupedInvoices.push(inv);
-    } else if(prevVendor === (inv.vendor_code||inv.vendor_name)){
-      // เจ้าหนี้เดียวกัน = ซ้ำจริง → drop
-      dupCount++;
-    } else {
-      // ต่างเจ้าหนี้ แต่ SL ซ้ำ → ใช้ doc_no แทน (RR ไม่ซ้ำ)
-      const fixedNo = inv.doc_no || (inv.invoice_no + '-' + (inv.vendor_code||'dup'));
-      dedupedInvoices.push({...inv, invoice_no: fixedNo, _slConflict: inv.invoice_no});
-      // แก้ตัวแรกด้วยถ้ายังไม่ได้แก้
-      const first = dedupedInvoices.find(x=>x.invoice_no===inv.invoice_no);
-      if(first && !first._slConflict){
-        first.invoice_no = first.doc_no || (first.invoice_no + '-' + (first.vendor_code||'dup'));
-        first._slConflict = inv.invoice_no; // mark ว่าแก้แล้ว
-      }
-    }
+    const key = String(inv.doc_no || inv.invoice_no || "").trim();
+    if(!seenKey.has(key)){ seenKey.set(key, dedupedInvoices.length); dedupedInvoices.push(inv); }
+    else { dedupedInvoices[seenKey.get(key)] = inv; dupCount++; }  // RR เดียวกันซ้ำในไฟล์ → เก็บตัวหลัง
   }
 
-  // --- query DB เพื่อแท็กสถานะ ---
-  let existingMap = {}; // invoice_no → { amount_total, amount_outstanding }
+  // --- query DB: จับคู่ด้วย doc_no (RR) ก่อน · rows ที่ไม่มี doc_no จับด้วย invoice_no ---
+  const existingByDoc = {}, existingByInv = {};
   try{
     const cid = await fopCompanyId();
-    const invNos = dedupedInvoices.map(i => i.invoice_no);
-    // query เป็น chunk 200 กัน URL เกิน
-    for(let s=0; s<invNos.length; s+=200){
-      const { data: ex } = await sb.from("ap_invoices")
-        .select("invoice_no,amount_total,amount_outstanding,status")
-        .eq("company_id", cid)
-        .is("deleted_at", null)
-        .in("invoice_no", invNos.slice(s, s+200));
-      for(const r of ex||[]) existingMap[r.invoice_no] = r;
+    const docNos = [...new Set(dedupedInvoices.map(i=>i.doc_no).filter(Boolean))];
+    const invNos = [...new Set(dedupedInvoices.filter(i=>!i.doc_no).map(i=>i.invoice_no).filter(Boolean))];
+    const cols = "id,invoice_no,doc_no,amount_total,amount_outstanding,vendor_name_raw,vendors(name),status";
+    for(let s=0;s<docNos.length;s+=200){
+      const { data } = await sb.from("ap_invoices").select(cols)
+        .eq("company_id",cid).is("deleted_at",null).in("doc_no", docNos.slice(s,s+200));
+      for(const r of data||[]) existingByDoc[r.doc_no]=r;
+    }
+    for(let s=0;s<invNos.length;s+=200){
+      const { data } = await sb.from("ap_invoices").select(cols)
+        .eq("company_id",cid).is("deleted_at",null).is("doc_no",null).in("invoice_no", invNos.slice(s,s+200));
+      for(const r of data||[]) existingByInv[r.invoice_no]=r;
     }
   }catch(_){}
 
-  // แท็ก: 'new' | 'update' | 'same'
+  // แท็ก: 'new' | 'update' (ยอด/ผู้ขายเปลี่ยน = เตือน) | 'same'
   const tagged = dedupedInvoices.map((it, i) => {
-    const ex = existingMap[it.invoice_no];
+    const ex = it.doc_no ? existingByDoc[it.doc_no] : existingByInv[it.invoice_no];
     if(!ex) return { ...it, _status: 'new', _origIdx: i };
+    const exVendor = (ex.vendors&&ex.vendors.name) || ex.vendor_name_raw || "";
     const amtChanged = Math.abs(Number(it.amount_total) - Number(ex.amount_total)) >= 0.01;
-    return { ...it, _status: amtChanged ? 'update' : 'same', _exAmt: ex.amount_total, _origIdx: i };
+    const venChanged = !!exVendor && apstNormName(it.vendor_name) !== apstNormName(exVendor);
+    return { ...it, _status: (amtChanged||venChanged) ? 'update' : 'same',
+             _exId: ex.id, _exAmt: ex.amount_total, _exVendor: exVendor,
+             _amtChanged: amtChanged, _venChanged: venChanged, _origIdx: i };
   });
 
   const newCount    = tagged.filter(i=>i._status==='new').length;
@@ -14839,11 +14828,15 @@ async function apoHandleXml(file){
   const total = tagged.reduce((s,i) => s + Number(i.amount_outstanding||0), 0);
   const overdue = tagged.filter(i => i.is_overdue).length;
 
-  const statusBadge = s => s==='new'
-    ? `<span style="background:#dcfce7;color:#15803d;font-size:10px;padding:1px 6px;border-radius:8px;font-weight:700">ใหม่</span>`
-    : s==='update'
-    ? `<span style="background:#fef3c7;color:#b45309;font-size:10px;padding:1px 6px;border-radius:8px;font-weight:700">อัปเดตยอด</span>`
-    : `<span style="background:#f1f5f9;color:#94a3b8;font-size:10px;padding:1px 6px;border-radius:8px">ซ้ำ/ไม่เปลี่ยน</span>`;
+  const statusBadge = it => {
+    const s = typeof it==='string' ? it : it._status;
+    if(s==='new') return `<span style="background:#dcfce7;color:#15803d;font-size:10px;padding:1px 6px;border-radius:8px;font-weight:700">ใหม่</span>`;
+    if(s==='update'){
+      const warn = (it._venChanged?'⚠ ผู้ขายเปลี่ยน':'') + (it._venChanged&&it._amtChanged?' + ':'') + (it._amtChanged?'อัปเดตยอด':'');
+      return `<span style="background:${it._venChanged?'#fee2e2':'#fef3c7'};color:${it._venChanged?'#b91c1c':'#b45309'};font-size:10px;padding:1px 6px;border-radius:8px;font-weight:700">${warn||'อัปเดต'}</span>`;
+    }
+    return `<span style="background:#f1f5f9;color:#94a3b8;font-size:10px;padding:1px 6px;border-radius:8px">ซ้ำ/ไม่เปลี่ยน</span>`;
+  };
 
   const m = document.createElement("div");
   m.id = "fopModal";
@@ -14857,7 +14850,7 @@ async function apoHandleXml(file){
       </div>
       <div style="display:flex;gap:10px;margin-bottom:10px;font-size:12px">
         <span style="background:#dcfce7;color:#15803d;padding:3px 10px;border-radius:20px;font-weight:700">ใหม่ ${newCount} รายการ</span>
-        <span style="background:#fef3c7;color:#b45309;padding:3px 10px;border-radius:20px;font-weight:700">อัปเดตยอด ${updateCount} รายการ</span>
+        <span style="background:#fef3c7;color:#b45309;padding:3px 10px;border-radius:20px;font-weight:700">อัปเดต/เตือน ${updateCount} รายการ</span>
         <span style="background:#f1f5f9;color:#94a3b8;padding:3px 10px;border-radius:20px">ซ้ำ/ไม่เปลี่ยน ${sameCount} รายการ (ไม่ติ๊กให้)</span>
       </div>
       <div style="overflow:auto;flex:1">
@@ -14868,11 +14861,11 @@ async function apoHandleXml(file){
             <th style="text-align:right">ยอดรวม</th><th style="text-align:right">คงค้าง</th><th>ประเภท</th>
           </tr></thead>
           <tbody>${tagged.filter(it=>it._status!=='same').map((it,i)=>{
-            return `<tr style="background:${it._status==='new'?'#f0fdf4':'#fffbeb'}">
+            return `<tr style="background:${it._status==='new'?'#f0fdf4':(it._venChanged?'#fef2f2':'#fffbeb')}">
               <td><input type="checkbox" class="apo-x-cb" data-i="${it._origIdx}" checked></td>
-              <td>${statusBadge(it._status)}</td>
-              <td><b>${esc(it.vendor_name)}</b> ${it.vendor_code?`<span style="color:var(--ink-3);font-size:10px">/${esc(it.vendor_code)}</span>`:""}</td>
-              <td><code style="font-size:11px">${esc(it.invoice_no)}</code>${it._slConflict?`<br><span style="color:#7c3aed;font-size:10px">⚠ SL ${esc(it._slConflict)} ซ้ำ → ใช้เลข RR</span>`:''}</td>
+              <td>${statusBadge(it)}</td>
+              <td><b>${esc(it.vendor_name)}</b> ${it.vendor_code?`<span style="color:var(--ink-3);font-size:10px">/${esc(it.vendor_code)}</span>`:""}${it._venChanged?`<br><span style="color:#b91c1c;font-size:10px">⚠ เดิม: ${esc(it._exVendor)}</span>`:''}</td>
+              <td><code style="font-size:11px">${esc(it.doc_no||it.invoice_no)}</code>${it.doc_no&&it.invoice_no&&it.doc_no!==it.invoice_no?`<br><span style="color:var(--ink-3);font-size:10px">บิล ${esc(it.invoice_no)}</span>`:''}</td>
               <td>${fopDate(it.invoice_date)}</td>
               <td style="${it.is_overdue?'color:var(--out-ink);font-weight:700':''}">${fopDate(it.due_date)}</td>
               <td style="text-align:right">${fopFmt(it.amount_total)}${it._exAmt!=null?`<br><span style="color:var(--ink-3);font-size:10px">เดิม ${fopFmt(it._exAmt)}</span>`:''}</td>
@@ -14947,35 +14940,45 @@ async function apoHandleXml(file){
       // 3) build ap_invoices rows — อ่าน category จาก dropdown ของแต่ละ row
       const catByIdx = {};
       document.querySelectorAll(".apo-x-cat").forEach(s => { catByIdx[s.dataset.i] = s.value; });
-      const rows = sel.map(i => {
+      // จับคู่ด้วย doc_no (RR): มี _exId → update ตัวเดิม · ไม่มี → insert ใหม่ (เลขที่บิลซ้ำได้)
+      const toInsert=[], toUpdate=[];
+      sel.forEach(i=>{
         const it = invoices[i];
-        return {
+        const row = {
           company_id: cid,
           vendor_id: it.vendor_code ? vendorMap[it.vendor_code] : null,
           vendor_name_raw: it.vendor_name,
           invoice_no: it.invoice_no,
+          doc_no: it.doc_no || null,
           invoice_date: it.invoice_date,
           due_date: it.due_date,
           amount_total: it.amount_total,
           category: catByIdx[i] || it.category || "เจ้าหนี้การค้า",
           remark: [it.remark, it.po ? "PO:"+it.po : null, it.doc_no ? "Express:"+it.doc_no : null].filter(Boolean).join(" · ") || null,
           csv_import_id: imp.id,
-          source_row_no: i + 1,
-          created_by: AUTH.user ? AUTH.user.id : null
+          source_row_no: i + 1
         };
+        if(it._exId){ toUpdate.push({ id: it._exId, row }); }
+        else { row.created_by = AUTH.user ? AUTH.user.id : null; toInsert.push(row); }
       });
-
-      const { error: insErr } = await sb.from("ap_invoices")
-        .upsert(rows, { onConflict: "company_id,invoice_no" });
-      if(insErr) throw insErr;
+      if(toInsert.length){
+        const { error } = await sb.from("ap_invoices").insert(toInsert);
+        if(error) throw error;
+      }
+      for(const u of toUpdate){
+        const { error } = await sb.from("ap_invoices")
+          .update({ ...u.row, updated_by: AUTH.user?AUTH.user.id:null }).eq("id", u.id);
+        if(error) throw error;
+      }
+      const nDone = toInsert.length + toUpdate.length;
 
       await sb.from("csv_imports").update({
-        status: "committed", ok_count: rows.length, error_count: 0,
+        status: "committed", ok_count: nDone, error_count: 0,
         committed_at: new Date().toISOString(), committed_by: AUTH.user?AUTH.user.id:null
       }).eq("id", imp.id);
 
       document.getElementById("fopModal").remove();
-      alert(`สำเร็จ — ${rows.length} บิล (จาก ${vendors.size} เจ้าหนี้)`);
+      alert(`สำเร็จ — เพิ่มใหม่ ${toInsert.length} · อัปเดต ${toUpdate.length} (จาก ${vendors.size} เจ้าหนี้)`);
       state.apo[state.company] = null;
       renderToolApOutstanding();
     }catch(e){
@@ -15029,8 +15032,27 @@ async function apoHandleCsv(file){
   if(!invoices.length){ alert("ไม่มีแถวที่ valid"); return; }
   if(!confirm(`พบ ${invoices.length} แถว valid (skip ${errs}) — บันทึก?`)) return;
 
-  const { error: insErr } = await sb.from("ap_invoices").upsert(invoices, { onConflict: "company_id,invoice_no" });
-  if(insErr){ alert("Upload ไม่สำเร็จ: " + fopErr(insErr)); return; }
+  // CSV ไม่มี doc_no → จับคู่ด้วย invoice_no (เฉพาะแถวที่ doc_no ว่าง) · มี → update, ไม่มี → insert
+  const csvNos=[...new Set(invoices.map(v=>v.invoice_no).filter(Boolean))];
+  const exByNo={};
+  try{
+    for(let s=0;s<csvNos.length;s+=200){
+      const { data } = await sb.from("ap_invoices").select("id,invoice_no")
+        .eq("company_id",cid).is("deleted_at",null).is("doc_no",null).in("invoice_no", csvNos.slice(s,s+200));
+      for(const r of data||[]) exByNo[r.invoice_no]=r.id;
+    }
+  }catch(_){}
+  const csvIns=[], csvUpd=[];
+  for(const v of invoices){ if(exByNo[v.invoice_no]) csvUpd.push({id:exByNo[v.invoice_no], v}); else csvIns.push(v); }
+  try{
+    if(csvIns.length){ const { error } = await sb.from("ap_invoices").insert(csvIns); if(error) throw error; }
+    for(const u of csvUpd){
+      const { error } = await sb.from("ap_invoices").update({
+        amount_total:u.v.amount_total, vendor_name_raw:u.v.vendor_name_raw,
+        invoice_date:u.v.invoice_date, due_date:u.v.due_date, updated_by:AUTH.user?AUTH.user.id:null
+      }).eq("id", u.id); if(error) throw error;
+    }
+  }catch(e){ alert("Upload ไม่สำเร็จ: " + fopErr(e)); return; }
   await sb.from("csv_imports").update({
     status: "committed", ok_count: invoices.length, error_count: errs,
     committed_at: new Date().toISOString(), committed_by: AUTH.user?AUTH.user.id:null

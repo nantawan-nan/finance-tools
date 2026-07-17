@@ -184,6 +184,19 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-17 (3) — ★★ Orders: เก็บใบยกเลิก (เลิกทิ้ง) + แท็บยกเลิก 2 แบบ + มุมมองกระดาน 3 สถานะ
+- **เจ้าของสั่ง:** ใบยกเลิก "อยากให้เก็บไว้" · แยก 2 แบบ: ① **ยกเลิกแบบไม่นำเข้า** (สั่งปุ๊ปยกเลิกปั๊บ · BigSeller ไม่มีเลย · มีแค่หลังบ้าน) → ไม่ต้องตรวจ เก็บรายละเอียดไว้ดู ② **ยกเลิกภายหลัง** (BigSeller มีแล้วค่อยยกเลิก) → **ตรวจสถานะ: หลังบ้านยกเลิก → BigSeller ต้องยกเลิกด้วย = ข้อมูลตรง** · กระดานเลือกดูได้ 3 สถานะ
+- **★ ต้นเหตุที่ไม่มีข้อมูลใบยกเลิกเลย:** `ordReconUpload` **ทิ้งใบยกเลิกตั้งแต่ก่อนตรวจ** (`filter(o=>o.status!=='cancelled')`) + `ordRunRecon` `continue` ทิ้งอีกชั้น + `bsScoped` ตัด cancelled → **ไม่เคยเก็บสักใบ** · แก้: upload เก็บทุกใบ (ตัดแค่ `ordIsLabelOrder`) · bsScoped รวม cancelled
+- **`ORD_CXL_META` (taxonomy กลาง · 5 สถานะ):** `cxl_nobs` (ไม่นำเข้า · ปกติ) · `cxl_ok` (ยกเลิกภายหลัง · 2 ระบบตรง ✓) · `cxl_open` (หลังบ้านยกเลิก · BigSeller ยังขาย ⚠) · `cxl_bs` (BigSeller ยกเลิก · ผลตรวจหลังบ้านยังขาย ⚠) · `cxl_nobe` · helper `ordIsCxl/ordIsCxlStatus/ordIsCxlLate/ordIsCxlProblem` · `order_recon.status` เป็น text ไม่มี CHECK → **ไม่ต้อง migration**
+- **★ `ordReconEffStatus(r, liveBs)` — สถานะยกเลิกอ่านจากทะเบียนสดก่อน** (snapshot แช่ตอนตรวจ ไม่รู้ว่ายกเลิกทีหลัง) → **อัป BigSeller อย่างเดียวก็เห็นทันที ไม่ต้องอัปหลังบ้านซ้ำ** · ★ ใช้เฉพาะเช็คยกเลิก — **เทียบยอดยังใช้ snapshot** (กันผล recon เดิมเพี้ยน) · caller ที่ไม่ส่ง liveBs = พฤติกรรมเดิม
+- **`ordReconView(d)` (ใหม่ · จุดเดียวที่คำนวณสถานะ):** recon + สถานะสด + กรองช่วงวัน + แนบ `_live` → ใช้ร่วม board/detail/แท็บยกเลิก/matchStats/gap (เดิมต่างคนต่าง `.map(ordReconEffStatus)`)
+- **กระดาน — มุมมอง 3 สถานะ** (`d.boardScope` · `ordBoardSetScope`): **ยังมีผลอยู่** (default = เดิมเป๊ะ) · **ทั้งหมด** (ก่อนหักยกเลิกภายหลัง · **ไม่รวมไม่นำเข้า** — เจ้าของเลือก) · **ที่ยกเลิก** · `bsPick`/`bePick` คุมประชากรทั้ง 2 แถวต่อ scope → **live/all 2 แถวลบกันลงตัว** · **แถวใหม่ "ยกเลิกภายหลัง"** (คลิก→แท็บยกเลิก) · ผลต่างรวม `cxlProb` (cxl_open/cxl_bs — เจ้าของเลือก "ผลต่าง ต้องแก้")
+- **แท็บใหม่ "✕ ยกเลิก"** (`ordRenderCxl` · sub-tab late/nobs · `ordCxlRows`/`ordCxlCounts`/`ordCxlGo`): ตาราง วันที่/ช่องทาง/เลขออเดอร์(คลิกเปิด)/สินค้า/ยอด/สถานะ/รายละเอียด · late = banner เตือนถ้าสถานะไม่ตรง · nobs = banner "ไม่ต้องกระทบยอด"
+- **อัตราแมท** = `(matched+cxl_ok)/denom` · **cxl_nobs/cxl_nobe ไม่เข้าสูตร** (ไม่ต้องตรวจ · กันปั่น %)
+- **`ordBoardGap` เหลือ 2 เหตุผล** (ยกเลิกมีแถวของตัวเองแล้ว): ไม่มีในทะเบียนแล้ว · วันที่คนละช่วง
+- **★ ต้องอัปรายงานหลังบ้านใหม่ 1 รอบ** เพื่อดึงใบยกเลิกย้อนหลัง (ของเก่าถูกทิ้งไปแล้ว ไม่มีใน DB)
+- **verify (หน้าจริง):** `ordRunRecon` 5 เคส → matched/cxl_ok/cxl_open/cxl_bs/cxl_nobs ถูกครบ · ยกเลิกทีหลังโดยไม่อัปหลังบ้าน → `cxl_bs` + gap=0 · board live 2/200=2/200 · all 3/419=3/419 · cxl BigSeller 1 vs หลังบ้าน 2 (NOBS ไม่เคยเข้า BigSeller = ถูก) · แท็บ late 2 ใบ (✓ตรง + ⚠ไม่ตรง) · nobs 1 ใบ · cxl_open เข้าผลต่าง TikTok 1/88 · boot 0 error
+
 ### 2026-07-17 (2) — ★ Orders board: อธิบายช่องว่าง "หลังบ้าน > BigSeller ทั้งที่ผลต่าง = 0"
 - **เจ้าของถาม (ถูกต้อง):** Shopee BigSeller 773 · หลังบ้าน 775 · **ผลต่าง 0** · แมท 100% — ทำไมจำนวนไม่เท่ากันแต่ผลต่างเป็น 0
 - **สาเหตุ (by design · 2 แถวคนละแหล่ง):** แถว **หลังบ้าน** = `d.recon.results` (**snapshot `order_recon` แช่ตอนตรวจ** · กรองด้วย `r.date` = `sale_date` = **วันของแพลตฟอร์ม**) · แถว **BigSeller** = `d.rows` (**ทะเบียนสด order_ledger** · กรองด้วย `o.order_date` = **วันของ BigSeller** · ตัด `status==='cancelled'`) → ใบที่ตอนตรวจ `matched` แต่ภายหลัง **ยกเลิก / ถูกลบจากทะเบียน / ลงวันคนละช่วง** จะหายจากแถว BigSeller แต่ยังอยู่แถวหลังบ้าน · **`ผลต่าง` = only_be+only_bs+diff+unrecon (สถานะ recon) ไม่ใช่ผลลบของ 2 แถว** → gap นี้มองไม่เห็นมาก่อน

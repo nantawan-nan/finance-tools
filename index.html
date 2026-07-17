@@ -24277,6 +24277,12 @@ function ordBoardSetCh(ch){ const d=ordGet(); d.boardCh=ch; renderToolOrders();
 function ordBoardSetType(t){ const d=ordGet(); d.boardType=t; renderToolOrders(); }
 function ordBoardCalToggle(){ const d=ordGet(); d.boardCalOpen=!d.boardCalOpen; renderToolOrders(); }
 function ordBoardOtherToggle(){ const d=ordGet(); d.boardOtherOpen=!d.boardOtherOpen; renderToolOrders(); }
+/* ★ มุมมองกระดาน: live=ยังมีผลอยู่ · all=ทั้งหมด (ก่อนหักยกเลิกภายหลัง) · cxl=เฉพาะที่ยกเลิก */
+function ordBoardSetScope(s){ const d=ordGet(); d.boardScope=s; renderToolOrders(); }
+/* ★ ไปแท็บยกเลิก — kind: late=ยกเลิกภายหลัง · nobs=ยกเลิกแบบไม่นำเข้า */
+function ordCxlGo(ch, kind){ const d=ordGet(); d.view='cxl'; d.cxlKind=kind||'late'; if(ch) d.cxlCh=ch; renderToolOrders(); }
+function ordCxlSetKind(k){ const d=ordGet(); d.cxlKind=k; renderToolOrders(); }
+function ordCxlSetCh(ch){ const d=ordGet(); d.cxlCh=ch; renderToolOrders(); }
 function ordBoardGoDetail(ch){ const d=ordGet(); d.boardCh=ch; d.boardType="all"; renderToolOrders();
   setTimeout(()=>{ const el=document.getElementById("ordBoardDetail"); if(el) el.scrollIntoView({behavior:"smooth", block:"start"}); }, 50);
 }
@@ -24288,12 +24294,14 @@ function ordBoardSetNote(oidEnc, text){
 }
 /* ★ Build รายการผลต่างใช้ร่วม render + export (filter ตาม d.boardCh + d.boardType) */
 function ordBoardDetailRows(d){
-  const rb=ordRangeBounds(d.dateRange||"all");
-  const inRange=dt=>!rb||(dt&&String(dt).slice(0,10)>=rb.from&&String(dt).slice(0,10)<=rb.to);
-  const res=((d.recon&&d.recon.results)||[]).filter(r=>inRange(r.date)).map(r=>({...r, status: ordReconEffStatus(r)}));
+  const res=ordReconView(d);
   const rows=[];
   res.forEach(r=>{
     if(r.status==="only_be"||r.status==="only_bs"||r.status==="diff"){
+      rows.push({...r, _type:r.status, _ch:r.channel});
+    }
+    // ★ ยกเลิกที่สถานะ 2 ระบบไม่ตรง = ผลต่างที่ต้องแก้ (cxl_open/cxl_bs)
+    else if(ordIsCxlProblem(r.status)){
       rows.push({...r, _type:r.status, _ch:r.channel});
     }
   });
@@ -24554,6 +24562,95 @@ function ordUnreconBs(d){
   const isMp=g=>g==='shopee'||g==='tiktok'||g==='lazada';
   return (d.rows||[]).filter(o=>o.status!=='cancelled'&&isMp(o.channel_group)&&inR(o.order_date)&&!reconOids.has(String(o.order_id)));
 }
+/* ===== ★ แท็บ "ยกเลิก" — เก็บใบยกเลิกไว้ดูรายละเอียด (เจ้าของสั่ง: ไม่ทิ้ง) =====
+   2 แบบ: late=ยกเลิกภายหลัง (BigSeller เคยมี · ต้องตรวจสถานะ 2 ระบบตรงกัน)
+          nobs=ยกเลิกแบบไม่นำเข้า (มีแค่ฝั่งหลังบ้าน · ไม่ต้องตรวจ แค่เก็บข้อมูล) */
+function ordCxlCounts(d){
+  const all = ordReconView(d);
+  const late = all.filter(r=>ordIsCxlLate(r.status)).length;
+  const nobs = all.filter(r=>r.status==='cxl_nobs').length;
+  const prob = all.filter(r=>ordIsCxlProblem(r.status)).length;
+  return { late, nobs, prob, total: late+nobs };
+}
+function ordCxlRows(d, kind){
+  const rows = ordReconView(d).filter(r=> kind==='nobs' ? r.status==='cxl_nobs' : ordIsCxlLate(r.status));
+  const ch = d.cxlCh||'all';
+  const f = ch==='all' ? rows : rows.filter(r=>r.channel===ch);
+  return f.sort((a,b)=> (a.date||'').localeCompare(b.date||'') || (a.order_no||'').localeCompare(b.order_no||''));
+}
+function ordRenderCxl(d){
+  const kind = d.cxlKind||'late';
+  const all  = ordReconView(d);
+  const nLate = all.filter(r=>ordIsCxlLate(r.status)).length;
+  const nNobs = all.filter(r=>r.status==='cxl_nobs').length;
+  const rows = ordCxlRows(d, kind);
+  const prob = rows.filter(r=>ordIsCxlProblem(r.status)).length;
+  const sum  = rows.reduce((s,r)=>s+(Number(ordReconNet(r.be||r.bs||{}))||0), 0);
+  const fmt  = ordFmtMoney;
+  const chLab= k=>(ORD_BOARD_CHANS.find(c=>c.k===k)||{}).l || k;
+
+  const subTab=(k,l,n,sub)=>`<button onclick="ordCxlSetKind('${k}')" style="flex:1;text-align:left;border:1px solid ${kind===k?'var(--brand,#0d9488)':'#e7ebf2'};background:${kind===k?'rgba(13,148,136,.06)':'#fff'};border-radius:12px;padding:12px 15px;cursor:pointer;font-family:inherit">
+    <div style="display:flex;align-items:center;gap:8px"><span style="font:700 13.5px/1.2 inherit;color:${kind===k?'var(--brand,#0d9488)':'#1e293b'}">${esc(l)}</span><span class="tnum" style="font:800 13px/1 inherit;color:#64748b">${n.toLocaleString('th-TH')}</span></div>
+    <div style="font:500 11.5px/1.4 inherit;color:#94a3b8;margin-top:3px">${esc(sub)}</div>
+  </button>`;
+
+  // ชิปช่องทาง
+  const chans=[...new Set(all.filter(r=> kind==='nobs'?r.status==='cxl_nobs':ordIsCxlLate(r.status)).map(r=>r.channel))];
+  const fCh=d.cxlCh||'all';
+  const chChip=(k,l)=>`<button onclick="ordCxlSetCh('${k}')" style="border:0;border-radius:9px;padding:6px 13px;font:600 12.5px/1.1 inherit;font-family:inherit;cursor:pointer;${fCh===k?'background:var(--brand,#0d9488);color:#fff':'background:#f1f5f9;color:#475569'}">${esc(l)}</button>`;
+
+  const rowHtml = r=>{
+    const m = ORD_CXL_META[r.status]||{l:r.status,c:'#64748b',bg:'#f8fafc'};
+    const o = r.be || r.bs || {};
+    const items = Array.isArray(o.items)?o.items:[];
+    const amt = Number(ordReconNet(o))||0;
+    return `<tr style="background:${m.ok?'transparent':m.bg}">
+      <td style="white-space:nowrap;font:500 12px/1.4 inherit;color:#64748b">${esc(String(r.date||'—').slice(0,10))}</td>
+      <td style="white-space:nowrap"><span style="display:inline-flex;align-items:center;gap:6px">${ordPlatLogo(r.channel,16)}<span style="font:600 12px/1.2 inherit">${esc(chLab(r.channel))}</span></span></td>
+      <td><code onclick="ordSet('q','${esc(r.order_no)}')" title="เปิดออเดอร์นี้" style="cursor:pointer;font:600 11.5px/1.5 'JetBrains Mono',monospace;color:#0f172a;background:#f8fafc;border:1px solid #e7ebf2;border-radius:5px;padding:1px 6px">${esc(r.order_no)}</code></td>
+      <td style="font:500 12px/1.5 inherit;color:#475569;max-width:280px">${esc(o.products||items.map(i=>i.sku).filter(Boolean).join(', ')||'—')}</td>
+      <td class="right tnum" style="font:600 12.5px/1.4 inherit;white-space:nowrap">${fmt(amt)}</td>
+      <td style="white-space:nowrap"><span style="display:inline-flex;align-items:center;gap:5px;font:700 11px/1.5 inherit;color:${m.c};background:${m.bg};border:1px solid ${m.c}33;border-radius:999px;padding:2px 9px">${m.ok?'✓':'⚠'} ${esc(m.short)}</span></td>
+      <td style="font:500 11.5px/1.4 inherit;color:#64748b">${esc(m.l)}</td>
+    </tr>`;
+  };
+
+  return `
+  <div style="display:flex;gap:10px;margin-bottom:14px">
+    ${subTab('late','ยกเลิกภายหลัง',nLate,'BigSeller เคยมีใบนี้ · ต้องตรวจว่า 2 ระบบยกเลิกตรงกัน')}
+    ${subTab('nobs','ยกเลิก (ไม่นำเข้า BigSeller)',nNobs,'สั่งแล้วยกเลิกทันที · มีแค่ฝั่งหลังบ้าน · ไม่ต้องตรวจ')}
+  </div>
+  ${kind==='late' ? `<div style="margin-bottom:12px;padding:10px 14px;border-radius:10px;background:${prob?'#fef2f2':'#f0fdf4'};border:1px solid ${prob?'#fecaca':'#bbf7d0'};font:600 12.5px/1.5 inherit;color:${prob?'#991b1b':'#166534'}">
+      ${prob? `⚠ ${prob} ใบ สถานะไม่ตรงกัน — หลังบ้านยกเลิกแล้ว แต่ BigSeller ยังขายสำเร็จ (หรือกลับกัน) ต้องแก้ให้ตรงกัน`
+            : `✓ ทุกใบสถานะยกเลิกตรงกันทั้ง 2 ระบบ — ข้อมูลตรง`}
+    </div>` : `<div style="margin-bottom:12px;padding:10px 14px;border-radius:10px;background:#f8fafc;border:1px solid #e7ebf2;font:500 12.5px/1.5 inherit;color:#475569">
+      ℹ ใบเหล่านี้ยกเลิกก่อน BigSeller ดึงเข้า จึงมีข้อมูลแค่ฝั่งแพลตฟอร์ม — <b>ไม่ต้องกระทบยอด</b> เก็บไว้เป็นข้อมูลออเดอร์อย่างเดียว
+    </div>`}
+  <div style="display:flex;gap:7px;flex-wrap:wrap;margin-bottom:12px">
+    ${chChip('all','ทุกช่องทาง')}${chans.map(c=>chChip(c,chLab(c))).join('')}
+    <span style="margin-left:auto;font:600 12.5px/2 inherit;color:#64748b">${rows.length.toLocaleString('th-TH')} ใบ · ${fmt(sum)} บาท</span>
+  </div>
+  ${rows.length ? `<div class="ord-card" style="padding:0;overflow:hidden">
+    <div style="overflow:auto;max-height:640px">
+      <table class="ord-table" style="font-size:12.5px">
+        <thead><tr><th>วันที่</th><th>ช่องทาง</th><th>เลขคำสั่งซื้อ</th><th>สินค้า</th><th class="right">ยอด</th><th>สถานะ</th><th>รายละเอียด</th></tr></thead>
+        <tbody>${rows.map(rowHtml).join('')}</tbody>
+      </table>
+    </div>
+  </div>` : `<div class="ord-empty"><i data-lucide="inbox"></i><div class="ttl">— ไม่มีใบยกเลิกในช่วงที่เลือก —</div>
+    <div style="font:500 12.5px/1.6 inherit;color:#94a3b8;margin-top:6px">ใบยกเลิกจะเข้ามาเมื่อ <b>อัปรายงานหลังบ้าน</b> (Shopee/TikTok/Lazada) ของช่วงนั้น<br>ก่อนหน้านี้ระบบทิ้งใบยกเลิกตั้งแต่ตอนนำเข้า จึงต้องอัปใหม่ครั้งเดียวเพื่อดึงย้อนหลัง</div></div>`}
+  `;
+}
+/* ★ ผลตรวจ "ตามที่ควรเห็นตอนนี้" — จุดเดียวที่คำนวณสถานะ ใช้ร่วมทุกหน้า (กระดาน/รายละเอียด/แท็บยกเลิก/สถิติ)
+   = recon snapshot + สถานะยกเลิกล่าสุดจากทะเบียนสด · กรองตามช่วงวันที่เลือก
+   แนบ `_live` (แถวในทะเบียนสด) ไว้ให้ผู้เรียกใช้ต่อ */
+function ordReconView(d){
+  const inR = ordDateFilter(d);
+  const live = new Map((d.rows||[]).map(o=>[String(o.order_id), o]));
+  return (((d.rows||[]).length ? (d.recon && d.recon.results) : null) || [])
+    .filter(r=>inR(r.date))
+    .map(r=>{ const lb = live.get(String(r.order_no)); return { ...r, status: ordReconEffStatus(r, lb), _live: lb||null }; });
+}
 /* ★ ช่องว่างระหว่าง 2 แถวบนกระดาน — ใบที่ "ระบบหลังบ้าน" นับ แต่ "BigSeller" ไม่นับ
    ทั้ง 2 แถวคนละแหล่ง: หลังบ้าน = snapshot order_recon (แช่ไว้ตอนตรวจ · วันที่ = วันของแพลตฟอร์ม)
                         BigSeller = ทะเบียนสด order_ledger (วันที่ = วันของ BigSeller · ตัดที่ยกเลิกออก)
@@ -24563,18 +24660,16 @@ function ordUnreconBs(d){
 function ordBoardGap(d){
   const inR = ordDateFilter(d);
   const rows = d.rows || [];
-  const byOid = new Map(rows.map(o=>[String(o.order_id), o]));
   const activeIds = new Set(rows.filter(o=>o.status!=='cancelled' && inR(o.order_date)).map(o=>String(o.order_id)));
   const out = [];
-  ((d.recon && d.recon.results) || []).filter(r=>inR(r.date)).forEach(r=>{
-    const s = ordReconEffStatus(r);
-    if(s!=='matched' && s!=='diff') return;      // ต้องมีทั้ง 2 ฝั่งใน snapshot ถึงจะนับเข้าแถวหลังบ้าน
+  ordReconView(d).forEach(r=>{
+    // ★ ยกเลิกมีแถว/แท็บของตัวเองแล้ว (cxl_*) — เหลือแค่ 2 เคสที่ยังอธิบายไม่ได้: หายจากทะเบียน / วันที่คนละช่วง
+    if(r.status!=='matched' && r.status!=='diff') return;
     const oid = String(r.order_no);
     if(activeIds.has(oid)) return;               // ปกติ — นับทั้ง 2 แถว
-    const o = byOid.get(oid);
+    const o = r._live;
     let why, tip;
     if(!o){ why='ไม่มีในทะเบียนแล้ว'; tip='ถูกล้าง/ลบออกจากทะเบียน BigSeller หลังตรวจกระทบยอด'; }
-    else if(o.status==='cancelled'){ why='ยกเลิกภายหลัง'; tip='ตอนตรวจยังไม่ยกเลิก · BigSeller มายกเลิกทีหลัง'; }
     else { why='วันที่คนละช่วง'; tip=`BigSeller ลงวัน ${String(o.order_date||'—').slice(0,10)} · แพลตฟอร์มลงวัน ${String(r.date||'—').slice(0,10)}`; }
     out.push({ ch:r.channel, order_no:oid, why, tip, amt:Number(ordReconNet(r.be||r.bs||{}))||0 });
   });
@@ -24582,13 +24677,17 @@ function ordBoardGap(d){
 }
 /* ★ สถิติการแมท (denominator รวม "ยังไม่ตรวจ" → 100% เฉพาะเมื่อตรวจครบจริง) */
 function ordMatchStats(d){
-  const inR=ordDateFilter(d);
-  const res=(((d.rows||[]).length ? (d.recon&&d.recon.results) : null)||[]).filter(r=>inR(r.date)).map(r=>({...r,status:ordReconEffStatus(r)}));
+  const res=ordReconView(d);
   const cnt=s=>res.filter(r=>r.status===s).length;
   const matched=cnt('matched'), only_be=cnt('only_be'), only_bs=cnt('only_bs'), diff=cnt('diff');
   const unrecon=ordUnreconBs(d).length;
-  const denom=matched+only_be+only_bs+diff+unrecon;
-  return { matched, only_be, only_bs, diff, unrecon, denom, rate: denom?matched/denom*100:null };
+  // ★ ยกเลิก: cxl_open/cxl_bs = สถานะ 2 ระบบไม่ตรง → งานค้าง · cxl_ok = ตรวจแล้วตรง → นับเป็นแมท
+  //   cxl_nobs (ไม่นำเข้า) + cxl_nobe = "ไม่ต้องตรวจ" → ไม่เข้าสูตรอัตราแมทเลย (กันปั่นเปอร์เซ็นต์)
+  const cxlProb=res.filter(r=>ordIsCxlProblem(r.status)).length;
+  const cxlPass=res.filter(r=>r.status==='cxl_ok').length;
+  const cxlNobs=res.filter(r=>r.status==='cxl_nobs').length;
+  const denom=matched+only_be+only_bs+diff+unrecon+cxlProb+cxlPass;
+  return { matched, only_be, only_bs, diff, unrecon, cxlProb, cxlPass, cxlNobs, denom, rate: denom?(matched+cxlPass)/denom*100:null };
 }
 /* กราฟกระทบยอดต่อแพลตฟอร์ม 4 รูปแบบ: ก=แท่งเต็ม · ข=กระจาย · ค=กึ่งกลาง · ง=โดนัท */
 function ordReconChart(cov, mode, fmt, pAgg){
@@ -24663,12 +24762,22 @@ function ordRenderBoard(d){
   const fmt=ordFmtMoney;
   const rb=ordRangeBounds(d.dateRange||'all');
   const inRange=dt=>!rb||(dt&&String(dt).slice(0,10)>=rb.from&&String(dt).slice(0,10)<=rb.to);
-  const active=(d.rows||[]).filter(o=>o.status!=='cancelled'&&inRange(o.order_date));
+  // ★ ขอบเขตที่ดู: live=ยังมีผลอยู่ (default) · all=ทั้งหมดก่อนยกเลิกภายหลัง · cxl=เฉพาะที่ยกเลิก
+  const scope=d.boardScope||'live';
+  // ฝั่ง BigSeller (ทะเบียนสด) ต่อ scope — "ทั้งหมด" ไม่รวมใบไม่นำเข้า เพราะ BigSeller ไม่เคยมีใบพวกนั้นอยู่แล้ว
+  const bsPick=o=> scope==='cxl' ? ordIsCxl(o) : (scope==='all' ? true : !ordIsCxl(o));
+  const active=(d.rows||[]).filter(o=>bsPick(o)&&inRange(o.order_date));
   const CH=ORD_BOARD_CHANS;
-  // recon results in range + recompute status
-  const res=((d.recon&&d.recon.results)||[]).filter(r=>inRange(r.date)).map(r=>({...r, status: ordReconEffStatus(r)}));
+  // recon results in range + recompute status (ใช้สถานะยกเลิกจากทะเบียนสด)
+  const res=ordReconView(d);
+  // ฝั่งหลังบ้าน: นับเฉพาะแถวที่มีข้อมูลฝั่งแพลตฟอร์ม + อยู่ในขอบเขตที่ดู
+  const bePick=s=>{
+    if(scope==='cxl')  return s==='cxl_nobs'||s==='cxl_ok'||s==='cxl_open';          // ฝั่งหลังบ้าน = ยกเลิก
+    if(scope==='all')  return s==='matched'||s==='diff'||s==='only_be'||s==='cxl_ok'||s==='cxl_open'||s==='cxl_bs';   // ตัด cxl_nobs (ไม่นำเข้า)
+    return s==='matched'||s==='diff'||s==='only_be'||s==='cxl_bs';                    // live = หลังบ้านยังขายสำเร็จ
+  };
   // ----- matrix data -----
-  const M={}; CH.forEach(c=>M[c.k]={bs:{n:0,sum:0}, be:{n:0,sum:0}, only_be:0, only_bs:0, diff:0, diffSum:0, unrecon:0, unreconSum:0});
+  const M={}; CH.forEach(c=>M[c.k]={bs:{n:0,sum:0}, be:{n:0,sum:0}, only_be:0, only_bs:0, diff:0, diffSum:0, unrecon:0, unreconSum:0, cxlLate:0, cxlLateSum:0, cxlNobs:0, cxlProb:0});
   active.forEach(o=>{
     const k=ordChannelDetail(o); if(!M[k]) return;
     M[k].bs.n++; M[k].bs.sum+=Number(o.order_total||0);
@@ -24676,17 +24785,20 @@ function ordRenderBoard(d){
   res.forEach(r=>{
     const ch=r.channel; if(!M[ch]) return;
     const amt=Number(ordReconNet(r.be||r.bs||{}))||0;
-    // ระบบหลังบ้าน count = แถวที่มี platform side (matched+diff+only_be)
-    if(r.status==='matched'||r.status==='diff'||r.status==='only_be'){
-      M[ch].be.n++; M[ch].be.sum+=amt;
-    }
+    if(bePick(r.status)){ M[ch].be.n++; M[ch].be.sum+=amt; }
     if(r.status==='only_be'){ M[ch].only_be++; M[ch].diffSum+=amt; }
     if(r.status==='only_bs'){ M[ch].only_bs++; M[ch].diffSum+=amt; }
     if(r.status==='diff'){    M[ch].diff++;    M[ch].diffSum+=amt; }
+    // ★ ยกเลิก
+    if(ordIsCxlLate(r.status)){ M[ch].cxlLate++; M[ch].cxlLateSum+=amt; }
+    if(r.status==='cxl_nobs')  M[ch].cxlNobs++;
+    if(ordIsCxlProblem(r.status)){ M[ch].cxlProb++; M[ch].diffSum+=amt; }
   });
   // ★ ออเดอร์ BigSeller ที่ recon ไม่เคยเห็น (ยังไม่อัปหลังบ้านช่องนั้น) = "ยังไม่ตรวจ"
-  ordUnreconBs(d).forEach(o=>{ const k=o.channel_group; if(M[k]){ M[k].unrecon++; M[k].unreconSum+=Number(o.order_total||0); } });
-  const diffN=k=>M[k].only_be+M[k].only_bs+M[k].diff+M[k].unrecon;
+  //   (ดูเฉพาะที่ยกเลิก → ไม่เกี่ยว ไม่ต้องนับ)
+  if(scope!=='cxl') ordUnreconBs(d).forEach(o=>{ const k=o.channel_group; if(M[k]){ M[k].unrecon++; M[k].unreconSum+=Number(o.order_total||0); } });
+  const diffN=k=> scope==='cxl' ? M[k].cxlProb : (M[k].only_be+M[k].only_bs+M[k].diff+M[k].unrecon+M[k].cxlProb);
+  const cxlLateTotal=CH.reduce((s,c)=>s+M[c.k].cxlLate,0);
 
   // ★ aggregate "อื่นๆ" — face+line+dealer
   const OTH_KEYS=ORD_BOARD_CHANS_OTHER.map(c=>c.k);
@@ -24775,7 +24887,24 @@ function ordRenderBoard(d){
       ${lines}
     </div>`;
   })();
+  // ★ ตัวเลือกขอบเขต — ดูภาพรวมได้หลายสถานะ (เจ้าของขอ)
+  const scopeMeta={
+    live:{ l:'ออเดอร์ที่ยังมีผลอยู่', sub:'ตัดใบที่ยกเลิกออก · ยอดที่ต้องคีย์ IV จริง' },
+    all: { l:'ออเดอร์ทั้งหมด',        sub:'ก่อนหักยกเลิกภายหลัง · ไม่รวมใบที่ไม่นำเข้า BigSeller' },
+    cxl: { l:'ออเดอร์ที่ยกเลิก',      sub:'ทั้งที่ยกเลิกภายหลัง และยกเลิกแบบไม่นำเข้า' }
+  };
+  const scopeChips=`
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px">
+      <span style="font:700 11.5px/1.2 inherit;color:#64748b;text-transform:uppercase;letter-spacing:.05em">มุมมอง</span>
+      <div style="display:inline-flex;background:#f1f5f9;border-radius:10px;padding:3px;gap:2px">
+        ${Object.keys(scopeMeta).map(k=>`<button onclick="ordBoardSetScope('${k}')" style="border:0;border-radius:8px;padding:6px 14px;font:600 12.5px/1.1 inherit;font-family:inherit;cursor:pointer;${scope===k?'background:var(--brand,#0d9488);color:#fff':'background:transparent;color:#475569'}">${esc(scopeMeta[k].l)}</button>`).join('')}
+      </div>
+      <span style="font:500 11.5px/1.4 inherit;color:#94a3b8">${esc(scopeMeta[scope].sub)}</span>
+    </div>`;
+  const bsSub = scope==='cxl' ? 'หน้าบ้าน · เฉพาะใบที่ยกเลิก' : (scope==='all' ? 'หน้าบ้าน · รวมที่ยกเลิกภายหลัง' : 'หน้าบ้าน (คีย์ขาย)');
+  const beSub = scope==='cxl' ? 'รายงานแพลตฟอร์ม · เฉพาะใบที่ยกเลิก' : (scope==='all' ? 'รายงานแพลตฟอร์ม · รวมที่ยกเลิกภายหลัง' : 'รายงานจากแพลตฟอร์ม');
   const matrixHtml=`
+    ${scopeChips}
     <div class="ord-card" style="padding:0;overflow:hidden;border-radius:16px">
       <div style="display:grid;${gridCols};background:#f8fafc;border-bottom:1px solid #e2e8f0">
         <div style="padding:14px 18px;display:flex;align-items:center;justify-content:space-between">
@@ -24786,14 +24915,25 @@ function ordRenderBoard(d){
       </div>
       <!-- BigSeller row -->
       <div style="display:grid;${gridCols};border-bottom:1px solid #eef1f6">
-        ${rowLabel('database','BigSeller','หน้าบ้าน (คีย์ขาย)','#0d9488')}
+        ${rowLabel('database','BigSeller',bsSub,'#0d9488')}
         ${displayCH.map(c=>{const cd=colData(c);return cell(cd.bs.n, cd.bs.sum, {col:'#0f172a'});}).join('')}
       </div>
       <!-- ระบบหลังบ้าน row -->
       <div style="display:grid;${gridCols};border-bottom:1px solid #eef1f6;background:#fafbfc">
-        ${rowLabel('cloud-download','ระบบหลังบ้าน','รายงานจากแพลตฟอร์ม','#3b82f6')}
+        ${rowLabel('cloud-download','ระบบหลังบ้าน',beSub,'#3b82f6')}
         ${displayCH.map(c=> c.isMP ? cell(M[c.k].be.n, M[c.k].be.sum, {col:'#0f172a'}) : dashCell()).join('')}
       </div>
+      ${(scope!=='cxl' && cxlLateTotal) ? `
+      <!-- ยกเลิกภายหลัง row -->
+      <div style="display:grid;${gridCols};border-bottom:1px solid #eef1f6">
+        ${rowLabel('x-circle','ยกเลิกภายหลัง', scope==='all'?'รวมอยู่ในแถวบนแล้ว · คลิกดูรายการ':'หักออกจากแถวบนแล้ว · คลิกดูรายการ','#b45309')}
+        ${displayCH.map(c=>{
+          if(!c.isMP) return dashCell();
+          const n=M[c.k].cxlLate;
+          if(!n) return cell(0, 0, {col:'#cbd5e1', subCol:'#cbd5e1'});
+          return cell(n, M[c.k].cxlLateSum, {col:'#b45309', subCol:'#b45309', bg:'#fffbeb', hoverBg:'#fef3c7', click:`ordCxlGo('${c.k}','late')`});
+        }).join('')}
+      </div>` : ''}
       <!-- ผลต่าง row -->
       <div style="display:grid;${gridCols}">
         ${rowLabel('alert-triangle','ผลต่าง','คลิกเพื่อดูรายการ','#dc2626')}
@@ -24812,7 +24952,9 @@ function ordRenderBoard(d){
   // ----- Detail table -----
   const detail=ordBoardDetailRows(d);
   const fCh=d.boardCh||'all', fType=d.boardType||'all';
-  const typeMeta={only_be:{l:'มีในแพลตฟอร์ม · ไม่มีใน BigSeller', short:'ไม่มีใน BS', c:'#dc2626', bg:'#fef2f2'}, only_bs:{l:'มีใน BigSeller · ไม่มีในแพลตฟอร์ม', short:'ไม่มีใน Platform', c:'#d97706', bg:'#fffbeb'}, diff:{l:'ยอดไม่ตรง', short:'ยอดต่าง', c:'#8b5cf6', bg:'#f5f3ff'}, unrecon:{l:'ยังไม่ตรวจ · ไม่มีข้อมูลหลังบ้าน (ต้องอัปรายงานหลังบ้านช่องนี้)', short:'ยังไม่ตรวจ', c:'#0284c7', bg:'#f0f9ff'}};
+  const typeMeta={only_be:{l:'มีในแพลตฟอร์ม · ไม่มีใน BigSeller', short:'ไม่มีใน BS', c:'#dc2626', bg:'#fef2f2'}, only_bs:{l:'มีใน BigSeller · ไม่มีในแพลตฟอร์ม', short:'ไม่มีใน Platform', c:'#d97706', bg:'#fffbeb'}, diff:{l:'ยอดไม่ตรง', short:'ยอดต่าง', c:'#8b5cf6', bg:'#f5f3ff'}, unrecon:{l:'ยังไม่ตรวจ · ไม่มีข้อมูลหลังบ้าน (ต้องอัปรายงานหลังบ้านช่องนี้)', short:'ยังไม่ตรวจ', c:'#0284c7', bg:'#f0f9ff'},
+    cxl_open:{l:ORD_CXL_META.cxl_open.l, short:ORD_CXL_META.cxl_open.short, c:ORD_CXL_META.cxl_open.c, bg:ORD_CXL_META.cxl_open.bg},
+    cxl_bs:  {l:ORD_CXL_META.cxl_bs.l,   short:ORD_CXL_META.cxl_bs.short,   c:ORD_CXL_META.cxl_bs.c,   bg:ORD_CXL_META.cxl_bs.bg}};
   // counts for filter chips
   const cntCh={all:0, _oth:0}; CH.forEach(c=>cntCh[c.k]=0);
   const cntType={all:0, only_be:0, only_bs:0, diff:0, unrecon:0};
@@ -25482,11 +25624,41 @@ function ordReconDiffs(bs, be){
   const bsig=ordSkuSig(bs), esig=ordSkuSig(be); if(bsig!==esig) diffs.push({f:'SKU/จำนวน',bs:bsig||'—',be:esig||'—',txt:true});
   return diffs;
 }
+/* ===== ★ ออเดอร์ยกเลิก — taxonomy กลาง (ใช้ร่วมทั้ง recon / กระดาน / แท็บยกเลิก) =====
+   เจ้าของสั่ง (2026-07-17): "ยกเลิกอยากให้เก็บไว้ ไม่ทิ้ง" · แยก 2 แบบ:
+   ① ยกเลิกแบบไม่นำเข้า  = สั่งปุ๊ปยกเลิกปั๊บ → BigSeller ไม่เคยมีใบนี้ · มีแค่ฝั่งหลังบ้าน
+      → ไม่ต้องตรวจอะไร แค่เก็บรายละเอียดไว้ดู (cxl_nobs)
+   ② ยกเลิกภายหลัง       = BigSeller มีใบนี้แล้ว ค่อยยกเลิกทีหลัง → ต้องตรวจ "สถานะยกเลิกตรงกันไหม"
+      หลังบ้านยกเลิก → BigSeller ต้องยกเลิกด้วย = ตรง (cxl_ok) · ไม่งั้น = ผลต่างต้องแก้ (cxl_open/cxl_bs)
+   ★ ยอดขายที่ "ยังมีผล" ต้องไม่รวมใบยกเลิก — ใบยกเลิกไม่มี IV */
+const ORD_CXL_META = {
+  cxl_nobs:{ l:'ยกเลิก · ไม่นำเข้า BigSeller', short:'ไม่นำเข้า',  c:'#64748b', bg:'#f8fafc', kind:'nobs', ok:true  },
+  cxl_ok:  { l:'ยกเลิกภายหลัง · สถานะตรงกัน',  short:'ยกเลิกตรง',  c:'#0d9488', bg:'#f0fdfa', kind:'late', ok:true  },
+  cxl_open:{ l:'หลังบ้านยกเลิก · BigSeller ยังขายสำเร็จ', short:'BigSeller ยังไม่ยกเลิก', c:'#dc2626', bg:'#fef2f2', kind:'late', ok:false },
+  cxl_bs:  { l:'BigSeller ยกเลิก · ผลตรวจหลังบ้านล่าสุดยังขายสำเร็จ (อัปรายงานหลังบ้านใหม่เพื่อยืนยัน)', short:'หลังบ้านยังไม่ยกเลิก',  c:'#dc2626', bg:'#fef2f2', kind:'late', ok:false },
+  cxl_nobe:{ l:'BigSeller ยกเลิก · ไม่พบในหลังบ้าน',      short:'ไม่พบหลังบ้าน',          c:'#d97706', bg:'#fffbeb', kind:'late', ok:true  }
+};
+function ordIsCxl(o){ return !!(o && o.status==='cancelled'); }
+function ordIsCxlStatus(s){ return !!ORD_CXL_META[s]; }
+/* ยกเลิกภายหลัง = BigSeller เคยมีใบนี้ (ต่างจาก "ไม่นำเข้า" ที่ BigSeller ไม่เคยเห็น) */
+function ordIsCxlLate(s){ const m=ORD_CXL_META[s]; return !!m && m.kind==='late'; }
+/* ยกเลิกที่ยังต้องแก้ = สถานะ 2 ระบบไม่ตรงกัน → เข้าแถว "ผลต่าง" */
+function ordIsCxlProblem(s){ const m=ORD_CXL_META[s]; return !!m && !m.ok; }
 /* ★ สถานะ recon "สดๆ" จากสูตรปัจจุบัน — กันสถานะเก่าใน DB (คำนวณด้วยสูตรเดิม) ขัดกับฐานภาษีที่โชว์ */
-function ordReconEffStatus(r){
+function ordReconEffStatus(r, liveBs){
   if(!r.bs && !r.be) return r.status;
-  if(!r.bs) return 'only_be';
-  if(!r.be) return 'only_bs';
+  const cxlBe = ordIsCxl(r.be);
+  // ★ สถานะยกเลิกฝั่ง BigSeller อ่านจาก "ทะเบียนสด" ก่อน (ถ้าส่งมา) — snapshot ถูกแช่ไว้ตอนตรวจ
+  //   จึงไม่รู้ว่าใบนี้ถูกยกเลิกทีหลัง · อัป BigSeller อย่างเดียวก็เห็นทันที ไม่ต้องอัปหลังบ้านซ้ำ
+  //   ★ ใช้เฉพาะเช็ค "ยกเลิก" — การเทียบยอดยังใช้ snapshot เหมือนเดิม (กันผล recon เดิมเพี้ยน)
+  const cxlBs = liveBs ? ordIsCxl(liveBs) : ordIsCxl(r.bs);
+  // ★ ฝั่งเดียว
+  if(!r.bs) return cxlBe ? 'cxl_nobs' : 'only_be';   // หลังบ้านยกเลิก + BigSeller ไม่เคยมี = "ยกเลิก (ไม่นำเข้า)"
+  if(!r.be) return cxlBs ? 'cxl_nobe' : 'only_bs';
+  // ★ มี 2 ฝั่ง — สถานะยกเลิกต้องตรงกัน (หลังบ้านยกเลิก → BigSeller ต้องยกเลิก)
+  if(cxlBe && cxlBs)  return 'cxl_ok';     // ยกเลิกภายหลัง · ตรงกัน ✓
+  if(cxlBe && !cxlBs) return 'cxl_open';   // หลังบ้านยกเลิก · BigSeller ยังขายสำเร็จ ⚠
+  if(!cxlBe && cxlBs) return 'cxl_bs';     // BigSeller ยกเลิก · หลังบ้านยังขายสำเร็จ ⚠
   return ordReconDiffs(r.bs, r.be).length ? 'diff' : 'matched';
 }
 function ordRunRecon(backendOrders){
@@ -25495,18 +25667,29 @@ function ordRunRecon(backendOrders){
   const dts=backendOrders.map(o=>o.order_date).filter(Boolean).sort();
   const dFrom=dts[0]||null, dTo=dts[dts.length-1]||null;
   const beByOid=new Map(backendOrders.map(o=>[o.order_id,o]));
-  const bsScoped=(d.rows||[]).filter(o=> channels.has(o.channel_group) && o.status!=='cancelled' && (!dFrom || (o.order_date>=dFrom && o.order_date<=dTo)) );
+  // ★ รวมใบยกเลิกฝั่ง BigSeller ด้วย (เดิมตัดทิ้ง) — ต้องใช้เทียบ "สถานะยกเลิกตรงกันไหม"
+  const bsScoped=(d.rows||[]).filter(o=> channels.has(o.channel_group) && (!dFrom || (o.order_date>=dFrom && o.order_date<=dTo)) );
   const bsByOid=new Map(bsScoped.map(o=>[o.order_id,o]));
   const results=[];
   for(const be of backendOrders){
-    // ★ ออเดอร์ที่ถูกยกเลิกก่อน BigSeller ดึง → หลังบ้านมี/BigSeller ไม่มี = ปกติ ไม่นับเป็น only_be
-    if(be.status==='cancelled') continue;
     const bs=bsByOid.get(be.order_id);
-    if(!bs){ results.push({order_no:be.order_id, channel:be.channel_group, date:be.order_date, status:'only_be', be, bs:null}); continue; }
+    const base={order_no:be.order_id, channel:be.channel_group, date:be.order_date};
+    // ★ หลังบ้านยกเลิก — ไม่เทียบยอด เทียบแค่ "สถานะยกเลิกตรงกันไหม"
+    if(ordIsCxl(be)){
+      if(!bs)            { results.push({...base, status:'cxl_nobs', be, bs:null}); continue; }  // ไม่นำเข้า BigSeller = ปกติ
+      if(ordIsCxl(bs))   { results.push({...base, status:'cxl_ok',   be, bs}); continue; }        // ตรงกัน ✓
+      results.push({...base, status:'cxl_open', be, bs}); continue;                               // BigSeller ยังไม่ยกเลิก ⚠
+    }
+    if(!bs){ results.push({...base, status:'only_be', be, bs:null}); continue; }
+    if(ordIsCxl(bs)){ results.push({...base, status:'cxl_bs', be, bs}); continue; }               // กลับด้าน ⚠
     const diffs=ordReconDiffs(bs,be);
-    results.push({order_no:be.order_id, channel:be.channel_group, date:be.order_date, status:diffs.length?'diff':'matched', diffs, bs, be});
+    results.push({...base, status:diffs.length?'diff':'matched', diffs, bs, be});
   }
-  for(const bs of bsScoped){ if(!beByOid.has(bs.order_id)) results.push({order_no:bs.order_id, channel:bs.channel_group, date:bs.order_date, status:'only_bs', bs, be:null}); }
+  for(const bs of bsScoped){
+    if(beByOid.has(bs.order_id)) continue;
+    results.push({order_no:bs.order_id, channel:bs.channel_group, date:bs.order_date,
+      status: ordIsCxl(bs)?'cxl_nobe':'only_bs', bs, be:null});
+  }
   return { results, channels:[...channels], dFrom, dTo };
 }
 async function ordReconUpload(){
@@ -25524,7 +25707,9 @@ async function ordReconUpload(){
       const parsed=ordParseSalesFile(rows);
       if(!parsed){ perCh[file.name]="ไม่รู้จักฟอร์แมต"; continue; }
       if(parsed.channel==="bigseller"){ perCh[file.name]="ข้าม (เป็นไฟล์ BigSeller ไม่ใช่หลังบ้าน)"; continue; }
-      backend=backend.concat((parsed.orders||[]).filter(o=>o.status!=='cancelled' && !ordIsLabelOrder(o)));
+      // ★ เก็บใบยกเลิกด้วย (เดิมทิ้งตั้งแต่ตรงนี้ → ไม่มีข้อมูลใบยกเลิกเลย)
+      //   เจ้าของสั่งให้เก็บ · ordRunRecon แยกเป็น cxl_* ให้เอง (ดู ORD_CXL_META)
+      backend=backend.concat((parsed.orders||[]).filter(o=>!ordIsLabelOrder(o)));
       perCh[parsed.channel]=(perCh[parsed.channel]||0)+(parsed.orders||[]).length;
     }
     if(!backend.length){ alert("ไม่พบออเดอร์หลังบ้าน — ต้องเป็นไฟล์ Shopee / TikTok / Lazada"); d.recon.busy=false; renderToolOrders(); return; }
@@ -27676,6 +27861,7 @@ async function renderToolOrders(){
         <div class="ord-tabs" style="margin:0">
           ${tabBtn('board','⇄ สรุปภาพรวม', null)}
           ${tabBtn('reg','✓ ออเดอร์ที่แมพแล้ว', k.totN)}
+          ${(()=>{ const c=ordCxlCounts(d); return tabBtn('cxl','✕ ยกเลิก', c.total||null, c.prob?'t-warn':''); })()}
         </div>
         ${view==='board'?`
         <div style="display:flex;align-items:center;gap:3px;background:#f8fafc;border:1px solid var(--n-200);border-radius:10px;padding:3px 5px">
@@ -27731,6 +27917,7 @@ async function renderToolOrders(){
     ${d.busy ? `<div class="ord-empty"><i data-lucide="loader-2"></i><div class="ttl">กำลังประมวลผล…</div></div>`
       : view==='reg'   ? ordRenderRegister(d)
       : view==='recon' ? ordRenderRecon(d)
+      : view==='cxl'   ? ordRenderCxl(d)
       : ordRenderBoard(d) }
     `}
   </div>`;

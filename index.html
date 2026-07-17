@@ -3002,11 +3002,26 @@ async function ivrLoadBatches(){
    - KPI 5 ใบ uniform · filter status · search · Export Excel
    - Stage 2-4 = placeholder (เร็วๆ นี้)
    ============================================================ */
+/* ★ ช่องทางในหน้า "1. คำสั่งซื้อ"
+   - marketplace (3 ช่อง) = มีรายงานหลังบ้านให้อัป → กระทบยอดได้
+   - ขายตรง (FACE/LINE/Dealer/CSR) = ไม่มีหลังบ้าน · BigSeller = แหล่งข้อมูล
+     แยกช่องจาก "รหัสคำสั่งซื้อ" ผ่าน ordChannelDetail (FB→face · LMS→line · CSR/ยอด 0→csr · อื่น→dealer)
+     นำเข้าที่หน้าทะเบียนคำสั่งซื้อ (ไฟล์ BigSeller ปน 2 บริษัท ต้องผ่านตัวแยกบริษัทก่อน) */
 const SALES_CH = [
   { id:"shopee", name:"Shopee", color:"#ee4d2d", icon:"shopping-bag" },
   { id:"tiktok", name:"TikTok", color:"#000000", icon:"music" },
-  { id:"lazada", name:"Lazada", color:"#0f136d", icon:"package" }
+  { id:"lazada", name:"Lazada", color:"#0f136d", icon:"package" },
+  { id:"face",   name:"FACE",   color:"#1877f2", icon:"facebook",       direct:true },
+  { id:"line",   name:"LINE",   color:"#06c755", icon:"message-circle", direct:true },
+  { id:"dealer", name:"Dealer", color:"#0f766e", icon:"store",          direct:true },
+  { id:"csr",    name:"CSR",    color:"#7c3aed", icon:"gift",           direct:true }
 ];
+/* ช่องทางของออเดอร์ 1 ใบ — marketplace ใช้ channel_group · ขายตรงแยกตามรหัสคำสั่งซื้อ */
+function salesChOf(o){
+  const cg = String(o.channel_group||"").toLowerCase();
+  if(cg==="shopee"||cg==="tiktok"||cg==="lazada") return cg;
+  return ordChannelDetail(o);
+}
 function salesGet(){
   if(!state.sales) state.sales = {};
   const co = state.company;
@@ -3030,7 +3045,7 @@ function salesFmt(n){ return Number(n||0).toLocaleString("en-US",{minimumFractio
 function salesFmtInt(n){ return Number(n||0).toLocaleString("en-US"); }
 /* KPI 5 ใบ uniform ต่อ channel — ใช้ order_ledger ที่โหลดมาแล้ว */
 function salesKpis(rows, ch){
-  const list = (rows||[]).filter(o => String(o.channel_group||"").toLowerCase() === ch);
+  const list = (rows||[]).filter(o => salesChOf(o) === ch);
   let cntAll=0, cntCancel=0, cntRet=0, sumNet=0, sumShip=0, sumGross=0;
   for(const o of list){
     cntAll++;
@@ -3134,18 +3149,24 @@ function salesRenderList(d, s, k, chCfg, mrows){
   return `
     <div class="sal-chip-row">
       ${SALES_CH.map(c => {
-        const cnt = (mrows||d.rows||[]).filter(o => String(o.channel_group||"").toLowerCase()===c.id).length;
+        const cnt = (mrows||d.rows||[]).filter(o => salesChOf(o)===c.id).length;
         const active = c.id===s.channel;
         return `<button class="sal-chip ${active?'active':''}" onclick="salesSet('channel','${c.id}')" style="${active?`--ch:${c.color}`:''}">
           <i data-lucide="${c.icon}"></i><span class="n">${esc(c.name)}</span><span class="c">${salesFmtInt(cnt)}</span>
         </button>`;
       }).join("")}
       <div style="margin-left:auto;display:flex;gap:8px;flex-wrap:wrap">
-        <button class="ord-btn" onclick="salesUpload()"><i data-lucide="upload"></i> อัปไฟล์ ${esc(chCfg.name)}</button>
+        ${chCfg.direct
+          ? `<button class="ord-btn" onclick="setTool('orders')" title="ขายตรงมาจากไฟล์ BigSeller — นำเข้าที่หน้าทะเบียนคำสั่งซื้อ (มีตัวแยกบริษัทให้)"><i data-lucide="upload"></i> นำเข้า BigSeller</button>`
+          : `<button class="ord-btn" onclick="salesUpload()"><i data-lucide="upload"></i> อัปไฟล์ ${esc(chCfg.name)}</button>`}
         <button class="ord-btn" onclick="salesReload()"><i data-lucide="refresh-cw"></i> Refresh</button>
         <button class="ord-btn" onclick="salesExport()"><i data-lucide="file-spreadsheet"></i> Export Excel</button>
       </div>
     </div>
+    ${chCfg.direct ? `<div style="margin:0 0 12px;padding:9px 13px;border-radius:9px;background:#f8fafc;border:1px solid #e7ebf2;font:500 12px/1.5 inherit;color:#64748b">
+      ℹ <b>${esc(chCfg.name)} = ขายตรง</b> — ไม่มีรายงานหลังบ้านให้กระทบยอด (BigSeller = แหล่งข้อมูล) · ส่งออกคีย์ IV ได้ทันที
+      ${chCfg.id==='csr'?' · <b>CSR ยอด 0</b> ต้องเปิดชิป "รวม CSR" ในแท็บส่งออกก่อน':''}
+    </div>` : ''}
 
     <div class="sal-kpi-row">
       <div class="sal-kpi"><div class="lbl">ออเดอร์รวม</div><div class="v">${salesFmtInt(k.cntAll)}</div><div class="sub">${esc(chCfg.name)} · ${salesFmtInt(cntActive)} ขายสำเร็จ</div></div>
@@ -23533,6 +23554,17 @@ function ordChannelGroup(channel, customer){
   if(/line|facebook|\bfb\b|\big\b|\bface\b|หน้าร้าน|dealer|\bdr\b/.test(s)) return "offline";
   return "other";
 }
+/* ★ ช่องทางของแถวใน "ตรวจการคีย์ (141.RWT)" — แยกขายตรงเป็น FACE/LINE/Dealer/CSR
+   เหมือนกระดาน/ทะเบียน (เดิมใช้ ordChannelGroup → ยุบเป็น "ออฟไลน์"/"อื่นๆ" ก้อนเดียว)
+   มีออเดอร์ในทะเบียน → ใช้ใบจริง · ไม่มี (orphan) → ประกอบใบจำลองจากข้อมูลใน IV */
+function ordIvPlatform(ord, iv){
+  if(ord) return ordChannelDetail(ord);
+  return ordChannelDetail({
+    channel_group: ordChannelGroup(iv.channel, iv.customer),
+    order_id: iv.ref_order_id || '',
+    order_total: Number(iv.total)||0
+  });
+}
 /* ★ Board redesign: แยก offline ออกเป็น face/line/dealer สำหรับตาราง matrix
  *   ใช้ display เท่านั้น · ไม่กระทบ channel_group ใน schema (offline ยังเป็น offline ทั้งหมด)
  *   ★ fallback: ที่ไม่ match face/line → ลง dealer (รวม "other" ที่ไม่รู้จัก) */
@@ -26644,15 +26676,15 @@ function ordIvAnalyze(salesData, rows){
     };
     if(iv.voided){
       const ord = smartLookup(iv.ref_order_id, iv.ref_order_id_raw) || byIvNo.get(iv.doc_no);
-      if(ord){ const cc=orderCurrent(ord); r.orderRowId=ord.id; r.currentIv=ord.iv_no||null; r.currentTotal=cc.total; r.currentBase=cc.base; r.currentShip=cc.ship; r.currentDisc=cc.disc; r.currentFromSale=cc.fromSale; r.currentStatus=ord.status; r.platform=ordChannelGroup(ord.channel||iv.channel, ord.products||iv.customer); }
-      else { r.platform = ordChannelGroup(iv.channel, iv.customer); }
+      if(ord){ const cc=orderCurrent(ord); r.orderRowId=ord.id; r.currentIv=ord.iv_no||null; r.currentTotal=cc.total; r.currentBase=cc.base; r.currentShip=cc.ship; r.currentDisc=cc.disc; r.currentFromSale=cc.fromSale; r.currentStatus=ord.status; r.platform=ordIvPlatform(ord, iv); }
+      else { r.platform = ordIvPlatform(null, iv); }
       r.status = "voided"; results.push(r); continue;
     }
     const ord = smartLookup(iv.ref_order_id, iv.ref_order_id_raw);
     if(!ord){
       const ordByIv = byIvNo.get(iv.doc_no);
-      if(ordByIv){ const cc=orderCurrent(ordByIv); r.orderRowId=ordByIv.id; r.currentIv=ordByIv.iv_no; r.currentTotal=cc.total; r.currentBase=cc.base; r.currentShip=cc.ship; r.currentDisc=cc.disc; r.currentFromSale=cc.fromSale; r.status="conflict"; r.conflictKind="noorder"; r.diffAmount=+(r.total-(r.currentTotal||0)).toFixed(2); r.platform=ordChannelGroup(ordByIv.channel||iv.channel, ordByIv.products||iv.customer); }
-      else { r.status = "orphan"; r.platform = ordChannelGroup(iv.channel, iv.customer); }
+      if(ordByIv){ const cc=orderCurrent(ordByIv); r.orderRowId=ordByIv.id; r.currentIv=ordByIv.iv_no; r.currentTotal=cc.total; r.currentBase=cc.base; r.currentShip=cc.ship; r.currentDisc=cc.disc; r.currentFromSale=cc.fromSale; r.status="conflict"; r.conflictKind="noorder"; r.diffAmount=+(r.total-(r.currentTotal||0)).toFixed(2); r.platform=ordIvPlatform(ordByIv, iv); }
+      else { r.status = "orphan"; r.platform = ordIvPlatform(null, iv); }
       results.push(r); continue;
     }
     const cc = orderCurrent(ord);
@@ -26662,7 +26694,7 @@ function ordIvAnalyze(salesData, rows){
     r.currentTotal = cc.total; r.currentBase = cc.base; r.currentShip = cc.ship; r.currentDisc = cc.disc; r.currentFromSale = cc.fromSale;
     r.currentIv = ord.iv_no || null;
     r.currentStatus = ord.status;
-    r.platform = ordChannelGroup(ord.channel||iv.channel, ord.products||iv.customer);
+    r.platform = ordIvPlatform(ord, iv);
     if(!ord.iv_no){
       // อาจมี iv_no นี้อยู่ในออเดอร์อื่น (race) — ถ้า taken ระบุ conflict
       const ordByIv = byIvNo.get(iv.doc_no);
@@ -27498,11 +27530,16 @@ function ordRenderIv(d){
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
       <span style="font:600 11px/1 inherit;color:var(--n-500);text-transform:uppercase;letter-spacing:.06em">แพลตฟอร์ม E-commerce:</span>
       <button class="ord-btn btn-sm" style="padding:4px 10px;font-size:12px;${!pf?'background:var(--brand,#0d9488);color:#fff;border-color:var(--brand,#0d9488)':''}" onclick="ordIvSetPlatform('')">ทั้งหมด</button>
-      ${pfChip("shopee","SHOPEE")}
-      ${pfChip("tiktok","TIKTOK")}
-      ${pfChip("lazada","LAZADA")}
-      ${pfChip("offline","ออฟไลน์")}
-      ${pfChip("other","อื่นๆ")}
+      ${(()=>{
+        // ★ สร้างชิปจากค่าที่มีจริงในผลตรวจ — รองรับทั้งค่าใหม่ (face/line/dealer/csr)
+        //   และผลเก่าที่บันทึกไว้เป็น offline/other (ไม่งั้นแถวเหล่านั้นจะกรองไม่เจอ)
+        const LAB={shopee:'SHOPEE',tiktok:'TIKTOK',lazada:'LAZADA',face:'FACE',line:'LINE',dealer:'Dealer',csr:'CSR',offline:'ออฟไลน์',other:'อื่นๆ'};
+        const ORDER=['shopee','tiktok','lazada','face','line','dealer','csr','offline','other'];
+        const present=[...new Set(Object.keys(pCount).filter(k=>pCount[k]))];
+        present.sort((a,b)=>{ const ia=ORDER.indexOf(a), ib=ORDER.indexOf(b);
+          return (ia<0?99:ia)-(ib<0?99:ib) || String(a).localeCompare(String(b)); });
+        return present.map(k=>pfChip(k, LAB[k]||k)).join('');
+      })()}
       <div style="flex:1"></div>
       <span style="font:600 11px/1 inherit;color:var(--n-500)">วันที่ IV:</span>
       <input type="date" value="${esc(ic.dateFrom||'')}" onchange="ordIvSetDate('dateFrom', this.value)" style="padding:4px 8px;font:500 12px/1.2 inherit;border:1px solid var(--n-200);border-radius:7px">

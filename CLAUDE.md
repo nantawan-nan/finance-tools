@@ -184,6 +184,14 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-17 (5) — ★ หน้า "1. คำสั่งซื้อ" + ตรวจการคีย์: เพิ่มช่องทางขายตรง (FACE/LINE/Dealer/CSR)
+- **เจ้าของแจ้ง:** หน้า `sales_orders` มีแต่ชิป Shopee/TikTok/Lazada — "ตรวจการคีย์ ต้องมีทะเบียนของ เฟส ไลน์ ดีลเลอร์ อื่นๆ CSR ด้วยสิ"
+- **ต้นเหตุ:** `SALES_CH` มี 3 marketplace · `salesKpis` กรองด้วย `channel_group === ch` ตรง ๆ → ขายตรง (channel_group = `offline`/`other`) **ไม่มีชิป ไม่มีทะเบียน เข้าไม่ถึงเลย**
+- **`SALES_CH` +4 ช่องขายตรง** (face/line/dealer/csr · `direct:true` · icon facebook/message-circle/store/gift) · **`salesChOf(o)`** (ใหม่) = marketplace→`channel_group` · ขายตรง→`ordChannelDetail` (FB→face · LMS→line · CSR/ยอด 0→csr · อื่น→dealer) · ใช้ทั้ง `salesKpis` + chip count
+- **★ ปุ่มอัปไฟล์ต่อช่อง:** ขายตรง **ไม่มีรายงานหลังบ้าน** → ปุ่มเป็น "นำเข้า BigSeller" → `setTool('orders')` + แถบอธิบาย · **ห้าม ingest ไฟล์ BigSeller ที่หน้านี้** — `salesUpload` ไม่มีตัวแยกบริษัท (`ordSplitByCompany`) ที่ `ordUploadFiles` มี → **ออเดอร์ M Bark จะหลุดเข้า Benya** · (เรียก `ordUploadFiles()` ตรง ๆ ก็ไม่ได้ — มันจบด้วย `renderToolOrders()` = เด้งออกจากหน้านี้)
+- **ตรวจการคีย์ (141.RWT) แยกช่องด้วย:** `ordIvPlatform(ord, iv)` (ใหม่) แทน `ordChannelGroup` → มีออเดอร์ใช้ `ordChannelDetail(ord)` · orphan → ประกอบใบจำลองจาก iv (channel/ref_order_id/total) · **ชิปสร้างจากค่าที่มีจริงใน results** (`pCount`) + label map + ลำดับคงที่ → **ผลเก่าที่ persist ไว้เป็น `offline`/`other` ยังได้ชิปของตัวเอง ไม่หายเงียบ**
+- **verify (หน้าจริง):** `salesChOf` 8 เคสถูก (FB→face · LMS→line · CSR/ยอด0→csr · other→dealer) · KPI แยกช่องถูก (Shopee 2 ใบ net 290 = ตัดยกเลิก) · ชิปครบ 7 · ขายตรง→ปุ่ม "นำเข้า BigSeller" + note · marketplace→"อัปไฟล์ Shopee" เหมือนเดิม · `ordIvAnalyze` platform = shopee/face/line/dealer/csr + orphan FB9999→face · ชิปตรวจการคีย์ "SHOPEE(1) FACE(2) LINE(1) Dealer(1) CSR(1)" · ใส่ผลเก่า offline → ชิป "ออฟไลน์(1)" โผล่ · boot 0 error
+
 ### 2026-07-17 (4) — แท็บยกเลิก: จัดฟอร์แมตตาราง (เบียด/ทับกัน) + banner บอกทิศทางจริง
 - **เจ้าของแจ้ง:** ตารางเบียด — ชื่อสินค้าไทยยาวล้นไปทับคอลัมน์ยอด · คอลัมน์รายละเอียดยาวเกิน
 - **ต้นเหตุ:** `max-width:280px` บน `<td>` **ไม่มีผล** ถ้าตารางไม่ได้ `table-layout:fixed` → เนื้อหาดันคอลัมน์/ล้นทับกัน

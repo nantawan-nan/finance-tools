@@ -3031,7 +3031,13 @@ function salesGet(){
   return state.sales[co];
 }
 function salesSetDashCh(ch){ const s = salesGet(); s.dashCh = ch; renderToolSalesOrders(); }
-function salesToggleDashIv(){ const s = salesGet(); s.dashIvOpen = !s.dashIvOpen; renderToolSalesOrders(); }
+/* คลิกการ์ด KPI เพื่อกางรายการ — kind: 'keyed' (IV ที่คีย์แล้ว) · 'wait' (ออเดอร์ที่รอคีย์) */
+function salesToggleDashList(kind){
+  const s = salesGet();
+  s.dashList = (s.dashList===kind) ? '' : kind;
+  renderToolSalesOrders();
+  setTimeout(()=>{ const el=document.getElementById('salDashList'); if(el) el.scrollIntoView({behavior:'smooth', block:'nearest'}); }, 60);
+}
 function salesSetSubtab(t){ const s = salesGet(); s.subtab = t; renderToolSalesOrders(); }
 function salesSet(k, v){
   const s = salesGet(); s[k] = v;
@@ -3194,13 +3200,13 @@ function salesRenderIvDash(d, s, mrows){
         <div class="lbl">ออเดอร์ในระบบ</div><div class="v">${fmtI(D.rows.length)}</div>
         <div class="sub">${esc(chName)} · เดือนนี้ · ยกเลิก ${fmtI(D.needCn.length + D.cancelNoIv.length)}</div>
       </div>
-      <div class="sal-kpi g" ${D.keyed.length?'style="cursor:pointer" onclick="salesToggleDashIv()"':''}>
+      <div class="sal-kpi g" ${D.keyed.length?'style="cursor:pointer" onclick="salesToggleDashList(\'keyed\')"':''}>
         <div class="lbl">คีย์ IV แล้ว</div><div class="v">${fmt(D.keyedSum)}</div>
-        <div class="sub">${fmtI(D.keyedActive.length)} ใบ · ภาษี ${fmt(D.keyedVat)}${D.keyed.length?` · <b style="color:var(--brand,#0d9488)">${s.dashIvOpen?'▾ ซ่อน':'▸ ดู'} รายการ IV</b>`:''}</div>
+        <div class="sub">${fmtI(D.keyedActive.length)} ใบ · ภาษี ${fmt(D.keyedVat)}${D.keyed.length?` · <b style="color:var(--brand,#0d9488)">${s.dashList==='keyed'?'▾ ซ่อน':'▸ ดู'} รายการ IV</b>`:''}</div>
       </div>
-      <div class="sal-kpi b">
+      <div class="sal-kpi b" ${D.wait.length?'style="cursor:pointer" onclick="salesToggleDashList(\'wait\')"':''}>
         <div class="lbl">รอคีย์ IV</div><div class="v">${fmt(D.waitSum)}</div>
-        <div class="sub">${fmtI(D.wait.length)} ใบ · ภาษีที่ยังไม่ยื่น ${fmt(D.waitSum*7/107)}</div>
+        <div class="sub">${fmtI(D.wait.length)} ใบ · ภาษีที่ยังไม่ยื่น ${fmt(D.waitSum*7/107)}${D.wait.length?` · <b style="color:var(--brand,#0d9488)">${s.dashList==='wait'?'▾ ซ่อน':'▸ ดู'} รายการ</b>`:''}</div>
       </div>
       <div class="sal-kpi p">
         <div class="lbl">คีย์แล้วไม่ตรง</div><div class="v">${D.hasReport?fmt(D.diffSum):'—'}</div>
@@ -3236,7 +3242,7 @@ function salesRenderIvDash(d, s, mrows){
 
   // รายการ IV (ประกอบด้วย IV อะไรบ้าง)
   const CAP = 200;
-  const ivList = (s.dashIvOpen && D.keyed.length) ? (()=>{
+  const ivList = (s.dashList==='keyed' && D.keyed.length) ? (()=>{
     const list = D.keyed.slice().sort((a,b)=>String(a.iv_no||'').localeCompare(String(b.iv_no||'')));
     const ell='overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
     const rowsHtml = list.slice(0,CAP).map(o=>{
@@ -3258,11 +3264,11 @@ function salesRenderIvDash(d, s, mrows){
         <td style="${ell}"><span style="font:700 10.5px/1.5 inherit;color:${st.c};background:${st.bg};border:1px solid ${st.c}33;border-radius:999px;padding:2px 8px;white-space:nowrap">${st.t}</span></td>
       </tr>`;
     }).join('');
-    return `<div class="ord-card" style="padding:0;overflow:hidden;margin-bottom:14px">
+    return `<div class="ord-card" id="salDashList" style="padding:0;overflow:hidden;margin-bottom:14px">
       <div style="padding:11px 15px;border-bottom:1px solid #eef1f6;display:flex;align-items:center;gap:9px;flex-wrap:wrap">
         <b style="font:700 13px/1.3 inherit">รายการ IV ที่คีย์แล้ว · ${esc(chName)}</b>
         <span style="font:500 12px/1.4 inherit;color:#64748b">${fmtI(D.keyed.length)} ใบ · ${fmt(D.keyedSum + D.cnSum)} บาท${D.keyed.length>CAP?` · แสดง ${CAP} แรก`:''}</span>
-        <button class="ord-btn btn-sm" style="margin-left:auto;padding:4px 10px;font-size:12px" onclick="salesToggleDashIv()">ซ่อน</button>
+        <button class="ord-btn btn-sm" style="margin-left:auto;padding:4px 10px;font-size:12px" onclick="salesToggleDashList('keyed')">ซ่อน</button>
       </div>
       <div style="overflow:auto;max-height:520px">
         <table class="ord-table" style="font-size:12px;table-layout:fixed;width:100%;min-width:880px">
@@ -3274,11 +3280,53 @@ function salesRenderIvDash(d, s, mrows){
     </div>`;
   })() : '';
 
+  // ★ รายการ "รอคีย์ IV" — บอกด้วยว่าใบไหนส่งออกได้เลย ใบไหนติดกระทบยอด (สาเหตุที่ยังคีย์ไม่ได้)
+  const waitList = (s.dashList==='wait' && D.wait.length) ? (()=>{
+    const rmap = ordReconMap(d);
+    const inclCsr = !!(d.ivrec && d.ivrec.exp && d.ivrec.exp.includeCsr);
+    const ell='overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+    const list = D.wait.slice()
+      .map(o=>({ o, g: ivrCanExport(o, rmap, false, inclCsr) }))
+      .sort((a,b)=> (a.g.ok===b.g.ok ? String(a.o.order_date||'').localeCompare(String(b.o.order_date||'')) : (a.g.ok?1:-1)));
+    const readyN = list.filter(x=>x.g.ok).length;
+    const sevCol = {ok:'#0d9488', warn:'#d97706', danger:'#dc2626', info:'#0284c7', mute:'#64748b'};
+    const rowsHtml = list.slice(0,CAP).map(({o,g})=>{
+      const amt = Number(o.order_total||0)||0;
+      const c = sevCol[g.sev] || '#64748b';
+      return `<tr style="background:${g.ok?'transparent':'#fffbeb'}">
+        <td style="${ell}"><code onclick="ordSet('q','${esc(o.order_id||'')}')" title="เปิดออเดอร์นี้" style="cursor:pointer;font:600 11px/1.5 'JetBrains Mono',monospace;color:#0f172a;background:#f8fafc;border:1px solid #e7ebf2;border-radius:5px;padding:1px 5px">${esc(o.order_id||'')}</code></td>
+        <td style="${ell};font:600 11.5px/1.4 inherit">${esc((SALES_CH.find(c2=>c2.id===salesChOf(o))||{}).name||salesChOf(o))}</td>
+        <td style="${ell};font:500 11.5px/1.4 inherit;color:#64748b">${esc(String(o.order_date||'').slice(0,10))}</td>
+        <td title="${esc(o.products||'')}" style="${ell};font:500 11.5px/1.5 inherit;color:#475569">${esc(o.products||'—')}</td>
+        <td class="right tnum" style="font:600 12px/1.4 inherit">${fmt(amt)}</td>
+        <td class="right tnum" style="font:500 12px/1.4 inherit;color:#64748b">${fmt(amt*7/107)}</td>
+        <td title="${esc(g.reason||'')}" style="${ell}"><span style="font:700 10.5px/1.5 inherit;color:${c};background:${c}14;border:1px solid ${c}33;border-radius:999px;padding:2px 8px;white-space:nowrap">${g.ok?'✓ พร้อมส่งออก':'⚠ '+esc(g.reason||'ติดเงื่อนไข')}</span></td>
+      </tr>`;
+    }).join('');
+    return `<div class="ord-card" id="salDashList" style="padding:0;overflow:hidden;margin-bottom:14px">
+      <div style="padding:11px 15px;border-bottom:1px solid #eef1f6;display:flex;align-items:center;gap:9px;flex-wrap:wrap">
+        <b style="font:700 13px/1.3 inherit">ออเดอร์ที่รอคีย์ IV · ${esc(chName)}</b>
+        <span style="font:500 12px/1.4 inherit;color:#64748b">${fmtI(D.wait.length)} ใบ · ${fmt(D.waitSum)} บาท · <b style="color:#0d9488">พร้อมส่งออก ${fmtI(readyN)}</b>${D.wait.length-readyN?` · <b style="color:#b45309">ติดกระทบยอด ${fmtI(D.wait.length-readyN)}</b>`:''}${D.wait.length>CAP?` · แสดง ${CAP} แรก`:''}</span>
+        <div style="margin-left:auto;display:flex;gap:7px">
+          <button class="ord-btn btn-sm" style="padding:4px 10px;font-size:12px;border-color:#0d9488;color:#0d7c74" onclick="salesSetSubtab('export')"><i data-lucide="download"></i> ไปหน้าส่งออก IV</button>
+          <button class="ord-btn btn-sm" style="padding:4px 10px;font-size:12px" onclick="salesToggleDashList('wait')">ซ่อน</button>
+        </div>
+      </div>
+      <div style="overflow:auto;max-height:520px">
+        <table class="ord-table" style="font-size:12px;table-layout:fixed;width:100%;min-width:940px">
+          <colgroup><col style="width:170px"><col style="width:92px"><col style="width:100px"><col><col style="width:110px"><col style="width:100px"><col style="width:210px"></colgroup>
+          <thead><tr><th>เลขคำสั่งซื้อ</th><th>ช่องทาง</th><th>วันที่</th><th>สินค้า</th><th class="right">ยอดขาย</th><th class="right">ภาษี 7/107</th><th>สถานะการส่งออก</th></tr></thead>
+          <tbody>${rowsHtml}</tbody>
+        </table>
+      </div>
+    </div>`;
+  })() : '';
+
   const reportNote = D.hasReport
     ? `<div style="font:500 11.5px/1.5 inherit;color:#94a3b8;margin:0 0 12px">อัปไฟล์ 141.RWT แล้ว ${fmtI((d.ivCheck.fileNames||[]).length)} ไฟล์ · ตรวจตรง ${fmtI(D.matchedN)} · ไม่ตรง ${fmtI(D.diffRows.length)} · ไม่พบออเดอร์ ${fmtI(D.orphanN)} · voided ${fmtI(D.voidedN)} — รายละเอียดรายใบดูตารางด้านล่าง</div>`
     : `<div style="margin:0 0 12px;padding:10px 14px;border-radius:10px;background:#fffbeb;border:1px solid #fde68a;font:500 12.5px/1.5 inherit;color:#92400e">ℹ ตัวเลข "คีย์แล้วไม่ตรง" ต้อง<b>อัปไฟล์ 141.RWT</b>ก่อน · ที่เหลืออ่านจากทะเบียนคำสั่งซื้อได้เลย</div>`;
 
-  return `<div style="margin-bottom:6px">${chipRow}${kpi}${reportNote}${cnBox}${ivList}</div>`;
+  return `<div style="margin-bottom:6px">${chipRow}${kpi}${reportNote}${cnBox}${ivList}${waitList}</div>`;
 }
 /* render หน้า "ทะเบียนคำสั่งซื้อ" (subtab=list) — แยกออกเป็นฟังก์ชันเพื่อให้ subtab อื่น reuse hero/tabs */
 function salesRenderList(d, s, k, chCfg, mrows){

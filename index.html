@@ -24554,6 +24554,32 @@ function ordUnreconBs(d){
   const isMp=g=>g==='shopee'||g==='tiktok'||g==='lazada';
   return (d.rows||[]).filter(o=>o.status!=='cancelled'&&isMp(o.channel_group)&&inR(o.order_date)&&!reconOids.has(String(o.order_id)));
 }
+/* ★ ช่องว่างระหว่าง 2 แถวบนกระดาน — ใบที่ "ระบบหลังบ้าน" นับ แต่ "BigSeller" ไม่นับ
+   ทั้ง 2 แถวคนละแหล่ง: หลังบ้าน = snapshot order_recon (แช่ไว้ตอนตรวจ · วันที่ = วันของแพลตฟอร์ม)
+                        BigSeller = ทะเบียนสด order_ledger (วันที่ = วันของ BigSeller · ตัดที่ยกเลิกออก)
+   → ใบที่ตรวจแล้ว "ตรงกัน" แต่ภายหลังถูกยกเลิก/ลบ/ลงวันคนละช่วง จะหายจากแถว BigSeller
+     ทั้งที่ยังอยู่ในแถวหลังบ้าน = จำนวนไม่เท่ากันทั้งที่ "ผลต่าง" (สถานะ recon) = 0
+   คืนรายใบพร้อมเหตุผล เพื่อให้กระดานอธิบายตัวเองได้ */
+function ordBoardGap(d){
+  const inR = ordDateFilter(d);
+  const rows = d.rows || [];
+  const byOid = new Map(rows.map(o=>[String(o.order_id), o]));
+  const activeIds = new Set(rows.filter(o=>o.status!=='cancelled' && inR(o.order_date)).map(o=>String(o.order_id)));
+  const out = [];
+  ((d.recon && d.recon.results) || []).filter(r=>inR(r.date)).forEach(r=>{
+    const s = ordReconEffStatus(r);
+    if(s!=='matched' && s!=='diff') return;      // ต้องมีทั้ง 2 ฝั่งใน snapshot ถึงจะนับเข้าแถวหลังบ้าน
+    const oid = String(r.order_no);
+    if(activeIds.has(oid)) return;               // ปกติ — นับทั้ง 2 แถว
+    const o = byOid.get(oid);
+    let why, tip;
+    if(!o){ why='ไม่มีในทะเบียนแล้ว'; tip='ถูกล้าง/ลบออกจากทะเบียน BigSeller หลังตรวจกระทบยอด'; }
+    else if(o.status==='cancelled'){ why='ยกเลิกภายหลัง'; tip='ตอนตรวจยังไม่ยกเลิก · BigSeller มายกเลิกทีหลัง'; }
+    else { why='วันที่คนละช่วง'; tip=`BigSeller ลงวัน ${String(o.order_date||'—').slice(0,10)} · แพลตฟอร์มลงวัน ${String(r.date||'—').slice(0,10)}`; }
+    out.push({ ch:r.channel, order_no:oid, why, tip, amt:Number(ordReconNet(r.be||r.bs||{}))||0 });
+  });
+  return out;
+}
 /* ★ สถิติการแมท (denominator รวม "ยังไม่ตรวจ" → 100% เฉพาะเมื่อตรวจครบจริง) */
 function ordMatchStats(d){
   const inR=ordDateFilter(d);
@@ -24717,6 +24743,38 @@ function ordRenderBoard(d){
   const labelW = otherOpen ? '160px' : '200px';
   const colMin  = otherOpen ? '110px' : '130px';
   const gridCols=`grid-template-columns: ${labelW} repeat(${displayCH.length}, minmax(${colMin},1fr))`;
+
+  // ★ อธิบายช่องว่าง 2 แถว (หลังบ้าน > BigSeller ทั้งที่ผลต่าง = 0) — ไม่มีช่องว่าง = ไม่โชว์อะไรเลย
+  const gap = ordBoardGap(d);
+  const gapHtml = (()=>{
+    if(!gap.length) return '';
+    const chLab = k=>(ORD_BOARD_CHANS.find(c=>c.k===k)||{}).l || k;
+    const groups = {};   // ช่องทาง|เหตุผล → ใบ
+    gap.forEach(g=>{ const key=g.ch+'|'+g.why; (groups[key]=groups[key]||{ch:g.ch, why:g.why, tip:g.tip, items:[]}).items.push(g); });
+    const lines = Object.values(groups).sort((a,b)=>b.items.length-a.items.length).map(g=>{
+      const CAP=8, shown=g.items.slice(0,CAP);
+      return `<div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;padding:6px 0;border-top:1px dashed #fde68a">
+        <b style="font:700 12px/1.4 inherit;color:#92400e;min-width:58px">${esc(chLab(g.ch))}</b>
+        <span style="font:700 11.5px/1.4 inherit;color:#b45309;background:#fffbeb;border:1px solid #fde68a;border-radius:999px;padding:1px 8px">${esc(g.why)} ${g.items.length} ใบ</span>
+        <span style="font:500 11.5px/1.4 inherit;color:#a16207">${esc(g.tip)}</span>
+        <span style="font:500 11.5px/1.6 inherit;color:#78716c">
+          ${shown.map(x=>`<code onclick="ordSet('q','${esc(x.order_no)}')" title="คลิกเพื่อเปิดออเดอร์นี้" style="cursor:pointer;background:#fff;border:1px solid #e7e5e4;border-radius:5px;padding:1px 5px;margin:0 3px 0 0;font:600 11px/1.6 'JetBrains Mono',monospace;color:#1c1917">${esc(x.order_no)}</code>`).join('')}
+          ${g.items.length>CAP?`<span style="color:#a8a29e">+ อีก ${g.items.length-CAP} ใบ</span>`:''}
+        </span>
+      </div>`;
+    }).join('');
+    return `<div style="margin-top:10px;padding:11px 14px;border-radius:12px;background:#fffbeb;border:1px solid #fde68a">
+      <div style="font:700 12.5px/1.4 inherit;color:#92400e;display:flex;align-items:center;gap:7px">
+        <i data-lucide="info" style="width:15px;height:15px"></i>
+        ทำไม "ระบบหลังบ้าน" มากกว่า "BigSeller" ${gap.length} ใบ ทั้งที่ผลต่าง = 0
+      </div>
+      <div style="font:500 11.5px/1.5 inherit;color:#a16207;margin:4px 0 2px">
+        ตอนตรวจกระทบยอด ${gap.length} ใบนี้ <b>ตรงกันทั้ง 2 ระบบ</b> (จึงไม่นับเป็นผลต่าง) แต่ตอนนี้ไม่อยู่ในทะเบียน BigSeller ของช่วงที่เลือกแล้ว —
+        แถวหลังบ้านอ่านจากผลตรวจที่แช่ไว้ ส่วนแถว BigSeller อ่านจากทะเบียนสด
+      </div>
+      ${lines}
+    </div>`;
+  })();
   const matrixHtml=`
     <div class="ord-card" style="padding:0;overflow:hidden;border-radius:16px">
       <div style="display:grid;${gridCols};background:#f8fafc;border-bottom:1px solid #e2e8f0">
@@ -24747,6 +24805,7 @@ function ordRenderBoard(d){
         }).join('')}
       </div>
     </div>
+    ${gapHtml}
     <div style="font:500 11.5px/1.4 inherit;color:#94a3b8;margin-top:8px;padding:0 4px">💡 คลิกเซลล์ "ผลต่าง" ที่มีตัวเลข → เลื่อนลงไปดูรายละเอียด · ${otherOpen?'คลิก "ยุบ" บนหัวตารางเพื่อรวม FACE/LINE/Dealer กลับเป็น "อื่นๆ"':'คลิกหัว "อื่นๆ" เพื่อดูแยก FACE/LINE/Dealer · ขายตรงไม่มีระบบหลังบ้าน (BigSeller = แหล่งข้อมูล)'}</div>
   `;
 

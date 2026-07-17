@@ -184,6 +184,16 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-17 — ★ ส่งออก IV: คอลัมน์ "ประเภท Vat" (C014) + ชิป "รวม CSR (ยอด 0)"
+- **เจ้าของขอ:** (1) เพิ่มช่อง **ประเภท Vat** — M Bark = 1 · Benya: Betra (ขายข้าว) = **0** · Qi care = **1** (2) ออเดอร์ **CSR ยอด 0** ให้เลือกส่งออกมาคีย์แพทเทิร์นเดียวกับ IV ได้ (หน้างานขอ)
+- **(1) Vat = ต่อท้าย C014** (เจ้าของเลือก · หลัง "ค่าส่ง (AutoKey)" ก่อน ร้าน/หมายเหตุ) → **ไม่เลื่อน mapping ของสูตร AutoKey เดิม** แค่เพิ่ม mapping ช่องใหม่ · `BS_HEAD` ไม่แตะ (dead path bs*/exportkey ใช้ร่วม) — ต่อใน `ivrBuildExportAoA` concat เท่านั้น
+- **`ivrVatType(o, brand)`** (ใหม่): mbark→'1' · benya อิง `incBrandOf` (BT→'0' · QI→'1') · **เดาแบรนด์ไม่ออก → '' + หมายเหตุเตือน** (ไม่เดามั่ว · Vat ผิด = ภาษีผิด) · **Vat = ระดับบิล → ใส่บรรทัดแรกของออเดอร์** (`isFirst?vat:''` เหมือน IV/order_id)
+- **★ อุด `incBrandOf` (บั๊กเดิม):** step 1 ดู **`bsSeedShopBrand()` map ก่อน** แล้วค่อย fallback `bsBrandFromShop` (regex) — `benya_official` (= Qi care) regex จับไม่ได้ (`/qi/i` ไม่ match · `be\b` ก็ไม่ match "benya") → **รหัสลูกค้า "SHOPEE QI" เคยว่างมาตลอด** ทั้งที่ตารางร้านรู้แบรนด์อยู่แล้ว · แก้แล้วได้ทั้ง cust + Vat (กระทบ RE export ด้วย = ดีขึ้นทั้งคู่)
+- **panel "กำหนดแบรนด์ตาม SKU" ขยายสโคป:** เดิมเก็บเฉพาะ marketplace ที่เดาแบรนด์ไม่ออก → ตอนนี้ **ทุกออเดอร์ Benya** (ขายตรงก็ต้องรู้แบรนด์เพื่อกำหนด Vat) · ปุ่มบอก Vat ("Betra (BE) · Vat 0" / "Qi (QI) · Vat 1") · กดครั้งเดียวเติมทั้ง cust + Vat
+- **(2) CSR = ชิปเลือกเอง ปิดไว้ก่อน** (เจ้าของเลือก · คงเจตนาเดิม "CSR ไม่ยื่นภาษีขาย"): `exp.includeCsr` + `ivrToggleIncludeCsr` · `ivrCanExport(o, rmap, includeKeyed, **includeCsr**)` param 4 (default false = พฤติกรรมเดิมเป๊ะ · caller 2-arg ที่ board/KPI ไม่กระทบ) · ชิปโชว์จำนวน CSR ในช่วง + เตือน "กินเลข IV ต่อเนื่อง" ตอนเปิด · confirm ตอนส่งออกบอกจำนวน CSR
+- **preview index เลื่อน:** `NOTE_COL 15→16` · `VAT_COL 14` ไฮไลต์ + เตือน "ประเภท Vat ว่าง N ใบ" (นับเฉพาะบรรทัดแรก = ระดับบิล) · `!cols` xlsx 16→17 ช่อง
+- **verify (หน้าจริง · stub state + render จริง):** header 17 ช่อง Vat=idx14 · MBark tiktok 2 สินค้า → Vat '1' บรรทัดแรกเท่านั้น · Benya betra_brand→0 · benya_official→**1 (ได้แล้วหลังอุด shop map)** · CSR จาก benya_official→Vat 1 + cust CSR · SDO101 เดาไม่ออก→ว่าง+เตือน · ชิป default "ไม่รวม CSR" (eligible 1 / blocked 2) → เปิด → eligible 3 · CSV ไม่มี `="` · boot 0 error · **กระทบหน้าอื่น = 0**
+
 ### 2026-07-16 (2) — ★ ส่งออก IV: CSV = ข้อความล้วน (ถอด Excel text-lock `="..."` ที่ AutoKey คีย์ตามไปด้วย)
 - **เจ้าของแจ้ง:** ไฟล์ CSV ส่งออกไปคีย์ AutoKey มี `="` และ `"` นำหน้าทุกข้อความ (เช่น `="2607000001"` · `="260701GCDXV0AV"` · `="01/07/69"`)
 - **ต้นเหตุ:** `aoaToLockedCsv` (commit `9111ea0` · 29 มิ.ย.) ห่อ 5 คอลัมน์เสี่ยง (1=เลข IV · 2=เลขคำสั่งซื้อ · 3=วันที่ · 6=SKU · 11=ผัง SKU ค่าส่ง) ด้วย **Excel formula syntax `="value"`** กัน Excel แปลง order_id TikTok ยาว → scientific (5.8433E+17) + วันที่ `01/07/69`→`01/07/2569` · ได้ผลเฉพาะตอนเปิดใน Excel (decode formula → text) · **AutoKey อ่าน CSV ดิบ ไม่ strip → คีย์เครื่องหมายไปด้วย** (commit เดิมเขียนหมายเหตุเตือนเคสนี้ไว้แล้ว)

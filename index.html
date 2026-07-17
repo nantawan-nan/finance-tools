@@ -3027,8 +3027,11 @@ function salesGet(){
   const co = state.company;
   if(!state.sales[co]) state.sales[co] = { channel:"shopee", fStatus:"all", q:"", subtab:"list" };
   if(!state.sales[co].subtab) state.sales[co].subtab = "list";
+  if(!state.sales[co].dashCh) state.sales[co].dashCh = "all";   // ตัวกรองช่องทางของแดชบอร์ดตรวจการคีย์
   return state.sales[co];
 }
+function salesSetDashCh(ch){ const s = salesGet(); s.dashCh = ch; renderToolSalesOrders(); }
+function salesToggleDashIv(){ const s = salesGet(); s.dashIvOpen = !s.dashIvOpen; renderToolSalesOrders(); }
 function salesSetSubtab(t){ const s = salesGet(); s.subtab = t; renderToolSalesOrders(); }
 function salesSet(k, v){
   const s = salesGet(); s[k] = v;
@@ -3122,7 +3125,7 @@ async function renderToolSalesOrders(){
   let bodyHtml = '';
   if(subtab==='list')         bodyHtml = salesRenderList(d, s, k, chCfg, mrows);
   else if(subtab==='export')  bodyHtml = `<div class="ivr-page" style="padding:0">${ivrRenderExport(d)}</div>`;
-  else if(subtab==='verify')  bodyHtml = `<div class="ivr-page ord-page" style="padding:0">${ordRenderIv(d)}</div>`;
+  else if(subtab==='verify')  bodyHtml = `<div class="ivr-page ord-page" style="padding:0">${salesRenderIvDash(d, s, mrows)}${ordRenderIv(d)}</div>`;
 
   // modals (blocked/history) — render เหมือน bigseller
   const modals = `
@@ -3134,6 +3137,149 @@ async function renderToolSalesOrders(){
   if(window.lucide) lucide.createIcons();
 }
 
+/* ===== ★ แดชบอร์ดสรุปการตรวจคีย์ IV (วางเหนือตาราง 141.RWT เดิม) =====
+   ตอบ: ออเดอร์ในระบบกี่ใบ · คีย์ IV แล้วกี่ใบ/กี่บาท/ภาษีเท่าไหร่ · รอคีย์กี่บาท · คีย์แล้วไม่ตรงกี่บาท
+   ★ + IV ที่ออกไปแล้วแต่ออเดอร์ "ยกเลิกภายหลัง" = ต้องออกใบลดหนี้ (เดิมไม่มีใครจับ)
+   กรองช่องทางได้ (ทุกช่อง / รายช่อง) */
+function salesIvDashData(d, mrows, ch){
+  const rows = (mrows||[]).filter(o => ch==='all' ? true : salesChOf(o)===ch);
+  const amtOf = o => Number(o.sale_amount!=null ? o.sale_amount : (o.order_total||0)) || 0;
+  const sum   = list => list.reduce((a,o)=>a+amtOf(o), 0);
+  const keyed       = rows.filter(o => o.iv_no);
+  const keyedActive = keyed.filter(o => o.status !== 'cancelled');
+  const needCn      = keyed.filter(o => o.status === 'cancelled');    // ★ IV ออกแล้ว · ออเดอร์ยกเลิกทีหลัง
+  const wait        = rows.filter(o => !o.iv_no && o.status !== 'cancelled');
+  const cancelNoIv  = rows.filter(o => !o.iv_no && o.status === 'cancelled');
+  // ---- จากไฟล์ 141.RWT (ถ้าอัปแล้ว) ----
+  const ic = d.ivCheck;
+  const hasReport = !!(ic && ic.results && ic.results.length);
+  let diffRows=[], matchedN=0, orphanN=0, voidedN=0, byRow=new Map();
+  if(hasReport){
+    const res = ic.results.filter(r => ch==='all' ? true : r.platform===ch);
+    diffRows = res.filter(r => r.status==='diff' || r.status==='new_diff' || r.status==='conflict');
+    matchedN = res.filter(r => r.status==='matched' || r.status==='new_match').length;
+    orphanN  = res.filter(r => r.status==='orphan').length;
+    voidedN  = res.filter(r => r.status==='voided').length;
+    ic.results.forEach(r=>{ if(r.orderRowId!=null) byRow.set(String(r.orderRowId), r); });
+  }
+  const diffSum  = diffRows.reduce((a,r)=>a+Math.abs(Number(r.diffAmount||0)), 0);
+  const vat      = n => n*7/107;                    // ยอด IV รวม VAT แล้ว → ถอดออก 7/107
+  const keyedSum = sum(keyedActive), waitSum = sum(wait), cnSum = sum(needCn);
+  return { rows, keyed, keyedActive, needCn, wait, cancelNoIv, byRow,
+           keyedSum, waitSum, cnSum, keyedVat:vat(keyedSum), cnVat:vat(cnSum),
+           hasReport, diffRows, diffSum, matchedN, orphanN, voidedN };
+}
+function salesRenderIvDash(d, s, mrows){
+  const ch = s.dashCh || 'all';
+  const D  = salesIvDashData(d, mrows, ch);
+  const fmt = salesFmt, fmtI = salesFmtInt;
+  const chCfg = SALES_CH.find(c=>c.id===ch);
+  const chName = ch==='all' ? 'ทุกช่องทาง' : (chCfg?chCfg.name:ch);
+
+  // ชิปช่องทาง — นับจากออเดอร์ในเดือนนี้
+  const chipRow = `
+    <div class="sal-chip-row" style="margin-bottom:12px">
+      ${[{id:'all',name:'ทุกช่องทาง',icon:'layout-grid'}].concat(SALES_CH).map(c=>{
+        const cnt = c.id==='all' ? (mrows||[]).length : (mrows||[]).filter(o=>salesChOf(o)===c.id).length;
+        const on  = c.id===ch;
+        return `<button class="sal-chip ${on?'active':''}" onclick="salesSetDashCh('${c.id}')" ${on&&c.color?`style="--ch:${c.color}"`:''}>
+          <i data-lucide="${c.icon}"></i><span class="n">${esc(c.name)}</span><span class="c">${fmtI(cnt)}</span>
+        </button>`;
+      }).join('')}
+    </div>`;
+
+  const kpi = `
+    <div class="sal-kpi-row">
+      <div class="sal-kpi">
+        <div class="lbl">ออเดอร์ในระบบ</div><div class="v">${fmtI(D.rows.length)}</div>
+        <div class="sub">${esc(chName)} · เดือนนี้ · ยกเลิก ${fmtI(D.needCn.length + D.cancelNoIv.length)}</div>
+      </div>
+      <div class="sal-kpi g" ${D.keyed.length?'style="cursor:pointer" onclick="salesToggleDashIv()"':''}>
+        <div class="lbl">คีย์ IV แล้ว</div><div class="v">${fmt(D.keyedSum)}</div>
+        <div class="sub">${fmtI(D.keyedActive.length)} ใบ · ภาษี ${fmt(D.keyedVat)}${D.keyed.length?` · <b style="color:var(--brand,#0d9488)">${s.dashIvOpen?'▾ ซ่อน':'▸ ดู'} รายการ IV</b>`:''}</div>
+      </div>
+      <div class="sal-kpi b">
+        <div class="lbl">รอคีย์ IV</div><div class="v">${fmt(D.waitSum)}</div>
+        <div class="sub">${fmtI(D.wait.length)} ใบ · ภาษีที่ยังไม่ยื่น ${fmt(D.waitSum*7/107)}</div>
+      </div>
+      <div class="sal-kpi p">
+        <div class="lbl">คีย์แล้วไม่ตรง</div><div class="v">${D.hasReport?fmt(D.diffSum):'—'}</div>
+        <div class="sub">${D.hasReport?`${fmtI(D.diffRows.length)} ใบ · ผลต่างรวม (จาก 141.RWT)`:'ยังไม่ได้อัป 141.RWT'}</div>
+      </div>
+      <div class="sal-kpi r">
+        <div class="lbl">★ ต้องออกใบลดหนี้</div><div class="v">${fmt(D.cnSum)}</div>
+        <div class="sub">${fmtI(D.needCn.length)} ใบ · ภาษีที่ต้องลด ${fmt(D.cnVat)}</div>
+      </div>
+    </div>`;
+
+  // ★ กล่องใบลดหนี้ — IV ออกไปแล้ว แต่ออเดอร์ยกเลิกภายหลัง
+  const cnBox = D.needCn.length ? `
+    <div style="margin:0 0 14px;padding:13px 16px;border-radius:12px;background:#fef2f2;border:1px solid #fecaca">
+      <div style="font:700 13px/1.4 inherit;color:#991b1b;display:flex;align-items:center;gap:7px">
+        <i data-lucide="file-minus-2" style="width:16px;height:16px"></i>
+        ต้องออกใบลดหนี้ ${fmtI(D.needCn.length)} ใบ · ${fmt(D.cnSum)} บาท (ภาษี ${fmt(D.cnVat)})
+      </div>
+      <div style="font:500 11.5px/1.5 inherit;color:#b91c1c;margin:5px 0 9px">
+        IV เหล่านี้คีย์ขายไปแล้ว แต่ออเดอร์ถูก<b>ยกเลิกภายหลัง</b>ในทะเบียนคำสั่งซื้อ → ยอดขาย/ภาษีขายเกินจริง ต้องออกใบลดหนี้ (CN) หักออก
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px">
+        ${D.needCn.slice(0,24).map(o=>`<span onclick="ordSet('q','${esc(o.order_id||'')}')" title="${esc(o.order_id||'')} · ${fmt(Number(o.sale_amount!=null?o.sale_amount:o.order_total||0))} บาท — คลิกเปิดออเดอร์" style="cursor:pointer;display:inline-flex;align-items:center;gap:6px;background:#fff;border:1px solid #fecaca;border-radius:999px;padding:3px 10px">
+          <b style="font:700 11.5px/1.4 'JetBrains Mono',monospace;color:#991b1b">${esc(o.iv_no)}</b>
+          <span style="font:600 11px/1.4 inherit;color:#64748b">${fmt(Number(o.sale_amount!=null?o.sale_amount:o.order_total||0))}</span>
+        </span>`).join('')}
+        ${D.needCn.length>24?`<span style="font:600 11.5px/2 inherit;color:#b91c1c">+ อีก ${fmtI(D.needCn.length-24)} ใบ</span>`:''}
+      </div>
+    </div>` : `
+    <div style="margin:0 0 14px;padding:10px 14px;border-radius:10px;background:#f0fdf4;border:1px solid #bbf7d0;font:600 12.5px/1.5 inherit;color:#166534">
+      ✓ ไม่มี IV ที่ต้องออกใบลดหนี้ — ทุกใบที่คีย์ IV แล้ว ออเดอร์ยังไม่ถูกยกเลิก
+    </div>`;
+
+  // รายการ IV (ประกอบด้วย IV อะไรบ้าง)
+  const CAP = 200;
+  const ivList = (s.dashIvOpen && D.keyed.length) ? (()=>{
+    const list = D.keyed.slice().sort((a,b)=>String(a.iv_no||'').localeCompare(String(b.iv_no||'')));
+    const ell='overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+    const rowsHtml = list.slice(0,CAP).map(o=>{
+      const amt = Number(o.sale_amount!=null?o.sale_amount:(o.order_total||0))||0;
+      const r = D.byRow.get(String(o.id));
+      const cxl = o.status==='cancelled';
+      const bad = r && (r.status==='diff'||r.status==='new_diff'||r.status==='conflict');
+      const st = cxl ? {t:'⚠ ยกเลิก → ลดหนี้', c:'#dc2626', bg:'#fef2f2'}
+               : bad ? {t:'⚠ ยอดไม่ตรง',      c:'#8b5cf6', bg:'#f5f3ff'}
+               : r   ? {t:'✓ ตรวจแล้ว ตรง',    c:'#0d9488', bg:'#f0fdfa'}
+                     : {t:'• ยังไม่ตรวจ',      c:'#64748b', bg:'#f8fafc'};
+      return `<tr style="background:${(cxl||bad)?st.bg:'transparent'}">
+        <td style="${ell}"><b style="font:700 11.5px/1.5 'JetBrains Mono',monospace">${esc(o.iv_no||'')}</b></td>
+        <td style="${ell}"><code onclick="ordSet('q','${esc(o.order_id||'')}')" title="เปิดออเดอร์นี้" style="cursor:pointer;font:600 11px/1.5 'JetBrains Mono',monospace;color:#0f172a;background:#f8fafc;border:1px solid #e7ebf2;border-radius:5px;padding:1px 5px">${esc(o.order_id||'')}</code></td>
+        <td style="${ell};font:600 11.5px/1.4 inherit">${esc((SALES_CH.find(c=>c.id===salesChOf(o))||{}).name||salesChOf(o))}</td>
+        <td style="${ell};font:500 11.5px/1.4 inherit;color:#64748b">${esc(String(o.iv_date||o.order_date||'').slice(0,10))}</td>
+        <td class="right tnum" style="font:600 12px/1.4 inherit">${fmt(amt)}</td>
+        <td class="right tnum" style="font:500 12px/1.4 inherit;color:#64748b">${fmt(amt*7/107)}</td>
+        <td style="${ell}"><span style="font:700 10.5px/1.5 inherit;color:${st.c};background:${st.bg};border:1px solid ${st.c}33;border-radius:999px;padding:2px 8px;white-space:nowrap">${st.t}</span></td>
+      </tr>`;
+    }).join('');
+    return `<div class="ord-card" style="padding:0;overflow:hidden;margin-bottom:14px">
+      <div style="padding:11px 15px;border-bottom:1px solid #eef1f6;display:flex;align-items:center;gap:9px;flex-wrap:wrap">
+        <b style="font:700 13px/1.3 inherit">รายการ IV ที่คีย์แล้ว · ${esc(chName)}</b>
+        <span style="font:500 12px/1.4 inherit;color:#64748b">${fmtI(D.keyed.length)} ใบ · ${fmt(D.keyedSum + D.cnSum)} บาท${D.keyed.length>CAP?` · แสดง ${CAP} แรก`:''}</span>
+        <button class="ord-btn btn-sm" style="margin-left:auto;padding:4px 10px;font-size:12px" onclick="salesToggleDashIv()">ซ่อน</button>
+      </div>
+      <div style="overflow:auto;max-height:520px">
+        <table class="ord-table" style="font-size:12px;table-layout:fixed;width:100%;min-width:880px">
+          <colgroup><col style="width:130px"><col style="width:170px"><col style="width:92px"><col style="width:100px"><col style="width:110px"><col style="width:100px"><col style="width:130px"></colgroup>
+          <thead><tr><th>เลขที่ IV</th><th>เลขคำสั่งซื้อ</th><th>ช่องทาง</th><th>วันที่ IV</th><th class="right">ยอด IV</th><th class="right">ภาษี 7/107</th><th>สถานะ</th></tr></thead>
+          <tbody>${rowsHtml}</tbody>
+        </table>
+      </div>
+    </div>`;
+  })() : '';
+
+  const reportNote = D.hasReport
+    ? `<div style="font:500 11.5px/1.5 inherit;color:#94a3b8;margin:0 0 12px">อัปไฟล์ 141.RWT แล้ว ${fmtI((d.ivCheck.fileNames||[]).length)} ไฟล์ · ตรวจตรง ${fmtI(D.matchedN)} · ไม่ตรง ${fmtI(D.diffRows.length)} · ไม่พบออเดอร์ ${fmtI(D.orphanN)} · voided ${fmtI(D.voidedN)} — รายละเอียดรายใบดูตารางด้านล่าง</div>`
+    : `<div style="margin:0 0 12px;padding:10px 14px;border-radius:10px;background:#fffbeb;border:1px solid #fde68a;font:500 12.5px/1.5 inherit;color:#92400e">ℹ ตัวเลข "คีย์แล้วไม่ตรง" ต้อง<b>อัปไฟล์ 141.RWT</b>ก่อน · ที่เหลืออ่านจากทะเบียนคำสั่งซื้อได้เลย</div>`;
+
+  return `<div style="margin-bottom:6px">${chipRow}${kpi}${reportNote}${cnBox}${ivList}</div>`;
+}
 /* render หน้า "ทะเบียนคำสั่งซื้อ" (subtab=list) — แยกออกเป็นฟังก์ชันเพื่อให้ subtab อื่น reuse hero/tabs */
 function salesRenderList(d, s, k, chCfg, mrows){
   const cntActive = (k.list||[]).filter(o => o.status!=="cancelled" && !o.is_returned).length;

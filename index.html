@@ -24600,18 +24600,21 @@ function ordRenderCxl(d){
   const chChip=(k,l)=>`<button onclick="ordCxlSetCh('${k}')" style="border:0;border-radius:9px;padding:6px 13px;font:600 12.5px/1.1 inherit;font-family:inherit;cursor:pointer;${fCh===k?'background:var(--brand,#0d9488);color:#fff':'background:#f1f5f9;color:#475569'}">${esc(l)}</button>`;
 
   const rowHtml = r=>{
-    const m = ORD_CXL_META[r.status]||{l:r.status,c:'#64748b',bg:'#f8fafc'};
+    const m = ORD_CXL_META[r.status]||{l:r.status,short:r.status,c:'#64748b',bg:'#f8fafc',hint:''};
     const o = r.be || r.bs || {};
     const items = Array.isArray(o.items)?o.items:[];
+    const prod = o.products || items.map(i=>i.sku).filter(Boolean).join(', ') || '—';
     const amt = Number(ordReconNet(o))||0;
+    const ell = 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
     return `<tr style="background:${m.ok?'transparent':m.bg}">
       <td style="white-space:nowrap;font:500 12px/1.4 inherit;color:#64748b">${esc(String(r.date||'—').slice(0,10))}</td>
-      <td style="white-space:nowrap"><span style="display:inline-flex;align-items:center;gap:6px">${ordPlatLogo(r.channel,16)}<span style="font:600 12px/1.2 inherit">${esc(chLab(r.channel))}</span></span></td>
-      <td><code onclick="ordSet('q','${esc(r.order_no)}')" title="เปิดออเดอร์นี้" style="cursor:pointer;font:600 11.5px/1.5 'JetBrains Mono',monospace;color:#0f172a;background:#f8fafc;border:1px solid #e7ebf2;border-radius:5px;padding:1px 6px">${esc(r.order_no)}</code></td>
-      <td style="font:500 12px/1.5 inherit;color:#475569;max-width:280px">${esc(o.products||items.map(i=>i.sku).filter(Boolean).join(', ')||'—')}</td>
+      <td style="${ell}"><span style="display:inline-flex;align-items:center;gap:6px">${ordPlatLogo(r.channel,16)}<span style="font:600 12px/1.2 inherit">${esc(chLab(r.channel))}</span></span></td>
+      <td style="${ell}"><code onclick="ordSet('q','${esc(r.order_no)}')" title="เปิดออเดอร์นี้" style="cursor:pointer;font:600 11.5px/1.5 'JetBrains Mono',monospace;color:#0f172a;background:#f8fafc;border:1px solid #e7ebf2;border-radius:5px;padding:1px 6px">${esc(r.order_no)}</code></td>
+      <td title="${esc(prod)}" style="font:500 12px/1.5 inherit;color:#475569;${ell}">${esc(prod)}</td>
       <td class="right tnum" style="font:600 12.5px/1.4 inherit;white-space:nowrap">${fmt(amt)}</td>
-      <td style="white-space:nowrap"><span style="display:inline-flex;align-items:center;gap:5px;font:700 11px/1.5 inherit;color:${m.c};background:${m.bg};border:1px solid ${m.c}33;border-radius:999px;padding:2px 9px">${m.ok?'✓':'⚠'} ${esc(m.short)}</span></td>
-      <td style="font:500 11.5px/1.4 inherit;color:#64748b">${esc(m.l)}</td>
+      <td title="${esc(m.hint||m.l)}" style="${ell}">
+        <span style="display:inline-flex;align-items:center;gap:5px;font:700 11px/1.5 inherit;color:${m.c};background:${m.bg};border:1px solid ${m.c}33;border-radius:999px;padding:2px 9px;white-space:nowrap">${m.ok?'✓':'⚠'} ${esc(m.short)}</span>
+      </td>
     </tr>`;
   };
 
@@ -24620,10 +24623,17 @@ function ordRenderCxl(d){
     ${subTab('late','ยกเลิกภายหลัง',nLate,'BigSeller เคยมีใบนี้ · ต้องตรวจว่า 2 ระบบยกเลิกตรงกัน')}
     ${subTab('nobs','ยกเลิก (ไม่นำเข้า BigSeller)',nNobs,'สั่งแล้วยกเลิกทันที · มีแค่ฝั่งหลังบ้าน · ไม่ต้องตรวจ')}
   </div>
-  ${kind==='late' ? `<div style="margin-bottom:12px;padding:10px 14px;border-radius:10px;background:${prob?'#fef2f2':'#f0fdf4'};border:1px solid ${prob?'#fecaca':'#bbf7d0'};font:600 12.5px/1.5 inherit;color:${prob?'#991b1b':'#166534'}">
-      ${prob? `⚠ ${prob} ใบ สถานะไม่ตรงกัน — หลังบ้านยกเลิกแล้ว แต่ BigSeller ยังขายสำเร็จ (หรือกลับกัน) ต้องแก้ให้ตรงกัน`
-            : `✓ ทุกใบสถานะยกเลิกตรงกันทั้ง 2 ระบบ — ข้อมูลตรง`}
-    </div>` : `<div style="margin-bottom:12px;padding:10px 14px;border-radius:10px;background:#f8fafc;border:1px solid #e7ebf2;font:500 12.5px/1.5 inherit;color:#475569">
+  ${kind==='late' ? (()=>{
+      // ★ บอกทิศทางจริง — 2 เคสนี้ต้องทำคนละอย่าง อย่ารวมเป็น "หรือกลับกัน"
+      const nOpen = rows.filter(r=>r.status==='cxl_open').length;   // หลังบ้านยกเลิก → ต้องไปยกเลิกใน BigSeller
+      const nWait = rows.filter(r=>r.status==='cxl_bs').length;     // BigSeller ยกเลิก → รออัปหลังบ้านมายืนยัน
+      if(!prob) return `<div style="margin-bottom:12px;padding:10px 14px;border-radius:10px;background:#f0fdf4;border:1px solid #bbf7d0;font:600 12.5px/1.5 inherit;color:#166534">✓ ทุกใบสถานะยกเลิกตรงกันทั้ง 2 ระบบ — ข้อมูลตรง</div>`;
+      const hard = nOpen>0;   // ต้องแก้จริง (คนต้องไปทำอะไรใน BigSeller) · rest = แค่รออัปไฟล์
+      return `<div style="margin-bottom:12px;padding:11px 14px;border-radius:10px;background:${hard?'#fef2f2':'#fffbeb'};border:1px solid ${hard?'#fecaca':'#fde68a'};font:500 12.5px/1.6 inherit;color:${hard?'#991b1b':'#92400e'}">
+        ${nOpen?`<div><b>⚠ ${nOpen} ใบ — BigSeller ยังไม่ยกเลิก</b> · หลังบ้านยกเลิกแล้ว ต้องเข้าไปยกเลิกใน BigSeller ให้ตรงกัน</div>`:''}
+        ${nWait?`<div${nOpen?' style="margin-top:5px"':''}><b>⏳ ${nWait} ใบ — รอหลังบ้านยืนยัน</b> · BigSeller ยกเลิกแล้ว แต่ผลตรวจหลังบ้านล่าสุดยังขายสำเร็จ → <b>อัปรายงานหลังบ้านช่วงนี้ใหม่</b> ถ้าแพลตฟอร์มยกเลิกจริง จะกลายเป็น ✓ เอง</div>`:''}
+      </div>`;
+    })() : `<div style="margin-bottom:12px;padding:10px 14px;border-radius:10px;background:#f8fafc;border:1px solid #e7ebf2;font:500 12.5px/1.5 inherit;color:#475569">
       ℹ ใบเหล่านี้ยกเลิกก่อน BigSeller ดึงเข้า จึงมีข้อมูลแค่ฝั่งแพลตฟอร์ม — <b>ไม่ต้องกระทบยอด</b> เก็บไว้เป็นข้อมูลออเดอร์อย่างเดียว
     </div>`}
   <div style="display:flex;gap:7px;flex-wrap:wrap;margin-bottom:12px">
@@ -24632,8 +24642,12 @@ function ordRenderCxl(d){
   </div>
   ${rows.length ? `<div class="ord-card" style="padding:0;overflow:hidden">
     <div style="overflow:auto;max-height:640px">
-      <table class="ord-table" style="font-size:12.5px">
-        <thead><tr><th>วันที่</th><th>ช่องทาง</th><th>เลขคำสั่งซื้อ</th><th>สินค้า</th><th class="right">ยอด</th><th>สถานะ</th><th>รายละเอียด</th></tr></thead>
+      <table class="ord-table" style="font-size:12.5px;table-layout:fixed;width:100%;min-width:940px">
+        <colgroup>
+          <col style="width:96px"><col style="width:108px"><col style="width:172px">
+          <col><col style="width:104px"><col style="width:186px">
+        </colgroup>
+        <thead><tr><th>วันที่</th><th>ช่องทาง</th><th>เลขคำสั่งซื้อ</th><th>สินค้า</th><th class="right">ยอด</th><th>สถานะ</th></tr></thead>
         <tbody>${rows.map(rowHtml).join('')}</tbody>
       </table>
     </div>
@@ -25632,11 +25646,16 @@ function ordReconDiffs(bs, be){
       หลังบ้านยกเลิก → BigSeller ต้องยกเลิกด้วย = ตรง (cxl_ok) · ไม่งั้น = ผลต่างต้องแก้ (cxl_open/cxl_bs)
    ★ ยอดขายที่ "ยังมีผล" ต้องไม่รวมใบยกเลิก — ใบยกเลิกไม่มี IV */
 const ORD_CXL_META = {
-  cxl_nobs:{ l:'ยกเลิก · ไม่นำเข้า BigSeller', short:'ไม่นำเข้า',  c:'#64748b', bg:'#f8fafc', kind:'nobs', ok:true  },
-  cxl_ok:  { l:'ยกเลิกภายหลัง · สถานะตรงกัน',  short:'ยกเลิกตรง',  c:'#0d9488', bg:'#f0fdfa', kind:'late', ok:true  },
-  cxl_open:{ l:'หลังบ้านยกเลิก · BigSeller ยังขายสำเร็จ', short:'BigSeller ยังไม่ยกเลิก', c:'#dc2626', bg:'#fef2f2', kind:'late', ok:false },
-  cxl_bs:  { l:'BigSeller ยกเลิก · ผลตรวจหลังบ้านล่าสุดยังขายสำเร็จ (อัปรายงานหลังบ้านใหม่เพื่อยืนยัน)', short:'หลังบ้านยังไม่ยกเลิก',  c:'#dc2626', bg:'#fef2f2', kind:'late', ok:false },
-  cxl_nobe:{ l:'BigSeller ยกเลิก · ไม่พบในหลังบ้าน',      short:'ไม่พบหลังบ้าน',          c:'#d97706', bg:'#fffbeb', kind:'late', ok:true  }
+  cxl_nobs:{ l:'ยกเลิกก่อนเข้า BigSeller',     short:'ไม่นำเข้า',  c:'#64748b', bg:'#f8fafc', kind:'nobs', ok:true,
+             hint:'มีแค่ฝั่งแพลตฟอร์ม · ไม่ต้องกระทบยอด' },
+  cxl_ok:  { l:'ยกเลิกตรงกันทั้ง 2 ระบบ',      short:'ยกเลิกตรง',  c:'#0d9488', bg:'#f0fdfa', kind:'late', ok:true,
+             hint:'ข้อมูลตรง · ไม่ต้องทำอะไรต่อ' },
+  cxl_open:{ l:'BigSeller ยังไม่ยกเลิก',       short:'BigSeller ยังไม่ยกเลิก', c:'#dc2626', bg:'#fef2f2', kind:'late', ok:false,
+             hint:'หลังบ้านยกเลิกแล้ว → ต้องไปยกเลิกใน BigSeller ให้ตรง' },
+  cxl_bs:  { l:'หลังบ้านยังไม่ยืนยันยกเลิก',    short:'รอหลังบ้านยืนยัน',  c:'#d97706', bg:'#fffbeb', kind:'late', ok:false,
+             hint:'BigSeller ยกเลิกแล้ว · ผลตรวจหลังบ้านล่าสุดยังขายสำเร็จ → อัปรายงานหลังบ้านใหม่' },
+  cxl_nobe:{ l:'ไม่พบในรายงานหลังบ้าน',        short:'ไม่พบหลังบ้าน', c:'#d97706', bg:'#fffbeb', kind:'late', ok:true,
+             hint:'BigSeller ยกเลิก · รายงานหลังบ้านช่วงนี้ไม่มีใบนี้' }
 };
 function ordIsCxl(o){ return !!(o && o.status==='cancelled'); }
 function ordIsCxlStatus(s){ return !!ORD_CXL_META[s]; }

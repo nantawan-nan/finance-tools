@@ -3987,9 +3987,14 @@ function incReconData(d){
   const ordRows = ordGet().rows || [];
   const ordByOrder = {}; for(const o of ordRows) if(o.order_id) ordByOrder[o.order_id]=o;
   const incByOrder = {}; for(const r of incRows) if(r.order_id) incByOrder[r.order_id]=r;
+  // ★ สัญญาณ "รับชำระไปแล้ว" — มี re_no บนออเดอร์ หรือ พบใน 1.9.1 (ถ้าโหลดไว้) · ให้ตรงกับหน้าส่งออก RE
+  const vrows = (d.verify && d.verify.rows) || [];
+  const keyedIv=new Set(), keyedOrder=new Set();
+  for(const vr of vrows){ if(vr.iv_no) keyedIv.add(vr.iv_no); if(vr.order_ref) keyedOrder.add(vr.order_ref); }
+  const isReceived = (o)=> !!o.re_no || (o.iv_no && keyedIv.has(o.iv_no)) || keyedOrder.has(o.order_id);
 
-  // ไล่จากฝั่ง Income → 3 กรณี: พร้อมออก RE / มีออเดอร์แต่ยังไม่คีย์ IV / ไม่เจอออเดอร์ในทะเบียนเลย
-  const ready=[], noIv=[], noOrder=[], cancelledRefund=[];
+  // ไล่จากฝั่ง Income → กรณี: พร้อมออก RE (ยังไม่รับชำระ) / รับชำระแล้ว / ยังไม่คีย์ IV / ไม่เจอออเดอร์
+  const ready=[], received=[], noIv=[], noOrder=[], cancelledRefund=[];
   for(const r of incRows){
     const o = ordByOrder[r.order_id] || null;
     const rec = { order_id:r.order_id, channel:r.channel_group||"",
@@ -3997,9 +4002,12 @@ function incReconData(d){
       iv_no:(o&&o.iv_no)||"", re_no:(o&&o.re_no)||"" };
     // ★ ออเดอร์ยกเลิกที่มีเงินเข้า = คืนเงิน/ปรับ (ไม่ใช่ "ยังไม่คีย์ IV" · ไม่ควรออก RE) — แยกออกจากทุกกลุ่ม
     if(o && o.status==='cancelled'){ cancelledRefund.push(rec); continue; }
-    if(!o) noOrder.push(rec);            // ★ ไม่เจอออเดอร์ในทะเบียน (เดือนก่อน/ยังไม่นำเข้า BigSeller) — คนละเรื่องกับ "ยังไม่คีย์ IV"
-    else if(o.iv_no) ready.push(rec);    // มีออเดอร์ + มี IV → พร้อมออก RE
-    else noIv.push(rec);                 // มีออเดอร์ในทะเบียนแต่ยังไม่คีย์ IV (คีย์ได้เลย)
+    if(!o) noOrder.push(rec);                       // ★ ไม่เจอออเดอร์ในทะเบียน (เดือนก่อน/ยังไม่นำเข้า BigSeller)
+    else if(o.iv_no){
+      if(isReceived(o)) received.push(rec);         // ★ มี IV + รับชำระไปแล้ว (มี RE) → ไม่นับเป็น "พร้อมออก RE"
+      else ready.push(rec);                         // มี IV · ยังไม่รับชำระ → พร้อมออก RE (= ตรงกับหน้าส่งออก)
+    }
+    else noIv.push(rec);                            // มีออเดอร์แต่ยังไม่คีย์ IV
   }
   // ไล่จากฝั่งออเดอร์ที่มี IV แต่ยังไม่มี income (ทุกช่องทาง · ตัดยกเลิก · ตัดที่มี re_no แล้ว = รับชำระไปแล้ว)
   const noIncome=[];
@@ -4013,9 +4021,9 @@ function incReconData(d){
       order_date:o.order_date||"" });
   }
   const byPaidDesc=(a,b)=>String(b.paid||"").localeCompare(String(a.paid||""));
-  ready.sort(byPaidDesc); noIv.sort(byPaidDesc); noOrder.sort(byPaidDesc); cancelledRefund.sort(byPaidDesc);
+  [ready,received,noIv,noOrder,cancelledRefund].forEach(a=>a.sort(byPaidDesc));
   noIncome.sort((a,b)=>String(b.iv_date||b.order_date||"").localeCompare(String(a.iv_date||a.order_date||"")));
-  return { ready, noIv, noOrder, noIncome, cancelledRefund };
+  return { ready, received, noIv, noOrder, noIncome, cancelledRefund };
 }
 function incSetReconGroup(g){ const d=incGet(); d.reconGroup=(d.reconGroup===g?"":g); d.reconCh=""; renderToolSalesIncome(); }
 function incSetReconCh(c){ const d=incGet(); d.reconCh=(d.reconCh===c?"":c); renderToolSalesIncome(); }
@@ -4044,11 +4052,15 @@ function incRenderRecon(d){
     </div>`;
   };
   const cards = `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px;margin-bottom:16px">
-    ${card('ready','#16a34a','check-circle-2','✅ พร้อมออก RE',R.ready,r=>r.net,'มี Income + มี IV')}
+    ${card('ready','#16a34a','check-circle-2','✅ พร้อมออก RE',R.ready,r=>r.net,'มี IV · ยังไม่รับชำระ')}
     ${card('noIv','#d97706','file-plus','⚠️ มีออเดอร์ · ยังไม่คีย์ IV',R.noIv,r=>r.net,'คีย์ IV ที่ขั้นตอน 1 ได้เลย')}
     ${card('noOrder','#e11d48','search-x','❓ ไม่เจอออเดอร์ในทะเบียน',R.noOrder,r=>r.net,'ออเดอร์ยังไม่ถูกนำเข้า (เดือนก่อน?)')}
     ${card('noIncome','#0369a1','clock','🔵 มี IV · ยังไม่มี Income',R.noIncome,r=>r.sale_amount,'รอเงินเข้า / ดึง Income เพิ่ม')}
   </div>`;
+  // ★ รับชำระไปแล้ว (มี IV + RE) — ไม่นับเป็น "พร้อมออก RE" (ให้ตรงกับหน้าส่งออก RE ที่ตัดออกไปแล้ว)
+  const receivedNote = (R.received && R.received.length) ? `<div onclick="incSetReconGroup('received')" style="cursor:pointer;font-size:12px;color:#15803d;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:9px;padding:8px 12px;margin-bottom:10px;display:flex;align-items:center;gap:8px">
+    <i data-lucide="check-check" style="width:14px;height:14px;color:#16a34a"></i>
+    <span>อีก <b>${R.received.length}</b> ใบ<b>รับชำระไปแล้ว</b> (มี RE / พบใน 1.9.1) — ไม่นับเป็น "พร้อมออก RE" · <span style="color:#0369a1">${grp==='received'?'ซ่อน':'คลิกดู'}</span></span></div>` : "";
   // ★ ออเดอร์ยกเลิกที่มีเงินเข้า (คืนเงิน/ปรับ) — แยกออกจาก 4 กลุ่มบน (ไม่นับเป็น "ยังไม่คีย์ IV")
   const cancelNote = (R.cancelledRefund && R.cancelledRefund.length) ? `<div onclick="incSetReconGroup('cancel')" style="cursor:pointer;font-size:12px;color:#64748b;background:#f8fafc;border:1px solid #e2e8f0;border-radius:9px;padding:8px 12px;margin-bottom:14px;display:flex;align-items:center;gap:8px">
     <i data-lucide="rotate-ccw" style="width:14px;height:14px;color:#94a3b8"></i>
@@ -4057,7 +4069,7 @@ function incRenderRecon(d){
   // รายการที่กาง
   let detail = `<div style="background:#f8fafc;border:1px dashed #cbd5e1;border-radius:12px;padding:28px;text-align:center;color:#64748b;font-size:13px">คลิกการ์ดด้านบนเพื่อกางดูรายออเดอร์</div>`;
   if(grp){
-    const arr = grp==='ready'?R.ready : grp==='noIv'?R.noIv : grp==='noOrder'?R.noOrder : grp==='cancel'?(R.cancelledRefund||[]) : R.noIncome;
+    const arr = grp==='ready'?R.ready : grp==='received'?(R.received||[]) : grp==='noIv'?R.noIv : grp==='noOrder'?R.noOrder : grp==='cancel'?(R.cancelledRefund||[]) : R.noIncome;
     // ชิปกรองช่องทาง (ตามค่าที่มีจริงในกลุ่ม)
     const chSet=[]; for(const r of arr){ const c=r.channel||"—"; if(!chSet.includes(c)) chSet.push(c); }
     const chCount=c=>arr.filter(r=>(r.channel||"—")===c).length;
@@ -4084,14 +4096,18 @@ function incRenderRecon(d){
         คีย์ IV แล้วแต่เงินยังไม่เข้า — รอ payout เข้าจริงแล้วดึงรายงาน Income เพิ่ม (ขายตรง FACE/LINE/Dealer มักไม่มีรายงานหลังบ้าน เช็คการรับเงินเอง)</div>`
       : grp==='cancel' ? `<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:9px 12px;font-size:12px;color:#475569;margin-bottom:10px">
         ออเดอร์ยกเลิกแต่มีเงินเข้า/ปรับ (มักติดลบ = คืนเงิน) — ไม่ต้องคีย์ IV/RE · ถ้าเคยออก IV ไปแล้วอาจต้องออกใบลดหนี้ (CN) แทน · แยกออกจากกลุ่ม "ยังไม่คีย์ IV" แล้ว</div>`
+      : grp==='received' ? `<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:9px 12px;font-size:12px;color:#15803d;margin-bottom:10px">
+        รับชำระเรียบร้อยแล้ว (มี RE / พบในรายงาน 1.9.1) — เสร็จสิ้น ไม่ต้องออก RE ซ้ำ · แยกออกจาก "พร้อมออก RE" เพื่อให้ตรงกับหน้าส่งออก</div>`
       : `<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:9px 12px;font-size:12px;color:#15803d;margin-bottom:10px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
         <span>พร้อมส่งออก RE ไปคีย์รับชำระได้เลย</span>
         <button class="ord-btn" style="margin-left:auto" onclick="incSetSubtab('export')"><i data-lucide="download"></i> ไปหน้าส่งออก RE</button></div>`;
 
     const th=(t,al)=>`<th style="padding:8px 10px;text-align:${al||'left'};font-weight:600;white-space:nowrap">${t}</th>`;
     // คอลัมน์สุดท้าย (ฝั่ง income) เปลี่ยนตามกลุ่ม: ready=เลข IV จริง · noIv=ยังไม่คีย์ · noOrder=ไม่อยู่ในทะเบียน · cancel=ยกเลิก
-    const lastLbl = grp==='noOrder' ? 'สถานะออเดอร์' : grp==='cancel' ? 'สถานะ' : 'เลข IV';
-    const lastCell = (r)=> grp==='ready'
+    const lastLbl = grp==='noOrder' ? 'สถานะออเดอร์' : grp==='cancel' ? 'สถานะ' : grp==='received' ? 'เลข IV · RE' : 'เลข IV';
+    const lastCell = (r)=> grp==='received'
+      ? `<td style="padding:6px 10px;font-family:monospace;font-size:11px;white-space:nowrap;color:#15803d">${esc(r.iv_no||'—')} · ✓ RE${r.re_no?' '+esc(r.re_no):''}</td>`
+      : grp==='ready'
       ? `<td style="padding:6px 10px;font-family:monospace;font-size:11.5px;white-space:nowrap;color:#334155">${esc(r.iv_no||'—')}</td>`
       : grp==='noOrder'
       ? `<td style="padding:6px 10px;font-size:11px;white-space:nowrap;color:#e11d48">✕ ไม่อยู่ในทะเบียน</td>`
@@ -4124,7 +4140,7 @@ function incRenderRecon(d){
 
   return `<div style="padding:16px 0 0">
     <div style="font-size:12px;color:#64748b;margin-bottom:12px">🔗 จับคู่ด้วย <b>เลขออเดอร์</b> (Income ↔ ทะเบียนคำสั่งซื้อ) · "ไม่เจอออเดอร์ในทะเบียน" = ยังไม่รู้ว่ามี IV ไหม (ต้องนำเข้าออเดอร์ก่อน) · "มี IV ยังไม่มี Income" นับทุกช่องทาง (ตัดยกเลิก + ที่รับชำระแล้ว)</div>
-    ${cards}${cancelNote}${detail}</div>`;
+    ${cards}${receivedNote}${cancelNote}${detail}</div>`;
 }
 /* ตั้งเลข RE เริ่มต้น (ผู้ใช้กรอก) — restore focus/caret หลัง re-render */
 function incSetReSeed(v){

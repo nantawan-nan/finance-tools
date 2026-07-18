@@ -4050,6 +4050,41 @@ function incReconData(d){
 }
 function incSetReconGroup(g){ const d=incGet(); d.reconGroup=(d.reconGroup===g?"":g); d.reconCh=""; renderToolSalesIncome(); }
 function incSetReconCh(c){ const d=incGet(); d.reconCh=(d.reconCh===c?"":c); renderToolSalesIncome(); }
+/* ส่งออกรายการของกลุ่มที่กาง (Excel/CSV) — 1 บรรทัด/รายการสินค้า · ให้บัญชีเอาไปคีย์ IV
+   ยอดคีย์ IV = ฐานภาษี (tax_base) · เคารพชิปกรองช่องทางที่เลือกอยู่ */
+function incReconExport(grp, fmt){
+  const d=incGet(); const R=incReconData(d);
+  const map={ready:R.ready,received:R.received,noIv:R.noIv,noOrder:R.noOrder,cancel:R.cancelledRefund,noIncome:R.noIncome};
+  let arr=map[grp]||[];
+  const chF=d.reconCh||""; if(chF) arr=arr.filter(r=>(r.channel||"—")===chF);
+  if(!arr.length){ alert("ไม่มีรายการให้ส่งออก"); return; }
+  const ordById={}; for(const o of (ordGet().rows||[])) if(o.order_id) ordById[o.order_id]=o;
+  const head=["ลำดับ","เลขที่ออเดอร์","วันที่ขาย","ช่องทาง","SKU","ชื่อสินค้า","จำนวน","ราคา/หน่วย","ยอดคีย์ IV (ฐานภาษี)","เงินเข้าสุทธิ","ค่าธรรมเนียม","วันเงินเข้า"];
+  const aoa=[head]; let seq=0;
+  for(const r of arr){
+    const o=ordById[r.order_id]||{};
+    let items=o.items; if(typeof items==='string'){ try{items=JSON.parse(items);}catch(_){items=null;} }
+    if(!(Array.isArray(items)&&items.length)) items=[{sku:o.sku_list||"",name:o.products||"",qty:"",price:""}];
+    seq++;
+    const fee=round2((r.tax_base||0)-(r.net||0));
+    items.forEach((it,i)=> aoa.push([
+      i===0?seq:"", i===0?String(r.order_id||""):"", i===0?String(o.order_date||"").slice(0,10):"",
+      i===0?incReconChLabel(r.channel):"", it.sku||"", it.name||"", it.qty, it.price,
+      i===0?round2(r.tax_base):"", i===0?round2(r.net):"", i===0?fee:"", i===0?incReconFmtDate(r.paid):"" ]));
+  }
+  const grpName={noIv:"ยังไม่คีย์IV",noOrder:"ไม่เจอออเดอร์",ready:"พร้อมออกRE",received:"รับชำระแล้ว",cancel:"ยกเลิกคืนเงิน",noIncome:"มีIVยังไม่มีIncome"}[grp]||grp;
+  const co=COMPANIES.find(c=>c.id===state.company);
+  const stamp=(new Date().toISOString().slice(0,10)).replace(/-/g,"");
+  const fname=`ออเดอร์_${grpName}${chF?"_"+chF:""}_${(co&&co.code)||state.company}_${stamp}`;
+  if(fmt==='csv'){
+    const csv=aoa.map(row=>row.map(v=>{const s=String(v==null?"":v);return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s;}).join(",")).join("\r\n");
+    const blob=new Blob(["﻿"+csv],{type:"text/csv;charset=utf-8"}); const url=URL.createObjectURL(blob);
+    const a=document.createElement("a"); a.href=url; a.download=fname+".csv"; a.click(); URL.revokeObjectURL(url);
+  } else {
+    const ws=XLSX.utils.aoa_to_sheet(aoa); forceTextCells(ws,[1]);   // เลขออเดอร์ = text กัน Excel ตัดเลขยาว
+    const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,grpName.slice(0,28)); XLSX.writeFile(wb,fname+".xlsx");
+  }
+}
 function incRenderRecon(d){
   if(!d.incRows || !d.incRows.length){
     return `<div class="sal-empty" style="padding:56px 30px;text-align:center;background:#fff;border:1px solid #e2e8f0;border-radius:14px;margin-top:2px">
@@ -4097,10 +4132,13 @@ function incRenderRecon(d){
     const chSet=[]; for(const r of arr){ const c=r.channel||"—"; if(!chSet.includes(c)) chSet.push(c); }
     const chCount=c=>arr.filter(r=>(r.channel||"—")===c).length;
     const chF = d.reconCh||"";
-    const chipHtml = chSet.length>1 ? `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">
-      <button class="ord-chip${chF===''?' active':''}" onclick="incSetReconCh('')">ทั้งหมด (${arr.length})</button>
-      ${chSet.map(c=>`<button class="ord-chip${chF===c?' active':''}" onclick="incSetReconCh('${c}')">${incReconChLabel(c)} (${chCount(c)})</button>`).join("")}
-    </div>` : "";
+    const chipHtml = `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;align-items:center">
+      ${chSet.length>1 ? `<button class="ord-chip${chF===''?' active':''}" onclick="incSetReconCh('')">ทั้งหมด (${arr.length})</button>
+      ${chSet.map(c=>`<button class="ord-chip${chF===c?' active':''}" onclick="incSetReconCh('${c}')">${incReconChLabel(c)} (${chCount(c)})</button>`).join("")}` : ""}
+      <span style="flex:1"></span>
+      <button class="ord-btn" onclick="incReconExport('${grp}','xlsx')"><i data-lucide="file-spreadsheet"></i> ส่งออก Excel</button>
+      <button class="ord-btn" onclick="incReconExport('${grp}','csv')"><i data-lucide="download"></i> CSV</button>
+    </div>`;
     let list = chF ? arr.filter(r=>(r.channel||"—")===chF) : arr;
     const cap = 300; const shown = list.slice(0,cap);
 

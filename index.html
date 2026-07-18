@@ -4563,6 +4563,94 @@ async function incReSaveBatchVerify(){
   alert(`✓ บันทึกผลตรวจ ${cov.batch.batch_no} — คีย์ครบ ${cov.keyedN}/${cov.expectedN}` + (cov.missing.length?` · ขาด ${cov.missing.length}`:"") + (cov.extra.length?` · นอกสโคป ${cov.extra.length}`:""));
   renderToolSalesIncome();
 }
+async function incToggleReMiss(){
+  const d=incGet(); d.reMissOpen=!d.reMissOpen;
+  // เปิดรายละเอียด → ต้องมี income (แท็บ verify ไม่ auto-load) ไม่งั้นสาเหตุจะเพี้ยนเป็น "ไม่มีข้อมูลรับชำระ"
+  if(d.reMissOpen && !d.incLoaded){ renderToolSalesIncome(); await incLoadRows(d); }
+  renderToolSalesIncome();
+}
+/* รายละเอียดใบที่ตกหล่น (ยังไม่พบใน 1.9.1) — บอกสาเหตุรายใบ ว่าออก RE ใหม่ได้ไหม */
+function incReBatchMissingDetailHtml(d){
+  const cov = incReBatchCoverage(d); if(!cov || !cov.missing.length) return "";
+  const cands = incReCandidates(d);
+  const byOrder = {}; for(const c of cands) byOrder[String(c.orderNo)]=c;
+  const ordRows = ordGet().rows || [];
+  const ordByOrder = {}; for(const o of ordRows) if(o.order_id) ordByOrder[String(o.order_id)]=o;
+  const rows = cov.missing.map(oid=>{
+    const c = byOrder[String(oid)] || null;
+    const o = ordByOrder[String(oid)] || null;
+    let reason, clr, canRe=false;
+    if(o && o.re_no){ reason = "คีย์ RE แล้ว (คนละรายงาน?) · "+o.re_no; clr = "#166534"; }
+    else if(!o){ reason = "ไม่พบออเดอร์ในทะเบียน"; clr = "#991b1b"; }
+    else if(!o.iv_no){ reason = "ยังไม่คีย์ IV → ออก RE ไม่ได้"; clr = "#b45309"; }
+    else if(!c){ reason = "ไม่มีข้อมูลรับชำระ (Income)"; clr = "#b45309"; }
+    else { reason = "พร้อมออก RE รอบตกหล่น"; clr = "#0369a1"; canRe = true; }
+    return { oid, c, o, reason, clr, canRe };
+  });
+  const readyN = rows.filter(x=>x.canRe).length;
+  const tr = rows.map(x=>`<tr style="border-bottom:1px solid #f1f5f9${x.canRe?'':';background:#fffbeb'}">
+      <td style="padding:6px 9px;font-family:monospace;font-size:11px;white-space:nowrap">${esc(x.oid)}</td>
+      <td style="padding:6px 9px;font-size:11px">${esc((x.o&&x.o.channel)||(x.c&&x.c.channelGroup)||'')}</td>
+      <td style="padding:6px 9px;font-family:monospace;font-size:11px;white-space:nowrap">${esc((x.o&&x.o.iv_no)||'—')}</td>
+      <td style="padding:6px 9px;font-size:11px">${esc((x.c&&x.c.arCustCode)||(x.o&&x.o.customer)||'')}</td>
+      <td style="padding:6px 9px;text-align:right;font-variant-numeric:tabular-nums;font-size:11px">${x.o&&x.o.sale_amount!=null?salesFmt(x.o.sale_amount):(x.c?salesFmt(x.c.arOutstanding):'')}</td>
+      <td style="padding:6px 9px;text-align:right;font-variant-numeric:tabular-nums;font-size:11px">${x.c?salesFmt(x.c.netAmount):''}</td>
+      <td style="padding:6px 9px;font-size:11px;color:${x.clr};font-weight:600">${esc(x.reason)}</td>
+    </tr>`).join("");
+  return `<div style="overflow-x:auto;border:1px solid #fcd34d;border-radius:8px;background:#fff;margin-top:4px">
+    <table style="width:100%;border-collapse:collapse">
+      <thead><tr style="background:#fffbeb;border-bottom:1px solid #fcd34d">
+        <th style="padding:6px 9px;text-align:left;font-size:11px;font-weight:700;white-space:nowrap">ออเดอร์</th>
+        <th style="padding:6px 9px;text-align:left;font-size:11px;font-weight:700">ช่อง</th>
+        <th style="padding:6px 9px;text-align:left;font-size:11px;font-weight:700;white-space:nowrap">เลข IV</th>
+        <th style="padding:6px 9px;text-align:left;font-size:11px;font-weight:700">ลูกค้า</th>
+        <th style="padding:6px 9px;text-align:right;font-size:11px;font-weight:700;white-space:nowrap">ยอด IV</th>
+        <th style="padding:6px 9px;text-align:right;font-size:11px;font-weight:700;white-space:nowrap">เงินเข้าสุทธิ</th>
+        <th style="padding:6px 9px;text-align:left;font-size:11px;font-weight:700">สาเหตุ / สถานะ</th>
+      </tr></thead><tbody>${tr}</tbody>
+    </table>
+    <div style="padding:6px 9px;font-size:11px;color:#64748b;background:#fafafa;border-top:1px solid #f1f5f9">พร้อมออก RE รอบตกหล่น ${readyN} ใบ${cov.missing.length-readyN?` · ออก RE ไม่ได้ ${cov.missing.length-readyN} ใบ (ดูสาเหตุ)`:''} — กด "ส่งออกรอบตกหล่น" เพื่อสร้างไฟล์ AutoKey เฉพาะที่พร้อม</div>
+  </div>`;
+}
+/* ส่งออก RE เฉพาะใบที่ตกหล่น (ยังไม่พบใน 1.9.1) → คีย์รอบตกหล่น + สร้าง batch ใหม่ให้ตรวจซ้ำ */
+async function incExportReMissing(fmt){
+  const d = incGet(); const company = state.company;
+  const cov = incReBatchCoverage(d);
+  if(!cov){ alert("เลือกใบส่งออก (batch) ที่จะตรวจก่อน"); return; }
+  if(!cov.missing.length){ alert("ไม่มีรายการตกหล่น (คีย์ครบแล้ว)"); return; }
+  if(!d.incLoaded){ await incLoadRows(d); }   // แท็บ verify ไม่ auto-load income → โหลดก่อนสร้าง RE
+  const missSet = new Set(cov.missing.map(String));
+  let rows = incReCandidates(d).filter(c=> missSet.has(String(c.orderNo)) && !c.re_no);
+  rows = rows.sort((a,b)=> String(a.paidISO||"9999-99-99").localeCompare(String(b.paidISO||"9999-99-99")));
+  const skipped = cov.missing.length - rows.length;
+  if(!rows.length){ alert("ไม่มีรายการที่สร้าง RE ได้ในรอบตกหล่นนี้\n(ออเดอร์ที่ขาดอาจยังไม่คีย์ IV / ไม่มีข้อมูลรับชำระ / คีย์ RE ไปแล้ว)\nกด \"ดูรายละเอียด\" เพื่อตรวจสอบสาเหตุรายใบ"); return; }
+  const defSeed = /^\D*\d+$/.test(d.reSeed||"") ? d.reSeed : "";
+  const seed = prompt(`เลข RE เริ่มต้นสำหรับ "รอบตกหล่น" — ${rows.length} ใบ\nระบบรัน +1 ทุกแถว`+(skipped?`\n(ข้าม ${skipped} ใบที่ออก RE ไม่ได้)`:""), defSeed);
+  if(seed==null) return;
+  if(!/^\D*\d+$/.test(seed)){ alert("รูปแบบเลข RE ไม่ถูก (ต้องลงท้ายด้วยตัวเลข)"); return; }
+  d.reSeed = seed;
+  const aoa = [A_HEAD].concat(rows.map((r,i)=>{
+    const a = incReRow(r,i,company);
+    return [a.ลำดับ,a.doc_no,a.iv_date,a.iv,a.brand,a.outstanding,a.orderNo,a.channel,
+            a.pay_date_long,a.pay_date_short,a.net,a.diff,a.cust,
+            a.lett_other,a.enter,a.bank_down,a.bank_code,a.check_code,a.warning];
+  }));
+  const co = COMPANIES.find(c=>c.id===company);
+  const stamp = (new Date().toISOString().slice(0,10)).replace(/-/g,"");
+  const fname = `RE_AutoKey_ตกหล่น_${(co&&co.code)||company}_${stamp}`;
+  if(fmt==="csv"){
+    const csv = aoa.map(row=>row.map(v=>{ const s=String(v==null?"":v); return /[",\n]/.test(s)?`"${s.replace(/"/g,'""')}"`:s; }).join(",")).join("\r\n");
+    const blob = new Blob(["﻿"+csv],{type:"text/csv;charset=utf-8"});
+    const url = URL.createObjectURL(blob); const a=document.createElement("a"); a.href=url; a.download=fname+".csv"; a.click(); URL.revokeObjectURL(url);
+  } else {
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    forceTextCells(ws, [1,3,6,12]);   // RE#, IV, ออเดอร์, รหัสลูกค้า — กัน Excel ตัดเลขยาว
+    const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, "RE ตกหล่น");
+    XLSX.writeFile(wb, fname+".xlsx");
+  }
+  // ★ สร้าง batch ใหม่สำหรับรอบตกหล่น → คีย์เสร็จตรวจซ้ำได้เหมือนเดิม
+  incCreateReBatch(company, rows).catch(e=>console.warn("re miss batch", e));
+}
 /* banner coverage ของ batch RE (โชว์เฉพาะเมื่อเลือก batch) */
 function incReBatchBannerHtml(d){
   const cov = incReBatchCoverage(d); if(!cov) return "";
@@ -4572,7 +4660,17 @@ function incReBatchBannerHtml(d){
   const bg = okAll ? "#f0fdf4" : "#fffbeb";
   const chip = (n,lab,clr)=>`<div style="text-align:center;padding:6px 14px;border-radius:9px;background:#fff;border:1px solid #e2e8f0;min-width:80px"><div style="font:800 20px/1 inherit;color:${clr};font-variant-numeric:tabular-nums">${Number(n).toLocaleString("th-TH")}</div><div style="font:600 11px/1.3 inherit;color:#64748b;margin-top:3px">${lab}</div></div>`;
   const cap = (arr, render)=> arr.slice(0,30).map(render).join("") + (arr.length>30?`<span style="font:500 12px/1 inherit;color:#64748b"> … และอีก ${arr.length-30}</span>`:"");
-  const missHtml = cov.missing.length ? `<div style="margin-top:10px"><div style="font:700 12px/1.4 inherit;color:#b45309;margin-bottom:5px">⚠ ยังไม่พบใน 1.9.1 (บัญชียังไม่คีย์ RE / คีย์ผิด) — ${cov.missing.length} ใบ</div><div style="display:flex;flex-wrap:wrap;gap:5px">${cap(cov.missing, oid=>`<code style="background:#fef3c7;color:#92400e;padding:2px 7px;border-radius:5px;font:600 11px/1.4 monospace">${esc(oid)}</code>`)}</div></div>` : "";
+  const missOpen = !!d.reMissOpen;
+  const missHtml = cov.missing.length ? `<div style="margin-top:10px">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px">
+        <button class="ord-btn" style="padding:5px 10px;font-size:12px" onclick="incToggleReMiss()"><i data-lucide="${missOpen?'chevron-down':'chevron-right'}"></i> ⚠ ยังไม่พบใน 1.9.1 (บัญชียังไม่คีย์ RE / คีย์ผิด) — ${cov.missing.length} ใบ</button>
+        <button class="ord-btn" style="padding:5px 10px;font-size:12px;background:#d97706;color:#fff;border-color:#d97706" onclick="incExportReMissing('xlsx')"><i data-lucide="file-spreadsheet"></i> ส่งออกรอบตกหล่น (Excel)</button>
+        <button class="ord-btn" style="padding:5px 10px;font-size:12px" onclick="incExportReMissing('csv')"><i data-lucide="download"></i> CSV</button>
+      </div>
+      ${missOpen
+        ? incReBatchMissingDetailHtml(d)
+        : `<div style="display:flex;flex-wrap:wrap;gap:5px">${cap(cov.missing, oid=>`<code style="background:#fef3c7;color:#92400e;padding:2px 7px;border-radius:5px;font:600 11px/1.4 monospace">${esc(oid)}</code>`)}</div>`}
+    </div>` : "";
   const extraHtml = cov.extra.length ? `<div style="margin-top:10px"><div style="font:700 12px/1.4 inherit;color:#64748b;margin-bottom:5px">นอกสโคป batch นี้ (ของ batch อื่น / ยังไม่ส่งออก) — ${cov.extra.length} ใบ</div><div style="display:flex;flex-wrap:wrap;gap:5px">${cap(cov.extra, e=>`<code style="background:#f1f5f9;color:#64748b;padding:2px 7px;border-radius:5px;font:600 11px/1.4 monospace" title="RE ${esc(e.re||"")} · ${esc(e.reason||"")}">${esc(e.oid)}</code>`)}</div></div>` : "";
   const vstat = b.verify_status ? `<span style="font:600 11px/1 inherit;padding:3px 9px;border-radius:999px;background:${b.verify_status==='verified'?'#dcfce7':'#fef3c7'};color:${b.verify_status==='verified'?'#15803d':'#92400e'}">${b.verify_status==='verified'?'✓ ตรวจครบแล้ว':'ตรวจบางส่วน'}${b.verified_at?` · ${esc(String(b.verified_at).slice(0,10))}`:''}</span>` : "";
   return `<div style="padding:16px 18px;margin-bottom:14px;border:1px solid #e2e8f0;border-left:4px solid ${accent};border-radius:12px;background:${bg}">

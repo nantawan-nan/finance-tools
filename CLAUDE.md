@@ -184,6 +184,12 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-18 (2) — ★ ตรวจการคีย์ RE (batch): คลิกดูใบตกหล่น + ส่งออก "รอบตกหล่น" (RE เฉพาะที่ยังไม่คีย์)
+- **เจ้าของขอ:** batch verify RE โชว์ "ยังไม่พบใน 1.9.1 — 5 ใบ" เป็น chip เฉย ๆ → อยากคลิกดูว่าใบไหนบ้าง + ส่งออกไปคีย์รอบตกหล่นได้เลย
+- **`incReBatchBannerHtml` missHtml รื้อ:** ปุ่ม toggle (`incToggleReMiss` · `d.reMissOpen`) กาง **ตารางรายละเอียดใบตกหล่น** (`incReBatchMissingDetailHtml`) — ต่อใบ: ออเดอร์/ช่อง/เลข IV/ลูกค้า/ยอด IV/เงินเข้าสุทธิ + **สาเหตุรายใบ** (`incReCandidates`+`ordGet().rows` join): พร้อมออก RE รอบตกหล่น (ฟ้า) · ยังไม่คีย์ IV → ออก RE ไม่ได้ · ไม่พบออเดอร์ในทะเบียน (แดง) · ไม่มีข้อมูลรับชำระ (Income) · คีย์ RE แล้ว (คนละรายงาน?) เขียว · toggle เปิดแล้ว auto-`incLoadRows` (แท็บ verify ไม่ auto-load income → กันสาเหตุเพี้ยนเป็น "ไม่มี Income")
+- **`incExportReMissing(fmt)`** — ปุ่ม "ส่งออกรอบตกหล่น (Excel/CSV)" ในแบนเนอร์ · กรอง candidate = `missing ∩ !re_no ∩ มี income` (ตัดที่คีย์ RE แล้ว/ไม่มี income กันคีย์ซ้ำ) · เรียงตามวันรับเงิน · `prompt` เลข RE เริ่มต้น (default = `d.reSeed`) · ส่งออก AutoKey 19 คอลัมน์ (`incReRow`/`A_HEAD` เหมือน `incExportRE`) ชื่อไฟล์ `RE_AutoKey_ตกหล่น_*` · **สร้าง batch ใหม่** (`incCreateReBatch`) → คีย์เสร็จตรวจซ้ำได้เหมือนเดิม
+- **verify (node harness · 5 เคส):** ส่งออก 5 พบ 1 → missing=[O2,O3,O4,O5] · สาเหตุถูกทั้ง 4 แบบ (ready/no-IV/no-order/keyed) · export กรองเหลือ O2 (ตัด O4 keyed + O3/O5 ไม่มี income) · syntax OK · **กระทบหน้าอื่น = 0** (แบนเนอร์ batch RE + ฟังก์ชันใหม่ · reuse incReCandidates/incReRow/incCreateReBatch)
+
 ### 2026-07-18 — ★ รับชำระ: แท็บใหม่ "จับคู่ IV ↔ Income" + ★★ แก้ 2 บั๊กจากข้อมูลจริง (income cap 1000 + แยกกลุ่ม)
 - **เจ้าของถาม:** จะรู้ได้ไงว่าออเดอร์ไหน "มี Income แล้วยังไม่มี IV" / "มี IV แล้วแต่ยังไม่มี Income" — เดิมระบบ **เงียบทั้งคู่** (`incReCandidates` ข้ามออเดอร์ที่ไม่มี IV เงียบ ๆ · KPI "พร้อมออก RE" นับเฉพาะที่มีครบทั้งคู่ · ทะเบียนรับชำระไม่มีคอลัมน์ IV)
 - **แท็บใหม่ `recon` "จับคู่ IV ↔ Income"** (ระหว่าง "ทะเบียนรับชำระ" กับ "ส่งออก RE") · `incReconData(d)` + `incRenderRecon(d)` · จับคู่ด้วย **order_id** (income ↔ order_ledger)

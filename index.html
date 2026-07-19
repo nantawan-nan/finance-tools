@@ -4529,7 +4529,24 @@ function incReBatchCoverage(d){
     else extra.push({ oid: (o?o.order_id:r.order_ref)||"(ไม่รู้จัก)", re:r.re_no, reason: o?"นอก batch นี้":"ไม่พบออเดอร์" });
   }
   const missing = expected.filter(oid=>!foundSet.has(incNormKey(oid)));
-  return { batch:b, expectedN:expected.length, keyedN:foundSet.size, missing, extra };
+  // ★ ตรวจ RE↔IV จับคู่ถูกใบไหม — ส่งออก RE เลขนี้ควรตัด IV ใบไหน vs ในไฟล์ RE นี้ตัด IV ใบไหนจริง
+  //   (กันเคส AutoKey ดึง IV คนละใบที่ "ยอดเท่ากัน" มาตัด → ยอดตรงเลยไม่ฟ้อง)
+  const reMap = incReBatchOrigReMap(b);                 // orderNo → RE เดิมที่ batch รันไว้
+  const vByRe = {};
+  for(const r of ((d.verify&&d.verify.rows)||[])){ if(r.re_no){ const k=incNormKey(r.re_no); if(!(k in vByRe)) vByRe[k]=r; } }
+  const mismatched = [];
+  for(const oid of expected){
+    const expRe = reMap[String(oid)]; if(!expRe) continue;   // batch เก่าไม่มี start_re → ข้าม
+    const vr = vByRe[incNormKey(expRe)]; if(!vr || !vr.iv_no) continue;   // RE ไม่อยู่ในไฟล์ → เป็นเคส missing
+    const o = idx.byOrd[incNormKey(oid)]; const expIv = o && o.iv_no; if(!expIv) continue;
+    const same = incNormKey(expIv)===incNormKey(vr.iv_no) || (incIvDigits(expIv) && incIvDigits(expIv)===incIvDigits(vr.iv_no));
+    if(!same){
+      const hitOrd = idx.byIv[incNormKey(vr.iv_no)] || (incIvDigits(vr.iv_no)&&idx.byIvDig[incIvDigits(vr.iv_no)]) || null;
+      mismatched.push({ oid, expRe, expIv, fileIv: vr.iv_no, fileRe: vr.re_no||expRe, fileCust: vr.customer||"",
+        expAmt: o.sale_amount, fileAmt: vr.iv_amount, hitOrder: hitOrd?hitOrd.order_id:"" });
+    }
+  }
+  return { batch:b, expectedN:expected.length, keyedN:foundSet.size, missing, extra, mismatched };
 }
 /* สร้าง RE export batch หลังส่งออก — จำ order_ids + ช่วงเลข RE (fire-and-forget) */
 async function incCreateReBatch(company, ready){
@@ -4564,10 +4581,12 @@ async function incReSaveBatchVerify(){
   const d = incGet(); const cov = incReBatchCoverage(d);
   if(!cov){ alert("เลือกใบส่งออก (batch) ที่จะตรวจก่อน"); return; }
   const co = await fopCompanyId(); if(!co){ alert("ไม่พบบริษัท — ลอง refresh"); return; }
-  const vstatus = cov.missing.length ? "partial" : "verified";
+  const mm = cov.mismatched || [];
+  const vstatus = (cov.missing.length || mm.length) ? "partial" : "verified";
   const result = { expected:cov.expectedN, keyed:cov.keyedN,
     missing: cov.missing.slice(0,500),
     extra: cov.extra.slice(0,500).map(e=>({ oid:e.oid, re:e.re, reason:e.reason })),
+    mismatched: mm.slice(0,500).map(x=>({ oid:x.oid, re:x.expRe, exp_iv:x.expIv, file_iv:x.fileIv, hit_order:x.hitOrder })),
     checked_at: new Date().toISOString(), checked_by: AUTH.email||null };
   const { error } = await sb.from("re_export_batches").update({
     verify_status: vstatus, verified_at: new Date().toISOString(),
@@ -4575,7 +4594,7 @@ async function incReSaveBatchVerify(){
   }).eq("id", cov.batch.id).eq("company_id", co);
   if(error){ alert("บันทึกไม่สำเร็จ: "+(error.message||error)); return; }
   try{ await incLoadReBatches(); }catch(e){}
-  alert(`✓ บันทึกผลตรวจ ${cov.batch.batch_no} — คีย์ครบ ${cov.keyedN}/${cov.expectedN}` + (cov.missing.length?` · ขาด ${cov.missing.length}`:"") + (cov.extra.length?` · นอกสโคป ${cov.extra.length}`:""));
+  alert(`✓ บันทึกผลตรวจ ${cov.batch.batch_no} — คีย์ครบ ${cov.keyedN}/${cov.expectedN}` + (cov.missing.length?` · ขาด ${cov.missing.length}`:"") + (mm.length?` · RE↔IV ผิดใบ ${mm.length}`:"") + (cov.extra.length?` · นอกสโคป ${cov.extra.length}`:""));
   renderToolSalesIncome();
 }
 async function incToggleReMiss(){
@@ -4704,9 +4723,10 @@ async function incExportReMissing(fmt){
 function incReBatchBannerHtml(d){
   const cov = incReBatchCoverage(d); if(!cov) return "";
   const b = cov.batch;
-  const okAll = cov.missing.length===0;
-  const accent = okAll ? "#16a34a" : "#d97706";
-  const bg = okAll ? "#f0fdf4" : "#fffbeb";
+  const mm = cov.mismatched || [];
+  const okAll = cov.missing.length===0 && mm.length===0;
+  const accent = mm.length ? "#dc2626" : (okAll ? "#16a34a" : "#d97706");
+  const bg = mm.length ? "#fef2f2" : (okAll ? "#f0fdf4" : "#fffbeb");
   const chip = (n,lab,clr)=>`<div style="text-align:center;padding:6px 14px;border-radius:9px;background:#fff;border:1px solid #e2e8f0;min-width:80px"><div style="font:800 20px/1 inherit;color:${clr};font-variant-numeric:tabular-nums">${Number(n).toLocaleString("th-TH")}</div><div style="font:600 11px/1.3 inherit;color:#64748b;margin-top:3px">${lab}</div></div>`;
   const cap = (arr, render)=> arr.slice(0,30).map(render).join("") + (arr.length>30?`<span style="font:500 12px/1 inherit;color:#64748b"> … และอีก ${arr.length-30}</span>`:"");
   const missOpen = !!d.reMissOpen;
@@ -4721,6 +4741,29 @@ function incReBatchBannerHtml(d){
         : `<div style="display:flex;flex-wrap:wrap;gap:5px">${cap(cov.missing, oid=>`<code style="background:#fef3c7;color:#92400e;padding:2px 7px;border-radius:5px;font:600 11px/1.4 monospace">${esc(oid)}</code>`)}</div>`}
     </div>` : "";
   const extraHtml = cov.extra.length ? `<div style="margin-top:10px"><div style="font:700 12px/1.4 inherit;color:#64748b;margin-bottom:5px">นอกสโคป batch นี้ (ของ batch อื่น / ยังไม่ส่งออก) — ${cov.extra.length} ใบ</div><div style="display:flex;flex-wrap:wrap;gap:5px">${cap(cov.extra, e=>`<code style="background:#f1f5f9;color:#64748b;padding:2px 7px;border-radius:5px;font:600 11px/1.4 monospace" title="RE ${esc(e.re||"")} · ${esc(e.reason||"")}">${esc(e.oid)}</code>`)}</div></div>` : "";
+  // ★ RE↔IV คีย์ผิดใบ (ยอดเท่ากันเลยไม่ฟ้อง) — ตารางแดง
+  const mmHtml = mm.length ? `<div style="margin-top:10px">
+      <div style="font:700 12px/1.4 inherit;color:#b91c1c;margin-bottom:5px">⛔ RE ถูกคีย์ตัดกับ IV ผิดใบ (ยอดเท่ากันเลยไม่ฟ้อง) — ${mm.length} ใบ · ต้องแก้การรับชำระใน Express</div>
+      <div style="overflow-x:auto;border:1px solid #fecaca;border-radius:8px;background:#fff">
+        <table style="width:100%;border-collapse:collapse">
+          <thead><tr style="background:#fef2f2;border-bottom:1px solid #fecaca">
+            <th style="padding:6px 9px;text-align:left;font-size:11px;font-weight:700;white-space:nowrap">เลข RE</th>
+            <th style="padding:6px 9px;text-align:left;font-size:11px;font-weight:700;white-space:nowrap">ออเดอร์</th>
+            <th style="padding:6px 9px;text-align:left;font-size:11px;font-weight:700;white-space:nowrap">IV ที่ควรตัด (ส่งออก)</th>
+            <th style="padding:6px 9px;text-align:left;font-size:11px;font-weight:700;white-space:nowrap">IV ที่คีย์จริง (ในไฟล์)</th>
+            <th style="padding:6px 9px;text-align:right;font-size:11px;font-weight:700;white-space:nowrap">ยอด IV</th>
+            <th style="padding:6px 9px;text-align:left;font-size:11px;font-weight:700">IV ที่คีย์จริงเป็นของออเดอร์</th>
+          </tr></thead><tbody>${mm.map(x=>`<tr style="border-bottom:1px solid #fef2f2">
+            <td style="padding:6px 9px;font-family:monospace;font-size:11px;white-space:nowrap;font-weight:700;color:#b91c1c">${esc(x.expRe)}</td>
+            <td style="padding:6px 9px;font-family:monospace;font-size:11px;white-space:nowrap">${esc(x.oid)}</td>
+            <td style="padding:6px 9px;font-family:monospace;font-size:11px;white-space:nowrap;color:#166534">${esc(x.expIv||'—')}</td>
+            <td style="padding:6px 9px;font-family:monospace;font-size:11px;white-space:nowrap;color:#b91c1c;font-weight:700">${esc(x.fileIv||'—')}</td>
+            <td style="padding:6px 9px;text-align:right;font-variant-numeric:tabular-nums;font-size:11px">${x.expAmt!=null?salesFmt(x.expAmt):''}${(x.fileAmt!=null&&Math.abs(Number(x.fileAmt)-Number(x.expAmt))<0.01)?' <span style="color:#dc2626" title="ยอดเท่ากันเลยไม่ฟ้อง">= กัน</span>':''}</td>
+            <td style="padding:6px 9px;font-size:11px">${x.hitOrder?`<span style="font-family:monospace">${esc(x.hitOrder)}</span>`:''}${x.fileCust?` <span style="color:#64748b">${esc(x.fileCust)}</span>`:''}</td>
+          </tr>`).join("")}</tbody>
+        </table>
+        <div style="padding:7px 9px;font-size:11px;color:#7f1d1d;background:#fef2f2;border-top:1px solid #fecaca;line-height:1.6">RE เลขนี้ถูกส่งออกให้ตัด <b>IV ที่ควรตัด</b> แต่ในไฟล์ 1.9.1 กลับไปตัด <b>IV ที่คีย์จริง</b> (ยอดเท่ากันเลยผ่านมาได้) → ไปแก้การรับชำระใน Express ให้ RE ตัดถูก IV แล้วอัป 1.9.1 ใหม่</div>
+      </div></div>` : "";
   const vstat = b.verify_status ? `<span style="font:600 11px/1 inherit;padding:3px 9px;border-radius:999px;background:${b.verify_status==='verified'?'#dcfce7':'#fef3c7'};color:${b.verify_status==='verified'?'#15803d':'#92400e'}">${b.verify_status==='verified'?'✓ ตรวจครบแล้ว':'ตรวจบางส่วน'}${b.verified_at?` · ${esc(String(b.verified_at).slice(0,10))}`:''}</span>` : "";
   return `<div style="padding:16px 18px;margin-bottom:14px;border:1px solid #e2e8f0;border-left:4px solid ${accent};border-radius:12px;background:${bg}">
     <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px">
@@ -4734,9 +4777,10 @@ function incReBatchBannerHtml(d){
       ${chip(cov.expectedN,"ส่งออกไป","#334155")}
       ${chip(cov.keyedN,"พบใน 1.9.1","#16a34a")}
       ${chip(cov.missing.length,"ยังไม่คีย์","#d97706")}
+      ${mm.length?chip(mm.length,"RE↔IV ผิดใบ","#dc2626"):''}
       ${chip(cov.extra.length,"นอกสโคป","#64748b")}
     </div>
-    ${missHtml}${extraHtml}
+    ${mmHtml}${missHtml}${extraHtml}
   </div>`;
 }
 

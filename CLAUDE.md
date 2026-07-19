@@ -184,6 +184,12 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-19 (2) — ★ ตรวจ RE (batch): เพิ่มเช็ค "RE↔IV จับคู่ถูกใบไหม" (จับเคส AutoKey ตัด IV ผิดใบ · ยอดเท่ากันเลยไม่ฟ้อง)
+- **อาการ (เจ้าของ):** คีย์ออโต้ (AutoKey) รับชำระ RE ไป **ตัดกับ IV คนละใบที่ยอดเท่ากันพอดี** → ระบบตรวจเดิมเช็คแค่ "ออเดอร์มี RE ในไฟล์ไหม" ยอดตรงเลยไม่ฟ้อง · เจ้าของต้องไล่เช็คมือ
+- **`incReBatchCoverage` +`mismatched`:** ดัชนีไฟล์ 1.9.1 by re_no (`vByRe`) → วนทุกออเดอร์ใน batch: RE เดิม (`incReBatchOrigReMap`) ควรตัด IV ของ order_ledger (`expIv`) vs IV ที่ไฟล์บอกว่า RE นั้นตัดจริง (`vr.iv_no`) · ไม่ตรง (ทน format · normalize + เลข IV ล้วน) → flag + หา `hitOrder` (IV ที่คีย์ผิดเป็นของออเดอร์ไหน จาก idx.byIv)
+- **UI banner:** chip แดง "RE↔IV ผิดใบ (N)" + accent/bg แดงเมื่อมี mismatch + **ตารางแดง** (เลข RE · ออเดอร์ · IV ที่ควรตัด(เขียว) · IV ที่คีย์จริง(แดง) · ยอด `= กัน` ถ้ายอดชนกัน · IV ผิดเป็นของออเดอร์ไหน) + footer แนะไปแก้รับชำระใน Express · `incReSaveBatchVerify` เก็บ mismatched + status=partial ถ้ามี
+- **verify (harness):** RE001 ควรตัด IV_A(500) แต่ไฟล์ตัด IV_B(500) → flag 2 ใบ + ชี้ hitOrder ถูก · เคสคีย์ถูก → 0 (ไม่ฟ้องมั่ว) · syntax OK · **กระทบหน้าอื่น = 0** (เพิ่ม field ใน coverage + reuse ตัวจับคู่ทนรูปแบบ)
+
 ### 2026-07-19 — ★ ตรวจ RE ตกหล่น: จับคู่ 1.9.1↔ทะเบียน "ทนรูปแบบ" (แก้อัปไฟล์ครอบแล้วยังตกหล่น)
 - **อาการ (เจ้าของ):** อัปไฟล์ 1.9.1 ที่ครอบวันคีย์แล้ว 5 ใบยังขึ้น "ตกหล่น" — ไม่ใช่ไฟล์ไม่ครอบ แต่ **จับคู่ไม่ติด** (เลข IV/ออเดอร์ในไฟล์ vs ทะเบียนต่างรูปแบบเล็กน้อย: มี-ไม่มี "IV" นำหน้า / เว้นวรรคต่อท้าย → exact-match พลาด)
 - **`incNormKey`/`incIvDigits`/`incBuildOrdIndex`/`incMatchVerifyRow` (ใหม่):** matcher ทนรูปแบบ — normalize (uppercase + ตัดช่องว่าง) + **เทียบเลข IV ล้วน** (`\d{6,}`) เป็น fallback + normalize order_ref · เป็น superset ของ exact (ที่เคยตรงยังตรง)

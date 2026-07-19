@@ -184,13 +184,14 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
-### 2026-07-19 (3) — ★ ประวัติส่งออก IV: ดาวน์โหลด Excel/CSV + ตรวจ "รหัสลูกค้าราย IV" (จับเคสแบรนด์ผิด SHOPEE QI↔BE)
-- **เจ้าของขอ:** เจอออเดอร์ QHD201 (Qi) แต่บัญชีส่งออกไปคีย์เป็น SHOPEE BETRA (ควรเป็น SHOPEE QI) → รับชำระ RE ผูกผิด 14 ใบ · อยากดาวน์โหลดประวัติส่งออก IV มาเช็คว่ารหัสลูกค้าที่ส่งไปถูกไหม/ผิดเพราะอะไร
-- **`ivrExportHistory(fmt)` (ใหม่)** + ปุ่ม "ดาวน์โหลด (Excel)" / "CSV รายใบ" ในโมดอลประวัติส่งออก IV (`ivrRenderHistoryModal`):
-  - **ชีต 1 "ภาพรวม batch":** batch_no/วันเวลา/ช่วง/ช่องทาง/จำนวน/ช่วงเลข IV/ผู้ส่งออก/ไฟล์
-  - **ชีต 2 "รายใบ (รหัสลูกค้า)":** reconstruct **เลข IV = start_iv + index** (order_ids เรียงตามส่งออก ตรงกับ `ivrBuildExportAoA`) → join `order_ledger` ปัจจุบัน → recompute **ช่องทาง/ร้าน(shop)/แบรนด์(`incBrandOf`)/รหัสลูกค้า(`custCodeBenya`)/SKU** + หมายเหตุ (แบรนด์มาจากร้านหรือเดา · หรือ ⚠ เดาไม่ออก) → เห็นทันทีว่าใบไหนรหัสผิด + ผิดเพราะ shop/SKU-map/เดาข้อความ
-  - `forceTextCells([2,3])` กัน Excel ตัดเลข IV/ออเดอร์ยาว · ชื่อไฟล์ `ประวัติส่งออกIV_{CODE}_{stamp}`
-- **หมายเหตุ:** รหัสลูกค้าเป็น **recompute จาก brand mapping ปัจจุบัน** (ไม่ใช่ค่าที่ส่งออกจริงตอนนั้น — batch ไม่ได้เก็บ per-row cust) → ถ้าแก้ brand map แล้วจะเห็นค่าที่ถูก · ยังไม่แก้ = เห็นค่าที่ผิดตรงกับที่ส่งออก · **กระทบหน้าอื่น = 0** (เพิ่มปุ่ม+ฟังก์ชัน · ไม่ต้อง migration)
+### 2026-07-19 (3) — ★ ประวัติส่งออก IV: ดาวน์โหลด Excel/CSV + เก็บ "รหัสลูกค้าที่ส่งออกจริง" ลง batch ถาวร (จับเคสแบรนด์ผิด SHOPEE QI↔BE)
+- **เจ้าของขอ:** เจอออเดอร์ QHD201 (Qi) แต่บัญชีส่งออกไปคีย์เป็น SHOPEE BETRA (ควรเป็น SHOPEE QI) → รับชำระ RE ผูกผิด 14 ใบ · อยากดาวน์โหลดประวัติส่งออก IV มาเช็ค + **เก็บรหัสลูกค้าที่ส่งจริงลง batch ถาวร**
+- **★ snapshot ถาวร:** migration `supabase/iv_export_batches_rows.sql` (idempotent · guard table exists · `ADD COLUMN IF NOT EXISTS export_rows jsonb` + NOTIFY pgrst) — เก็บ `[{iv, order_id, channel, shop, brand, cust, vat}]` ตอนส่งออก · `ivrDoExport` insert `export_rows` (เลข IV = start_iv + index · reuse helper)
+- **`ivrOrderExportMeta(o)` (helper กลางใหม่):** ดึงสูตร รหัสลูกค้า/แบรนด์/Vat ออกจาก `ivrBuildExportAoA` → ใช้ร่วมทั้ง build AoA + snapshot (กัน drift) · behavior-preserving (verify harness: SP QI→SHOPEE QI vat1 · SP BT→SHOPEE BE vat0 · เดาไม่ออก→cust ว่าง+warn · direct→Dealer · MBark SP→SHOPEE)
+- **`ivrExportHistory(fmt)`** + ปุ่ม "ดาวน์โหลด (Excel)" / "CSV รายใบ" ในโมดอลประวัติส่งออก IV:
+  - **ชีต 1 "ภาพรวม batch"** · **ชีต 2 "รายใบ (รหัสลูกค้า)":** ★ ใช้ **`export_rows` snapshot ก่อน** (ค่าจริงตอนส่งออก · แม่นย้อนหลัง 100%) → batch เก่าไม่มี → fallback reconstruct เลข IV + recompute จากทะเบียนปัจจุบัน · คอลัมน์ "ที่มารหัสลูกค้า" บอก ค่าจริงตอนส่งออก / คำนวณใหม่(batch เก่า) · `forceTextCells([2,3])` กันเลขยาว
+- **ต้อง push ให้ migration รันก่อน** batch ที่ส่งออกหลัง deploy ถึงจะมี snapshot · batch เก่า = fallback recompute · **กระทบหน้าอื่น = 0** (helper เป็น refactor · เพิ่มปุ่ม/คอลัมน์)
+- **`iv_export_batches` +`export_rows jsonb`** (snapshot รหัสลูกค้ารายใบ)
 
 ### 2026-07-19 (2) — ★ ตรวจ RE (batch): เพิ่มเช็ค "RE↔IV จับคู่ถูกใบไหม" (จับเคส AutoKey ตัด IV ผิดใบ · ยอดเท่ากันเลยไม่ฟ้อง)
 - **อาการ (เจ้าของ):** คีย์ออโต้ (AutoKey) รับชำระ RE ไป **ตัดกับ IV คนละใบที่ยอดเท่ากันพอดี** → ระบบตรวจเดิมเช็คแค่ "ออเดอร์มี RE ในไฟล์ไหม" ยอดตรงเลยไม่ฟ้อง · เจ้าของต้องไล่เช็คมือ

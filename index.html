@@ -5556,13 +5556,27 @@ function ivrVatType(o, brand){
   if(b === 'QI') return '1';
   return '';
 }
+/* ★ meta รหัสลูกค้า/แบรนด์/Vat ต่อออเดอร์ — helper กลาง ใช้ทั้ง build AoA + snapshot ตอนส่งออก (กัน drift) */
+function ivrOrderExportMeta(o){
+  const isMbark = state.company === 'mbark';
+  const custCodeBenya = (channel, brand)=>{ const chL={SP:"SHOPEE",TT:"TIKTOK",LZ:"LAZADA"}[channel]; const br={BT:"BE",QI:"QI"}[brand]; return (chL&&br) ? `${chL} ${br}` : ""; };
+  const cg = String(o.channel_group||'').toLowerCase();
+  const channel = cg==='shopee'?'SP':cg==='tiktok'?'TT':cg==='lazada'?'LZ':'';
+  const platLabel = ({shopee:'SHOPEE',tiktok:'TIKTOK',lazada:'LAZADA'})[cg] || (o.channel||o.channel_group||'').toUpperCase();
+  const directCust = ({face:'FACE', line:'LINE', dealer:'Dealer', csr:'CSR'})[ordChannelDetail(o)] || 'Dealer';
+  const brand = isMbark ? '' : incBrandOf(o);
+  const vat = ivrVatType(o, brand);   // M Bark=1 · Benya Betra=0 / Qi=1 · เดาไม่ออก=ว่าง
+  const cust = channel ? (isMbark ? platLabel : custCodeBenya(channel, brand))
+                       : (isMbark ? (o.customer || directCust) : directCust);
+  const custNote = (!isMbark && !brand)
+    ? (channel ? '⚠ เดาแบรนด์ BT/QI ไม่ออก — ตรวจรหัสลูกค้า + ประเภท Vat'
+               : '⚠ เดาแบรนด์ BT/QI ไม่ออก — ตรวจประเภท Vat')
+    : '';
+  return { isMbark, channel, platLabel, directCust, brand, vat, cust, custNote };
+}
 function ivrBuildExportAoA(orders, startIv){
   const isMbark = state.company === 'mbark';
   const shipSkuCode = BS_SHIP_SKU[state.company] || '';
-  const custCodeBenya = (channel, brand)=>{
-    const chL={SP:"SHOPEE",TT:"TIKTOK",LZ:"LAZADA"}[channel]; const br={BT:"BE",QI:"QI"}[brand];
-    return (chL&&br) ? `${chL} ${br}` : "";
-  };
   // ★ 'ประเภท Vat' ต่อท้ายคอลัมน์ AutoKey เดิม (C014) — ไม่เลื่อน mapping ที่สูตรเดิมใช้อยู่
   const aoa = [BS_HEAD.concat(['ประเภท Vat','ร้าน','หมายเหตุ'])];
   let seq = 0;
@@ -5574,27 +5588,9 @@ function ivrBuildExportAoA(orders, startIv){
       its = [{ sku:'', qty:1, price:Number(o.order_total||0), ship:0, discount:0 }];
     }
     const ivNo = runningN.toString().padStart(10,'0'); runningN += 1n;
-    const cg = String(o.channel_group||'').toLowerCase();
-    const channel = cg==='shopee'?'SP':cg==='tiktok'?'TT':cg==='lazada'?'LZ':'';
-    const platLabel = ({shopee:'SHOPEE',tiktok:'TIKTOK',lazada:'LAZADA'})[cg] || (o.channel||o.channel_group||'').toUpperCase();
-    // ★ ขายตรง (ไม่มีแพลตฟอร์ม) → FACE/LINE/Dealer/CSR ตามการจัดกลุ่มเดียวกับหน้าบอร์ด (ordChannelDetail)
-    //   อะไรที่ไม่ใช่ shopee/tiktok/lazada/face/line = Dealer
-    const directCust = ({face:'FACE', line:'LINE', dealer:'Dealer', csr:'CSR'})[ordChannelDetail(o)] || 'Dealer';
-    // ★ รหัสลูกค้า — Benya marketplace = ช่องทาง×แบรนด์ · M Bark marketplace = ช่องทาง (แบรนด์เดียว)
-    const brand = isMbark ? '' : incBrandOf(o);
-    const vat = ivrVatType(o, brand);   // M Bark=1 · Benya Betra=0 / Qi=1 · เดาไม่ออก=ว่าง
-    let cust = '';
-    if(channel){
-      cust = isMbark ? platLabel : custCodeBenya(channel, brand);
-    } else {
-      // ขายตรง: M Bark เก็บชื่อลูกค้าถ้ามี ไม่งั้น Dealer · Benya ใช้ FACE/LINE/Dealer ตามช่อง
-      cust = isMbark ? (o.customer || directCust) : directCust;
-    }
-    // ★ Benya เดาแบรนด์ไม่ออก → ทั้งรหัสลูกค้า (marketplace) และประเภท Vat ว่าง = ต้องตรวจ
-    const custNote = (!isMbark && !brand)
-      ? (channel ? '⚠ เดาแบรนด์ BT/QI ไม่ออก — ตรวจรหัสลูกค้า + ประเภท Vat'
-                 : '⚠ เดาแบรนด์ BT/QI ไม่ออก — ตรวจประเภท Vat')
-      : '';
+    // ★ รหัสลูกค้า/แบรนด์/Vat — helper กลาง (Benya marketplace = ช่องทาง×แบรนด์ · M Bark = ช่องทาง · ขายตรง FACE/LINE/Dealer/CSR)
+    const meta = ivrOrderExportMeta(o);
+    const platLabel = meta.platLabel, vat = meta.vat, cust = meta.cust, custNote = meta.custNote;
     const orderShip = Number(o.shipping_fee||0);
     const orderDisc = Number(o.seller_discount||0);
     its.forEach((it, idx) => {
@@ -5945,33 +5941,45 @@ function ivrExportHistory(fmt){
     const period = (b.date_from&&b.date_to) ? (b.date_from===b.date_to?b.date_from:`${b.date_from} → ${b.date_to}`) : '';
     return [b.batch_no||'', at, period, Array.isArray(b.channels)?b.channels.join(', '):'', b.order_count||0, b.start_iv||'', b.end_iv||'', b.exported_email||'', b.file_name||''];
   });
-  // ชีต 2: รายใบ — reconstruct เลข IV (start_iv + index) แล้ว join ออเดอร์ → recompute รหัสลูกค้า/แบรนด์
-  const detHead = ['Batch No','ลำดับ','เลข IV','เลขออเดอร์','ช่องทาง','ร้าน (shop)','แบรนด์','รหัสลูกค้า','SKU','สถานะ','⚠ หมายเหตุ'];
+  // ชีต 2: รายใบ — ★ ใช้ snapshot ที่เก็บตอนส่งออกจริงก่อน (export_rows) · batch เก่าไม่มี → reconstruct + recompute
+  const detHead = ['Batch No','ลำดับ','เลข IV','เลขออเดอร์','ช่องทาง','ร้าน (shop)','แบรนด์','รหัสลูกค้า','SKU','ที่มารหัสลูกค้า','⚠ หมายเหตุ'];
   const detRows = [];
   for(const b of list){
-    const oids = Array.isArray(b.order_ids)?b.order_ids:[];
-    let n = BigInt(String(b.start_iv||'').replace(/\D/g,'')||'0');
-    oids.forEach((oidRaw,i)=>{
-      const oid = String(oidRaw);
-      const iv = (n+BigInt(i)).toString().padStart(10,'0');
-      const o = ordByOrder[oid] || null;
-      let channel='', shop='', brand='', cust='', skus='', status='', note='';
-      if(!o){ status='ไม่พบในทะเบียน (โหลดไม่ครบ?)'; }
-      else {
-        const cg = String(o.channel_group||'').toLowerCase();
-        const chCode = cg==='shopee'?'SP':cg==='tiktok'?'TT':cg==='lazada'?'LZ':'';
-        channel = ({shopee:'SHOPEE',tiktok:'TIKTOK',lazada:'LAZADA'})[cg] || (o.channel||o.channel_group||'').toUpperCase();
-        shop = o.shop||'';
-        brand = isMbark ? '' : incBrandOf(o);
-        try{ skus = (incOrderSkus(o)||[]).join(', '); }catch(_){ skus=''; }
-        const directCust = ({face:'FACE',line:'LINE',dealer:'Dealer',csr:'CSR'})[ordChannelDetail(o)] || 'Dealer';
-        cust = chCode ? (isMbark?channel:custCodeBenya(chCode,brand)) : (isMbark?(o.customer||directCust):directCust);
-        status = 'ส่งออกแล้ว';
-        if(!isMbark && chCode && !brand) note = '⚠ เดาแบรนด์ BT/QI ไม่ออก → รหัสลูกค้าว่าง';
-        else if(!isMbark && chCode && brand) note = `แบรนด์=${brand} (${shop?('ร้าน '+shop):'เดาจาก SKU/ข้อความ'})`;
-      }
-      detRows.push([b.batch_no||'', i+1, iv, oid, channel, shop, brand, cust, skus, status, note]);
-    });
+    const snap = Array.isArray(b.export_rows) ? b.export_rows : null;
+    if(snap && snap.length){
+      // ★ ค่าจริงตอนส่งออก — แม่นย้อนหลัง 100% (ไม่ recompute)
+      snap.forEach((r,i)=>{
+        const o = ordByOrder[String(r.order_id)] || null;
+        let skus=''; try{ skus = o ? (incOrderSkus(o)||[]).join(', ') : ''; }catch(_){}
+        const note = (!isMbark && r.channel && r.channel!=='' && !r.brand) ? '⚠ ตอนส่งออกเดาแบรนด์ไม่ออก → รหัสลูกค้าว่าง'
+                   : (!isMbark && r.brand ? `แบรนด์=${r.brand}` : '');
+        detRows.push([b.batch_no||'', i+1, r.iv||'', String(r.order_id||''), r.channel||'', r.shop||'', r.brand||'', r.cust||'', skus, 'ค่าจริงตอนส่งออก', note]);
+      });
+    } else {
+      // batch เก่า (ก่อนเก็บ snapshot) — reconstruct เลข IV + recompute จากทะเบียนปัจจุบัน
+      const oids = Array.isArray(b.order_ids)?b.order_ids:[];
+      let n = BigInt(String(b.start_iv||'').replace(/\D/g,'')||'0');
+      oids.forEach((oidRaw,i)=>{
+        const oid = String(oidRaw);
+        const iv = (n+BigInt(i)).toString().padStart(10,'0');
+        const o = ordByOrder[oid] || null;
+        let channel='', shop='', brand='', cust='', skus='', note='';
+        if(!o){ note='ไม่พบออเดอร์ในทะเบียน (โหลดไม่ครบ?)'; }
+        else {
+          const cg = String(o.channel_group||'').toLowerCase();
+          const chCode = cg==='shopee'?'SP':cg==='tiktok'?'TT':cg==='lazada'?'LZ':'';
+          channel = ({shopee:'SHOPEE',tiktok:'TIKTOK',lazada:'LAZADA'})[cg] || (o.channel||o.channel_group||'').toUpperCase();
+          shop = o.shop||'';
+          brand = isMbark ? '' : incBrandOf(o);
+          try{ skus = (incOrderSkus(o)||[]).join(', '); }catch(_){}
+          const directCust = ({face:'FACE',line:'LINE',dealer:'Dealer',csr:'CSR'})[ordChannelDetail(o)] || 'Dealer';
+          cust = chCode ? (isMbark?channel:custCodeBenya(chCode,brand)) : (isMbark?(o.customer||directCust):directCust);
+          if(!isMbark && chCode && !brand) note = '⚠ เดาแบรนด์ BT/QI ไม่ออก → รหัสลูกค้าว่าง';
+          else if(!isMbark && chCode && brand) note = `แบรนด์=${brand} (${shop?('ร้าน '+shop):'เดาจาก SKU/ข้อความ'})`;
+        }
+        detRows.push([b.batch_no||'', i+1, iv, oid, channel, shop, brand, cust, skus, 'คำนวณใหม่ (batch เก่า)', note]);
+      });
+    }
   }
   const stamp = (new Date().toISOString().slice(0,10)).replace(/-/g,'');
   const fname = `ประวัติส่งออกIV_${(co&&co.code)||company}_${stamp}`;
@@ -6060,12 +6068,20 @@ async function ivrDoExport(format){
         seqNo = (used.length ? Math.max(...used) : 0) + 1;
       }catch(_){}
       const batchNo = `${prefix}-${String(seqNo).padStart(3,'0')}`;
+      // ★ snapshot รหัสลูกค้าที่ส่งออกจริงรายใบ (เลข IV = start_iv + index · ใช้ helper เดียวกับ AoA)
+      let ivStartN = BigInt(String(e.startIv).replace(/\D/g,'')||'0');
+      const exportRows = eligible.map((o,i)=>{
+        const meta = ivrOrderExportMeta(o);
+        return { iv:(ivStartN+BigInt(i)).toString().padStart(10,'0'), order_id:o.order_id||o.id,
+                 channel:meta.platLabel, shop:o.shop||'', brand:meta.brand, cust:meta.cust, vat:meta.vat };
+      });
       try{
         await sb.from('iv_export_batches').insert({
           company_id: companyId, batch_no: batchNo,
           date_from: dFrom||null, date_to: dTo||null,
           channels: [...channels], start_iv: e.startIv, end_iv: endIv,
           order_count: eligible.length, order_ids: eligible.map(o=>o.order_id||o.id),
+          export_rows: exportRows,
           file_name: fileName, exported_email: AUTH.email || null
         });
       }catch(err){ console.warn('batch save', err); }

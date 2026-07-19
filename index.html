@@ -4532,12 +4532,12 @@ function incReBatchCoverage(d){
   // ★ ตรวจ RE↔IV จับคู่ถูกใบไหม — ส่งออก RE เลขนี้ควรตัด IV ใบไหน vs ในไฟล์ RE นี้ตัด IV ใบไหนจริง
   //   (กันเคส AutoKey ดึง IV คนละใบที่ "ยอดเท่ากัน" มาตัด → ยอดตรงเลยไม่ฟ้อง)
   const reMap = incReBatchOrigReMap(b);                 // orderNo → RE เดิมที่ batch รันไว้
-  const vByRe = {};
-  for(const r of ((d.verify&&d.verify.rows)||[])){ if(r.re_no){ const k=incNormKey(r.re_no); if(!(k in vByRe)) vByRe[k]=r; } }
+  const vByRe = {}, vByReDig = {};                      // ★ index by re_no + "เลข RE ล้วน" (กัน "RE" นำหน้า มี-ไม่มี)
+  for(const r of ((d.verify&&d.verify.rows)||[])){ if(r.re_no){ const k=incNormKey(r.re_no); if(!(k in vByRe)) vByRe[k]=r; const dg=incIvDigits(r.re_no); if(dg && !(dg in vByReDig)) vByReDig[dg]=r; } }
   const mismatched = []; let reIvChecked=0;
   for(const oid of expected){
     const expRe = reMap[String(oid)]; if(!expRe) continue;   // batch เก่าไม่มี start_re → ข้าม
-    const vr = vByRe[incNormKey(expRe)]; if(!vr || !vr.iv_no) continue;   // RE ไม่อยู่ในไฟล์ → เป็นเคส missing
+    const vr = vByRe[incNormKey(expRe)] || vByReDig[incIvDigits(expRe)]; if(!vr || !vr.iv_no) continue;   // RE ไม่อยู่ในไฟล์ → เป็นเคส missing
     const o = idx.byOrd[incNormKey(oid)]; const expIv = o && o.iv_no; if(!expIv) continue;
     reIvChecked++;                                            // ตรวจ RE↔IV คู่นี้ได้จริง (มี RE ในไฟล์ + รู้ IV ที่ควรตัด)
     const same = incNormKey(expIv)===incNormKey(vr.iv_no) || (incIvDigits(expIv) && incIvDigits(expIv)===incIvDigits(vr.iv_no));

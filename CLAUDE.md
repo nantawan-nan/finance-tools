@@ -184,6 +184,12 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-19 — ★ ตรวจ RE ตกหล่น: จับคู่ 1.9.1↔ทะเบียน "ทนรูปแบบ" (แก้อัปไฟล์ครอบแล้วยังตกหล่น)
+- **อาการ (เจ้าของ):** อัปไฟล์ 1.9.1 ที่ครอบวันคีย์แล้ว 5 ใบยังขึ้น "ตกหล่น" — ไม่ใช่ไฟล์ไม่ครอบ แต่ **จับคู่ไม่ติด** (เลข IV/ออเดอร์ในไฟล์ vs ทะเบียนต่างรูปแบบเล็กน้อย: มี-ไม่มี "IV" นำหน้า / เว้นวรรคต่อท้าย → exact-match พลาด)
+- **`incNormKey`/`incIvDigits`/`incBuildOrdIndex`/`incMatchVerifyRow` (ใหม่):** matcher ทนรูปแบบ — normalize (uppercase + ตัดช่องว่าง) + **เทียบเลข IV ล้วน** (`\d{6,}`) เป็น fallback + normalize order_ref · เป็น superset ของ exact (ที่เคยตรงยังตรง)
+- **ใช้ร่วมทุกจุด:** `incReBatchCoverage` (batch coverage) · `incRenderVerify` matchOf (KPI/ตาราง) · `incVerifyTagAll` matchOf (Tag RE) · ดัชนี "ในไฟล์ 1.9.1?" ใน `incReBatchMissingDetailHtml` (vByIv/vByIvDig/vByOrder ทนรูปแบบ · เจอผ่าน loose → โชว์ "IV ในไฟล์" ให้เทียบ)
+- **verify (harness):** ไฟล์ iv "2606000666" (ไม่มี IV) → เลขล้วนจับ ledger "IV2606000666" ✓ · iv "IV2606001107 " (เว้นวรรค) → normalize จับ ✓ · order_ref เว้นวรรคท้าย → จับ ✓ · ใบไม่มีในไฟล์จริง → ยังขึ้น "ยังไม่พบในไฟล์" ถูก · syntax OK · **กระทบหน้าอื่น = 0** (matcher เป็น superset · reuse)
+
 ### 2026-07-18 (2) — ★ ตรวจการคีย์ RE (batch): คลิกดูใบตกหล่น + ส่งออก "รอบตกหล่น" ★★ ใช้เลข RE เดิมของ batch
 - **เจ้าของขอ:** batch verify RE โชว์ "ยังไม่พบใน 1.9.1 — 5 ใบ" เป็น chip เฉย ๆ → อยากคลิกดูว่าใบไหนบ้าง + ส่งออกไปคีย์รอบตกหล่นได้เลย
 - **★★ เจ้าของท้วง (ถูก):** "ตกหล่นจริงต้องใช้เลข RE เดิมที่ batch นี้เคยรันให้สิ" — รอบแรกผมทำ prompt รันเลขใหม่ (ผิด · จะได้เลข RE ไม่ตรงกับที่ export/expected ไว้ → คีย์ซ้ำเลขชนกัน)

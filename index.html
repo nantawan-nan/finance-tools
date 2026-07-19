@@ -4497,23 +4497,38 @@ function incEnsureReBatches(){
                     .catch(()=>{ d._reBatchesLoading=false; });
 }
 function incSetReBatch(id){ const d=incGet(); d.reBatchId = id||null; renderToolSalesIncome(); }
+/* ★ จับคู่แถว 1.9.1 ↔ ออเดอร์ แบบทนรูปแบบ (normalize + เลข IV ล้วน) — กันเคสเว้นวรรค/มี-ไม่มี "IV" นำหน้า */
+function incNormKey(s){ return String(s==null?"":s).toUpperCase().replace(/\s+/g,""); }
+function incIvDigits(s){ const m=String(s==null?"":s).match(/\d{6,}/); return m?m[0]:""; }
+function incBuildOrdIndex(ordRows){
+  const byIv={}, byIvDig={}, byOrd={};
+  for(const o of (ordRows||[])){
+    if(o.iv_no){ byIv[incNormKey(o.iv_no)]=o; const dg=incIvDigits(o.iv_no); if(dg && !(dg in byIvDig)) byIvDig[dg]=o; }
+    if(o.order_id) byOrd[incNormKey(o.order_id)]=o;
+  }
+  return { byIv, byIvDig, byOrd };
+}
+function incMatchVerifyRow(r, idx){
+  return (r.iv_no && idx.byIv[incNormKey(r.iv_no)])
+      || (r.iv_no && idx.byIvDig[incIvDigits(r.iv_no)])
+      || (r.order_ref && idx.byOrd[incNormKey(r.order_ref)])
+      || null;
+}
 /* coverage: ส่งออก RE กี่ใบ · พบใน 1.9.1 กี่ใบ · ขาด(บัญชียังไม่คีย์) · นอกสโคป */
 function incReBatchCoverage(d){
   if(!d.reBatchId) return null;
   const b = (d.reBatches||[]).find(x=>String(x.id)===String(d.reBatchId)); if(!b) return null;
   const expected = Array.isArray(b.order_ids) ? b.order_ids.map(String) : [];
-  const expSet = new Set(expected);
-  const ordRows = ordGet().rows || [];
-  const ivMap={}, ordByOrder={};
-  for(const o of ordRows){ if(o.iv_no) ivMap[o.iv_no]=o; if(o.order_id) ordByOrder[o.order_id]=o; }
+  const expSet = new Set(expected.map(incNormKey));
+  const idx = incBuildOrdIndex(ordGet().rows || []);
   const foundSet=new Set(); const extra=[];
   for(const r of ((d.verify&&d.verify.rows)||[])){
-    const o=(r.iv_no&&ivMap[r.iv_no])||(r.order_ref&&ordByOrder[r.order_ref])||null;
-    const oid=o?String(o.order_id):(r.order_ref?String(r.order_ref):"");
-    if(o && expSet.has(oid)) foundSet.add(oid);
-    else extra.push({ oid: oid||"(ไม่รู้จัก)", re:r.re_no, reason: o?"นอก batch นี้":"ไม่พบออเดอร์" });
+    const o = incMatchVerifyRow(r, idx);
+    const nk = o?incNormKey(o.order_id):(r.order_ref?incNormKey(r.order_ref):"");
+    if(o && expSet.has(nk)) foundSet.add(nk);
+    else extra.push({ oid: (o?o.order_id:r.order_ref)||"(ไม่รู้จัก)", re:r.re_no, reason: o?"นอก batch นี้":"ไม่พบออเดอร์" });
   }
-  const missing = expected.filter(oid=>!foundSet.has(oid));
+  const missing = expected.filter(oid=>!foundSet.has(incNormKey(oid)));
   return { batch:b, expectedN:expected.length, keyedN:foundSet.size, missing, extra };
 }
 /* สร้าง RE export batch หลังส่งออก — จำ order_ids + ช่วงเลข RE (fire-and-forget) */
@@ -4586,17 +4601,20 @@ function incReBatchMissingDetailHtml(d){
   const byOrder = {}; for(const c of cands) byOrder[String(c.orderNo)]=c;
   const ordRows = ordGet().rows || [];
   const ordByOrder = {}; for(const o of ordRows) if(o.order_id) ordByOrder[String(o.order_id)]=o;
-  // ดัชนีย้อนกลับของไฟล์ 1.9.1 ที่อัปเข้ามา — ใช้เช็คว่า IV/ออเดอร์นี้ "อยู่ในไฟล์" หรือยัง
-  const vByIv={}, vByOrder={};
-  for(const vr of ((d.verify&&d.verify.rows)||[])){ if(vr.iv_no) vByIv[String(vr.iv_no)]=vr; if(vr.order_ref) vByOrder[String(vr.order_ref)]=vr; }
+  // ดัชนีย้อนกลับของไฟล์ 1.9.1 ที่อัปเข้ามา (ทนรูปแบบ) — ใช้เช็คว่า IV/ออเดอร์นี้ "อยู่ในไฟล์" หรือยัง
+  const vByIv={}, vByIvDig={}, vByOrder={};
+  for(const vr of ((d.verify&&d.verify.rows)||[])){
+    if(vr.iv_no){ vByIv[incNormKey(vr.iv_no)]=vr; const dg=incIvDigits(vr.iv_no); if(dg && !(dg in vByIvDig)) vByIvDig[dg]=vr; }
+    if(vr.order_ref) vByOrder[incNormKey(vr.order_ref)]=vr;
+  }
   const rows = cov.missing.map(oid=>{
     const c = byOrder[String(oid)] || null;
     const o = ordByOrder[String(oid)] || null;
     const origRe = reMap[String(oid)] || "";
-    const vHit = (o && o.iv_no && vByIv[String(o.iv_no)]) || vByOrder[String(oid)] || null;
+    const vHit = (o && o.iv_no && (vByIv[incNormKey(o.iv_no)] || vByIvDig[incIvDigits(o.iv_no)])) || vByOrder[incNormKey(oid)] || null;
     let reason, clr, canRe=false, inFile=!!vHit;
     if(o && o.re_no){ reason = "คีย์ RE แล้วในทะเบียน · "+o.re_no; clr = "#166534"; }
-    else if(vHit){ reason = `อยู่ในไฟล์ 1.9.1 แล้ว (RE ${vHit.re_no||'?'}) — จับคู่ไม่ติด (เลข IV/ออเดอร์ชนกัน)`; clr = "#7c3aed"; }
+    else if(vHit){ reason = `อยู่ในไฟล์ 1.9.1 แล้ว (RE ${vHit.re_no||'?'} · IV ในไฟล์ ${vHit.iv_no||'—'}) — เลข IV ในทะเบียนไม่ตรงไฟล์`; clr = "#7c3aed"; }
     else if(!o){ reason = "ไม่พบออเดอร์ในทะเบียน"; clr = "#991b1b"; }
     else if(!o.iv_no){ reason = "ยังไม่คีย์ IV → ออก RE ไม่ได้"; clr = "#b45309"; }
     else if(!c){ reason = "ไม่มีข้อมูลรับชำระ (Income)"; clr = "#b45309"; }
@@ -4751,7 +4769,8 @@ function incRenderVerify(d){
   const ivMap = {}, ordByOrder = {};
   for(const o of ordRows){ if(o.iv_no) ivMap[o.iv_no]=o; if(o.order_id) ordByOrder[o.order_id]=o; }
   const ordLoaded = ordGet().loaded;
-  const matchOf = (r)=> (r.iv_no && ivMap[r.iv_no]) || (r.order_ref && ordByOrder[r.order_ref]) || null;
+  const _vIdx = incBuildOrdIndex(ordRows);
+  const matchOf = (r)=> incMatchVerifyRow(r, _vIdx);   // ★ ทนรูปแบบ (normalize + เลข IV ล้วน)
 
   let cntNew=0, cntTagged=0, cntNoOrder=0, cntNoIv=0, sumNet=0, sumFee=0;
   for(const r of rows){
@@ -4872,9 +4891,8 @@ function incVerifyClear(){
 async function incVerifyTagAll(){
   const d = incGet(); const v = d.verify;
   const ordD = ordGet();
-  const ivMap = {}, ordByOrder = {};
-  for(const o of (ordD.rows||[])){ if(o.iv_no) ivMap[o.iv_no]=o; if(o.order_id) ordByOrder[o.order_id]=o; }
-  const matchOf = (r)=> (r.iv_no && ivMap[r.iv_no]) || (r.order_ref && ordByOrder[r.order_ref]) || null;
+  const _tIdx = incBuildOrdIndex(ordD.rows||[]);
+  const matchOf = (r)=> incMatchVerifyRow(r, _tIdx);   // ★ ทนรูปแบบ (normalize + เลข IV ล้วน)
 
   const toTag = v.rows.filter(r => { const o=matchOf(r); return o && !o.re_no; });
   if(!toTag.length){ alert("ไม่มีรายการที่ต้อง Tag"); return; }

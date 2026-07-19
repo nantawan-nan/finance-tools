@@ -5898,11 +5898,15 @@ function ivrRenderBlockedModal(d){
 }
 function ivrRenderHistoryModal(d){
   const list = d.ivrec.batches || [];
+  const dlBtns = list.length ? `<div style="display:flex;gap:8px;margin-left:auto;align-items:center">
+      <button class="ord-btn" style="padding:5px 10px;font-size:12px" onclick="ivrExportHistory('xlsx')"><i data-lucide="file-spreadsheet"></i> ดาวน์โหลด (Excel)</button>
+      <button class="ord-btn" style="padding:5px 10px;font-size:12px" onclick="ivrExportHistory('csv')"><i data-lucide="download"></i> CSV รายใบ</button>
+    </div>` : '';
   return `<div class="ivr-modal-bg" onclick="if(event.target===this)ivrToggleHistory()">
     <div class="ivr-modal" style="max-width:1100px">
-      <div class="ivr-modal-head"><h3>📚 ประวัติการส่งออก IV</h3><button class="ivr-modal-close" onclick="ivrToggleHistory()">×</button></div>
+      <div class="ivr-modal-head" style="display:flex;align-items:center;gap:10px"><h3 style="margin:0">📚 ประวัติการส่งออก IV</h3>${dlBtns}<button class="ivr-modal-close" onclick="ivrToggleHistory()">×</button></div>
       <div class="ivr-modal-body">
-        ${list.length ? `<table class="ord-table">
+        ${list.length ? `<div style="font-size:11.5px;color:#64748b;margin-bottom:8px">Excel มี 2 ชีต: <b>ภาพรวม batch</b> + <b>รายใบ (เลข IV · รหัสลูกค้า · แบรนด์ · ร้าน · SKU)</b> — ใช้ตรวจว่าแต่ละ IV ส่งออกรหัสลูกค้าถูกไหม (เช่น SHOPEE QI vs SHOPEE BE)</div><table class="ord-table">
           <thead><tr><th>Batch No</th><th>วันเวลา</th><th>ช่วงข้อมูล</th><th>ช่องทาง</th><th class="right">จำนวน</th><th>เลข IV</th><th>ผู้ส่งออก</th><th>ไฟล์</th></tr></thead>
           <tbody>${list.map(b=>{
             const at = b.exported_at ? new Date(b.exported_at).toLocaleString('th-TH',{year:'numeric',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}) : '—';
@@ -5925,6 +5929,66 @@ function ivrRenderHistoryModal(d){
   </div>`;
 }
 
+/* ดาวน์โหลดประวัติส่งออก IV — Excel 2 ชีต (ภาพรวม batch + รายใบพร้อมรหัสลูกค้า/แบรนด์) เพื่อตรวจว่าส่งออกถูกไหม */
+function ivrExportHistory(fmt){
+  const d = ordGet(); const list = (d.ivrec&&d.ivrec.batches) || [];
+  if(!list.length){ alert('ยังไม่มีประวัติการส่งออก'); return; }
+  const company = state.company; const isMbark = company==='mbark';
+  const co = COMPANIES.find(c=>c.id===company);
+  // ดัชนีทะเบียนคำสั่งซื้อปัจจุบัน (join คืนออเดอร์เพื่ออ่าน ร้าน/ช่อง/SKU → recompute รหัสลูกค้า)
+  const ordByOrder = {}; for(const o of (ordGet().rows||[])) if(o.order_id) ordByOrder[String(o.order_id)]=o;
+  const custCodeBenya=(channel,brand)=>{ const chL={SP:'SHOPEE',TT:'TIKTOK',LZ:'LAZADA'}[channel]; const br={BT:'BE',QI:'QI'}[brand]; return (chL&&br)?`${chL} ${br}`:''; };
+  // ชีต 1: ภาพรวม batch
+  const sumHead = ['Batch No','วันเวลา','ช่วงข้อมูล','ช่องทาง','จำนวน','เลข IV เริ่ม','เลข IV สุดท้าย','ผู้ส่งออก','ไฟล์'];
+  const sumRows = list.map(b=>{
+    const at = b.exported_at ? new Date(b.exported_at).toLocaleString('th-TH') : '';
+    const period = (b.date_from&&b.date_to) ? (b.date_from===b.date_to?b.date_from:`${b.date_from} → ${b.date_to}`) : '';
+    return [b.batch_no||'', at, period, Array.isArray(b.channels)?b.channels.join(', '):'', b.order_count||0, b.start_iv||'', b.end_iv||'', b.exported_email||'', b.file_name||''];
+  });
+  // ชีต 2: รายใบ — reconstruct เลข IV (start_iv + index) แล้ว join ออเดอร์ → recompute รหัสลูกค้า/แบรนด์
+  const detHead = ['Batch No','ลำดับ','เลข IV','เลขออเดอร์','ช่องทาง','ร้าน (shop)','แบรนด์','รหัสลูกค้า','SKU','สถานะ','⚠ หมายเหตุ'];
+  const detRows = [];
+  for(const b of list){
+    const oids = Array.isArray(b.order_ids)?b.order_ids:[];
+    let n = BigInt(String(b.start_iv||'').replace(/\D/g,'')||'0');
+    oids.forEach((oidRaw,i)=>{
+      const oid = String(oidRaw);
+      const iv = (n+BigInt(i)).toString().padStart(10,'0');
+      const o = ordByOrder[oid] || null;
+      let channel='', shop='', brand='', cust='', skus='', status='', note='';
+      if(!o){ status='ไม่พบในทะเบียน (โหลดไม่ครบ?)'; }
+      else {
+        const cg = String(o.channel_group||'').toLowerCase();
+        const chCode = cg==='shopee'?'SP':cg==='tiktok'?'TT':cg==='lazada'?'LZ':'';
+        channel = ({shopee:'SHOPEE',tiktok:'TIKTOK',lazada:'LAZADA'})[cg] || (o.channel||o.channel_group||'').toUpperCase();
+        shop = o.shop||'';
+        brand = isMbark ? '' : incBrandOf(o);
+        try{ skus = (incOrderSkus(o)||[]).join(', '); }catch(_){ skus=''; }
+        const directCust = ({face:'FACE',line:'LINE',dealer:'Dealer',csr:'CSR'})[ordChannelDetail(o)] || 'Dealer';
+        cust = chCode ? (isMbark?channel:custCodeBenya(chCode,brand)) : (isMbark?(o.customer||directCust):directCust);
+        status = 'ส่งออกแล้ว';
+        if(!isMbark && chCode && !brand) note = '⚠ เดาแบรนด์ BT/QI ไม่ออก → รหัสลูกค้าว่าง';
+        else if(!isMbark && chCode && brand) note = `แบรนด์=${brand} (${shop?('ร้าน '+shop):'เดาจาก SKU/ข้อความ'})`;
+      }
+      detRows.push([b.batch_no||'', i+1, iv, oid, channel, shop, brand, cust, skus, status, note]);
+    });
+  }
+  const stamp = (new Date().toISOString().slice(0,10)).replace(/-/g,'');
+  const fname = `ประวัติส่งออกIV_${(co&&co.code)||company}_${stamp}`;
+  if(fmt==='csv'){
+    const aoa=[detHead].concat(detRows);
+    const csv = aoa.map(r=>r.map(v=>{ const s=String(v==null?'':v); return /[",\n]/.test(s)?`"${s.replace(/"/g,'""')}"`:s; }).join(',')).join('\r\n');
+    const blob=new Blob(['﻿'+csv],{type:'text/csv;charset=utf-8'}); const url=URL.createObjectURL(blob);
+    const a=document.createElement('a'); a.href=url; a.download=fname+'_รายใบ.csv'; a.click(); URL.revokeObjectURL(url);
+  } else {
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([sumHead].concat(sumRows)), 'ภาพรวม batch');
+    const wsDet = XLSX.utils.aoa_to_sheet([detHead].concat(detRows));
+    forceTextCells(wsDet, [2,3]);   // เลข IV, เลขออเดอร์ — กัน Excel ตัดเลขยาว
+    XLSX.utils.book_append_sheet(wb, wsDet, 'รายใบ (รหัสลูกค้า)');
+    XLSX.writeFile(wb, fname+'.xlsx');
+  }
+}
 /* ---- Actions ---- */
 /* ★ route ตาม state.tool — ให้ ivr* callbacks ใช้บนทั้ง bigseller + sales_orders ได้ */
 function ivrRerender(){ if(state.tool==='sales_orders') return renderToolSalesOrders(); return renderToolBigSeller(); }

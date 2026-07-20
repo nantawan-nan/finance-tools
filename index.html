@@ -29088,12 +29088,16 @@ async function bmpRunUpload(){
       ...f.cheque.map(x => x.name+"|"+x.size)
     ].join("||");
     const hash = brecHash(hashSrc);
-    const { data:dup } = await sb.from("brec_mp_imports").select("id,created_at")
-      .eq("company_id", co).eq("file_hash", hash).is("deleted_at", null);
-    if(dup && dup.length){
-      const cont = confirm(`ไฟล์ชุดนี้เคยอัปเมื่อ ${new Date(dup[0].created_at).toLocaleString("th-TH")}\n\nดำเนินการต่อจะนำเข้าซ้ำ — ใช่ไหม?`);
+    // ★ เช็ค hash ทั้ง active + soft-deleted (unique constraint uq_brec_mp_imports_hash ครอบทุกแถว)
+    const { data:dupAll } = await sb.from("brec_mp_imports").select("id,created_at,deleted_at")
+      .eq("company_id", co).eq("file_hash", hash);
+    const dupActive = (dupAll||[]).filter(x=>!x.deleted_at);
+    if(dupActive.length){
+      const cont = confirm(`ไฟล์ชุดนี้เคยอัปเมื่อ ${new Date(dupActive[0].created_at).toLocaleString("th-TH")}\n\nดำเนินการต่อจะนำเข้าซ้ำ (ระบบกันสร้าง withdrawal ซ้ำให้อยู่แล้ว) — ใช่ไหม?`);
       if(!cont){ d.mp.parsing=false; bmpRenderUploadModal(); return; }
     }
+    // ★ ถ้ามีแถว hash นี้อยู่แล้ว (active/deleted) → insert imports ด้วย hash=null กันชน unique constraint
+    const reimport = (dupAll||[]).length > 0;
     const fnameJoin = arr => arr.map(x=>x.name).join("; ");
 
     // ★ load existing withdrawals → dedup โดย (withdraw_datetime + bank_account_id)
@@ -29137,7 +29141,7 @@ async function bmpRunUpload(){
         shopee_filename: shopData.files.join("; "),
         receipt_filename: expressFromCache ? "(ใช้ Express cache)" : (fnameJoin(f.receipt) + " | sales: " + fnameJoin(f.sales)),
         cheque_filename: fnameJoin(f.cheque),
-        file_hash: shopsToProcess.length > 1 ? null : hash,
+        file_hash: (shopsToProcess.length > 1 || reimport) ? null : hash,   // ★ null เมื่ออัปซ้ำ กันชน unique constraint
         period_from: shopData.periodFrom, period_to: shopData.periodTo,
         withdrawal_count: withdrawals.length, order_count: totalOrders, mismatch_count: totalMismatch
       }).select("id").single();

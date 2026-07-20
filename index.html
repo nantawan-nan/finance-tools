@@ -29036,15 +29036,11 @@ async function bmpRunUpload(){
     const salesIvSet = new Set((salesData.ivs||[]).filter(iv=>!iv.voided && iv.ref_order_id).map(iv=>String(iv.ref_order_id)));
     const shopOrderIds = new Set();
     for(const g of shopeeByName.values()){ for(const tx of (g.txns||[])){ if(tx.type==="รายรับจากคำสั่งซื้อ" && tx.order_id) shopOrderIds.add(String(tx.order_id)); } }
+    // ★ ไม่บล็อก (ไม่ confirm) — จับคู่ต่อเสมอ · order ที่ยังไม่คีย์ IV จะขึ้น flag "ยังไม่คีย์ IV" ในผลอยู่แล้ว
+    //   (เดิม confirm ตรงนี้ทำให้ user กด Cancel = ยกเลิกเงียบ ๆ 0 รายการ)
     let notKeyed = 0;
     for(const oid of shopOrderIds){ if(salesIvSet.has(oid)) continue; const led=ledgerByOrder.get(oid); if(led && led.iv_no) continue; notKeyed++; }
-    if(notKeyed > 0){
-      const msg = `⚠️ มี Shopee order ${notKeyed} ใบ ที่ยังไม่คีย์ IV ในทะเบียน (order_ledger) และไม่มีในรายงาน 723-5 ที่เก็บไว้\n\n` +
-                  `→ ออเดอร์เหล่านี้จะถูก flag "ยังไม่คีย์ IV" ในผลจับคู่\n\n` +
-                  `ระบบใช้ทะเบียน IV/RE ของเราเป็นหลัก (ไม่ต้องอัป 723-5 ใหม่) — ถ้าอยากให้ครบ ไปคีย์ IV ที่ "ตรวจการคีย์ (141.RWT)" ก่อน\n\n` +
-                  `กด OK เพื่อจับคู่ต่อ / Cancel เพื่อยกเลิก`;
-      if(!confirm(msg)){ d.mp.parsing=false; bmpRenderUploadModal(); return; }
-    }
+    d.mp.notKeyedNote = notKeyed;   // เก็บไว้โชว์เป็นแถบเตือน (ไม่บล็อก)
 
     // ----- ตรวจ routing ทุก shop ก่อน → company ต้องตรง -----
     const shopsToProcess = [];

@@ -184,6 +184,15 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-20 — ★ เงินสดย่อย: แนบเอกสาร + dropdown พนักงาน/แผนก + คอลัมน์เบิกคืนวันที่ + ฟิลเตอร์เดือน
+- **เจ้าของขอ:** แนบเอกสารไว้เปิดดูภายหลัง · dropdown ชื่อพนักงานที่เคยเบิก + แผนก (ไม่ต้องคีย์ซ้ำ) · ฟิลเตอร์เดือน (สรุป+แสดงเฉพาะเดือนนั้น) · คอลัมน์ "ได้รับเงินคืนรอบวันที่"
+- **Migration `supabase/petty-cash-extras.sql`** (idempotent): `petty_cash` +`department text` +`attachments jsonb` (`[{name,path,size,type}]`) · `reimburse_round` มีอยู่แล้ว
+- **แนบไฟล์:** reuse Storage bucket `documents` (path ASCII `petty-cash/{CODE}/{stamp}.{ext}` กัน URL ไทยพัง) · `pcUploadAttachments` (อัปหลายไฟล์ในฟอร์ม) · `pcOpenAtt` (createSignedUrl เปิด) · `pcRemoveAtt` (ลบ + storage.remove) · คอลัมน์ "เอกสาร" 📎 คลิกเปิด · ฟอร์มโชว์ไฟล์แนบเดิม (แก้ไข) + ปุ่มลบ
+- **dropdown:** `<input list>` + `<datalist>` — พนักงาน (`pcReqList`) + แผนก (`pcDeptList`) สร้างจาก distinct ทุกเดือน (ยังพิมพ์ใหม่ได้)
+- **ฟิลเตอร์เดือน:** "รอบ" = เดือน (YYYY-MM) อยู่แล้ว → relabel chips เป็น "เลือกเดือน" · KPI/ตาราง/รวม คำนวณเฉพาะเดือนที่เลือก (มีอยู่แล้ว)
+- **คอลัมน์ "เบิกคืนวันที่"** (`pcReimbLabel` · ISO→วันที่ · ฟอร์ม date input เขียน `reimburse_round`) · ตาราง 9→12 คอลัมน์ (แผนก/เบิกคืนวันที่/เอกสาร) · export Excel +แผนก/ไฟล์แนบ(นับ)
+- **กระทบหน้าอื่น = 0** (โมดูล pc* · reuse bucket documents + policy เดิม) · **ต้อง push ให้ migration รันก่อน** ถึงเก็บ department/attachments ได้
+
 ### 2026-07-19 (3) — ★ ประวัติส่งออก IV: ดาวน์โหลด Excel/CSV + เก็บ "รหัสลูกค้าที่ส่งออกจริง" ลง batch ถาวร (จับเคสแบรนด์ผิด SHOPEE QI↔BE)
 - **เจ้าของขอ:** เจอออเดอร์ QHD201 (Qi) แต่บัญชีส่งออกไปคีย์เป็น SHOPEE BETRA (ควรเป็น SHOPEE QI) → รับชำระ RE ผูกผิด 14 ใบ · อยากดาวน์โหลดประวัติส่งออก IV มาเช็ค + **เก็บรหัสลูกค้าที่ส่งจริงลง batch ถาวร**
 - **★ snapshot ถาวร:** migration `supabase/iv_export_batches_rows.sql` (idempotent · guard table exists · `ADD COLUMN IF NOT EXISTS export_rows jsonb` + NOTIFY pgrst) — เก็บ `[{iv, order_id, channel, shop, brand, cust, vat}]` ตอนส่งออก · `ivrDoExport` insert `export_rows` (เลข IV = start_iv + index · reuse helper)

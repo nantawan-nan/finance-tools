@@ -184,6 +184,13 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-20 (3) — ★ ตรวจการคีย์ IV (141.RWT): เพิ่มตรวจ "รหัสลูกค้า + ประเภท Vat" ที่คีย์ vs ที่ควรเป็น
+- **เจ้าของถาม (ต่อจากเคส QHD201→Betra):** ตรวจ 141 ควรตรวจถึงรหัสลูกค้าที่คีย์ด้วยไหม — ใช่ · การเทียบยอดเดิมจับไม่ได้ (Qi/Betra ยอดเท่ากัน ต่างแค่แบรนด์/Vat)
+- **141.RWT มีข้อมูลอยู่แล้ว:** `r.customer` (รหัสลูกค้าที่คีย์ · เช่น "ลูกค้าทั่วไป-Shopee Betra") + `r.ivVat` (ยอด VAT) + `r.ivLines[].sku`
+- **`ordIvKeyedBrand(customer)`** อ่านแบรนด์ที่คีย์จริงจากช่องลูกค้า (betra/be→BT · qi→QI) · **`ordIvBrandCheck(r, ord)`** เทียบ: keyed vs expect (`incBrandOf(ord)` = SKU-authoritative · orphan→เดาจาก ivLines SKU) → `custMismatch` · Vat: Qi ต้องมี VAT(>0)=type1 · Betra=0 → `vatMismatch` · เฉพาะ Benya
+- **เสียบใน `ordIvAnalyze`** (matched + orphan) · **แบนเนอร์แดง** ใน `ordRenderIv` (toggle `ordIvToggleBrand`/`ic.brandOpen`): "พบ IV คีย์รหัสลูกค้า/Vat ไม่ตรงสินค้า N ใบ" + ตาราง (IV/ออเดอร์/SKU/ลูกค้าที่คีย์/ควรเป็น/Vat คีย์ vs ควร) + วิธีแก้ที่ Express · export Excel +5 คอลัมน์ (รหัสลูกค้าควรเป็น/ตรวจ · Vat คีย์/ควร/ตรวจ)
+- **verify (harness):** QHD201 คีย์ Betra+Vat0 → custMis+vatMis true · คีย์ Qi ถูก → false · SDO101 Betra→false · mbark→ข้าม · syntax OK · **กระทบหน้าอื่น = 0** (reuse benyaSkuBrand/incBrandOf · ไม่ต้อง migration)
+
 ### 2026-07-20 (2) — ★★ แก้รากปัญหาแบรนด์เพี้ยน: ฝังตาราง SKU→แบรนด์ Benya ลงโค้ด (ชนะร้าน+localStorage)
 - **อาการ (เจ้าของสืบจากไฟล์จริง):** QHD201 (Qi Care) ส่งออกเป็น SHOPEE **BE + Vat 0** ทุกใบ (163/163) แต่ QIC101 → QI ถูก · **เครื่องแนนเดา QI ถูก แต่เครื่องบัญชีเดา Betra ผิด** ออเดอร์เดียวกัน
 - **ต้นตอ (ยืนยัน 100%):** `incBrandOf` เดาจาก localStorage **`inc-sku-brand-{co}` (per-browser · ไม่แชร์)** — เครื่องบัญชีตั้ง **QHD→Betra ผิด** → ทุก QHD ออก BE · เครื่องแนนไม่มี map → ตกไปเดาชื่อ "Qi Care" → QI · **แบรนด์เก็บแยกแต่ละเครื่อง = ต่างคนต่างได้ผล**

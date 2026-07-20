@@ -27370,6 +27370,28 @@ function ordRenderRecon(d){
    - voided   : IV ขึ้นต้น * ใน 723-5 (ถูกยกเลิก) → เสนอ cancel
    - orphan   : ไม่มีออเดอร์ที่ ref_order_id match (มี IV แต่ไม่รู้ออเดอร์ไหน)
 */
+/* ★ แบรนด์ที่ "คีย์จริง" ใน 141.RWT — อ่านจากช่องลูกค้า (เช่น "ลูกค้าทั่วไป-Shopee Betra") */
+function ordIvKeyedBrand(customerText){
+  const s = String(customerText||"").toLowerCase();
+  if(/betra|บีทร้า|เบทร้า|\bbe\b/.test(s)) return "BT";
+  if(/\bqi\b|qicare|qi ?care|คิวไอ|คิว ?แคร์/.test(s)) return "QI";
+  return "";
+}
+/* ★ ตรวจรหัสลูกค้า + Vat ที่คีย์ vs ที่ควรเป็น (จาก SKU · Benya เท่านั้น) — จับเคส Qi คีย์เป็น Betra */
+function ordIvBrandCheck(r, ord){
+  if(state.company==="mbark") return;
+  const keyed = ordIvKeyedBrand(r.customer);
+  let expect = ord ? incBrandOf(ord) : "";
+  if(!expect && Array.isArray(r.ivLines)){ for(const ln of r.ivLines){ const b=benyaSkuBrand(ln.sku); if(b){ expect=b; break; } } }
+  r.custKeyed = keyed; r.custExpect = expect;
+  r.custMismatch = !!(keyed && expect && keyed!==expect);
+  if(expect){
+    const vatKeyed = (Number(r.ivVat)||0) > 0.005 ? 1 : 0;   // มี VAT = type 1 (Qi) · 0 = type 0 (Betra)
+    const vatExpect = expect==="QI" ? 1 : 0;
+    r.vatKeyed = vatKeyed; r.vatExpect = vatExpect;
+    r.vatMismatch = (vatKeyed !== vatExpect);
+  }
+}
 function ordIvAnalyze(salesData, rows){
   const ivs = ((salesData && salesData.ivs) || []).filter(i => i && i.doc_type === "IV" && i.doc_no);
   // ★ ไม่นับออเดอร์ที่ยกเลิก — ให้ตรงกับ main view "คีย์ IV แล้ว"
@@ -27470,10 +27492,12 @@ function ordIvAnalyze(salesData, rows){
       const ordByIv = byIvNo.get(iv.doc_no);
       if(ordByIv){ const cc=orderCurrent(ordByIv); r.orderRowId=ordByIv.id; r.currentIv=ordByIv.iv_no; r.currentTotal=cc.total; r.currentBase=cc.base; r.currentShip=cc.ship; r.currentDisc=cc.disc; r.currentFromSale=cc.fromSale; r.status="conflict"; r.conflictKind="noorder"; r.diffAmount=+(r.total-(r.currentTotal||0)).toFixed(2); r.platform=ordIvPlatform(ordByIv, iv); }
       else { r.status = "orphan"; r.platform = ordIvPlatform(null, iv); }
+      ordIvBrandCheck(r, null);   // ★ orphan → เดาแบรนด์ที่ควรเป็นจาก SKU ในไฟล์
       results.push(r); continue;
     }
     const cc = orderCurrent(ord);
     r.orderRowId = ord.id;
+    ordIvBrandCheck(r, ord);   // ★ ตรวจรหัสลูกค้า/Vat ที่คีย์ vs ที่ควรเป็น (ตาม SKU)
     // ★ ถ้า smart match เจอ order_id เต็ม → ใช้ของจริงแทน ref ที่ Express ตัด digit
     if(ord.order_id && ord.order_id !== iv.ref_order_id) r.ref_order_id = ord.order_id;
     r.currentTotal = cc.total; r.currentBase = cc.base; r.currentShip = cc.ship; r.currentDisc = cc.disc; r.currentFromSale = cc.fromSale;
@@ -27569,6 +27593,7 @@ async function ordIvUpload(){
 }
 
 function ordIvSetFilter(k){ const d=ordGet(); if(!d.ivCheck) return; d.ivCheck.filter=k; renderToolOrders(); }
+function ordIvToggleBrand(){ const d=ordGet(); if(!d.ivCheck) return; d.ivCheck.brandOpen=!d.ivCheck.brandOpen; renderToolOrders(); }
 function ordIvClear(){ const d=ordGet(); d.ivCheck=null; try{ ivrClearIvCheckLs(); }catch(e){} renderToolOrders(); }
 /* toggle ดูรายละเอียดเปรียบเทียบ — IV / BigSeller / หลังบ้าน */
 function ordIvToggleExpand(iv_no){ const d=ordGet(); const ic=d.ivCheck; if(!ic) return; ic.expanded = ic.expanded||new Set(); if(ic.expanded.has(iv_no)) ic.expanded.delete(iv_no); else ic.expanded.add(iv_no); renderToolOrders(); }
@@ -27961,6 +27986,11 @@ async function ordIvExport(){
     "IV ที่มีอยู่": r.currentIv || "",
     "สถานะปัจจุบัน": r.currentStatus || "",
     "สถานะตรวจ IV": labelOf(r.status),
+    "รหัสลูกค้าควรเป็น": r.custExpect==='QI'?'Qi':r.custExpect==='BT'?'Betra':'',
+    "รหัสลูกค้า ตรวจ": r.custMismatch?'✗ ผิด':(r.custExpect?'✓':''),
+    "Vat ที่คีย์": r.vatKeyed==null?'':r.vatKeyed,
+    "Vat ควรเป็น": r.vatExpect==null?'':r.vatExpect,
+    "Vat ตรวจ": r.vatMismatch?'✗ ผิด':(r.vatExpect!=null?'✓':''),
   }));
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.json_to_sheet(data);
@@ -28215,6 +28245,35 @@ function ordRenderIv(d){
       </div>
     </div>` : '';
 
+  // ★ ตรวจรหัสลูกค้า/Vat ผิด (Benya) — Qi คีย์เป็น Betra ฯลฯ (ยอดเท่ากันเลยไม่ถูกจับด้วยการเทียบยอด)
+  const brandBad = res.filter(r => (r.custMismatch || r.vatMismatch) && r.status!=='voided');
+  const brName = b => b==='QI' ? 'Qi (Vat 1)' : b==='BT' ? 'Betra (Vat 0)' : (b||'—');
+  const brandWarn = brandBad.length ? `<div class="alert" style="padding:12px 16px;border:1px solid #fecaca;border-left:4px solid #dc2626;background:#fef2f2;border-radius:12px;margin-bottom:14px">
+      <button class="ord-btn" style="background:transparent;border:0;padding:0;font:700 13.5px/1.4 inherit;color:#b91c1c;cursor:pointer" onclick="ordIvToggleBrand()">
+        <i data-lucide="${ic.brandOpen?'chevron-down':'chevron-right'}" style="width:15px;height:15px;vertical-align:-2px"></i>
+        ⚠ พบ IV ที่คีย์ <b>รหัสลูกค้า/ประเภท Vat ไม่ตรงกับสินค้า</b> — ${brandBad.length} ใบ (เช่น สินค้า Qi แต่คีย์เป็น Betra)
+      </button>
+      ${ic.brandOpen ? `<div style="overflow-x:auto;margin-top:10px;border:1px solid #fecaca;border-radius:8px;background:#fff">
+        <table style="width:100%;border-collapse:collapse;font-size:11.5px">
+          <thead><tr style="background:#fff1f2;border-bottom:1px solid #fecaca">
+            <th style="padding:6px 9px;text-align:left">เลข IV</th><th style="padding:6px 9px;text-align:left">ออเดอร์</th>
+            <th style="padding:6px 9px;text-align:left">SKU</th><th style="padding:6px 9px;text-align:left">ลูกค้าที่คีย์</th>
+            <th style="padding:6px 9px;text-align:left">รหัสลูกค้าควรเป็น</th><th style="padding:6px 9px;text-align:center">Vat ที่คีย์</th><th style="padding:6px 9px;text-align:center">Vat ควรเป็น</th>
+          </tr></thead><tbody>
+          ${brandBad.slice(0,200).map(r=>{ const sku=Array.isArray(r.ivLines)?r.ivLines.map(l=>l.sku).filter(Boolean).join(', '):''; return `<tr style="border-bottom:1px solid #f8d7da">
+            <td style="padding:6px 9px;font-family:monospace">${esc(r.iv_no)}</td>
+            <td style="padding:6px 9px;font-family:monospace;font-size:11px">${esc(r.ref_order_id||'')}</td>
+            <td style="padding:6px 9px">${esc(sku)}</td>
+            <td style="padding:6px 9px;color:${r.custMismatch?'#b91c1c':'#334155'};font-weight:${r.custMismatch?'700':'400'}">${esc(r.customer||'')}</td>
+            <td style="padding:6px 9px;color:#15803d;font-weight:700">${esc(brName(r.custExpect))}</td>
+            <td style="padding:6px 9px;text-align:center;color:${r.vatMismatch?'#b91c1c':'#334155'};font-weight:${r.vatMismatch?'700':'400'}">${r.vatKeyed==null?'—':r.vatKeyed}</td>
+            <td style="padding:6px 9px;text-align:center;color:#15803d;font-weight:700">${r.vatExpect==null?'—':r.vatExpect}</td>
+          </tr>`; }).join('')}
+          </tbody></table>
+        <div style="padding:7px 9px;font-size:11px;color:#7f1d1d;background:#fff5f5;border-top:1px solid #fecaca">แก้ที่ Express: เปิด IV เหล่านี้ → เปลี่ยนรหัสลูกค้า/ประเภท Vat ให้ตรงสินค้า (Qi=Vat 1 · Betra=Vat 0) แล้วอัป 141.RWT ตรวจใหม่ · เลข IV ในไฟล์ส่งออกใหม่จะถูกต้องแล้ว (ฝังตาราง SKU→แบรนด์)</div>
+      </div>` : ''}
+    </div>` : '';
+
   const list = ordIvFiltered(ic);
   const filtLabel = { all:"ทั้งหมด", new_match:"ยอดตรง · พร้อม tag", new_zero:"ยอด 0/0 · รอตัดสินใจ", new_diff:"ยอดต่าง · รอตัดสินใจ", matched:"ตรงแล้ว", warn:"Voided", risk:"ต้องตรวจ (diff/conflict/orphan)" }[filt] || filt;
   const bdCls = (s)=> s==="matched"?"ok" : s==="new_match"?"ok" : s==="new_zero"?"warn" : s==="new_diff"?"warn" : s==="diff"?"warn" : s==="conflict"?"danger" : s==="voided"?"warn" : s==="orphan"?"danger" : "mute";
@@ -28265,6 +28324,8 @@ function ordRenderIv(d){
     </div>
 
     ${coverageWarn}
+
+    ${brandWarn}
 
     ${ordIvBatchBannerHtml(d)}
 

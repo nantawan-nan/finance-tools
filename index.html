@@ -15164,7 +15164,26 @@ async function apstLoadVouchers(){
   for(const p of (pRes.data||[])){ (byVoucher[p.voucher_id]=byVoucher[p.voucher_id]||[]).push(p); }
   const vendors={byId:{},byName:{}};
   for(const v of (venRes.data||[])){ vendors.byId[v.id]=v; const k=apstNormName(v.name); if(k&&!vendors.byName[k]) vendors.byName[k]=v; }
-  return { vouchers:vRes.data||[], byVoucher, vendors };
+  const vouchers = vRes.data || [];
+  // ★ รวม "การจ่ายเอง" (ไม่ผ่าน PS · voucher_id ว่าง) — เช่น เงินมัดจำรหัส A ที่กดจ่ายเองในหน้าคงค้าง
+  //   → สร้าง pseudo-voucher ต่อบิล ให้โผล่ในแท็บ "จ่ายแล้ว" ด้วย
+  try{
+    const { data:mp } = await sb.from("ap_payments")
+      .select("id,ap_invoice_id,paid_date,amount,receipt_no,cheque_no,pv_no,remark,ap_invoices(invoice_no,vendor_name_raw,category)")
+      .eq("company_id",cid).is("deleted_at",null).is("voucher_id",null);
+    const byInv={};
+    for(const p of (mp||[])){ const k=p.ap_invoice_id||('x'+p.id); (byInv[k]=byInv[k]||[]).push(p); }
+    for(const invId in byInv){
+      const pays=byInv[invId]; const inv=(pays[0].ap_invoices)||{}; const pid='manual-'+invId;
+      const dates=pays.map(p=>p.paid_date).filter(Boolean).sort();
+      vouchers.push({ id:pid, _manual:true, ps_no:(inv.invoice_no||'จ่ายเอง'),
+        vendor_name: inv.vendor_name_raw||'', pay_date: dates[dates.length-1]||null,
+        net_amount: pays.reduce((s,p)=>s+Number(p.amount||0),0), discount_amount:0,
+        bank_label:'', cheque_no:'', cheque_status:'', _cat: inv.category||'' });
+      byVoucher[pid]=pays;
+    }
+  }catch(e){ console.warn("apst manual pays", e); }
+  return { vouchers, byVoucher, vendors };
 }
 function apstVendorForVoucher(v, vendors){
   if(v.vendor_id && vendors.byId[v.vendor_id]) return vendors.byId[v.vendor_id];
@@ -15291,7 +15310,7 @@ function apstPaidTableHtml(list, data){
     const docs=pays.map(p=>p.receipt_no).filter(Boolean);
     const docCell=docs.length?(esc(docs[0])+(docs.length>1?` <span style="color:#93aca6">+${docs.length-1}</span>`:"")):"—";
     return `<tr class="apst-prow" style="background:${idx%2?"#fafcfb":"#fff"};cursor:pointer" onclick="apstPaidToggleRow('${v.id}')">
-      <td style="font-weight:700;color:#0f2e2b">${esc(v.ps_no)}</td>
+      <td style="font-weight:700;color:#0f2e2b">${v._manual?`<span style="font-size:10px;font-weight:700;color:#0369a1;background:#e4f0f8;padding:1px 6px;border-radius:5px;margin-right:5px">จ่ายเอง</span>`:''}${esc(v.ps_no)}</td>
       <td style="overflow:hidden;text-overflow:ellipsis" title="${esc(v.vendor_name||"")}">${esc(v.vendor_name||"—")}</td>
       <td style="text-align:center"><span style="font-size:11px;font-weight:700;padding:1px 8px;border-radius:999px;color:${cnt>1?"#7c3aed":"#5c807a"};background:${cnt>1?"#f0eafb":"#eef4f2"}">${cnt} ใบ</span></td>
       <td style="color:#0d7c74;overflow:hidden;text-overflow:ellipsis"><code>${docCell}</code></td>
@@ -15387,10 +15406,10 @@ function apstTransferRows(list, vendors){
 async function apstRenderTransfer(){
   const data=await apstLoadVouchers();
   const d=apoGet();
-  const dates=[...new Set(data.vouchers.map(v=>v.pay_date).filter(Boolean))].sort().reverse();
+  const dates=[...new Set(data.vouchers.filter(v=>!v._manual).map(v=>v.pay_date).filter(Boolean))].sort().reverse();
   if(!d.transferRound || !dates.includes(d.transferRound)) d.transferRound=dates[0]||"all";
   const round=d.transferRound;
-  let list=data.vouchers.filter(v=>Number(v.net_amount||0)>0 && !v.cancelled);
+  let list=data.vouchers.filter(v=>Number(v.net_amount||0)>0 && !v.cancelled && !v._manual);  // ★ ตัดจ่ายเอง (จ่ายแล้ว ไม่ต้องตั้งโอน)
   if(round!=="all") list=list.filter(v=>v.pay_date===round);
   const rows=apstTransferRows(list, data.vendors);
   const total=rows.reduce((s,r)=>s+r.amount,0);

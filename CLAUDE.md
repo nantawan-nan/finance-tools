@@ -184,6 +184,12 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-20 (6) — ★ AP: การจ่ายเอง (ไม่ผ่าน PS) โผล่ในแท็บ "จ่ายแล้ว" (เคสเงินมัดจำรหัส A)
+- **เจ้าของขอ:** AP รหัส A = เงินมัดจำ ดึงรายงานจ่ายชำระหนี้ไม่ออก → กดจ่ายเองในหน้าคงค้าง แต่ไม่โผล่ในแท็บ "จ่ายแล้ว" (แท็บนั้นอิง PS voucher ล้วน)
+- **แก้ `apstLoadVouchers`:** โหลด `ap_payments` ที่ `voucher_id` ว่าง (จ่ายเอง จาก `apoBulkPay`/`apoOpenPay`) → สร้าง **pseudo-voucher ต่อบิล** (`id='manual-'+invId` · `_manual:true` · ps_no=invoice_no · net=Σamount · _cat จาก invoice) push เข้า `vouchers`+`byVoucher` → ไหลเข้า list/table/filter ปกติ · badge "จ่ายเอง" (ฟ้า) ในคอลัมน์ PS
+- **`apstRenderTransfer` ตัด `_manual`** (จ่ายแล้ว ไม่ต้องตั้งโอน) — filter + dates chip
+- **กระทบหน้าอื่น = 0** · ไม่ต้อง migration (reuse ap_payments/ap_invoices) · syntax OK
+
 ### 2026-07-20 (5) — ★ เงินสดย่อย: ยอดยกมา carry-forward + เจ้าของวงเงิน (สรุปคงเหลือรายคน) + เต็มหน้า
 - **เจ้าของขอ:** (1) ยอดยกมา ดึงยอดยกไปเดือนก่อนอัตโนมัติ (2) สรุปให้พี่ป้อมว่าวงเงินเหลือกี่บาท (โอนคืนบริษัท) → ต้องกรอก "วงเงินของใคร" (3) ตารางเต็มหน้า (ตอนนี้เหลือพื้นที่)
 - **(1) carry-forward:** `pcChainClosings(d)` คำนวณทุกเดือนเรียงเวลา · opening = ตั้งเอง (petty_cash_rounds) ถ้ามี > ยอดยกไปเดือนก่อน · `pcOpeningOf(d,round)` ใช้ใน render/pcSetOpening · โชว์ "(ยกมาจากเดือนก่อน)" · verify: มิ.ย. closing 2596 → ก.ค. opening 2596

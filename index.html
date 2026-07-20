@@ -26227,6 +26227,8 @@ function ordRenderSearch(d){
       <div class="ord-sr-head">
         <span class="mono" style="font:700 13px/1 'JetBrains Mono','IBM Plex Sans',monospace">${esc(o.order_id||'')}</span>
         <span class="ord-bd mute">${esc(o.channel||o.channel_group||'—')}</span>
+        ${o.shop?`<span class="ord-bd mute" title="ร้านค้า (ใช้เดาแบรนด์)">🏪 ${esc(o.shop)}</span>`:'<span class="ord-bd mute" title="ไม่มีชื่อร้านในทะเบียน">🏪 (ไม่มีชื่อร้าน)</span>'}
+        ${state.company!=='mbark' ? (()=>{ const br=incBrandOf(o); const lab={BT:'Betra · BE · Vat 0',QI:'Qi · QI · Vat 1'}[br]||'เดาแบรนด์ไม่ออก'; const cl=br==='QI'?'ok':br==='BT'?'warn':'danger'; return `<span class="ord-bd ${cl}" title="แบรนด์ที่ระบบเดา → รหัสลูกค้า/Vat ตอนส่งออก IV/RE">แบรนด์: ${lab}</span>`; })() : ''}
         <div style="flex:1"></div>
         <span class="ord-bd ${bdCls(sk)}">${s.ic} ${s.l}</span>
       </div>

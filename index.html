@@ -12043,14 +12043,45 @@ function pcCompute(entries, opening){
   return { rows, totalIn:tin, totalOut:tout, closing:bal, opening:Number(opening)||0 };
 }
 
+/* ★ ยอดยกมา = ยอดยกไปเดือนก่อน (carry-forward) · ถ้าตั้งยอดยกมาเอง (petty_cash_rounds) = ใช้ค่านั้น override */
+function pcMonthList(d){ return [...new Set([...(d.entries||[]).map(pcRoundOf), ...Object.keys(d.openings||{})])].filter(r=>/^\d{4}-\d{2}$/.test(r)).sort(); }
+function pcChainClosings(d){
+  const months = pcMonthList(d); const res={}; let prev=0;
+  for(const mo of months){
+    const explicit = d.openings[mo] && d.openings[mo].opening!=null;
+    const opening = explicit ? Number(d.openings[mo].opening) : prev;   // ตั้งเอง > ยกมาจากเดือนก่อน
+    const ent = (d.entries||[]).filter(e=>pcRoundOf(e)===mo);
+    const R = pcCompute(ent, opening);
+    res[mo] = { opening, closing:R.closing, explicit:!!explicit };
+    prev = R.closing;
+  }
+  return res;
+}
+/* ★ ยอดยกมาที่ใช้จริงของรอบ (carry-forward ถ้าไม่ได้ตั้งเอง) */
+function pcOpeningOf(d, round){
+  const chain = pcChainClosings(d);
+  if(chain[round]) return chain[round].opening;
+  return (d.openings[round] && d.openings[round].opening) || 0;
+}
+/* ★ สรุปวงเงินคงเหลือรายเจ้าของวงเงิน (ทุกเดือน) — เติมเข้า − จ่ายไป = คงเหลือ (ให้เจ้าของโอนคืน) */
+function pcFundSummary(d){
+  const m={};
+  for(const e of (d.entries||[])){
+    const k=(e.fund_holder||'').trim() || '(ไม่ระบุเจ้าของวงเงิน)';
+    if(!m[k]) m[k]={in:0,out:0,n:0};
+    m[k].in += Number(e.amount_in)||0; m[k].out += Number(e.amount_out)||0; m[k].n++;
+  }
+  return Object.entries(m).map(([holder,v])=>({holder, in:v.in, out:v.out, n:v.n, remain:+(v.in-v.out).toFixed(2)}))
+    .sort((a,b)=> b.remain-a.remain);
+}
 function pcSetRound(r){ pcGet().round=r; renderToolPettyCash(); }
 function pcToggleForm(){ const d=pcGet(); d.showForm=!d.showForm; d.editId=null; renderToolPettyCash(); }
 function pcEditRow(id){ const d=pcGet(); d.editId=id; d.showForm=true; renderToolPettyCash(); }
 
 async function pcSetOpening(){
   const d=pcGet(); if(!fopCanWrite()){ alert('ไม่มีสิทธิ์แก้ไข'); return; }
-  const cur=(d.openings[d.round]&&d.openings[d.round].opening)||0;
-  const v=prompt('ยอดยกมาต้นรอบ '+pcRoundLabel(d.round)+' (บาท):', cur);
+  const cur=pcOpeningOf(d, d.round);   // default = ยกมาจากเดือนก่อน (ถ้ายังไม่ตั้งเอง)
+  const v=prompt('ยอดยกมาต้นรอบ '+pcRoundLabel(d.round)+' (บาท):\n(ปกติดึงจากยอดยกไปเดือนก่อนอัตโนมัติ — กรอกที่นี่เพื่อตั้งเอง/ทับค่า)', cur);
   if(v===null) return;
   const cid=d._cid||await fopCompanyId(); if(!cid) return;
   const { error } = await sb.from('petty_cash_rounds').upsert({ company_id:cid, round_label:d.round, opening_balance:pcNum(v), updated_at:new Date().toISOString() },{ onConflict:'company_id,round_label' });
@@ -12110,6 +12141,7 @@ async function pcSaveForm(){
     company_id:d._cid||await fopCompanyId(), round_label:_roundLabel,
     doc_date:g('pcDocDate')||null, pay_date:g('pcPayDate')||g('pcDocDate')||null,
     doc_no:g('pcDocNo')||null, requester:g('pcRequester')||null, department:g('pcDept')||null,
+    fund_holder:g('pcFund')||null,
     description:g('pcDesc')||null,
     amount_in: kind==='in'?amt:0, amount_out: kind==='out'?amt:0,
     reimburse_round: g('pcReimburse') || (edit ? edit.reimburse_round : null) || null,
@@ -12202,10 +12234,10 @@ function pcExport(){
   const R=pcCompute(ent,(d.openings[d.round]||{}).opening||0);
   const co=COMPANIES.find(c=>c.id===state.company);
   const aoa=[['ทะเบียนคุมเงินสดย่อย — '+co.name+' — เดือน '+pcRoundLabel(d.round)],[],
-    ['วันที่ตรวจเอกสาร','วันที่จ่ายเงิน','เลขที่เอกสาร','ผู้เบิก','แผนก','รายการ','รับ','จ่าย','คงเหลือ','เบิกคืนวันที่','หมายเหตุ','ไฟล์แนบ'],
-    ['','','','','','ยอดยกมาต้นรอบ','','',R.opening,'','','']];
-  R.rows.forEach(e=>aoa.push([e.doc_date||'',e.pay_date||'',e.doc_no||'',e.requester||'',e.department||'',e.description||'',Number(e.amount_in)||'',Number(e.amount_out)||'',e._bal,pcReimbLabel(e.reimburse_round),e.note||'',(Array.isArray(e.attachments)?e.attachments.length:0)||'']));
-  aoa.push([]); aoa.push(['','','','','','รวมในเดือน',R.totalIn,R.totalOut,R.closing,'','','']);
+    ['วันที่ตรวจเอกสาร','วันที่จ่ายเงิน','เลขที่เอกสาร','ผู้เบิก','แผนก','เจ้าของวงเงิน','รายการ','รับ','จ่าย','คงเหลือ','เบิกคืนวันที่','หมายเหตุ','ไฟล์แนบ'],
+    ['','','','','','','ยอดยกมาต้นรอบ','','',R.opening,'','','']];
+  R.rows.forEach(e=>aoa.push([e.doc_date||'',e.pay_date||'',e.doc_no||'',e.requester||'',e.department||'',e.fund_holder||'',e.description||'',Number(e.amount_in)||'',Number(e.amount_out)||'',e._bal,pcReimbLabel(e.reimburse_round),e.note||'',(Array.isArray(e.attachments)?e.attachments.length:0)||'']));
+  aoa.push([]); aoa.push(['','','','','','','รวมในเดือน',R.totalIn,R.totalOut,R.closing,'','','']);
   const ws=XLSX.utils.aoa_to_sheet(aoa); const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'เงินสดย่อย');
   XLSX.writeFile(wb, `เงินสดย่อย_${co.code}_${d.round}.xlsx`);
 }
@@ -12295,7 +12327,12 @@ function pcInjectCSS(){
   if(document.getElementById('pc-css')) return;
   const s=document.createElement('style'); s.id='pc-css';
   s.textContent=`
-  .pc-wrap{max-width:1200px}
+  .pc-wrap{max-width:none}
+  .pc-fund{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin:4px 0 18px}
+  .pc-fund .fc{background:#fff;border:1px solid #e6efec;border-left:4px solid var(--brand,#0d9488);border-radius:14px;padding:13px 16px}
+  .pc-fund .fh{font-size:14px;font-weight:800;color:#0f172a;margin-bottom:6px;display:flex;align-items:center;gap:6px}
+  .pc-fund .fr{display:flex;justify-content:space-between;font-size:12px;color:#64748b;margin-top:2px}
+  .pc-fund .fbal{font-size:20px;font-weight:800;font-variant-numeric:tabular-nums;color:var(--brand-dark,#0f766e);margin-top:6px}
   .pc-tbl{width:100%;border-collapse:collapse;font-size:13px;background:#fff;border-radius:12px;overflow:hidden}
   .pc-tbl th{background:var(--brand,#0d9488);color:#fff;font-weight:700;padding:9px 10px;text-align:left;font-size:12px;white-space:nowrap}
   .pc-tbl td{padding:8px 10px;border-top:1px solid #eef2f1;vertical-align:top}
@@ -12324,7 +12361,8 @@ async function renderToolPettyCash(){
   }
   const canW=fopCanWrite();
   const ent=d.entries.filter(e=>pcRoundOf(e)===d.round);
-  const opening=(d.openings[d.round]||{}).opening||0;
+  const opening=pcOpeningOf(d, d.round);   // ★ carry-forward ยอดยกไปเดือนก่อน (ตั้งเอง = override)
+  const openingCarried = !(d.openings[d.round] && d.openings[d.round].opening!=null) && opening!==0;
   const R=pcCompute(ent, opening);
   const roundOpts=d.rounds.length?d.rounds:[d.round];
   const roundChips=roundOpts.map(r=>`<button class="pc-btn" style="${r===d.round?'background:var(--brand,#0d9488);color:#fff':'background:#eef2f1;color:#475569'}" onclick="pcSetRound('${esc(r)}')">${esc(pcRoundLabel(r))}</button>`).join('');
@@ -12333,6 +12371,7 @@ async function renderToolPettyCash(){
   // ★ datalist: ชื่อพนักงาน + แผนก ที่เคยกรอก (จากทุกเดือน — ไม่ต้องคีย์ซ้ำ)
   const reqList=[...new Set(d.entries.map(e=>String(e.requester||'').trim()).filter(Boolean))].sort();
   const deptList=[...new Set(d.entries.map(e=>String(e.department||'').trim()).filter(Boolean))].sort();
+  const fundList=[...new Set(d.entries.map(e=>String(e.fund_holder||'').trim()).filter(Boolean))].sort();
   const editAtt = (edit && Array.isArray(edit.attachments)) ? edit.attachments : [];
   const editAttHtml = editAtt.length ? `<div style="grid-column:1/-1"><div style="font-size:12px;color:#64748b;margin-bottom:4px">ไฟล์แนบเดิม</div><div style="display:flex;flex-wrap:wrap;gap:6px">${editAtt.map(a=>`<span style="display:inline-flex;align-items:center;gap:4px;background:#eef2f1;border-radius:6px;padding:3px 8px;font-size:12px"><a href="javascript:void(0)" onclick="pcOpenAtt('${esc(a.path)}')" style="color:#0d7c74;text-decoration:none">📎 ${esc(a.name||'ไฟล์')}</a>${canW?`<button onclick="pcRemoveAtt('${edit.id}','${esc(a.path)}')" style="border:0;background:transparent;color:#b91c1c;cursor:pointer;font-size:13px">✕</button>`:''}</span>`).join('')}</div></div>` : '';
   const isoOf=(v)=> /^\d{4}-\d{2}-\d{2}/.test(String(v||'')) ? String(v).slice(0,10) : '';
@@ -12341,6 +12380,7 @@ async function renderToolPettyCash(){
       <h3 style="margin:0 0 12px">${edit?'แก้ไขรายการ':'เพิ่มรายการ'}</h3>
       <datalist id="pcReqList">${reqList.map(x=>`<option value="${esc(x)}"></option>`).join('')}</datalist>
       <datalist id="pcDeptList">${deptList.map(x=>`<option value="${esc(x)}"></option>`).join('')}</datalist>
+      <datalist id="pcFundList">${fundList.map(x=>`<option value="${esc(x)}"></option>`).join('')}</datalist>
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px">
         <label>ประเภท<br><select id="pcKind" class="pc-inp"><option value="out" ${edit&&Number(edit.amount_out)?'selected':''}>จ่าย (เบิก)</option><option value="in" ${edit&&Number(edit.amount_in)?'selected':''}>รับ / เติมเงินสดย่อย</option></select></label>
         <label>จำนวนเงิน<br><input id="pcAmount" class="pc-inp" type="number" step="0.01" value="${edit?(Number(edit.amount_out)||Number(edit.amount_in)||''):''}"></label>
@@ -12349,6 +12389,7 @@ async function renderToolPettyCash(){
         <label>เลขที่เอกสาร<br><input id="pcDocNo" class="pc-inp" value="${edit?esc(edit.doc_no||''):''}"></label>
         <label>ผู้เบิก<br><input id="pcRequester" class="pc-inp" list="pcReqList" placeholder="พิมพ์/เลือกจากรายชื่อเดิม" value="${edit?esc(edit.requester||''):''}"></label>
         <label>แผนก<br><input id="pcDept" class="pc-inp" list="pcDeptList" placeholder="พิมพ์/เลือกแผนก" value="${edit?esc(edit.department||''):''}"></label>
+        <label>เจ้าของวงเงิน<br><input id="pcFund" class="pc-inp" list="pcFundList" placeholder="วงเงินสดย่อยของใคร" value="${edit?esc(edit.fund_holder||''):''}"></label>
         <label>ได้รับเงินคืนรอบวันที่<br><input id="pcReimburse" class="pc-inp" type="date" value="${edit?esc(isoOf(edit.reimburse_round)):''}"></label>
         <label style="grid-column:1/-1">รายการ<br><input id="pcDesc" class="pc-inp" value="${edit?esc(edit.description||''):''}"></label>
         <label>หมายเหตุ<br><input id="pcNote" class="pc-inp" value="${edit?esc(edit.note||''):''}"></label>
@@ -12369,6 +12410,7 @@ async function renderToolPettyCash(){
     <td style="font-family:monospace;font-size:12px">${esc(e.doc_no||'')}</td>
     <td>${esc(e.requester||'')}</td>
     <td>${esc(e.department||'')}</td>
+    <td>${esc(e.fund_holder||'')}</td>
     <td>${esc(e.description||'')}</td>
     <td class="num pc-in">${Number(e.amount_in)?pcFmt(e.amount_in):''}</td>
     <td class="num pc-out">${Number(e.amount_out)?pcFmt(e.amount_out):''}</td>
@@ -12400,18 +12442,26 @@ async function renderToolPettyCash(){
       </div>
       ${formHtml}
       <div class="pc-kpi">
-        <div class="c"><div class="l">ยอดยกมาต้นรอบ</div><div class="v">${pcFmt(R.opening)}</div></div>
+        <div class="c"><div class="l">ยอดยกมาต้นรอบ${openingCarried?' · ยกมาจากเดือนก่อน':''}</div><div class="v">${pcFmt(R.opening)}</div></div>
         <div class="c"><div class="l">รับ / เติมเงิน</div><div class="v" style="color:#0f766e">${pcFmt(R.totalIn)}</div></div>
         <div class="c"><div class="l">จ่าย (เบิก)</div><div class="v" style="color:#b91c1c">${pcFmt(R.totalOut)}</div></div>
         <div class="c"><div class="l">คงเหลือยกไป</div><div class="v">${pcFmt(R.closing)}</div></div>
       </div>
+      ${(()=>{ const fs=pcFundSummary(d); if(!fs.length || (fs.length===1 && fs[0].holder==='(ไม่ระบุเจ้าของวงเงิน)')) return '';
+        return `<div style="font-size:13px;font-weight:800;color:#0f172a;margin:2px 2px 8px">💰 วงเงินสดย่อยคงเหลือ รายเจ้าของวงเงิน <span style="font-weight:600;color:#64748b;font-size:11px">(รวมทุกเดือน · เติมเข้า − จ่ายไป = คงเหลือให้โอนคืนบริษัท)</span></div>
+        <div class="pc-fund">${fs.map(f=>`<div class="fc">
+          <div class="fh">👤 ${esc(f.holder)}</div>
+          <div class="fr"><span>เติมเข้า</span><span style="color:#0f766e;font-weight:700">${pcFmt(f.in)}</span></div>
+          <div class="fr"><span>จ่ายไป</span><span style="color:#b91c1c;font-weight:700">${pcFmt(f.out)}</span></div>
+          <div class="fbal">คงเหลือ ${pcFmt(f.remain)}</div>
+        </div>`).join('')}</div>`; })()}
       <div style="overflow-x:auto">
         <table class="pc-tbl">
-          <thead><tr><th>วันที่จ่าย</th><th>เลขที่เอกสาร</th><th>ผู้เบิก</th><th>แผนก</th><th>รายการ</th><th style="text-align:right">รับ</th><th style="text-align:right">จ่าย</th><th style="text-align:right">คงเหลือ</th><th>เบิกคืนวันที่</th><th style="text-align:center">เอกสาร</th><th>หมายเหตุ</th><th></th></tr></thead>
+          <thead><tr><th>วันที่จ่าย</th><th>เลขที่เอกสาร</th><th>ผู้เบิก</th><th>แผนก</th><th>เจ้าของวงเงิน</th><th>รายการ</th><th style="text-align:right">รับ</th><th style="text-align:right">จ่าย</th><th style="text-align:right">คงเหลือ</th><th>เบิกคืนวันที่</th><th style="text-align:center">เอกสาร</th><th>หมายเหตุ</th><th></th></tr></thead>
           <tbody>
-            <tr style="background:#f1f5f9"><td colspan="7" style="font-weight:700">ยอดยกมาต้นรอบ ${esc(pcRoundLabel(d.round))}</td><td class="num pc-bal">${pcFmt(R.opening)}</td><td colspan="4"></td></tr>
-            ${rowsHtml||`<tr><td colspan="12" style="text-align:center;color:#94a3b8;padding:24px">— ยังไม่มีรายการในเดือนนี้ ${canW?'· กด "＋ เพิ่มรายการ" หรือ "นำเข้า Excel"':''} —</td></tr>`}
-            <tr style="background:#ecfdf5;font-weight:800"><td colspan="5">รวมในเดือน</td><td class="num pc-in">${pcFmt(R.totalIn)}</td><td class="num pc-out">${pcFmt(R.totalOut)}</td><td class="num pc-bal">${pcFmt(R.closing)}</td><td colspan="4"></td></tr>
+            <tr style="background:#f1f5f9"><td colspan="8" style="font-weight:700">ยอดยกมาต้นรอบ ${esc(pcRoundLabel(d.round))}${openingCarried?' <span style="font-weight:600;color:#64748b;font-size:11px">(ยกมาจากเดือนก่อน)</span>':''}</td><td class="num pc-bal">${pcFmt(R.opening)}</td><td colspan="4"></td></tr>
+            ${rowsHtml||`<tr><td colspan="13" style="text-align:center;color:#94a3b8;padding:24px">— ยังไม่มีรายการในเดือนนี้ ${canW?'· กด "＋ เพิ่มรายการ" หรือ "นำเข้า Excel"':''} —</td></tr>`}
+            <tr style="background:#ecfdf5;font-weight:800"><td colspan="6">รวมในเดือน</td><td class="num pc-in">${pcFmt(R.totalIn)}</td><td class="num pc-out">${pcFmt(R.totalOut)}</td><td class="num pc-bal">${pcFmt(R.closing)}</td><td colspan="4"></td></tr>
           </tbody>
         </table>
       </div>

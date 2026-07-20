@@ -184,6 +184,13 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-20 (5) — ★ เงินสดย่อย: ยอดยกมา carry-forward + เจ้าของวงเงิน (สรุปคงเหลือรายคน) + เต็มหน้า
+- **เจ้าของขอ:** (1) ยอดยกมา ดึงยอดยกไปเดือนก่อนอัตโนมัติ (2) สรุปให้พี่ป้อมว่าวงเงินเหลือกี่บาท (โอนคืนบริษัท) → ต้องกรอก "วงเงินของใคร" (3) ตารางเต็มหน้า (ตอนนี้เหลือพื้นที่)
+- **(1) carry-forward:** `pcChainClosings(d)` คำนวณทุกเดือนเรียงเวลา · opening = ตั้งเอง (petty_cash_rounds) ถ้ามี > ยอดยกไปเดือนก่อน · `pcOpeningOf(d,round)` ใช้ใน render/pcSetOpening · โชว์ "(ยกมาจากเดือนก่อน)" · verify: มิ.ย. closing 2596 → ก.ค. opening 2596
+- **(2) เจ้าของวงเงิน:** migration `petty-cash-extras.sql` +`fund_holder text` · ฟอร์ม input+datalist "เจ้าของวงเงิน" · คอลัมน์ในตาราง · **`pcFundSummary(d)`** รวมทุกเดือน group by fund_holder → การ์ด "💰 วงเงินคงเหลือรายเจ้าของ" (เติมเข้า−จ่ายไป=คงเหลือให้โอนคืน) · verify: พี่ป้อม in5000 out2722 remain2278
+- **(3) เต็มหน้า:** `.pc-wrap max-width:1200px→none`
+- **ตาราง 12→13 คอลัมน์** (เพิ่มเจ้าของวงเงิน) · export Excel +คอลัมน์ · **ต้อง push ให้ migration รัน** (fund_holder) · **กระทบหน้าอื่น = 0**
+
 ### 2026-07-20 (4) — ★ จับคู่ยอดถอน Marketplace (bmp): อ่าน IV/RE จากทะเบียน (order_ledger) แทน 723-5 ที่อัปล่าสุด
 - **เจ้าของขอ:** อัป Shopee Balance เดือน 7 มาจับคู่ยอดถอน แต่ระบบไปอ่าน "รายงานขาย 723-5" ที่เก็บล่าสุด (19/6) → ออเดอร์เดือน 7 หา IV ไม่เจอ → flag "ยังไม่ออก IV" หมด · อยากให้อ่านจากทะเบียน IV/RE ของเรา
 - **ต้นเหตุ:** `bmpGroupWithdrawals` ผูก order→IV จาก `salesData.ivs` (723-5 cache) อย่างเดียว → 723-5 เก่า = ตันหมด

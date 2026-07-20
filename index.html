@@ -12155,6 +12155,23 @@ async function pcSaveForm(){
   d.showForm=false; d.editId=null; d.round=_roundLabel;   // เด้งไปเดือนของรายการที่เพิ่ง บันทึก
   await pcLoad(); renderToolPettyCash();
 }
+/* ★ ย้ายรายการไปอีกบริษัท (บันทึกผิดบริษัท) — อัป company_id เป็นบริษัทตรงข้าม */
+async function pcMoveCompany(id){
+  const d=pcGet(); if(!fopCanWrite()){ alert('ไม่มีสิทธิ์'); return; }
+  const e=(d.entries||[]).find(x=>x.id===id); if(!e){ alert('ไม่พบรายการ'); return; }
+  const target = state.company==='mbark' ? 'benya' : 'mbark';
+  const targetName = target==='mbark' ? 'M Bark' : 'Benya';
+  const curName = state.company==='mbark' ? 'M Bark' : 'Benya';
+  if(!confirm(`ย้ายรายการนี้จาก "${curName}" → "${targetName}"?\n\n${e.doc_no||''} · ${e.description||''}\n${pcFmt(e.amount_in||e.amount_out||0)} บาท\n\n(จะหายจากทะเบียน ${curName} ไปอยู่ ${targetName})`)) return;
+  const code = target==='mbark' ? 'MBARC' : 'BENYA';
+  const { data:cc, error:ce } = await sb.from('companies').select('id').eq('code',code).limit(1);
+  if(ce || !cc || !cc.length){ alert('ไม่พบบริษัทปลายทาง'); return; }
+  const { error } = await sb.from('petty_cash').update({ company_id: cc[0].id, updated_at:new Date().toISOString() }).eq('id', id);
+  if(error){ alert('ย้ายไม่สำเร็จ: '+error.message); return; }
+  d.showForm=false; d.editId=null;
+  await pcLoad(); renderToolPettyCash();
+  alert(`✓ ย้ายไป ${targetName} แล้ว — สลับบริษัทเป็น ${targetName} (มุมซ้ายบน) เพื่อดูรายการ`);
+}
 async function pcDeleteRow(id){
   if(!fopCanWrite()){ alert('ไม่มีสิทธิ์'); return; }
   if(!confirm('ลบรายการนี้?')) return;
@@ -12396,9 +12413,10 @@ async function renderToolPettyCash(){
         <label style="grid-column:1/-1">แนบเอกสาร (รูป/PDF · แนบได้หลายไฟล์ · ไว้เปิดดูภายหลัง)<br><input id="pcFiles" class="pc-inp" type="file" multiple accept="image/*,.pdf"></label>
         ${editAttHtml}
       </div>
-      <div style="margin-top:12px;display:flex;gap:8px">
+      <div style="margin-top:12px;display:flex;gap:8px;align-items:center">
         <button class="pc-btn" style="background:var(--brand,#0d9488);color:#fff" onclick="pcSaveForm()">บันทึก</button>
         <button class="pc-btn" style="background:#eef2f1;color:#475569" onclick="pcToggleForm()">ยกเลิก</button>
+        ${edit?`<button class="pc-btn" style="background:#fef3c7;color:#92400e;margin-left:auto" onclick="pcMoveCompany('${edit.id}')" title="ย้ายรายการนี้ไปอีกบริษัท (กรณีบันทึกผิดบริษัท)">↔ ย้ายไป ${state.company==='mbark'?'Benya':'M Bark'}</button>`:''}
       </div>
     </div>` : '';
 

@@ -184,6 +184,14 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-20 (2) — ★★ แก้รากปัญหาแบรนด์เพี้ยน: ฝังตาราง SKU→แบรนด์ Benya ลงโค้ด (ชนะร้าน+localStorage)
+- **อาการ (เจ้าของสืบจากไฟล์จริง):** QHD201 (Qi Care) ส่งออกเป็น SHOPEE **BE + Vat 0** ทุกใบ (163/163) แต่ QIC101 → QI ถูก · **เครื่องแนนเดา QI ถูก แต่เครื่องบัญชีเดา Betra ผิด** ออเดอร์เดียวกัน
+- **ต้นตอ (ยืนยัน 100%):** `incBrandOf` เดาจาก localStorage **`inc-sku-brand-{co}` (per-browser · ไม่แชร์)** — เครื่องบัญชีตั้ง **QHD→Betra ผิด** → ทุก QHD ออก BE · เครื่องแนนไม่มี map → ตกไปเดาชื่อ "Qi Care" → QI · **แบรนด์เก็บแยกแต่ละเครื่อง = ต่างคนต่างได้ผล**
+- **`benyaSkuBrand(sku)` (ใหม่ · authoritative):** `Q…`=QI · `SBR/STR/BTR/SDO…`=BT (เจ้าของยืนยัน) · เสียบเป็น **step 0 ใน `incBrandOf`** (ก่อนร้าน + ก่อน localStorage user-map) — แบรนด์อิงสินค้า/VAT ไม่ใช่ร้าน → SKU ควรชนะ · เฉพาะ Benya (`state.company!=='mbark'`)
+- **ผล:** QHD201 → QI + Vat 1 **ทุกเครื่อง** (แม้ localStorage ตั้งผิด/ขายในร้าน Betra) · SDO เดิมว่าง→BT ด้วย · กระทบทั้ง IV export (`ivrBuildExportAoA`) + RE export (`incReCandidates`) พร้อมกัน (ใช้ incBrandOf ร่วม)
+- **verify (harness):** QHD201+map QHD→BT→QI · QHD201 in betra shop→QI · SDO/SBR/STR/BTR→BT · QIC101→QI · SKU ไม่รู้จักในร้าน Betra→BT(ผ่านร้าน) · syntax OK · **ไม่ต้อง migration** (code-only)
+- **หมายเหตุ:** ของที่คีย์ผิดไปแล้ว (14 RE + IV เก่า) ยังต้องแก้ใน Express เอง · ตั้งแต่นี้ส่งออกถูกทุกเครื่อง · **UI เสริม:** หัวออเดอร์ในหน้าค้นหาโชว์ 🏪 ร้าน + แบรนด์ที่เดา (Benya) เพื่อ debug
+
 ### 2026-07-20 — ★ เงินสดย่อย: แนบเอกสาร + dropdown พนักงาน/แผนก + คอลัมน์เบิกคืนวันที่ + ฟิลเตอร์เดือน
 - **เจ้าของขอ:** แนบเอกสารไว้เปิดดูภายหลัง · dropdown ชื่อพนักงานที่เคยเบิก + แผนก (ไม่ต้องคีย์ซ้ำ) · ฟิลเตอร์เดือน (สรุป+แสดงเฉพาะเดือนนั้น) · คอลัมน์ "ได้รับเงินคืนรอบวันที่"
 - **Migration `supabase/petty-cash-extras.sql`** (idempotent): `petty_cash` +`department text` +`attachments jsonb` (`[{name,path,size,type}]`) · `reimburse_round` มีอยู่แล้ว

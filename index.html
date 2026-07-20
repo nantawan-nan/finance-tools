@@ -4231,8 +4231,22 @@ function incOrderSkus(ord){
 }
 /* เดาแบรนด์ของออเดอร์ (BT=Betra · QI=Qi care) — ใช้เลือก bank/รหัสลูกค้า ฝั่ง Benya
    ลำดับความแม่น: (1) ชื่อร้าน (2) map ที่ผู้ใช้กำหนดตาม SKU prefix (3) เดาจากข้อความ+SKU */
+/* ★ ตารางแบรนด์ตาม SKU จริงของ Benya (authoritative · ทุกเครื่องตรงกัน)
+   Q… = Qi (QI, Vat 1) · SBR/STR/BTR/SDO… = Betra (BT, Vat 0) · เจ้าของยืนยัน 2026-07-20 */
+function benyaSkuBrand(sku){
+  const s=String(sku||"").toUpperCase().trim();
+  if(/^Q/.test(s)) return "QI";
+  if(/^(SBR|STR|BTR|SDO)/.test(s)) return "BT";
+  return "";
+}
 function incBrandOf(ord){
   if(!ord) return "";
+  // 0) ★ ตาราง SKU จริงของ Benya = ชี้ขาดก่อนใคร (ชนะทั้งร้าน + localStorage user-map)
+  //    กันเคสตั้ง SKU-map ผิดต่อเครื่อง (เช่น QHD→Betra บนเครื่องบัญชี → Qi ออกเป็น Betra/Vat 0)
+  //    แบรนด์อิงสินค้า (VAT ตามชนิดสินค้า) ไม่ใช่ร้าน → SKU ควรชนะ
+  if(state.company!=="mbark"){
+    for(const sk of incOrderSkus(ord)){ const b=benyaSkuBrand(sk); if(b) return b; }
+  }
   // 1) ชื่อร้าน = ชี้ขาดแบรนด์ (betra→BT · qi→QI) ถ้าเก็บ shop ไว้
   //    ★ ดูตารางร้าน→แบรนด์ก่อน (bsSeedShopBrand) — bsBrandFromShop เดาด้วย regex อย่างเดียว
   //      จับ "benya_official" (= Qi care) ไม่ได้ → รหัสลูกค้า/ประเภท Vat เคยว่างทั้งที่รู้แบรนด์อยู่แล้ว

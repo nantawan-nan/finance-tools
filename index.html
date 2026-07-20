@@ -12465,14 +12465,6 @@ async function renderToolPettyCash(){
         <div class="c"><div class="l">จ่าย (เบิก)</div><div class="v" style="color:#b91c1c">${pcFmt(R.totalOut)}</div></div>
         <div class="c"><div class="l">คงเหลือยกไป</div><div class="v">${pcFmt(R.closing)}</div></div>
       </div>
-      ${(()=>{ const fs=pcFundSummary(d); if(!fs.length || (fs.length===1 && fs[0].holder==='(ไม่ระบุเจ้าของวงเงิน)')) return '';
-        return `<div style="font-size:13px;font-weight:800;color:#0f172a;margin:2px 2px 8px">💰 วงเงินสดย่อยคงเหลือ รายเจ้าของวงเงิน <span style="font-weight:600;color:#64748b;font-size:11px">(รวมทุกเดือน · เติมเข้า − จ่ายไป = คงเหลือให้โอนคืนบริษัท)</span></div>
-        <div class="pc-fund">${fs.map(f=>`<div class="fc">
-          <div class="fh">👤 ${esc(f.holder)}</div>
-          <div class="fr"><span>เติมเข้า</span><span style="color:#0f766e;font-weight:700">${pcFmt(f.in)}</span></div>
-          <div class="fr"><span>จ่ายไป</span><span style="color:#b91c1c;font-weight:700">${pcFmt(f.out)}</span></div>
-          <div class="fbal">คงเหลือ ${pcFmt(f.remain)}</div>
-        </div>`).join('')}</div>`; })()}
       <div style="overflow-x:auto">
         <table class="pc-tbl">
           <thead><tr><th>วันที่จ่าย</th><th>เลขที่เอกสาร</th><th>ผู้เบิก</th><th>แผนก</th><th>เจ้าของวงเงิน</th><th>รายการ</th><th style="text-align:right">รับ</th><th style="text-align:right">จ่าย</th><th style="text-align:right">คงเหลือ</th><th>เบิกคืนวันที่</th><th style="text-align:center">เอกสาร</th><th>หมายเหตุ</th><th></th></tr></thead>

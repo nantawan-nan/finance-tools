@@ -24045,7 +24045,7 @@ function bmpParseChequeReport(text){
    - buffer orders + adjustments until เจอ "การถอนเงิน"
    - close group, create withdrawal
    ============================================================ */
-function bmpGroupWithdrawals(parsed, arData, chqData, salesData, shopName, sharedSeqByDay){
+function bmpGroupWithdrawals(parsed, arData, chqData, salesData, shopName, sharedSeqByDay, ledgerByOrder){
   const txns = parsed.txns;
 
   // ---- index 1: Shopee Order ID → IV (จาก sales report) ----
@@ -24120,23 +24120,30 @@ function bmpGroupWithdrawals(parsed, arData, chqData, salesData, shopName, share
       const bq = nextBq(tx.txn_date);
 
       const orderRows = orders.map(o => {
-        // ★ chain: Shopee Order → IV (sales) → SP cheque (รับชำระ)
+        // ★ chain: Shopee Order → IV · แหล่ง: รายงานขาย 723-5 → fallback ทะเบียน IV/RE ของเรา (order_ledger)
         const iv = ivByOrderRef.get(o.order_id);
+        const led = ledgerByOrder ? ledgerByOrder.get(String(o.order_id)) : null;
         const chq = iv ? (arData.ivToCheque ? arData.ivToCheque.get(iv.doc_no) : null) : null;
-        // "มูลค่าเช็ค EXPRESS" = ยอดเช็ค SP (หักส่วนลด/commission แล้ว)
-        const gross = chq ? Number(chq.amount) : (iv ? Number(iv.total) : 0);
+        // เลข IV: 723-5 (ไม่ void) ก่อน → ทะเบียนของเรา
+        const ivNo = (iv && !iv.voided) ? iv.doc_no : (led && led.iv_no ? led.iv_no : null);
+        const ivVoided = iv ? !!iv.voided : false;
+        // "มูลค่าเช็ค EXPRESS" = ยอดเช็ค SP → 723-5 total → ยอดขาย (sale_amount) ในทะเบียน
+        const gross = chq ? Number(chq.amount) : (iv ? Number(iv.total) : (led && led.sale_amount!=null ? Number(led.sale_amount) : 0));
         const net = o.amount;
         const feeDiff = gross ? +(gross - net).toFixed(2) : 0;
-        // "เลขที่เช็ค" = SP/SI/TI prefix จาก รับชำระ (ไม่ใช่ IV)
+        // ใบเสร็จ (RE): เช็ค SP จาก รับชำระ → RE/เลขเช็ค ในทะเบียน
+        const hasReceipt = !!chq || !!(led && (led.re_no || led.cheque_no));
         const chequeNo = chq ? chq.cheque_no
-                             : (iv ? ("PENDING-" + iv.doc_no) : ("UNKNOWN-" + o.order_id));
+                             : (led && led.cheque_no ? led.cheque_no
+                             : (led && led.re_no ? ("RE-" + led.re_no)
+                             : (ivNo ? ("PENDING-" + ivNo) : ("UNKNOWN-" + o.order_id))));
         let mismatch = false; let reason = "";
-        if(!iv){ mismatch = true; reason = "ไม่พบใน รายงานขาย — ยังไม่ออก IV"; }
-        else if(iv.voided){ mismatch = true; reason = "IV ถูก void"; }
-        else if(!chq){ mismatch = true; reason = "ยังไม่ได้ออกใบเสร็จ (ไม่มีเช็คใน รับชำระ)"; }
-        else if(Math.abs(chq.amount - net) > 0.05){
+        if(!ivNo){ mismatch = true; reason = "ยังไม่คีย์ IV (ไม่พบในทะเบียน/รายงาน)"; }
+        else if(ivVoided){ mismatch = true; reason = "IV ถูก void"; }
+        else if(chq && Math.abs(chq.amount - net) > 0.05){
           mismatch = true; reason = "ยอดเช็ค " + chq.amount.toFixed(2) + " ≠ Shopee net " + net.toFixed(2);
         }
+        else if(!hasReceipt){ mismatch = true; reason = "ยังไม่ออกใบเสร็จ RE (ตรวจในทะเบียน/รับชำระ)"; }
         return {
           channel: routing.channel,
           order_id: o.order_id,
@@ -24146,8 +24153,8 @@ function bmpGroupWithdrawals(parsed, arData, chqData, salesData, shopName, share
           express_gross: gross,
           shopee_net: net,
           fee_diff: feeDiff,
-          receipt_no: chq ? chq.receipt_no : (iv ? iv.doc_no : null),
-          has_receipt: !!iv,
+          receipt_no: chq ? chq.receipt_no : (led && led.re_no ? led.re_no : (ivNo || null)),
+          has_receipt: !!ivNo,
           has_cheque_deposit: !!chq,
           existing_bq: null,
           mismatch_flag: mismatch,
@@ -28932,29 +28939,32 @@ async function bmpRunUpload(){
     try{ ordTagRe = await ordTagReceipts(co, arData); }catch(e){ console.warn("ord tag re", e); }
     const allWdForTag = [];   // เก็บ withdrawal ทุก shop ไว้ tag เงินเข้าแบงค์ (Phase C)
 
-    // ----- ★ ตรวจ period coverage: sales report ต้องครอบ Shopee balance -----
-    const salesDates = (salesData.ivs||[]).map(iv => iv.doc_date).filter(Boolean).sort();
-    const salesMin = salesDates[0] || null;
-    const salesMax = salesDates[salesDates.length-1] || null;
-    let shopMin = null, shopMax = null;
-    for(const g of shopeeByName.values()){
-      if(g.periodFrom && (!shopMin || g.periodFrom < shopMin)) shopMin = g.periodFrom;
-      if(g.periodTo && (!shopMax || g.periodTo > shopMax)) shopMax = g.periodTo;
-    }
-    if(salesMin && salesMax && shopMin && shopMax){
-      const tooEarly = salesMin > shopMin;
-      const tooLate  = salesMax < shopMax;
-      if(tooEarly || tooLate){
-        const fmtTh = (s) => { if(!s) return "?"; const [y,m,d]=s.split("-"); return `${d}/${m}/${y}`; };
-        const issues = [];
-        if(tooEarly) issues.push(`sales เริ่ม ${fmtTh(salesMin)} แต่ Shopee เริ่ม ${fmtTh(shopMin)} — ขาดช่วงต้น`);
-        if(tooLate)  issues.push(`sales ถึง ${fmtTh(salesMax)} แต่ Shopee ถึง ${fmtTh(shopMax)} — ขาดช่วงปลาย`);
-        const msg = `⚠️ รายงานขาย 723-5 ครอบ Shopee ไม่ครบ:\n\n• ${issues.join("\n• ")}\n\n` +
-                    `→ Order Shopee ที่อยู่นอกช่วง sales จะถูก flag "ไม่ตรง" ทั้งหมด\n\n` +
-                    `แนะนำ: ยกเลิก → ไปดึงรายงาน 723-5 ใหม่ให้ครอบ ${fmtTh(shopMin)} ถึง ${fmtTh(shopMax)}\n\n` +
-                    `กด OK เพื่อดำเนินการต่อ (จะ mismatch เยอะ) / Cancel เพื่อยกเลิก`;
-        if(!confirm(msg)){ d.mp.parsing=false; bmpRenderUploadModal(); return; }
+    // ----- ★ โหลดทะเบียน IV/RE ของเรา (order_ledger) = แหล่งหลักจับคู่ (เจ้าของขอ) -----
+    //   แทนการพึ่ง 723-5 ที่อัปล่าสุด (อาจเก่ากว่าช่วง Shopee) · IV เดือน 7 มาจากตรวจ 141.RWT แล้ว
+    const ledgerByOrder = new Map();
+    try{
+      let lf=0; const LPAGE=1000;
+      while(true){
+        const { data, error } = await sb.from("order_ledger")
+          .select("order_id,iv_no,re_no,sale_amount,cheque_no").eq("company_id",co).is("deleted_at",null).range(lf,lf+LPAGE-1);
+        if(error) throw error;
+        for(const r of (data||[])){ if(r.order_id && !ledgerByOrder.has(String(r.order_id))) ledgerByOrder.set(String(r.order_id), r); }
+        if(!data || data.length<LPAGE) break; lf+=LPAGE;
       }
+    }catch(e){ console.warn("mp ledger load", e); }
+
+    // ----- ★ coverage แบบใหม่: Shopee order ใบไหน "ยังไม่คีย์ IV" ในทะเบียน (order_ledger) หรือ 723-5 -----
+    const salesIvSet = new Set((salesData.ivs||[]).filter(iv=>!iv.voided && iv.ref_order_id).map(iv=>String(iv.ref_order_id)));
+    const shopOrderIds = new Set();
+    for(const g of shopeeByName.values()){ for(const tx of (g.txns||[])){ if(tx.type==="รายรับจากคำสั่งซื้อ" && tx.order_id) shopOrderIds.add(String(tx.order_id)); } }
+    let notKeyed = 0;
+    for(const oid of shopOrderIds){ if(salesIvSet.has(oid)) continue; const led=ledgerByOrder.get(oid); if(led && led.iv_no) continue; notKeyed++; }
+    if(notKeyed > 0){
+      const msg = `⚠️ มี Shopee order ${notKeyed} ใบ ที่ยังไม่คีย์ IV ในทะเบียน (order_ledger) และไม่มีในรายงาน 723-5 ที่เก็บไว้\n\n` +
+                  `→ ออเดอร์เหล่านี้จะถูก flag "ยังไม่คีย์ IV" ในผลจับคู่\n\n` +
+                  `ระบบใช้ทะเบียน IV/RE ของเราเป็นหลัก (ไม่ต้องอัป 723-5 ใหม่) — ถ้าอยากให้ครบ ไปคีย์ IV ที่ "ตรวจการคีย์ (141.RWT)" ก่อน\n\n` +
+                  `กด OK เพื่อจับคู่ต่อ / Cancel เพื่อยกเลิก`;
+      if(!confirm(msg)){ d.mp.parsing=false; bmpRenderUploadModal(); return; }
     }
 
     // ----- ตรวจ routing ทุก shop ก่อน → company ต้องตรง -----
@@ -29024,7 +29034,7 @@ async function bmpRunUpload(){
         alert(`⚠ ไม่พบบัญชี "${routing.bankCode} ${routing.accountNo}" ในระบบ (สำหรับร้าน ${shopName})\n\nระบบไม่สร้างบัญชีใหม่อัตโนมัติแล้ว — ให้ไปสร้างบัญชีด้วยตัวเองที่หน้า Bank Reconciliation ก่อน (อัป Express XML ของบัญชีนั้น 1 ครั้ง) แล้วลองอัป Marketplace ใหม่`);
         continue;
       }
-      const allWithdrawals = bmpGroupWithdrawals(shopData, arData, chqData, salesData, shopName, sharedSeq);
+      const allWithdrawals = bmpGroupWithdrawals(shopData, arData, chqData, salesData, shopName, sharedSeq, ledgerByOrder);
       // ★ dedup: ข้าม withdrawal ที่ DB มีอยู่แล้ว (key = datetime + bank_account_id + amount)
       const withdrawals = [];
       let shopSkipped = 0;

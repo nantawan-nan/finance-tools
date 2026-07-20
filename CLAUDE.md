@@ -184,6 +184,14 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-20 (4) — ★ จับคู่ยอดถอน Marketplace (bmp): อ่าน IV/RE จากทะเบียน (order_ledger) แทน 723-5 ที่อัปล่าสุด
+- **เจ้าของขอ:** อัป Shopee Balance เดือน 7 มาจับคู่ยอดถอน แต่ระบบไปอ่าน "รายงานขาย 723-5" ที่เก็บล่าสุด (19/6) → ออเดอร์เดือน 7 หา IV ไม่เจอ → flag "ยังไม่ออก IV" หมด · อยากให้อ่านจากทะเบียน IV/RE ของเรา
+- **ต้นเหตุ:** `bmpGroupWithdrawals` ผูก order→IV จาก `salesData.ivs` (723-5 cache) อย่างเดียว → 723-5 เก่า = ตันหมด
+- **แก้:** โหลด `order_ledger` (order_id→iv_no/re_no/sale_amount/cheque_no · paginate) ก่อน loop → ส่งเป็น param `ledgerByOrder` เข้า `bmpGroupWithdrawals` · resolution order→IV/gross/receipt: **723-5 ก่อน → fallback ทะเบียน** (ivNo = iv.doc_no||led.iv_no · gross = chq.amount??iv.total??led.sale_amount · hasReceipt = chq||led.re_no||led.cheque_no) · mismatch reason ใหม่ ("ยังไม่คีย์ IV" / "ยังไม่ออกใบเสร็จ RE")
+- **coverage check รื้อ:** เลิกเทียบช่วงวัน 723-5 vs Shopee → เปลี่ยนเป็นนับ Shopee order (จาก `shopeeByName.txns` type="รายรับจากคำสั่งซื้อ") ที่ **ยังไม่คีย์ IV ในทะเบียน+723-5** · เตือนเฉพาะที่ค้างจริง + บอกว่าใช้ทะเบียนเป็นหลัก (ไม่ต้องอัป 723-5 ใหม่)
+- **behavior-preserving:** path 723-5 เดิม (iv เจอ) = ผลเท่าเดิม · เพิ่ม fallback ทะเบียนเมื่อ 723-5 ไม่มี · **กระทบหน้าอื่น = 0** (reuse order_ledger · ไม่ต้อง migration) · syntax OK
+- **หมายเหตุ:** gross ผ่านทะเบียน = `sale_amount` (IV) → fee_diff = gross−net = ค่าธรรมเนียมเต็ม (ต่างจากผ่านเช็คที่ gross≈net) · IV เดือน 7 ต้องคีย์ที่ "ตรวจการคีย์ 141.RWT" ก่อนถึงจะอยู่ในทะเบียน
+
 ### 2026-07-20 (3) — ★ ตรวจการคีย์ IV (141.RWT): เพิ่มตรวจ "รหัสลูกค้า + ประเภท Vat" ที่คีย์ vs ที่ควรเป็น
 - **เจ้าของถาม (ต่อจากเคส QHD201→Betra):** ตรวจ 141 ควรตรวจถึงรหัสลูกค้าที่คีย์ด้วยไหม — ใช่ · การเทียบยอดเดิมจับไม่ได้ (Qi/Betra ยอดเท่ากัน ต่างแค่แบรนด์/Vat)
 - **141.RWT มีข้อมูลอยู่แล้ว:** `r.customer` (รหัสลูกค้าที่คีย์ · เช่น "ลูกค้าทั่วไป-Shopee Betra") + `r.ivVat` (ยอด VAT) + `r.ivLines[].sku`

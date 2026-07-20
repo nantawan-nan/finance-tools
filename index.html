@@ -11979,7 +11979,9 @@ function pcGet(){
 }
 function pcFmt(n){ const v=Number(n)||0; const s=Math.abs(v).toLocaleString('th-TH',{minimumFractionDigits:2,maximumFractionDigits:2}); return v<0?'('+s+')':s; }
 function pcThMon(key){ if(!key) return ''; const [y,m]=String(key).split('-').map(Number); const M=['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.']; return `${M[(m||1)-1]} ${(y||0)+543}`; }
-function pcRoundOf(e){ return e.round_label || String(e.pay_date||e.doc_date||'').slice(0,7) || '—'; }
+/* ★ เดือนของรายการ = อิงวันที่จริง (จ่าย/เอกสาร) ก่อน → fallback round_label
+   (กันเคสเพิ่มรายการเดือน 7 ตอนเลือกเดือน 6 ค้าง แล้วไปกองผิดเดือน · แก้ย้อนหลังให้ด้วย) */
+function pcRoundOf(e){ return String(e.pay_date||e.doc_date||'').slice(0,7) || e.round_label || '—'; }
 /* Excel serial / string → ISO date */
 function pcExcelDate(v){
   if(v==null||v==='') return null;
@@ -12087,8 +12089,11 @@ async function pcSaveForm(){
   const newAtt = await pcUploadAttachments();
   const exAtt = (edit && Array.isArray(edit.attachments)) ? edit.attachments : [];
   const attachments = exAtt.concat(newAtt);
+  // ★ เดือน (round_label) อิงวันที่จ่าย/เอกสารที่กรอก — ไม่ใช่เดือนที่เลือกค้างอยู่
+  const _payISO = g('pcPayDate')||g('pcDocDate')||'';
+  const _roundLabel = /^\d{4}-\d{2}/.test(_payISO) ? _payISO.slice(0,7) : d.round;
   const rec={
-    company_id:d._cid||await fopCompanyId(), round_label:d.round,
+    company_id:d._cid||await fopCompanyId(), round_label:_roundLabel,
     doc_date:g('pcDocDate')||null, pay_date:g('pcPayDate')||g('pcDocDate')||null,
     doc_no:g('pcDocNo')||null, requester:g('pcRequester')||null, department:g('pcDept')||null,
     description:g('pcDesc')||null,
@@ -12101,7 +12106,7 @@ async function pcSaveForm(){
   if(d.editId){ ({ error } = await sb.from('petty_cash').update({ ...rec, updated_at:new Date().toISOString() }).eq('id',d.editId)); }
   else { ({ error } = await sb.from('petty_cash').insert({ ...rec, created_by:(AUTH&&AUTH.uid)||null })); }
   if(error){ alert('บันทึกไม่สำเร็จ: '+error.message); return; }
-  d.showForm=false; d.editId=null;
+  d.showForm=false; d.editId=null; d.round=_roundLabel;   // เด้งไปเดือนของรายการที่เพิ่ง บันทึก
   await pcLoad(); renderToolPettyCash();
 }
 async function pcDeleteRow(id){

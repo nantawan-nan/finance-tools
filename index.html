@@ -5693,7 +5693,7 @@ function ivrOrderExportMeta(o){
     : '';
   return { isMbark, channel, platLabel, directCust, brand, vat, cust, custNote };
 }
-function ivrBuildExportAoA(orders, startIv){
+function ivrBuildExportAoA(orders, startIv, ivMap){
   const isMbark = state.company === 'mbark';
   const shipSkuCode = BS_SHIP_SKU[state.company] || '';
   // ★ 'ประเภท Vat' ต่อท้ายคอลัมน์ AutoKey เดิม (C014) — ไม่เลื่อน mapping ที่สูตรเดิมใช้อยู่
@@ -5706,7 +5706,11 @@ function ivrBuildExportAoA(orders, startIv){
     if(!Array.isArray(its) || !its.length){
       its = [{ sku:'', qty:1, price:Number(o.order_total||0), ship:0, discount:0 }];
     }
-    const ivNo = runningN.toString().padStart(10,'0'); runningN += 1n;
+    // ★ ivMap (order_id → เลข IV เดิม) = โหมดคีย์ใหม่ (ใช้เลขเดิม) · ไม่มี = รันเลขต่อ (ปกติ)
+    let ivNo;
+    const _ovr = ivMap && ivMap.get(o.order_id);
+    if(_ovr){ ivNo = String(_ovr).replace(/\D/g,'').padStart(10,'0'); }
+    else { ivNo = runningN.toString().padStart(10,'0'); runningN += 1n; }
     // ★ รหัสลูกค้า/แบรนด์/Vat — helper กลาง (Benya marketplace = ช่องทาง×แบรนด์ · M Bark = ช่องทาง · ขายตรง FACE/LINE/Dealer/CSR)
     const meta = ivrOrderExportMeta(o);
     const platLabel = meta.platLabel, vat = meta.vat, cust = meta.cust, custNote = meta.custNote;
@@ -28210,6 +28214,36 @@ async function ordIvExport(){
   XLSX.writeFile(wb, `ตรวจ_IV_${co}_${stamp}.xlsx`);
 }
 
+/* ★ ส่งออกไฟล์ AutoKey สำหรับ "คีย์ IV ใหม่" — ใช้เลข IV เดิม แต่รหัสลูกค้า/Vat ที่ถูกต้อง (ตาม SKU)
+   ใช้กับเคส Benya ที่คีย์ Qi เป็น Betra ฯลฯ · reuse ivrBuildExportAoA (format เดียวกับส่งออก IV ปกติ) */
+async function ordIvExportRekey(){
+  if(!brecCanWrite()){ alert("ไม่มีสิทธิ์ส่งออก"); return; }
+  const d = ordGet(); const ic = d.ivCheck;
+  if(!ic || !ic.results){ alert("ยังไม่มีผลตรวจ — อัป 141.RWT ก่อน"); return; }
+  const brandBad = ic.results.filter(r => (r.custMismatch || r.vatMismatch) && r.status!=='voided');
+  if(!brandBad.length){ alert("ไม่มี IV ที่รหัสลูกค้า/Vat ผิด"); return; }
+  const rowsById = new Map(); (d.rows||[]).forEach(o=>{ if(o.id!=null) rowsById.set(String(o.id), o); });
+  const byOrderId = new Map(); (d.rows||[]).forEach(o=>{ if(o.order_id) byOrderId.set(o.order_id, o); });
+  const orders = [], ivMap = new Map(); let noOrder=0; const seen=new Set();
+  for(const r of brandBad){
+    const ord = (r.orderRowId!=null && rowsById.get(String(r.orderRowId))) || byOrderId.get(r.ref_order_id) || null;
+    if(!ord){ noOrder++; continue; }                         // orphan (ไม่มีออเดอร์ในทะเบียน) → สร้างจากสินค้าไม่ได้ ข้าม
+    if(seen.has(ord.order_id)) continue; seen.add(ord.order_id);
+    orders.push(ord); ivMap.set(ord.order_id, r.iv_no);      // ★ ใช้เลข IV เดิมของใบนี้
+  }
+  if(!orders.length){ alert("ไม่มีออเดอร์ที่สร้างไฟล์คีย์ใหม่ได้\n(ใบที่ผิดเป็น orphan — ไม่พบออเดอร์ในทะเบียน · แก้ที่ Express เอง)"); return; }
+  if(!confirm(`ส่งออกไฟล์คีย์ IV ใหม่ ${orders.length} ใบ\n\n• ใช้ "เลข IV เดิม" ของแต่ละใบ\n• รหัสลูกค้า + ประเภท Vat = คำนวณใหม่ให้ตรงสินค้า (ฝังตาราง SKU→แบรนด์)${noOrder?`\n• ข้าม ${noOrder} ใบ (orphan — ไม่พบออเดอร์)`:''}\n\nดำเนินการ?`)) return;
+  const aoa = ivrBuildExportAoA(orders, '', ivMap);           // ★ ivMap → ใช้เลข IV เดิม (ไม่รันเลขใหม่)
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  forceTextCells(ws, [1, 2, 3, 6, 11, 12]);                  // IV / order / วันที่ / SKU / ผังค่าส่ง / Enter
+  ws['!cols'] = [{wch:5},{wch:13},{wch:18},{wch:11},{wch:9},{wch:8},{wch:18},{wch:7},{wch:10},{wch:9},{wch:11},{wch:10},{wch:11},{wch:11},{wch:10},{wch:18},{wch:14}];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'คีย์ IV ใหม่');
+  const co = (COMPANIES.find(c=>c.id===state.company)||{});
+  const stamp = new Date().toISOString().replace(/[-:T.]/g,'').slice(0,12);
+  XLSX.writeFile(wb, `IV_แก้รหัสลูกค้า_${co.code||state.company}_${stamp}.xlsx`);
+}
+
 /* apply: เขียน DB จากผล validate
    - tagSelected  : tag IV เฉพาะแถวที่ user ติ๊กเลือก (new_match/new_zero/new_diff)
    - cancelVoided : set order.status='cancelled' สำหรับแถว voided ที่ map ออเดอร์ได้
@@ -28458,10 +28492,13 @@ function ordRenderIv(d){
   const brandBad = res.filter(r => (r.custMismatch || r.vatMismatch) && r.status!=='voided');
   const brName = b => b==='QI' ? 'Qi (Vat 1)' : b==='BT' ? 'Betra (Vat 0)' : (b||'—');
   const brandWarn = brandBad.length ? `<div class="alert" style="padding:12px 16px;border:1px solid #fecaca;border-left:4px solid #dc2626;background:#fef2f2;border-radius:12px;margin-bottom:14px">
-      <button class="ord-btn" style="background:transparent;border:0;padding:0;font:700 13.5px/1.4 inherit;color:#b91c1c;cursor:pointer" onclick="ordIvToggleBrand()">
-        <i data-lucide="${ic.brandOpen?'chevron-down':'chevron-right'}" style="width:15px;height:15px;vertical-align:-2px"></i>
-        ⚠ พบ IV ที่คีย์ <b>รหัสลูกค้า/ประเภท Vat ไม่ตรงกับสินค้า</b> — ${brandBad.length} ใบ (เช่น สินค้า Qi แต่คีย์เป็น Betra)
-      </button>
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <button class="ord-btn" style="background:transparent;border:0;padding:0;font:700 13.5px/1.4 inherit;color:#b91c1c;cursor:pointer" onclick="ordIvToggleBrand()">
+          <i data-lucide="${ic.brandOpen?'chevron-down':'chevron-right'}" style="width:15px;height:15px;vertical-align:-2px"></i>
+          ⚠ พบ IV ที่คีย์ <b>รหัสลูกค้า/ประเภท Vat ไม่ตรงกับสินค้า</b> — ${brandBad.length} ใบ (เช่น สินค้า Qi แต่คีย์เป็น Betra)
+        </button>
+        <button class="ord-btn" style="margin-left:auto;background:#dc2626;color:#fff;border-color:#dc2626;font-size:12.5px;padding:6px 13px" onclick="ordIvExportRekey()" title="ส่งออกไฟล์ AutoKey ใช้เลข IV เดิม แต่รหัสลูกค้า/Vat ที่ถูกต้อง"><i data-lucide="file-spreadsheet" style="width:14px;height:14px"></i> ส่งออกคีย์ใหม่ (เลข IV เดิม)</button>
+      </div>
       ${ic.brandOpen ? `<div style="overflow-x:auto;margin-top:10px;border:1px solid #fecaca;border-radius:8px;background:#fff">
         <table style="width:100%;border-collapse:collapse;font-size:11.5px">
           <thead><tr style="background:#fff1f2;border-bottom:1px solid #fecaca">
@@ -28479,7 +28516,7 @@ function ordRenderIv(d){
             <td style="padding:6px 9px;text-align:center;color:#15803d;font-weight:700">${r.vatExpect==null?'—':r.vatExpect}</td>
           </tr>`; }).join('')}
           </tbody></table>
-        <div style="padding:7px 9px;font-size:11px;color:#7f1d1d;background:#fff5f5;border-top:1px solid #fecaca">แก้ที่ Express: เปิด IV เหล่านี้ → เปลี่ยนรหัสลูกค้า/ประเภท Vat ให้ตรงสินค้า (Qi=Vat 1 · Betra=Vat 0) แล้วอัป 141.RWT ตรวจใหม่ · เลข IV ในไฟล์ส่งออกใหม่จะถูกต้องแล้ว (ฝังตาราง SKU→แบรนด์)</div>
+        <div style="padding:7px 9px;font-size:11px;color:#7f1d1d;background:#fff5f5;border-top:1px solid #fecaca">แก้ได้ 2 ทาง: (1) กด <b>"ส่งออกคีย์ใหม่ (เลข IV เดิม)"</b> ด้านบน → ได้ไฟล์ AutoKey ใช้เลข IV เดิม + รหัสลูกค้า/Vat ที่ถูกต้อง (Qi=Vat 1 · Betra=Vat 0) ไปคีย์แก้ใน Express · (2) เปิด IV ทีละใบใน Express แก้เอง · เสร็จแล้วอัป 141.RWT ตรวจใหม่</div>
       </div>` : ''}
     </div>` : '';
 

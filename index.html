@@ -3590,6 +3590,8 @@ function incGet(){
 }
 function incSetSubtab(t){ incGet().subtab = t; renderToolSalesIncome(); }
 function incSetIncFilter(f){ const d=incGet(); d.incFilter=f; renderToolSalesIncome(); }
+function incSetIncSearch(v){ const d=incGet(); d.incSearch=(v||""); renderToolSalesIncome();
+  setTimeout(()=>{ const e=document.getElementById("incSearchBox"); if(e){ e.focus(); try{ e.setSelectionRange(e.value.length,e.value.length); }catch(_){} } },0); }
 function incToggleFeeRow(oid){ const d=incGet(); d.incExpandedOrder=(d.incExpandedOrder===oid?null:oid); renderToolSalesIncome(); }
 
 /* "DD/MM/YYYY" (BE) → "YYYY-MM-DD" (CE) */
@@ -3892,7 +3894,12 @@ function incFeeExport(){
 function incRenderList(d){
   const rows = d.incRows || [];
   const filter = d.incFilter || '';
-  const filtered = filter ? rows.filter(r=>r.channel_group===filter) : rows;
+  const q = String(d.incSearch||"").trim().toLowerCase();
+  // ★ join ทะเบียนคำสั่งซื้อ เพื่อค้นหาด้วยเลข IV ได้ด้วย (income row ไม่มี iv_no)
+  const ordByOrder = {}; (ordGet().rows||[]).forEach(o=>{ if(o.order_id) ordByOrder[o.order_id]=o; });
+  const ivOf = (r)=> (ordByOrder[r.order_id] && ordByOrder[r.order_id].iv_no) || "";
+  let filtered = filter ? rows.filter(r=>r.channel_group===filter) : rows;
+  if(q) filtered = filtered.filter(r=> `${r.order_id||''} ${ivOf(r)} ${r.channel_group||''}`.toLowerCase().includes(q));
   const showDetail = !!d.incShowFeeDetail;
 
   const sumTax = filtered.reduce((s,r)=>s+incTaxBaseOf(r), 0);
@@ -3949,6 +3956,7 @@ function incRenderList(d){
       <td style="padding:7px 8px;color:#94a3b8;font-size:11.5px">${i+1}</td>
       <td style="padding:7px 6px"><span style="font-size:11px;padding:2px 7px;border-radius:4px;background:${chColor}18;color:${chColor};border:1px solid ${chColor}35;font-weight:600">${chLabel}</span></td>
       <td style="padding:7px 10px;font-family:monospace;font-size:11.5px;white-space:nowrap;color:#334155">${esc(r.order_id||'')}</td>
+      <td style="padding:7px 10px;font-family:monospace;font-size:11.5px;white-space:nowrap;color:${ivOf(r)?'#334155':'#cbd5e1'}">${esc(ivOf(r)||'—')}</td>
       <td style="padding:7px 10px;white-space:nowrap;font-size:12px">${r.paid_date?salIncomeFmtDate(r.paid_date):''}</td>
       <td style="padding:7px 10px;text-align:right;font-weight:600;font-variant-numeric:tabular-nums;font-size:12px;color:#1e293b">${salesFmt(tb)}</td>
       ${catCells}
@@ -3961,6 +3969,12 @@ function incRenderList(d){
 
   return `<div style="padding:16px 0 0">
     ${kpiHtml}${actionHtml}
+    <div style="position:relative;margin-bottom:10px">
+      <i data-lucide="search" style="width:16px;height:16px;color:#94a3b8;position:absolute;left:12px;top:50%;transform:translateY(-50%)"></i>
+      <input id="incSearchBox" type="text" value="${esc(d.incSearch||'')}" oninput="incSetIncSearch(this.value)" placeholder="ค้นหา: เลขที่ออเดอร์ / เลข IV / ช่องทาง ..." style="width:100%;padding:9px 12px 9px 36px;border:1px solid #e2e8f0;border-radius:10px;font-size:13px;outline:none;background:#fff">
+      ${q?`<button onclick="incSetIncSearch('')" title="ล้างการค้นหา" style="position:absolute;right:8px;top:50%;transform:translateY(-50%);border:0;background:#f1f5f9;color:#64748b;border-radius:6px;padding:3px 9px;font-size:12px;cursor:pointer">✕ ล้าง</button>`:''}
+    </div>
+    ${q?`<div style="font-size:12px;color:#64748b;margin-bottom:8px">🔍 ค้นหา "<b style="color:#334155">${esc(d.incSearch)}</b>" — พบ ${filtered.length} รายการ</div>`:''}
     <div style="font-size:11.5px;color:#64748b;margin-bottom:8px">📌 <b>GROSS = ฐานภาษี</b> (ราคา − ส่วนลดผู้ขาย + ค่าส่งผู้ซื้อ · = มูลค่าที่จะคีย์ IV) · <b>ฐานภาษี − รายจ่าย = เงินเข้าสุทธิ</b>${showDetail?' · คอลัมน์ค่าใช้จ่ายรวมกัน = รายจ่าย':''}</div>
     <div style="overflow-x:auto;border:1px solid #e2e8f0;border-radius:10px;background:#fff">
       <table style="width:100%;border-collapse:collapse;font-size:12.5px">
@@ -3968,13 +3982,14 @@ function incRenderList(d){
           <th style="padding:9px 8px;text-align:left;font-weight:600">#</th>
           <th style="padding:9px 8px;text-align:left">แพลตฟอร์ม</th>
           <th style="padding:9px 10px;text-align:left;white-space:nowrap">เลขที่ออเดอร์</th>
+          <th style="padding:9px 10px;text-align:left;white-space:nowrap">เลข IV</th>
           <th style="padding:9px 10px;text-align:left;white-space:nowrap">วันรับเงิน</th>
           <th style="padding:9px 10px;text-align:right;white-space:nowrap">GROSS (ฐานภาษี)</th>
           ${catHeads}
           <th style="padding:9px 10px;text-align:right;white-space:nowrap">รายจ่าย</th>
           <th style="padding:9px 10px;text-align:right;white-space:nowrap">เงินเข้าสุทธิ</th>
         </tr></thead>
-        <tbody>${tableRows}</tbody>
+        <tbody>${tableRows || `<tr><td colspan="${8+detailCats.length}" style="padding:26px;text-align:center;color:#94a3b8">— ${q?'ไม่พบรายการที่ตรงกับคำค้นหา':'ไม่มีรายการ'} —</td></tr>`}</tbody>
       </table>
     </div>
     <div style="color:#94a3b8;font-size:11px;margin-top:8px">แสดง ${filtered.length} รายการ · ฐานภาษีรวม ${salesFmt(sumTax)} − รายจ่ายรวม ${salesFmt(sumFee)} = สุทธิรวม ${salesFmt(sumNet)} บาท</div>

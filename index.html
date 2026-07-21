@@ -4238,6 +4238,7 @@ function incOrderSkus(ord){
 function benyaSkuBrand(sku){
   const s=String(sku||"").toUpperCase().trim();
   if(/^Q/.test(s)) return "QI";
+  if(/^SQ/.test(s)) return "QI";   // ★ แพ็ค Qi Care (SQHD/SQI1/SQI152 = Qi Care แบบชุด/หลายชิ้น) — ไม่ชนกับ Betra (SBR/STR/BTR/SDO)
   if(/^(SBR|STR|BTR|SDO)/.test(s)) return "BT";
   return "";
 }

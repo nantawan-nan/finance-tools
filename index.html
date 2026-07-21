@@ -3613,13 +3613,11 @@ function salIncomeFmtDate(iso){
 function salIncomeParseReceiptReport191(text){
   const rows = bmpParseCsvText(text);
   const result = [];
+  const isRE = (rr)=> /^RE\d/.test(String((rr&&rr[3])||"").trim());
   for(let i = 0; i < rows.length; i++){
     const r = rows[i] || [];
     const reNoRaw = String(r[3]||"").trim();
-    if(!/^RE\d/.test(reNoRaw)) continue;
-
-    const r2 = rows[i+1] || [];
-    const r3 = rows[i+2] || [];
+    if(!isRE(r)) continue;
 
     const re_date     = salIncomeParseBEDate(String(r[1]||"").trim());
     const re_no       = reNoRaw;
@@ -3629,14 +3627,18 @@ function salIncomeParseReceiptReport191(text){
     const order_ref   = String(r[14]||"").trim().replace(/[ \s]+$/,"");
     const fee         = parseFloat(String(r[17]||"0").replace(/,/g,""))||0;
 
-    const cheque_no   = String(r2[14]||"").trim();
-    const paid_date   = salIncomeParseBEDate(String(r2[15]||"").trim());
-    const bank        = String(r2[16]||"").trim();
-    const net_amount  = parseFloat(String(r2[17]||"0").replace(/,/g,""))||0;
-
-    const iv_no    = String(r3[5]||"").trim();
-    const iv_date  = salIncomeParseBEDate(String(r3[6]||"").trim());
-    const iv_total = parseFloat(String(r3[7]||"0").replace(/,/g,""))||0;
+    // ★ สแกน detail rows ในบล็อกนี้ (จนถึงหัว RE ใบถัดไป) — บล็อก 1.9.1 ไม่คงที่ 3 แถวเสมอ
+    //   (บางใบไม่มีเช็ค/ไม่มี IV row แยก) · เดิม fixed i+=2 ทำให้จับแถวเลื่อน → ข้ามใบ/ได้ IV ผิด
+    let cheque_no="", paid_date="", bank="", net_amount=0, iv_no="", iv_date="", iv_total=0;
+    for(let j=i+1; j<rows.length && !isRE(rows[j]); j++){
+      const rj = rows[j] || [];
+      const c5 = String(rj[5]||"").trim();
+      if(c5){                                     // IV ref row (เลข IV ช่อง 5)
+        if(!iv_no){ iv_no=c5; iv_date=salIncomeParseBEDate(String(rj[6]||"").trim()); iv_total=parseFloat(String(rj[7]||"0").replace(/,/g,""))||0; }
+      } else if(String(rj[14]||"").trim()){       // cheque/net row (เลขเช็คช่อง 14 · สุทธิช่อง 17)
+        if(!cheque_no){ cheque_no=String(rj[14]||"").trim(); paid_date=salIncomeParseBEDate(String(rj[15]||"").trim()); bank=String(rj[16]||"").trim(); net_amount=parseFloat(String(rj[17]||"0").replace(/,/g,""))||0; }
+      }
+    }
 
     // channel จาก prefix ของ cheque_no หรือชื่อลูกค้า
     let channel_group = "";
@@ -3647,7 +3649,7 @@ function salIncomeParseReceiptReport191(text){
 
     result.push({ re_no, re_date, customer, iv_amount, cheque_recv, order_ref, fee,
                   cheque_no, paid_date, bank, net_amount, iv_no, iv_date, iv_total, channel_group });
-    i += 2;
+    // ★ ไม่ i+=2 — ปล่อยให้ loop ข้าม detail rows เอง แล้ว re-sync ที่หัว RE ใบถัดไป
   }
   return result;
 }

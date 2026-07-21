@@ -184,6 +184,13 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-21 (5) — ★ ตรวจ IV: ปุ่ม "ส่งออกคีย์ใหม่ (เลข IV เดิม)" แก้รหัสลูกค้า/Vat ที่คีย์ผิด (Benya)
+- **เจ้าของขอ:** เคส Benya คีย์ Qi เป็น Betra — ระบบฟ้องแล้ว (แบนเนอร์แดง 175 ใบ · `ordIvBrandCheck`) แต่อยากส่งออกไปคีย์แก้ **เลข IV เดิม แต่รหัสลูกค้า/Vat ที่ถูกต้อง**
+- **`ivrBuildExportAoA(orders, startIv, ivMap)`** +param `ivMap` (order_id → เลข IV เดิม) — ถ้ามี ใช้เลขเดิม (`String(iv).replace(/\D/g,'').padStart(10)`) แทนเลขรัน · ไม่มี = พฤติกรรมเดิมเป๊ะ (backward-compat)
+- **`ordIvExportRekey()`:** กรอง `brandBad` (custMismatch/vatMismatch · ไม่ voided) → หาออเดอร์จาก `orderRowId`/`ref_order_id` ในทะเบียน → build AutoKey ด้วยเลข IV เดิม + รหัสลูกค้า/Vat จาก `ivrOrderExportMeta`→`incBrandOf` (SKU-authoritative → ตรงกับที่แบนเนอร์บอก "ควรเป็น" เป๊ะ) · ข้าม orphan (ไม่มีออเดอร์) · format 17 คอลัมน์ + `forceTextCells([1,2,3,6,11,12])` เหมือนส่งออก IV ปกติ
+- **UI:** ปุ่มแดง "ส่งออกคีย์ใหม่ (เลข IV เดิม)" ในแบนเนอร์ตรวจแบรนด์ + footer อธิบาย 2 ทางแก้ (ส่งออกไฟล์ / แก้มือใน Express)
+- **เฉพาะ Benya** (brand check ไม่ทำ mbark) · syntax OK · **กระทบหน้าอื่น = 0** (reuse ivrBuildExportAoA · param optional) · ไม่ต้อง migration
+
 ### 2026-07-21 (4) — ★★ ตรวจการคีย์ 1.9.1: parser บล็อก RE ไม่คงที่ 3 แถว → ข้ามใบ/ได้ IV ผิด (false ตกหล่น)
 - **อาการ (191.CSV):** batch verify บอก RE2606000974/976/1008 "ยังไม่พบใน 1.9.1" ทั้งที่อยู่ในไฟล์จริง (เจ้าของเช็คด้วย Find ใน Excel)
 - **ต้นเหตุ:** `salIncomeParseReceiptReport191` สมมติทุกบล็อก RE = **3 แถวเป๊ะ** แล้ว `i+=2` (กระโดด 3 แถว/บล็อก) · แต่ไฟล์จริงบล็อก **1/2/3 แถวปนกัน** (บางใบไม่มีเช็ค/ไม่มี IV row แยก) → พอเจอบล็อกสั้น การจับแถวเลื่อน → **ข้ามหัว RE ใบถัดไป** + บางใบได้ `iv_no` ผิด (จับ r3 ที่เลื่อนไปโดนบล็อกอื่น) · ผล: parse ได้แค่ **1527 แถว (จริง 1638)** · iv_no ว่างเกินจริง 109 ใบ → `vByIv`/`incMatchVerifyRow` จับไม่เจอ → ขึ้นตกหล่นหลอก

@@ -4310,6 +4310,74 @@ function incSetExpCh(v){ const d=incGet(); d.expCh=(d.expCh===v?"":v); renderToo
 function incSetExpDate(k,v){ incGet()[k]=v||""; renderToolSalesIncome(); }
 function incToggleExpClean(){ const d=incGet(); d.expClean=!d.expClean; renderToolSalesIncome(); }
 function incSetExpNote(v){ const d=incGet(); d.expNote=(d.expNote===v?"":v); renderToolSalesIncome(); }
+
+/* ===== ★ เลือกรายการที่จะส่งออก (checkbox) + ตรวจกับรายงานลูกหนี้คงค้าง ===== */
+/* Parser: รายงานลูกหนี้คงค้างแบบละเอียด (Express CSV cp874) → IV/RE ที่ยังค้าง ณ วันที่รายงาน
+   คอลัมน์: [5]=วันที่ [7]=เอกสาร(IV/RE) [9]=ยอดในบิล [10]=ยอดตัด [11]=ยอดค้าง · หัว: "ณ วันที่ DD <เดือนย่อ> YYYY" */
+const INC_TH_ABBR_MON = ["ม.ค.","ก.พ.","มี.ค.","เม.ย.","พ.ค.","มิ.ย.","ก.ค.","ส.ค.","ก.ย.","ต.ค.","พ.ย.","ธ.ค."];
+function incThaiAbbrevDate(s){
+  const m = String(s||"").match(/(\d{1,2})\s*(ม\.ค\.|ก\.พ\.|มี\.ค\.|เม\.ย\.|พ\.ค\.|มิ\.ย\.|ก\.ค\.|ส\.ค\.|ก\.ย\.|ต\.ค\.|พ\.ย\.|ธ\.ค\.)\s*(\d{4})/);
+  if(!m) return null;
+  const mi = INC_TH_ABBR_MON.indexOf(m[2]); if(mi<0) return null;
+  let y = parseInt(m[3],10); if(y>=2400) y-=543;
+  return `${y}-${String(mi+1).padStart(2,"0")}-${m[1].padStart(2,"0")}`;
+}
+function incParseArOutstanding(text){
+  const rows = bmpParseCsvText(text);
+  let asOf = null;
+  const ivsFull = new Set(), ivsDig = new Set(); let count=0, sum=0;
+  for(const r of rows){
+    if(!asOf){
+      const joined = r.join(" ");
+      const mth = joined.match(/ณ\s*วันที่\s*([0-9]{1,2}\s*(?:ม\.ค\.|ก\.พ\.|มี\.ค\.|เม\.ย\.|พ\.ค\.|มิ\.ย\.|ก\.ค\.|ส\.ค\.|ก\.ย\.|ต\.ค\.|พ\.ย\.|ธ\.ค\.)\s*[0-9]{4})/);
+      if(mth) asOf = incThaiAbbrevDate(mth[1]);
+      if(!asOf){ const md = joined.match(/ณ\s*วันที่\s*([0-9]{1,2}\/[0-9]{1,2}\/[0-9]{4})/); if(md) asOf = bmpThaiDate(md[1]); }
+    }
+    const doc = String(r[7]||"").trim();
+    if(!/^(IV|RE)\d/i.test(doc)) continue;
+    const outstanding = parseFloat(String(r[11]||"0").replace(/,/g,""))||0;
+    if(outstanding > 0.001){ ivsFull.add(incNormKey(doc)); const dg=incIvDigits(doc); if(dg) ivsDig.add(dg); count++; sum=round2(sum+outstanding); }
+  }
+  return { asOf, ivsFull, ivsDig, count, sum };
+}
+/* สถานะลูกหนี้ของ RE candidate เทียบรายงานคงค้าง:
+   outstanding=ยังค้าง(ควรคีย์) · settled=รับชำระ/คีย์มือแล้ว(ไม่อยู่ในรายงาน) · unknown=IV ใหม่กว่ารายงาน · null=ไม่ได้อัปรายงาน */
+function incArStatus(d, r){
+  const ar = d.arReport; if(!ar || !ar.ivsFull) return null;
+  const key = incNormKey(r.arIv), dg = incIvDigits(r.arIv);
+  if(ar.ivsFull.has(key) || (dg && ar.ivsDig.has(dg))) return "outstanding";
+  const ivISO = r.arDate;   // iv_date ISO
+  if(ar.asOf && ivISO && ivISO <= ar.asOf) return "settled";   // เก่ากว่า/เท่าวันที่รายงาน แต่ไม่ค้าง = รับชำระแล้ว
+  return "unknown";         // IV ใหม่กว่ารายงาน — รายงานยังไม่ครอบ
+}
+/* เลือกส่งออกไหม: user override (reSel) มาก่อน · ไม่งั้น default = เลือกทุกใบ ยกเว้นที่รับชำระแล้ว */
+function incReIsSelected(d, r){
+  const ov = (d.reSel||{})[r.orderNo];
+  if(ov===true) return true;
+  if(ov===false) return false;
+  return r.arStatus !== "settled";
+}
+function incReToggleRow(orderNo){
+  const d=incGet(); d.reSel=d.reSel||{};
+  const {view}=incExportView(d); const r=view.find(x=>x.orderNo===orderNo);
+  const cur = r ? incReIsSelected(d,r) : true;
+  d.reSel[orderNo] = !cur; renderToolSalesIncome();
+}
+function incReSelectAll(on){ const d=incGet(); d.reSel=d.reSel||{}; const {view}=incExportView(d); view.forEach(r=>d.reSel[r.orderNo]=!!on); renderToolSalesIncome(); }
+function incReResetSel(){ const d=incGet(); d.reSel={}; renderToolSalesIncome(); }
+function incUploadArReport(){
+  const inp=document.createElement("input"); inp.type="file"; inp.accept=".csv";
+  inp.onchange=async(e)=>{ const f=e.target.files&&e.target.files[0]; if(!f) return; const d=incGet();
+    try{ const buf=await f.arrayBuffer(); const text=bmpDecodeCp874(buf);
+      const ar=incParseArOutstanding(text);
+      if(!ar.count){ alert("ไม่พบรายการลูกหนี้ในไฟล์\n(ไฟล์นี้คือ \"รายงานลูกหนี้คงค้างแบบละเอียด\" ของ Express ใช่ไหม?)"); return; }
+      ar.filename=f.name; d.arReport=ar; renderToolSalesIncome();
+    }catch(err){ alert("อ่านไฟล์ไม่สำเร็จ: "+(err.message||err)); }
+  };
+  inp.click();
+}
+function incClearArReport(){ const d=incGet(); d.arReport=null; renderToolSalesIncome(); }
+
 /* รวม candidate + ใช้ฟิลเตอร์ → ใช้ทั้ง render + export (ให้ตรงกันเป๊ะ) · เรียงตามวันรับเงิน */
 function incExportView(d){
   const company = state.company;
@@ -4338,7 +4406,11 @@ function incExportView(d){
   else if(cleanOnly) view = view.filter(r=>!r._prob);
   // ★ เรียงตามวันรับเงิน ก่อน-หลัง → เลข RE รันตามลำดับวันด้วย
   view = view.slice().sort((a,b)=> String(a.paidISO||"9999-99-99").localeCompare(String(b.paidISO||"9999-99-99")));
-  return { cands, ready, done, view, noteCounts };
+  // ★ เทียบรายงานลูกหนี้คงค้าง (ถ้าอัปไว้) + คำนวณรายการที่จะส่งออกจริง (ติ๊ก)
+  for(const r of view) r.arStatus = incArStatus(d, r);
+  const selected = view.filter(r=> incReIsSelected(d, r));
+  const arSettled = d.arReport ? view.filter(r=>r.arStatus==="settled").length : 0;
+  return { cands, ready, done, view, selected, noteCounts, arSettled };
 }
 /* สร้าง 1 แถว RE (mirror aRowOf ของ armap แต่ใช้ seed ของหน้า income) */
 function incReRow(r,i,company){
@@ -4356,10 +4428,10 @@ function incReRow(r,i,company){
 function incRenderExport(d){
   const company = state.company;
   const ordLoaded = ordGet().loaded;
-  const { ready, done, view, noteCounts } = incExportView(d);
+  const { ready, done, view, selected, noteCounts, arSettled } = incExportView(d);
   const seed = d.reSeed || "";
   const seedValid = /^\D*\d+$/.test(seed);
-  const canExport = view.length>0 && seedValid;
+  const canExport = selected.length>0 && seedValid;
 
   if(!d.incRows || !d.incRows.length){
     return `<div class="sal-empty" style="padding:56px 30px;text-align:center;background:#fff;border:1px solid #e2e8f0;border-radius:14px;margin-top:2px">
@@ -4376,8 +4448,8 @@ function incRenderExport(d){
   const kpiHtml = `<div class="sal-kpi-row" style="grid-template-columns:repeat(4,1fr);margin-bottom:14px">
     <div class="sal-kpi"><div class="n">${ready.length}</div><div class="l">พร้อมออก RE</div></div>
     <div class="sal-kpi" style="--kc:#16a34a"><div class="n">${done.length}</div><div class="l">คีย์แล้ว / พบใน 1.9.1</div></div>
-    <div class="sal-kpi" style="--kc:var(--brand)"><div class="n">${view.length}</div><div class="l">กำลังจะส่งออก (ตามฟิลเตอร์)</div></div>
-    <div class="sal-kpi" style="--kc:#0369a1"><div class="n">${salesFmt(view.reduce((s,r)=>s+r.netAmount,0))}</div><div class="l">เงินเข้าสุทธิ (บาท)</div></div>
+    <div class="sal-kpi" style="--kc:var(--brand)"><div class="n">${selected.length}</div><div class="l">ติ๊กเลือกส่งออก${d.arReport&&arSettled?` <span style="color:#b91c1c;font-weight:700">(ตัดรับชำระแล้ว ${arSettled})</span>`:''}</div></div>
+    <div class="sal-kpi" style="--kc:#0369a1"><div class="n">${salesFmt(selected.reduce((s,r)=>s+r.netAmount,0))}</div><div class="l">เงินเข้าสุทธิ (บาท)</div></div>
   </div>`;
 
   // ★ ฟิลเตอร์ส่งออก: ช่องทาง · ช่วงวันรับเงิน · เฉพาะไม่ติดปัญหา
@@ -4407,12 +4479,26 @@ function incRenderExport(d){
     ${noteKeys.map(k=>noteChip(k,k,noteCounts[k],'#f59e0b')).join('')}
   </div>` : "";
 
+  // ★ ตรวจกับรายงานลูกหนี้คงค้าง (option) — ตัด IV ที่รับชำระ/คีย์มือไปแล้วออกอัตโนมัติ
+  const ar = d.arReport;
+  const arHtml = !ar
+    ? `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px;background:#fffbeb;border:1px dashed #f59e0b;border-radius:12px;padding:10px 14px">
+        <span style="font-size:12.5px;color:#92400e">🧾 <b>ตรวจกับลูกหนี้คงค้าง</b> (ไม่บังคับ) — อัปไฟล์ "รายงานลูกหนี้คงค้างแบบละเอียด" (Express) เพื่อตัด IV ที่รับชำระ/คีย์มือไปแล้วออกจากรายการส่งออกอัตโนมัติ</span>
+        <button class="ord-chip" style="margin-left:auto" onclick="incUploadArReport()"><i data-lucide="upload"></i> อัปรายงานลูกหนี้คงค้าง</button>
+      </div>`
+    : `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px;background:#ecfdf5;border:1px solid #86efac;border-radius:12px;padding:10px 14px">
+        <span style="font-size:12.5px;color:#166534">🧾 <b>ลูกหนี้คงค้าง ณ ${ar.asOf?esc(salIncomeFmtDate(ar.asOf)):'—'}</b> · ${ar.count} ใบ · ค้างรวม ${salesFmt(ar.sum)} ฿ ${arSettled?`· <b style="color:#b91c1c">ตัดออกอัตโนมัติ ${arSettled} ใบ (รับชำระ/คีย์มือแล้ว)</b>`:'· ทุกใบยังค้างอยู่'}</span>
+        <span style="font-size:11px;color:#94a3b8">${esc(ar.filename||'')}</span>
+        <button class="ord-chip" style="margin-left:auto" onclick="incUploadArReport()">เปลี่ยนไฟล์</button>
+        <button class="ord-chip" onclick="incClearArReport()">✕ ล้าง</button>
+      </div>`;
+
   const seedHtml = `<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:12px;background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:12px 16px">
     <div style="font-size:13px;color:#334155;font-weight:600">เลข RE เริ่มต้น</div>
     <input id="incReSeed" value="${esc(seed)}" oninput="incSetReSeed(this.value)" placeholder="เช่น 2606000001" style="font-family:monospace;font-size:14px;padding:7px 12px;border:2px solid ${seed?(seedValid?'#16a34a':'#dc2626'):'#e2e8f0'};border-radius:8px;width:180px;outline:none">
-    <span style="font-size:12px;color:#94a3b8">${seed?(seedValid?`✓ รันต่อ ${view.length} ใบ → ลงท้าย ${esc(armapRunRE(seed, Math.max(0,view.length-1)))}`:'รูปแบบไม่ถูก (ต้องลงท้ายด้วยตัวเลข)'):'ระบบจะรัน +1 ทุกแถว เหมือน IV AutoKey'}</span>
+    <span style="font-size:12px;color:#94a3b8">${seed?(seedValid?`✓ รันต่อ ${selected.length} ใบ → ลงท้าย ${esc(armapRunRE(seed, Math.max(0,selected.length-1)))}`:'รูปแบบไม่ถูก (ต้องลงท้ายด้วยตัวเลข)'):'ระบบจะรัน +1 ทุกแถวที่ติ๊ก เหมือน IV AutoKey'}</span>
     <div style="flex:1"></div>
-    <button class="ord-btn" ${canExport?'':'disabled'} style="${canExport?'background:var(--brand);color:#fff;border-color:var(--brand)':'opacity:.5'}" onclick="incExportRE('xlsx')"><i data-lucide="file-spreadsheet"></i> ส่งออก Excel (${view.length})</button>
+    <button class="ord-btn" ${canExport?'':'disabled'} style="${canExport?'background:var(--brand);color:#fff;border-color:var(--brand)':'opacity:.5'}" onclick="incExportRE('xlsx')"><i data-lucide="file-spreadsheet"></i> ส่งออก Excel (${selected.length})</button>
     <button class="ord-btn" ${canExport?'':'disabled'} style="${canExport?'':'opacity:.5'}" onclick="incExportRE('csv')"><i data-lucide="download"></i> CSV</button>
   </div>`;
 
@@ -4424,12 +4510,22 @@ function incRenderExport(d){
       <div style="color:#64748b;font-size:13px;margin-top:6px">${ready.length?'ลองปรับ/ล้างฟิลเตอร์':(done.length?`มี ${done.length} ใบที่คีย์ RE ไปแล้ว/พบใน 1.9.1`:'ออเดอร์ที่มีเงินเข้าต้องคีย์ IV ในขั้นตอน 1 ก่อน')}</div>
     </div>`;
   } else {
-    const rowsHtml = view.slice(0,400).map((r,i)=>{
-      const a=incReRow(r,i,company);
+    const allSel = view.length>0 && view.every(r=>incReIsSelected(d,r));
+    const arBadge = (st)=> !ar ? '' : (
+      st==='outstanding' ? '<div style="color:#16a34a;font-size:10.5px">✓ ยังค้าง</div>' :
+      st==='settled'     ? '<div style="color:#b91c1c;font-size:10.5px;font-weight:700">รับชำระแล้ว (ไม่อยู่ในลูกหนี้คงค้าง)</div>' :
+      st==='unknown'     ? '<div style="color:#a16207;font-size:10.5px">IV ใหม่กว่ารายงาน — ตรวจเอง</div>' : '');
+    let reIdx = 0;
+    const rowsHtml = view.slice(0,400).map((r)=>{
+      const sel = incReIsSelected(d, r);
+      const a = incReRow(r, sel ? reIdx : 0, company);
+      const reNo = sel ? a.doc_no : '';
+      if(sel) reIdx++;
       const note = r._prob || a.warning;
-      return `<tr class="${note?'warning-row':''}" style="border-bottom:1px solid #f1f5f9${note?';background:#fffbeb':''}">
-        <td style="padding:6px 8px">${a.ลำดับ}</td>
-        <td style="padding:6px 8px;font-family:monospace;color:${a.doc_no?'#475569':'#94a3b8'}">${esc(a.doc_no||'(ว่าง)')}</td>
+      const rowBg = r.arStatus==='settled' ? '#fef2f2' : (note?'#fffbeb':'');
+      return `<tr class="${note?'warning-row':''}" style="border-bottom:1px solid #f1f5f9${rowBg?`;background:${rowBg}`:''}${sel?'':';opacity:.55'}">
+        <td style="padding:6px 8px;text-align:center"><input type="checkbox" ${sel?'checked':''} onchange="incReToggleRow('${esc(r.orderNo)}')" style="width:16px;height:16px;cursor:pointer;accent-color:var(--brand)"></td>
+        <td style="padding:6px 8px;font-family:monospace;color:${reNo?'#475569':'#cbd5e1'}">${reNo?esc(reNo):'—'}</td>
         <td style="padding:6px 8px;white-space:nowrap">${esc(a.iv_date)}</td>
         <td style="padding:6px 8px;font-family:monospace;font-size:11.5px;white-space:nowrap">${esc(a.iv)}</td>
         <td style="padding:6px 8px">${esc(a.brand)}</td>
@@ -4440,13 +4536,20 @@ function incRenderExport(d){
         <td style="padding:6px 8px;text-align:right;font-weight:600;color:#16a34a;font-variant-numeric:tabular-nums">${salesFmt(a.net)}</td>
         <td style="padding:6px 8px;text-align:right;color:#dc2626;font-variant-numeric:tabular-nums">${salesFmt(a.diff)}</td>
         <td style="padding:6px 8px;font-family:monospace;font-size:10.5px;color:${a.bank_down?'#475569':'#dc2626'};white-space:nowrap">${esc(a.bank_down||'(?)')}</td>
-        <td style="padding:6px 8px;font-size:11px;color:#b45309">${esc(note)}</td>
+        <td style="padding:6px 8px;font-size:11px;color:#b45309">${esc(note)}${arBadge(r.arStatus)}</td>
       </tr>`;
     }).join("");
-    body = `<div style="overflow-x:auto;border:1px solid #e2e8f0;border-radius:10px;background:#fff">
+    body = `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
+        <button class="ord-chip" onclick="incReSelectAll(true)"><i data-lucide="check-square"></i> เลือกทั้งหมด</button>
+        <button class="ord-chip" onclick="incReSelectAll(false)"><i data-lucide="square"></i> ไม่เลือกเลย</button>
+        ${Object.keys(d.reSel||{}).length?`<button class="ord-chip" onclick="incReResetSel()">↺ คืนค่าติ๊กอัตโนมัติ</button>`:''}
+        <span style="font-size:12px;color:#64748b;margin-left:auto">ติ๊กเลือก <b style="color:var(--brand)">${selected.length}</b> / ${view.length} ใบ</span>
+      </div>
+      <div style="overflow-x:auto;border:1px solid #e2e8f0;border-radius:10px;background:#fff">
       <table style="width:100%;border-collapse:collapse;font-size:12px">
         <thead><tr style="background:#f8fafc;border-bottom:2px solid #e2e8f0">
-          <th style="padding:8px;text-align:left">#</th><th style="padding:8px;text-align:left">เลข RE</th>
+          <th style="padding:8px;text-align:center"><input type="checkbox" ${allSel?'checked':''} onclick="incReSelectAll(${allSel?'false':'true'})" title="เลือก/ไม่เลือกทั้งหมด" style="width:16px;height:16px;cursor:pointer;accent-color:var(--brand)"></th>
+          <th style="padding:8px;text-align:left">เลข RE</th>
           <th style="padding:8px;text-align:left">วันที่ IV</th><th style="padding:8px;text-align:left">เลข IV</th>
           <th style="padding:8px;text-align:left">แบรนด์</th><th style="padding:8px;text-align:right">ยอด IV</th>
           <th style="padding:8px;text-align:left">ออเดอร์</th><th style="padding:8px;text-align:left">ช่อง</th>
@@ -4456,17 +4559,17 @@ function incRenderExport(d){
         </tr></thead><tbody>${rowsHtml}</tbody>
       </table>
     </div>
-    <div style="color:#94a3b8;font-size:11px;margin-top:8px">แสดง ${Math.min(view.length,400)}/${view.length} แถว · แถวเหลือง = ติดปัญหา (เช่น "?" เลือก bank ไม่ได้ / ไม่มียอด IV / คืนเงิน) · ติ๊ก "เฉพาะที่ไม่ติดปัญหา" เพื่อซ่อนก่อนส่งออก</div>`;
+    <div style="color:#94a3b8;font-size:11px;margin-top:8px">แสดง ${Math.min(view.length,400)}/${view.length} แถว · เอาติ๊กออก = ไม่ส่งออก (เลข RE รันต่อเฉพาะที่ติ๊ก) · แถวแดง = รับชำระแล้ว (ตัดออกให้อัตโนมัติจากลูกหนี้คงค้าง) · แถวเหลือง = ติดปัญหา</div>`;
   }
 
-  return `<div style="padding:16px 0 0">${warnLoad}${kpiHtml}${filterHtml}${noteFilterHtml}${seedHtml}${body}</div>`;
+  return `<div style="padding:16px 0 0">${warnLoad}${kpiHtml}${filterHtml}${noteFilterHtml}${arHtml}${seedHtml}${body}</div>`;
 }
 /* ส่งออกไฟล์ AutoKey RE (xlsx/csv) — 19 คอลัมน์ตรงเทมเพลต armap */
 function incExportRE(fmt){
   const d = incGet(); const company = state.company;
-  const { view } = incExportView(d);   // ★ ใช้ชุดเดียวกับที่โชว์ (ผ่านฟิลเตอร์ + ตัดที่คีย์แล้ว/พบใน 1.9.1)
-  const ready = view;
-  if(!ready.length){ alert("ไม่มีรายการที่พร้อมออก RE (ตามฟิลเตอร์)"); return; }
+  const { selected } = incExportView(d);   // ★ เฉพาะที่ติ๊กเลือก (ผ่านฟิลเตอร์ + ตัดที่คีย์แล้ว/พบใน 1.9.1 + ตัดที่รับชำระแล้วตามลูกหนี้คงค้าง)
+  const ready = selected;
+  if(!ready.length){ alert("ไม่มีรายการที่ติ๊กเลือกไว้ (ตามฟิลเตอร์)"); return; }
   if(!/^\D*\d+$/.test(d.reSeed||"")){ alert("กรอกเลข RE เริ่มต้นให้ถูกก่อน (ลงท้ายด้วยตัวเลข)"); return; }
   const aoa = [A_HEAD].concat(ready.map((r,i)=>{
     const a = incReRow(r,i,company);

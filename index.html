@@ -12034,10 +12034,10 @@ async function pcLoad(){
 }
 
 function pcCompute(entries, opening){
+  // ★ เรียงตามลำดับที่คีย์เข้ามา (ไม่เรียงออโต้ตามวันที่) — created_at (เวลาบันทึก) → seq (ลำดับในรอบ)
   const sorted=[...entries].sort((a,b)=>
-    String(a.pay_date||a.doc_date||'').localeCompare(String(b.pay_date||b.doc_date||''))
-    || (a.seq||0)-(b.seq||0)
-    || String(a.created_at||'').localeCompare(String(b.created_at||'')));
+    String(a.created_at||'').localeCompare(String(b.created_at||''))
+    || (a.seq||0)-(b.seq||0));
   let bal=Number(opening)||0, tin=0, tout=0;
   const rows=sorted.map(e=>{ const i=Number(e.amount_in)||0, o=Number(e.amount_out)||0; bal+=i-o; tin+=i; tout+=o; return {...e,_bal:bal}; });
   return { rows, totalIn:tin, totalOut:tout, closing:bal, opening:Number(opening)||0 };
@@ -12144,6 +12144,7 @@ async function pcSaveForm(){
     fund_holder:g('pcFund')||null,
     description:g('pcDesc')||null,
     amount_in: kind==='in'?amt:0, amount_out: kind==='out'?amt:0,
+    is_paid: (()=>{ const el=document.getElementById('pcPaid'); return el ? !!el.checked : true; })(),
     reimburse_round: g('pcReimburse') || (edit ? edit.reimburse_round : null) || null,
     attachments: attachments.length ? attachments : null,
     note:g('pcNote')||null, seq: d.editId ? (edit&&edit.seq)||0 : (d.entries.filter(e=>pcRoundOf(e)===d.round).length)+1
@@ -12171,6 +12172,15 @@ async function pcMoveCompany(id){
   d.showForm=false; d.editId=null;
   await pcLoad(); renderToolPettyCash();
   alert(`✓ ย้ายไป ${targetName} แล้ว — สลับบริษัทเป็น ${targetName} (มุมซ้ายบน) เพื่อดูรายการ`);
+}
+/* ★ ติ๊กสถานะจ่าย/ยังไม่จ่าย (โอนแล้ว/คุมในทะเบียนไว้ก่อน) */
+async function pcTogglePaid(id){
+  if(!fopCanWrite()){ alert('ไม่มีสิทธิ์'); return; }
+  const d=pcGet(); const e=(d.entries||[]).find(x=>x.id===id); if(!e) return;
+  const next = (e.is_paid===false);   // ยังไม่จ่าย → จ่ายแล้ว / จ่ายแล้ว → ยังไม่จ่าย
+  const { error } = await sb.from('petty_cash').update({ is_paid:next, updated_at:new Date().toISOString() }).eq('id',id);
+  if(error){ alert('อัปเดตไม่สำเร็จ: '+error.message); return; }
+  e.is_paid=next; renderToolPettyCash();
 }
 async function pcDeleteRow(id){
   if(!fopCanWrite()){ alert('ไม่มีสิทธิ์'); return; }
@@ -12251,9 +12261,9 @@ function pcExport(){
   const R=pcCompute(ent,(d.openings[d.round]||{}).opening||0);
   const co=COMPANIES.find(c=>c.id===state.company);
   const aoa=[['ทะเบียนคุมเงินสดย่อย — '+co.name+' — เดือน '+pcRoundLabel(d.round)],[],
-    ['วันที่ตรวจเอกสาร','วันที่จ่ายเงิน','เลขที่เอกสาร','ผู้เบิก','แผนก','เจ้าของวงเงิน','รายการ','รับ','จ่าย','คงเหลือ','เบิกคืนวันที่','หมายเหตุ','ไฟล์แนบ'],
-    ['','','','','','','ยอดยกมาต้นรอบ','','',R.opening,'','','']];
-  R.rows.forEach(e=>aoa.push([e.doc_date||'',e.pay_date||'',e.doc_no||'',e.requester||'',e.department||'',e.fund_holder||'',e.description||'',Number(e.amount_in)||'',Number(e.amount_out)||'',e._bal,pcReimbLabel(e.reimburse_round),e.note||'',(Array.isArray(e.attachments)?e.attachments.length:0)||'']));
+    ['วันที่ตรวจเอกสาร','วันที่จ่ายเงิน','เลขที่เอกสาร','ผู้เบิก','แผนก','เจ้าของวงเงิน','รายการ','รับ','จ่าย','คงเหลือ','เบิกคืนวันที่','หมายเหตุ','ไฟล์แนบ','สถานะ'],
+    ['','','','','','','ยอดยกมาต้นรอบ','','',R.opening,'','','','']];
+  R.rows.forEach(e=>aoa.push([e.doc_date||'',e.pay_date||'',e.doc_no||'',e.requester||'',e.department||'',e.fund_holder||'',e.description||'',Number(e.amount_in)||'',Number(e.amount_out)||'',e._bal,pcReimbLabel(e.reimburse_round),e.note||'',(Array.isArray(e.attachments)?e.attachments.length:0)||'',(e.is_paid!==false?'จ่ายแล้ว':'ยังไม่จ่าย')]));
   aoa.push([]); aoa.push(['','','','','','','รวมในเดือน',R.totalIn,R.totalOut,R.closing,'','','']);
   const ws=XLSX.utils.aoa_to_sheet(aoa); const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'เงินสดย่อย');
   XLSX.writeFile(wb, `เงินสดย่อย_${co.code}_${d.round}.xlsx`);
@@ -12400,6 +12410,7 @@ async function renderToolPettyCash(){
       <datalist id="pcFundList">${fundList.map(x=>`<option value="${esc(x)}"></option>`).join('')}</datalist>
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px">
         <label>ประเภท<br><select id="pcKind" class="pc-inp"><option value="out" ${edit&&Number(edit.amount_out)?'selected':''}>จ่าย (เบิก)</option><option value="in" ${edit&&Number(edit.amount_in)?'selected':''}>รับ / เติมเงินสดย่อย</option></select></label>
+        <label>สถานะการจ่าย<br><span style="display:inline-flex;align-items:center;gap:7px;height:38px;padding:0 4px;font-size:13px"><input id="pcPaid" type="checkbox" ${(edit ? (edit.is_paid!==false) : true)?'checked':''} style="width:18px;height:18px;accent-color:var(--brand,#0d9488)"> จ่าย / โอนแล้ว</span></label>
         <label>จำนวนเงิน<br><input id="pcAmount" class="pc-inp" type="number" step="0.01" value="${edit?(Number(edit.amount_out)||Number(edit.amount_in)||''):''}"></label>
         <label>วันที่ตรวจเอกสาร<br><input id="pcDocDate" class="pc-inp" type="date" value="${edit?esc(edit.doc_date||''):''}"></label>
         <label>วันที่จ่ายเงิน<br><input id="pcPayDate" class="pc-inp" type="date" value="${edit?esc(edit.pay_date||''):''}"></label>
@@ -12423,7 +12434,11 @@ async function renderToolPettyCash(){
   const rowsHtml = R.rows.map(e=>{
     const att=Array.isArray(e.attachments)?e.attachments:[];
     const attHtml = att.length ? att.map(a=>`<button class="pc-btn" style="background:transparent;color:#0d9488;padding:2px 4px" title="${esc(a.name||'ไฟล์')}" onclick="pcOpenAtt('${esc(a.path)}')">📎</button>`).join('') : '<span style="color:#cbd5e1">—</span>';
-    return `<tr>
+    const paid = e.is_paid!==false;
+    const paidHtml = canW
+      ? `<button class="pc-btn" style="background:${paid?'#dcfce7':'#fef3c7'};color:${paid?'#15803d':'#92400e'};padding:3px 9px;font-size:11px;font-weight:700;white-space:nowrap" onclick="pcTogglePaid('${e.id}')" title="คลิกเพื่อสลับสถานะ">${paid?'✓ จ่ายแล้ว':'⏳ ยังไม่จ่าย'}</button>`
+      : `<span style="color:${paid?'#15803d':'#92400e'};font-weight:700;font-size:11px;white-space:nowrap">${paid?'✓ จ่ายแล้ว':'⏳ ยังไม่จ่าย'}</span>`;
+    return `<tr style="${paid?'':'background:#fffbeb'}">
     <td style="white-space:nowrap">${esc(e.pay_date||e.doc_date||'—')}</td>
     <td style="font-family:monospace;font-size:12px">${esc(e.doc_no||'')}</td>
     <td>${esc(e.requester||'')}</td>
@@ -12436,6 +12451,7 @@ async function renderToolPettyCash(){
     <td style="white-space:nowrap">${esc(pcReimbLabel(e.reimburse_round))}</td>
     <td style="white-space:nowrap;text-align:center">${attHtml}</td>
     <td>${esc(e.note||'')}</td>
+    <td style="text-align:center">${paidHtml}</td>
     <td style="white-space:nowrap">${canW?`<button class="pc-btn" style="background:transparent;color:#0d9488;padding:4px 6px" onclick="pcEditRow('${e.id}')">✏️</button><button class="pc-btn" style="background:transparent;color:#dc2626;padding:4px 6px" onclick="pcDeleteRow('${e.id}')">🗑</button>`:''}</td>
   </tr>`;
   }).join('');
@@ -12467,11 +12483,11 @@ async function renderToolPettyCash(){
       </div>
       <div style="overflow-x:auto">
         <table class="pc-tbl">
-          <thead><tr><th>วันที่จ่าย</th><th>เลขที่เอกสาร</th><th>ผู้เบิก</th><th>แผนก</th><th>เจ้าของวงเงิน</th><th>รายการ</th><th style="text-align:right">รับ</th><th style="text-align:right">จ่าย</th><th style="text-align:right">คงเหลือ</th><th>เบิกคืนวันที่</th><th style="text-align:center">เอกสาร</th><th>หมายเหตุ</th><th></th></tr></thead>
+          <thead><tr><th>วันที่จ่าย</th><th>เลขที่เอกสาร</th><th>ผู้เบิก</th><th>แผนก</th><th>เจ้าของวงเงิน</th><th>รายการ</th><th style="text-align:right">รับ</th><th style="text-align:right">จ่าย</th><th style="text-align:right">คงเหลือ</th><th>เบิกคืนวันที่</th><th style="text-align:center">เอกสาร</th><th>หมายเหตุ</th><th style="text-align:center">สถานะจ่าย</th><th></th></tr></thead>
           <tbody>
-            <tr style="background:#f1f5f9"><td colspan="8" style="font-weight:700">ยอดยกมาต้นรอบ ${esc(pcRoundLabel(d.round))}${openingCarried?' <span style="font-weight:600;color:#64748b;font-size:11px">(ยกมาจากเดือนก่อน)</span>':''}</td><td class="num pc-bal">${pcFmt(R.opening)}</td><td colspan="4"></td></tr>
-            ${rowsHtml||`<tr><td colspan="13" style="text-align:center;color:#94a3b8;padding:24px">— ยังไม่มีรายการในเดือนนี้ ${canW?'· กด "＋ เพิ่มรายการ" หรือ "นำเข้า Excel"':''} —</td></tr>`}
-            <tr style="background:#ecfdf5;font-weight:800"><td colspan="6">รวมในเดือน</td><td class="num pc-in">${pcFmt(R.totalIn)}</td><td class="num pc-out">${pcFmt(R.totalOut)}</td><td class="num pc-bal">${pcFmt(R.closing)}</td><td colspan="4"></td></tr>
+            <tr style="background:#f1f5f9"><td colspan="8" style="font-weight:700">ยอดยกมาต้นรอบ ${esc(pcRoundLabel(d.round))}${openingCarried?' <span style="font-weight:600;color:#64748b;font-size:11px">(ยกมาจากเดือนก่อน)</span>':''}</td><td class="num pc-bal">${pcFmt(R.opening)}</td><td colspan="5"></td></tr>
+            ${rowsHtml||`<tr><td colspan="14" style="text-align:center;color:#94a3b8;padding:24px">— ยังไม่มีรายการในเดือนนี้ ${canW?'· กด "＋ เพิ่มรายการ" หรือ "นำเข้า Excel"':''} —</td></tr>`}
+            <tr style="background:#ecfdf5;font-weight:800"><td colspan="6">รวมในเดือน</td><td class="num pc-in">${pcFmt(R.totalIn)}</td><td class="num pc-out">${pcFmt(R.totalOut)}</td><td class="num pc-bal">${pcFmt(R.closing)}</td><td colspan="5"></td></tr>
           </tbody>
         </table>
       </div>

@@ -184,6 +184,19 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-21 (2) — ★ เงินสดย่อย: ปุ่มติ๊ก "จ่ายแล้ว/ยังไม่จ่าย" + เรียงตามลำดับที่คีย์ (ไม่ออโต้ตามวันที่)
+- **เจ้าของขอ:** (1) บางรายการส่งมาแล้วแต่ยังไม่เรียบร้อย/ยังไม่โอน อยากคุมในทะเบียนไว้ก่อน แล้วค่อยติ๊กเมื่อจ่ายจริง (2) เรียงตามที่แนนคีย์ ไม่เรียงออโต้ตามวันที่
+- **Migration `petty-cash-extras.sql`** +`is_paid boolean not null default true` (ของเก่า/นำเข้า = จ่ายแล้ว) · idempotent · **ต้อง push ให้ migration รันก่อน** ถึงบันทึก/ติ๊กได้
+- **ปุ่มติ๊ก:** ฟอร์ม +checkbox "จ่าย/โอนแล้ว" (`#pcPaid` · ใหม่ default ติ๊ก · แก้ = `is_paid!==false`) · `pcSaveForm` เก็บ `is_paid` · ตาราง +คอลัมน์ "สถานะจ่าย" (`pcTogglePaid` คลิกสลับ · local update ไม่ reload) · **แถวยังไม่จ่าย = พื้นเหลือง** (`#fffbeb`) · Excel export +คอลัมน์ "สถานะ"
+- **เรียงตามที่คีย์:** `pcCompute` sort เปลี่ยนจาก `pay_date→seq→created_at` เป็น **`created_at→seq`** (เวลาบันทึก = ลำดับคีย์) · **carry-forward ไม่กระทบ** (`pcChainClosings` ใช้ `R.closing` = total order-independent)
+- **หมายเหตุ:** ยอดคงเหลือวิ่งยังนับรวมรายการที่ยังไม่จ่าย (คุมในทะเบียน — ถ้าอยากให้ยังไม่จ่ายไม่หักยอด ค่อยแก้) · colspan ตาราง 13→14, opening/total row trailing 4→5 · **กระทบหน้าอื่น = 0** (โมดูล pc* · reuse select `*`)
+
+### 2026-07-21 — ★ AP นำเข้ารายงานจ่ายชำระหนี้: บรรทัดใบรับ (RR) ที่ใส่เลข PS ซ้ำ ถูกนับเป็น PS ซ้ำ (net 0)
+- **อาการ (ไฟล์ 2912.CSV):** นำเข้ารายงานจ่ายชำระหนี้ → 1 PS แตกเป็น 2 การ์ด: อันจริง (net + SCB-4889) + อันซ้ำ (net 0.00 · ไม่รู้บัญชี · ไม่มีใบรับ)
+- **ต้นเหตุ:** Express export บางแบบใส่เลข PS ในช่อง[3] ของ**บรรทัดใบรับ (RR/RW/AC)** ด้วย · `apstParsePaymentReport` เช็คแค่ `/^PS/i.test(c3)` แล้วนับเป็นหัว PS ใหม่ → บรรทัด RR ถูกนับเป็น PS ก้อนที่ 2 (net จากช่อง[13] ว่าง = 0 · แบงค์ช่อง[21] ว่าง)
+- **แก้:** คำนวณ `isDetail = c5 มีเลข RR/RW/AC` (`/^[A-Zก-๙]{1,3}\d{4,}/`) ก่อน → เงื่อนไขหัว PS เป็น `/^PS/i.test(c3) && !isDetail` · บรรทัด RR ที่ซ้ำเลข PS ตกไปเข้า detail branch (แนบใต้ PS เดิม) ถูกต้อง
+- **behavior-preserving:** ไฟล์เดิมบรรทัด RR ปล่อยช่อง[3] ว่างอยู่แล้ว → ผลเท่าเดิม · verified: 2912.CSV 12 บรรทัด → 6 PS (แต่ละอันมี 1 RR) · **กระทบหน้าอื่น = 0** · ไม่ต้อง migration
+
 ### 2026-07-20 (6) — ★ AP: การจ่ายเอง (ไม่ผ่าน PS) โผล่ในแท็บ "จ่ายแล้ว" (เคสเงินมัดจำรหัส A)
 - **เจ้าของขอ:** AP รหัส A = เงินมัดจำ ดึงรายงานจ่ายชำระหนี้ไม่ออก → กดจ่ายเองในหน้าคงค้าง แต่ไม่โผล่ในแท็บ "จ่ายแล้ว" (แท็บนั้นอิง PS voucher ล้วน)
 - **แก้ `apstLoadVouchers`:** โหลด `ap_payments` ที่ `voucher_id` ว่าง (จ่ายเอง จาก `apoBulkPay`/`apoOpenPay`) → สร้าง **pseudo-voucher ต่อบิล** (`id='manual-'+invId` · `_manual:true` · ps_no=invoice_no · net=Σamount · _cat จาก invoice) push เข้า `vouchers`+`byVoucher` → ไหลเข้า list/table/filter ปกติ · badge "จ่ายเอง" (ฟ้า) ในคอลัมน์ PS

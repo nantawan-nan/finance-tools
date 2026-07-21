@@ -184,6 +184,14 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-21 (3) — ★ ส่งออก RE: checkbox เลือก/ติ๊กออก + ตรวจกับรายงานลูกหนี้คงค้าง (ตัดที่รับชำระ/คีย์มือแล้ว)
+- **เจ้าของขอ:** (1) ส่งออก RE ให้เลือกทั้งหมดแล้วติ๊กเอาตัวที่ไม่ต้องการออก (บางตัวบัญชีคีย์รับชำระมือไปแล้ว) (2) ตรวจกับรายงานลูกหนี้คงค้าง ณ วันนั้น ว่า IV ใบนั้นยังค้างอยู่ไหม
+- **checkbox เลือกส่งออก:** คอลัมน์ติ๊กหน้าตาราง + master (`incReSelectAll` เลือกทั้งหมด/ไม่เลือกเลย · `incReResetSel` คืนค่าติ๊กอัตโนมัติ) · `incReIsSelected(d,r)` = user override (`d.reSel[orderNo]`) ก่อน ไม่งั้น default เลือกทุกใบยกเว้นที่รับชำระแล้ว · **เลข RE รันต่อเฉพาะที่ติ๊ก** (reIdx display = index ใน `selected`) · `incExportRE` ใช้ `selected` (ไม่ใช่ `view` ทั้งหมด) · KPI/seed preview/ปุ่มส่งออกใช้ `selected.length`
+- **รายงานลูกหนี้คงค้าง (Express CSV cp874):** `incParseArOutstanding` อ่าน col[7]=IV/RE · col[11]=ยอดค้าง · หัว "ณ วันที่ DD <เดือนย่อ> YYYY" → `incThaiAbbrevDate` (ม.ค.–ธ.ค. · พ.ศ.→ค.ศ.) · เก็บ `d.arReport={asOf, ivsFull:Set, ivsDig:Set, count, sum}` (in-memory ต่อบริษัท · ไม่ persist) · **verified 1A4.CSV: asOf 2026-07-21 · 227 ใบ · ค้างรวม 107,678.06 (ตรงยอดรวมท้ายรายงาน)**
+- **`incArStatus(d,r)`:** IV อยู่ในลูกหนี้คงค้าง = `outstanding` (ยังค้าง · คีย์ได้) · **ไม่อยู่ + iv_date ≤ วันที่รายงาน = `settled` (รับชำระ/คีย์มือแล้ว → ติ๊กออกอัตโนมัติ)** · ใหม่กว่ารายงาน = `unknown` (คงไว้ · รายงานยังไม่ครอบ) · null = ไม่ได้อัปรายงาน
+- **UI:** แถบอัปรายงาน (เหลือง=ยังไม่อัป · เขียว=อัปแล้วโชว์ asOf/count/sum + จำนวนตัดออก) · แถวแดง=รับชำระแล้ว · badge สถานะในคอลัมน์หมายเหตุ · match IV ทน format (`incNormKey` + digits-only `incIvDigits`)
+- **กระทบหน้าอื่น = 0** (เพิ่มฟังก์ชัน `incParseArOutstanding`/`incArStatus`/`incReIsSelected`/`incRe*`/`incUploadArReport` · reuse `incNormKey`/`incIvDigits`/`bmpDecodeCp874`/`bmpParseCsvText`) · syntax OK · ไม่ต้อง migration
+
 ### 2026-07-21 (2) — ★ เงินสดย่อย: ปุ่มติ๊ก "จ่ายแล้ว/ยังไม่จ่าย" + เรียงตามลำดับที่คีย์ (ไม่ออโต้ตามวันที่)
 - **เจ้าของขอ:** (1) บางรายการส่งมาแล้วแต่ยังไม่เรียบร้อย/ยังไม่โอน อยากคุมในทะเบียนไว้ก่อน แล้วค่อยติ๊กเมื่อจ่ายจริง (2) เรียงตามที่แนนคีย์ ไม่เรียงออโต้ตามวันที่
 - **Migration `petty-cash-extras.sql`** +`is_paid boolean not null default true` (ของเก่า/นำเข้า = จ่ายแล้ว) · idempotent · **ต้อง push ให้ migration รันก่อน** ถึงบันทึก/ติ๊กได้

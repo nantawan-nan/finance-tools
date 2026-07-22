@@ -3594,6 +3594,38 @@ function incSetIncSearch(v){ const d=incGet(); d.incSearch=(v||""); renderToolSa
   setTimeout(()=>{ const e=document.getElementById("incSearchBox"); if(e){ e.focus(); try{ e.setSelectionRange(e.value.length,e.value.length); }catch(_){} } },0); }
 function incToggleFeeRow(oid){ const d=incGet(); d.incExpandedOrder=(d.incExpandedOrder===oid?null:oid); renderToolSalesIncome(); }
 
+/* ★ กรองตามวันรับเงิน — เดือน (incMonth) หรือช่วงวันที่ (incFrom/incTo · override เดือน) · ISO YYYY-MM-DD */
+function incIsoInRange(iso, d){
+  iso = String(iso||""); const from=d.incFrom||"", to=d.incTo||"", mon=d.incMonth||"";
+  if(from || to){ if(!iso) return false; if(from && iso<from) return false; if(to && iso>to) return false; return true; }
+  if(mon){ return iso.slice(0,7)===mon; }
+  return true;
+}
+function incRowInRange(r, d){ return incIsoInRange(r.paid_date, d); }
+function incAvailableMonths(rows){ const s=new Set(); for(const r of (rows||[])){ const iso=String(r.paid_date||""); if(/^\d{4}-\d{2}/.test(iso)) s.add(iso.slice(0,7)); } return [...s].sort().reverse(); }
+const INC_TH_MON = ["","ม.ค.","ก.พ.","มี.ค.","เม.ย.","พ.ค.","มิ.ย.","ก.ค.","ส.ค.","ก.ย.","ต.ค.","พ.ย.","ธ.ค."];
+function incMonthLabel(ym){ const m=String(ym||"").match(/^(\d{4})-(\d{2})$/); return m ? `${INC_TH_MON[+m[2]]||m[2]} ${m[1]}` : ym; }
+function incSetIncMonth(ym){ const d=incGet(); d.incMonth=(d.incMonth===ym?"":ym); d.incFrom=""; d.incTo=""; renderToolSalesIncome(); }
+function incSetIncDate(k,v){ const d=incGet(); d[k]=v||""; if(v) d.incMonth=""; renderToolSalesIncome(); }
+function incClearIncDate(){ const d=incGet(); d.incMonth=""; d.incFrom=""; d.incTo=""; renderToolSalesIncome(); }
+/* แถบเลือกเดือน/ช่วงวันรับเงิน — ใช้ทั้งแท็บทะเบียนรับชำระ + จับคู่ IV↔Income */
+function incDateBarHtml(d){
+  const months = incAvailableMonths(d.incRows||[]);
+  const mon=d.incMonth||"", from=d.incFrom||"", to=d.incTo||"", active=!!(mon||from||to);
+  const chip=(val,label)=>`<button class="ord-chip${mon===val?' active':''}" onclick="incSetIncMonth('${val}')">${esc(label)}</button>`;
+  return `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:9px 14px;margin-bottom:12px">
+    <span style="font-size:12px;font-weight:700;color:#334155"><i data-lucide="calendar" style="width:14px;height:14px;vertical-align:-2px"></i> วันรับเงิน:</span>
+    <button class="ord-chip${!active?' active':''}" onclick="incClearIncDate()">ทั้งหมด</button>
+    ${months.map(m=>chip(m, incMonthLabel(m))).join("")}
+    <span style="width:8px"></span>
+    <span style="font-size:12px;color:#64748b">ช่วงวันที่:</span>
+    <input type="date" value="${esc(from)}" onchange="incSetIncDate('incFrom',this.value)" style="font-size:12px;padding:5px 8px;border:1px solid #e2e8f0;border-radius:7px">
+    <span style="color:#94a3b8">–</span>
+    <input type="date" value="${esc(to)}" onchange="incSetIncDate('incTo',this.value)" style="font-size:12px;padding:5px 8px;border:1px solid #e2e8f0;border-radius:7px">
+    ${active?`<button class="ord-chip" style="margin-left:auto;color:#b91c1c" onclick="incClearIncDate()">✕ ล้าง</button>`:''}
+  </div>`;
+}
+
 /* "DD/MM/YYYY" (BE) → "YYYY-MM-DD" (CE) */
 function salIncomeParseBEDate(s){
   if(!s) return "";
@@ -3724,7 +3756,8 @@ async function renderToolSalesIncome(){
   else if(subtab === 'verify') bodyHtml = incRenderVerify(d);
   else if(subtab === 'fees')   bodyHtml = incRenderFeeReport(d);
 
-  main.innerHTML = `<div class="ord-page sal-page">${heroHtml}${tabHtml}${bodyHtml}</div>`;
+  const dateBar = (subtab==='list'||subtab==='recon') ? `<div style="padding:16px 0 0">${incDateBarHtml(d)}</div>` : '';
+  main.innerHTML = `<div class="ord-page sal-page">${heroHtml}${tabHtml}${dateBar}${bodyHtml}</div>`;
   if(window.lucide) lucide.createIcons();
 }
 
@@ -3892,7 +3925,8 @@ function incFeeExport(){
   XLSX.writeFile(wb, `ค่าธรรมเนียม_${co?co.code:''}_${tag}.xlsx`);
 }
 function incRenderList(d){
-  const rows = d.incRows || [];
+  const allRows = d.incRows || [];
+  const rows = allRows.filter(r=>incRowInRange(r,d));   // ★ กรองตามเดือน/ช่วงวันรับเงิน
   const filter = d.incFilter || '';
   const q = String(d.incSearch||"").trim().toLowerCase();
   // ★ join ทะเบียนคำสั่งซื้อ เพื่อค้นหาด้วยเลข IV ได้ด้วย (income row ไม่มี iv_no)
@@ -3929,7 +3963,7 @@ function incRenderList(d){
     ${chipBtn('lazada','Lazada ('+chCounts.lazada+')')}
   </div>`;
 
-  if(!rows.length){
+  if(!allRows.length){
     return `<div style="padding:16px 0 0">${actionHtml}
       <div style="background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:52px 30px;text-align:center">
         <i data-lucide="receipt" style="width:48px;height:48px;color:var(--brand);margin-bottom:12px;stroke-width:1.4"></i>
@@ -4019,10 +4053,11 @@ function incReconBreakdown(arr){
   </div>`;
 }
 function incReconData(d){
-  const incRows = d.incRows || [];
+  const allInc = d.incRows || [];
+  const incRows = allInc.filter(r=>incRowInRange(r,d));   // ★ กลุ่มฝั่ง income กรองตามเดือน/ช่วงวันรับเงิน
   const ordRows = ordGet().rows || [];
   const ordByOrder = {}; for(const o of ordRows) if(o.order_id) ordByOrder[o.order_id]=o;
-  const incByOrder = {}; for(const r of incRows) if(r.order_id) incByOrder[r.order_id]=r;
+  const incByOrder = {}; for(const r of allInc) if(r.order_id) incByOrder[r.order_id]=r;   // "มี income" เช็คจากทั้งหมด (ไม่ผูกเดือน · กัน noIncome หลอกเมื่อ income คนละเดือนกับ IV)
   // ★ สัญญาณ "รับชำระไปแล้ว" — มี re_no บนออเดอร์ หรือ พบใน 1.9.1 (ถ้าโหลดไว้) · ให้ตรงกับหน้าส่งออก RE
   const vrows = (d.verify && d.verify.rows) || [];
   const keyedIv=new Set(), keyedOrder=new Set();
@@ -4056,6 +4091,7 @@ function incReconData(d){
     if(o.status==='cancelled') continue;
     if(o.re_no) continue;                    // รับชำระ (RE) ไปแล้ว = ไม่ค้าง
     if(incByOrder[o.order_id]) continue;      // มี income แล้ว → อยู่กลุ่ม ready/noIv
+    if(!incIsoInRange(o.iv_date||o.order_date, d)) continue;   // ★ กรองเดือน (ตาม iv_date — noIncome ไม่มีวันรับเงิน)
     noIncome.push({ order_id:o.order_id, channel:ordChannelDetail(o),
       iv_no:o.iv_no, iv_date:o.iv_date||"", sale_amount:Number(o.sale_amount||0),
       order_date:o.order_date||"" });

@@ -184,6 +184,12 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-22 (2) — ★ รับชำระ: แยกออเดอร์ net≤0 (มี IV) เป็นกลุ่ม "ต้องออกใบลดหนี้ (CN)"
+- **เจ้าของแจ้ง:** ออเดอร์ที่เงินเข้าสุทธิ **≤ 0** บัญชี**ไม่รับชำระ** → ออก**ใบลดหนี้ (CN)** แทน · (net ติดลบมักจากค่าขนส่งถูกหักจากกระเป๋าแพลตฟอร์ม บันทึกตอนฝากเช็ค)
+- **`incReconData`:** มี IV + `net≤0` + ยังไม่รับชำระ → กลุ่มใหม่ `creditNote` (เดิมอยู่ `ready`) → **`ready` เหลือเฉพาะ net>0** (ตรงกับหน้าส่งออก RE ที่ `probOf` บล็อก net≤0 อยู่แล้ว = สองหน้า consistent) · `cancelledRefund` = เฉพาะที่**ยังไม่มี IV** (net≤0/ยกเลิก) แยกจาก creditNote (มี IV)
+- **UI (`incRenderRecon`):** banner ส้ม "ต้องออกใบลดหนี้ (CN)" คลิกกางดู (grp `creditNote`) + ส่งออก Excel/CSV ไปทำ CN · lastCell "เลข IV · ออกลดหนี้" · card ready sub = "มี IV · เงินเข้า > 0" · export map +creditNote
+- **verified (harness routing):** IV+net-2/0→creditNote · IV+net568→ready · IV+รับแล้ว→received · ไม่มี IV+net-5→cancel · syntax OK · กระทบหน้าอื่น = 0 · ไม่ต้อง migration
+
 ### 2026-07-22 — ★ เงินสดย่อย: เลขที่การเบิก (คุมของเรา) รันอัตโนมัติ + ค้นหาหน้ารับชำระ + SQ=Qi
 - **เลขที่การเบิก:** เจ้าของขอเลขคุมการเบิก **แยกจาก "เลขที่เอกสาร"** (แต่ละแผนกรันเอง อาจซ้ำ) — เบญญา `BY2607001..` · เอ็มบาร์ค `MB2607001..` (`{BY|MB}{YYMM}{NNN}`) · เปลี่ยนเดือน=รันใหม่ · **ย้ายผิดบริษัท(`pcMoveCompany`)/ลบออก → เลขเลื่อนเต็มเอง** (เบอร์ว่างถูกรายการใหม่ใช้ต่อ — ตรงที่เจ้าของอธิบาย)
   - `pcAssignWno(rows,round,company)` **คำนวณตามลำดับที่คีย์** (created_at→seq · จาก `pcCompute`) เฉพาะรายการจ่าย(`amount_out>0`) · **ไม่เก็บค่าตายตัว** (computed) → ย้าย/ลบ recompute อัตโนมัติ · `pcWnoPrefix`/`pcWnoYYMM`

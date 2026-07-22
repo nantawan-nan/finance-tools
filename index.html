@@ -12222,6 +12222,15 @@ function pcAssignWno(rows, round, company){
   (rows||[]).forEach(e=>{ if(Number(e.amount_out)>0 && yymm){ seq++; e._wno = `${prefix}${yymm}${String(seq).padStart(3,'0')}`; } else e._wno=''; });
   return rows;
 }
+/* ★ ยอดคงเหลือรายเจ้าของวงเงิน — คิดจากรายการของคนนั้นล้วน (รับ−จ่าย สะสม) ไม่ใช่ยอดรวมทั้งกอง
+   ใช้ตอนกรอง/พิมพ์เฉพาะวงเงินคนเดียว → override _bal บนแถวที่แสดง (คิดจากทุกแถวของคนนั้น แม้ถูกกรองด้วยเงื่อนไขอื่น) */
+function pcApplyFundBal(allRows, dispRows, fund){
+  if(!fund) return dispRows;
+  let b=0; const byId={};
+  for(const e of (allRows||[])){ if(String(e.fund_holder||'').trim()===fund){ b += (Number(e.amount_in)||0)-(Number(e.amount_out)||0); byId[e.id]=b; } }
+  (dispRows||[]).forEach(e=>{ if(e.id in byId) e._bal=byId[e.id]; });
+  return dispRows;
+}
 
 /* ★ ยอดยกมา = ยอดยกไปเดือนก่อน (carry-forward) · ถ้าตั้งยอดยกมาเอง (petty_cash_rounds) = ใช้ค่านั้น override */
 function pcMonthList(d){ return [...new Set([...(d.entries||[]).map(pcRoundOf), ...Object.keys(d.openings||{})])].filter(r=>/^\d{4}-\d{2}$/.test(r)).sort(); }
@@ -12543,7 +12552,7 @@ function pcPrintPdf(opts){
   const dshort=(iso)=>{ const s=fmtDateDDMMYYBE(iso); return s||esc(iso||'—'); };
   const H={dshort};
   const showCols = PC_PDF_COLS.filter(c=>cols.has(c.key));
-  let rows = R.rows; if(fund) rows=rows.filter(e=>String(e.fund_holder||'').trim()===fund);
+  let rows = R.rows; if(fund){ rows=rows.filter(e=>String(e.fund_holder||'').trim()===fund); pcApplyFundBal(R.rows, rows, fund); }
   const sumIn=rows.reduce((s,e)=>s+(Number(e.amount_in)||0),0), sumOut=rows.reduce((s,e)=>s+(Number(e.amount_out)||0),0);
   const w=window.open('','_blank','width=900,height=800'); if(!w){ alert('กรุณาอนุญาต popup เพื่อพิมพ์'); return; }
   const cellSty=(c)=>`${c.al?`text-align:${c.al};`:''}${c.num?'font-variant-numeric:tabular-nums;':''}${c.key==='wno'?'font-family:monospace;font-weight:700;':''}${c.key==='docNo'?'font-family:monospace;':''}${c.key==='bal'?'font-weight:700;':''}${c.key==='in'?'color:#0f766e;':''}${c.key==='out'?'color:#b91c1c;':''}`;
@@ -12558,7 +12567,7 @@ function pcPrintPdf(opts){
   const footCells=showCols.map((c,idx)=>{
     if(c.key==='in') return `<td style="text-align:right;color:#0f766e">${pcFmt(sumIn)}</td>`;
     if(c.key==='out') return `<td style="text-align:right;color:#b91c1c">${pcFmt(sumOut)}</td>`;
-    if(c.key==='bal') return `<td style="text-align:right">${fund?'':pcFmt(R.closing)}</td>`;
+    if(c.key==='bal') return `<td style="text-align:right">${fund?pcFmt(sumIn-sumOut):pcFmt(R.closing)}</td>`;
     if(firstNumIdx>0 && idx===firstNumIdx-1) return `<td style="text-align:right">${fund?'รวม':'รวมในรอบ'}</td>`;
     return '<td></td>';
   }).join('');
@@ -12711,6 +12720,7 @@ async function renderToolPettyCash(){
   const matchF = e => (!fReq||String(e.requester||'').trim()===fReq) && (!fDept||String(e.department||'').trim()===fDept)
       && (!fFund||String(e.fund_holder||'').trim()===fFund) && (!fPaid || (fPaid==='unpaid'? e.is_paid===false : e.is_paid!==false));
   const dispRows = anyF ? R.rows.filter(matchF) : R.rows;
+  if(fFund) pcApplyFundBal(R.rows, dispRows, fFund);   // ★ กรองเจ้าของวงเงิน → คงเหลือคิดรายคน (ไม่ใช่ยอดรวมทั้งกอง)
   const unpaidN = R.rows.filter(e=>e.is_paid===false).length;
   const fIn = dispRows.reduce((s,e)=>s+(Number(e.amount_in)||0),0);
   const fOut = dispRows.reduce((s,e)=>s+(Number(e.amount_out)||0),0);

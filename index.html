@@ -12303,6 +12303,35 @@ async function pcRemoveAtt(entId, path){
   try{ await sb.storage.from('documents').remove([path]); }catch(_){}
   await pcLoad(); renderToolPettyCash();
 }
+/* ★ แนบเอกสารเพิ่มต่อแถว (ไม่ต้องเปิดฟอร์มแก้ไข) — อัปขึ้น Storage แล้วต่อท้าย attachments */
+async function pcAttachTo(id){
+  if(!fopCanWrite()){ alert('ไม่มีสิทธิ์'); return; }
+  const d=pcGet(); const e=(d.entries||[]).find(x=>x.id===id); if(!e){ alert('ไม่พบรายการ'); return; }
+  const inp=document.createElement('input'); inp.type='file'; inp.multiple=true; inp.accept='image/*,.pdf';
+  inp.onchange=async()=>{
+    if(!inp.files||!inp.files.length) return;
+    const co=COMPANIES.find(c=>c.id===state.company); const code=(co&&co.code)||state.company;
+    const added=[];
+    for(const f of inp.files){
+      const ext=(String(f.name).split('.').pop()||'bin').toLowerCase().replace(/[^a-z0-9]/g,'')||'bin';
+      const stamp=Date.now().toString(36)+Math.random().toString(36).slice(2,8);
+      const path=`petty-cash/${code}/${stamp}.${ext}`;
+      const { error } = await sb.storage.from('documents').upload(path, f, { upsert:false, contentType:f.type||undefined });
+      if(error){ alert('อัปไฟล์ "'+f.name+'" ไม่สำเร็จ: '+(error.message||error)); continue; }
+      added.push({ name:f.name, path, size:f.size||0, type:f.type||'' });
+    }
+    if(!added.length) return;
+    const next=(Array.isArray(e.attachments)?e.attachments:[]).concat(added);
+    const { error } = await sb.from('petty_cash').update({ attachments: next, updated_at:new Date().toISOString() }).eq('id',id);
+    if(error){ alert('บันทึกไม่สำเร็จ: '+error.message); return; }
+    e.attachments=next; renderToolPettyCash();
+  };
+  inp.click();
+}
+/* ★ ฟิลเตอร์ตาราง (ผู้เบิก/แผนก/เจ้าของวงเงิน/สถานะรอโอน) */
+function pcSetFilter(k,v){ const d=pcGet(); d[k]=v||''; renderToolPettyCash(); }
+function pcToggleFilter(k,v){ const d=pcGet(); d[k]=(d[k]===v?'':v); renderToolPettyCash(); }
+function pcClearFilters(){ const d=pcGet(); d.fReq=''; d.fDept=''; d.fFund=''; d.fPaid=''; renderToolPettyCash(); }
 async function pcSaveForm(){
   const d=pcGet(); if(!fopCanWrite()){ alert('ไม่มีสิทธิ์'); return; }
   const g=id=>{ const el=document.getElementById(id); return el?el.value:''; };
@@ -12451,7 +12480,59 @@ function pcExport(){
 }
 
 /* พิมพ์ PDF — หัวตาราง+โลโก้บริษัท + ช่องเซ็นผู้จัดทำ/ผู้ตรวจสอบ */
-function pcPrintPdf(){
+/* คอลัมน์ที่เลือกพิมพ์ได้ใน PDF (default = ชุดหลัก · แผนก/เจ้าของวงเงิน/เบิกคืน/สถานะ เลือกเพิ่มได้) */
+const PC_PDF_COLS = [
+  { key:'seq',        label:'#',              al:'center', w:'26px',  always:true, num:false, get:(e,i)=>i+1 },
+  { key:'wno',        label:'เลขที่การเบิก',  w:'80px',  def:true,  get:e=>e._wno||'—' },
+  { key:'date',       label:'วันที่',         w:'58px',  def:true,  get:(e,i,H)=>H.dshort(e.pay_date||e.doc_date) },
+  { key:'docNo',      label:'เลขที่เอกสาร',   w:'96px',  def:true,  get:e=>e.doc_no||'' },
+  { key:'requester',  label:'ผู้เบิก',        w:'130px', def:true,  get:e=>e.requester||'' },
+  { key:'department', label:'แผนก',           w:'100px', def:false, get:e=>e.department||'' },
+  { key:'fund',       label:'เจ้าของวงเงิน',  w:'110px', def:false, get:e=>e.fund_holder||'' },
+  { key:'desc',       label:'รายการ',         def:true,  get:e=>e.description||'' },
+  { key:'in',         label:'รับ',            al:'right', w:'70px', def:true, num:true, get:e=>Number(e.amount_in)?pcFmt(e.amount_in):'' },
+  { key:'out',        label:'จ่าย',           al:'right', w:'70px', def:true, num:true, get:e=>Number(e.amount_out)?pcFmt(e.amount_out):'' },
+  { key:'bal',        label:'คงเหลือ',        al:'right', w:'78px', def:true, num:true, get:e=>pcFmt(e._bal) },
+  { key:'reimb',      label:'เบิกคืนวันที่',  w:'64px',  def:false, get:e=>pcReimbLabel(e.reimburse_round) },
+  { key:'note',       label:'หมายเหตุ',       w:'86px',  def:true,  get:e=>e.note||'' },
+  { key:'paid',       label:'สถานะจ่าย',      al:'center', w:'60px', def:false, get:e=>e.is_paid!==false?'จ่ายแล้ว':'ยังไม่จ่าย' },
+];
+/* โมดอลเลือกตัวเลือกก่อนพิมพ์ (เจ้าของวงเงิน + คอลัมน์) */
+function pcOpenPrintDialog(){
+  const d=pcGet(); const ent=d.entries.filter(e=>pcRoundOf(e)===d.round);
+  const fundOpts=[...new Set(ent.map(e=>String(e.fund_holder||'').trim()).filter(Boolean))].sort();
+  const colChecks = PC_PDF_COLS.filter(c=>!c.always).map(c=>`<label style="display:flex;align-items:center;gap:7px;font-size:13px;padding:3px 0;cursor:pointer"><input type="checkbox" class="pcPrintCol" value="${c.key}" ${c.def?'checked':''} style="width:16px;height:16px;accent-color:var(--brand,#0d9488)"> ${esc(c.label)}</label>`).join('');
+  const ov=document.createElement('div'); ov.id='pcPrintOv';
+  ov.style.cssText='position:fixed;inset:0;background:rgba(15,23,42,.45);z-index:100000;display:flex;align-items:center;justify-content:center;padding:20px';
+  ov.innerHTML=`<div style="background:#fff;border-radius:14px;max-width:470px;width:100%;padding:22px 24px;box-shadow:0 20px 60px rgba(0,0,0,.3)">
+    <h3 style="margin:0 0 4px">🖨 ตัวเลือกการพิมพ์ PDF</h3>
+    <div style="font-size:12px;color:#64748b;margin-bottom:14px">แนวตั้ง (Portrait) · รอบ ${esc(pcRoundLabel(d.round))}</div>
+    <div style="margin-bottom:14px"><div style="font-size:12.5px;font-weight:700;color:#334155;margin-bottom:6px">เจ้าของวงเงิน</div>
+      <select id="pcPrintFund" class="pc-inp" style="width:100%">
+        <option value="">— ทั้งหมด —</option>${fundOpts.map(x=>`<option value="${esc(x)}">${esc(x)}</option>`).join('')}
+      </select>
+      <div style="font-size:11px;color:#94a3b8;margin-top:3px">เลือกคนเดียว = พิมพ์เฉพาะรายการวงเงินของคนนั้น</div></div>
+    <div style="font-size:12.5px;font-weight:700;color:#334155;margin-bottom:6px">เลือกคอลัมน์ที่จะพิมพ์</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 18px;margin-bottom:20px;border:1px solid #eef2f1;border-radius:10px;padding:8px 14px">${colChecks}</div>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+      <button class="pc-btn" style="background:#eef2f1;color:#475569" onclick="document.getElementById('pcPrintOv').remove()">ยกเลิก</button>
+      <button class="pc-btn" style="background:var(--brand,#0d9488);color:#fff" onclick="pcDoPrintFromDialog()">🖨 พิมพ์</button>
+    </div>
+  </div>`;
+  ov.onclick=(ev)=>{ if(ev.target===ov) ov.remove(); };
+  document.body.appendChild(ov);
+}
+function pcDoPrintFromDialog(){
+  const ov=document.getElementById('pcPrintOv'); if(!ov) return;
+  const cols=new Set(['seq',...[...ov.querySelectorAll('.pcPrintCol:checked')].map(c=>c.value)]);
+  const fund=((ov.querySelector('#pcPrintFund')||{}).value)||'';
+  ov.remove();
+  pcPrintPdf({ cols, fund });
+}
+function pcPrintPdf(opts){
+  opts = opts || {};
+  const cols = opts.cols || new Set(PC_PDF_COLS.filter(c=>c.always||c.def).map(c=>c.key));
+  const fund = opts.fund || '';
   const d=pcGet(); const co=COMPANIES.find(c=>c.id===state.company);
   const ent=d.entries.filter(e=>pcRoundOf(e)===d.round);
   const R=pcCompute(ent,(d.openings[d.round]||{}).opening||0);
@@ -12459,67 +12540,73 @@ function pcPrintPdf(){
   const brand=(co.gradient&&co.gradient[0]) || (state.company==='mbark'?'#1e3a8a':'#0d9488');
   let logo=co.logo||''; try{ logo=new URL(co.logo, location.href).href; }catch(_){}
   const today=new Date().toLocaleDateString('th-TH',{day:'2-digit',month:'long',year:'numeric'});
-  const w=window.open('','_blank','width=1000,height=760'); if(!w){ alert('กรุณาอนุญาต popup เพื่อพิมพ์'); return; }
   const dshort=(iso)=>{ const s=fmtDateDDMMYYBE(iso); return s||esc(iso||'—'); };
-  const tr=R.rows.map((e,i)=>`<tr>
-    <td style="text-align:center">${i+1}</td>
-    <td style="font-family:monospace;font-weight:700;color:${e._wno?brand:'#cbd5e1'}">${esc(e._wno||'—')}</td>
-    <td>${dshort(e.pay_date||e.doc_date)}</td>
-    <td style="font-family:monospace">${esc(e.doc_no||'')}</td>
-    <td title="${esc(e.requester||'')}">${esc(e.requester||'')}</td>
-    <td class="desc" title="${esc(e.description||'')}">${esc(e.description||'')}</td>
-    <td style="text-align:right;color:#0f766e">${Number(e.amount_in)?pcFmt(e.amount_in):''}</td>
-    <td style="text-align:right;color:#b91c1c">${Number(e.amount_out)?pcFmt(e.amount_out):''}</td>
-    <td style="text-align:right;font-weight:700">${pcFmt(e._bal)}</td>
-    <td>${esc(e.note||'')}</td>
-  </tr>`).join('');
+  const H={dshort};
+  const showCols = PC_PDF_COLS.filter(c=>cols.has(c.key));
+  let rows = R.rows; if(fund) rows=rows.filter(e=>String(e.fund_holder||'').trim()===fund);
+  const sumIn=rows.reduce((s,e)=>s+(Number(e.amount_in)||0),0), sumOut=rows.reduce((s,e)=>s+(Number(e.amount_out)||0),0);
+  const w=window.open('','_blank','width=900,height=800'); if(!w){ alert('กรุณาอนุญาต popup เพื่อพิมพ์'); return; }
+  const cellSty=(c)=>`${c.al?`text-align:${c.al};`:''}${c.num?'font-variant-numeric:tabular-nums;':''}${c.key==='wno'?'font-family:monospace;font-weight:700;':''}${c.key==='docNo'?'font-family:monospace;':''}${c.key==='bal'?'font-weight:700;':''}${c.key==='in'?'color:#0f766e;':''}${c.key==='out'?'color:#b91c1c;':''}`;
+  const tr=rows.map((e,i)=>`<tr>${showCols.map(c=>`<td class="${c.key==='desc'?'desc':''}" style="${cellSty(c)}${c.key==='wno'&&!e._wno?'color:#cbd5e1;':''}" ${(c.key==='desc'||c.key==='requester')?`title="${esc(String(c.get(e,i,H)))}"`:''}>${esc(String(c.get(e,i,H)))}</td>`).join('')}</tr>`).join('');
+  const thead=`<tr>${showCols.map(c=>`<th style="${c.al?`text-align:${c.al};`:''}${c.w?`width:${c.w};`:''}">${esc(c.label)}</th>`).join('')}</tr>`;
+  const balIdx=showCols.findIndex(c=>c.key==='bal');
+  // แถวยอดยกมา (เฉพาะพิมพ์ทั้งวงเงิน + มีคอลัมน์คงเหลือ)
+  let openRow='';
+  if(!fund && balIdx>=0){ let cells=`<td colspan="${balIdx||1}">ยอดยกมาต้นรอบ ${esc(pcRoundLabel(d.round))}</td><td style="text-align:right">${pcFmt(R.opening)}</td>`; for(let k=balIdx+1;k<showCols.length;k++) cells+='<td></td>'; openRow=`<tr class="op">${cells}</tr>`; }
+  // แถวรวม
+  const numKeys=new Set(['in','out','bal']); const firstNumIdx=showCols.findIndex(c=>numKeys.has(c.key));
+  const footCells=showCols.map((c,idx)=>{
+    if(c.key==='in') return `<td style="text-align:right;color:#0f766e">${pcFmt(sumIn)}</td>`;
+    if(c.key==='out') return `<td style="text-align:right;color:#b91c1c">${pcFmt(sumOut)}</td>`;
+    if(c.key==='bal') return `<td style="text-align:right">${fund?'':pcFmt(R.closing)}</td>`;
+    if(firstNumIdx>0 && idx===firstNumIdx-1) return `<td style="text-align:right">${fund?'รวม':'รวมในรอบ'}</td>`;
+    return '<td></td>';
+  }).join('');
+  const sumLine = fund
+    ? `<div class="summary"><div><span class="l">เจ้าของวงเงิน</span><span class="v" style="font-size:14px">${esc(fund)}</span></div><div><span class="l">รับ / เติมเงิน</span><span class="v" style="color:#0f766e">${pcFmt(sumIn)}</span></div><div><span class="l">จ่าย (เบิก)</span><span class="v" style="color:#b91c1c">${pcFmt(sumOut)}</span></div><div><span class="l">คงเหลือ (รับ−จ่าย)</span><span class="v">${pcFmt(sumIn-sumOut)}</span></div></div>`
+    : `<div class="summary"><div><span class="l">ยอดยกมาต้นรอบ</span><span class="v">${pcFmt(R.opening)}</span></div><div><span class="l">รับ / เติมเงิน</span><span class="v" style="color:#0f766e">${pcFmt(R.totalIn)}</span></div><div><span class="l">จ่าย (เบิก)</span><span class="v" style="color:#b91c1c">${pcFmt(R.totalOut)}</span></div><div><span class="l">คงเหลือยกไป</span><span class="v">${pcFmt(R.closing)}</span></div></div>`;
   w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>ทะเบียนคุมเงินสดย่อย — ${esc(co.name)} — ${esc(pcRoundLabel(d.round))}</title>
     <style>
       *{font-family:"IBM Plex Sans Thai","IBM Plex Sans",system-ui,sans-serif;box-sizing:border-box}
-      body{margin:18px;color:#0f172a;font-size:12.5px}
-      .head{display:flex;align-items:center;gap:16px;border-bottom:2px solid ${brand};padding-bottom:12px;margin-bottom:8px}
-      .head img{height:54px;width:auto;object-fit:contain}
-      .head h1{font-size:20px;margin:0;color:${brand}}
-      .head .co{font-size:14px;font-weight:700;color:#0f172a;margin-top:2px}
-      .head .sub{color:#475569;font-size:12px;margin-top:2px}
-      .summary{display:flex;gap:22px;margin:12px 0 14px;padding:10px 14px;background:#f8fafc;border-radius:8px}
+      body{margin:16px;color:#0f172a;font-size:12px}
+      .head{display:flex;align-items:center;gap:14px;border-bottom:2px solid ${brand};padding-bottom:10px;margin-bottom:8px}
+      .head img{height:48px;width:auto;object-fit:contain}
+      .head h1{font-size:18px;margin:0;color:${brand}}
+      .head .co{font-size:13px;font-weight:700;color:#0f172a;margin-top:2px}
+      .head .sub{color:#475569;font-size:11.5px;margin-top:2px}
+      .summary{display:flex;gap:18px;flex-wrap:wrap;margin:10px 0 12px;padding:9px 13px;background:#f8fafc;border-radius:8px}
       .summary > div{display:flex;flex-direction:column;gap:2px}
-      .summary .l{font-size:10.5px;color:#64748b}
-      .summary .v{font-size:15px;font-weight:800;color:#0f172a;font-variant-numeric:tabular-nums}
-      table{width:100%;border-collapse:collapse;font-size:10.5px;table-layout:fixed}
-      th,td{border-bottom:1px solid #e2e8f0;padding:4px 7px;text-align:left;vertical-align:middle;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-      th{background:${brand};color:#fff;font-weight:700;font-size:10px}
+      .summary .l{font-size:10px;color:#64748b}
+      .summary .v{font-size:14px;font-weight:800;color:#0f172a;font-variant-numeric:tabular-nums}
+      table{width:100%;border-collapse:collapse;font-size:10px;table-layout:fixed}
+      th,td{border-bottom:1px solid #e2e8f0;padding:3px 6px;text-align:left;vertical-align:middle;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+      th{background:${brand};color:#fff;font-weight:700;font-size:9.5px}
       td.desc{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
       .op td{background:#f1f5f9;font-weight:700}
-      tfoot td{border-top:2px solid #0f172a;font-weight:800;font-size:11.5px;background:#ecfdf5}
-      .sig{display:grid;grid-template-columns:1fr 1fr;gap:60px;margin-top:44px;font-size:12px;color:#334155}
+      tfoot td{border-top:2px solid #0f172a;font-weight:800;font-size:11px;background:#ecfdf5}
+      .sig{display:grid;grid-template-columns:1fr 1fr;gap:50px;margin-top:40px;font-size:11.5px;color:#334155}
       .sig > div{text-align:center}
       .sig .ln{border-top:1px dotted #64748b;margin:0 20px 6px}
       .sig .dt{margin-top:8px;color:#94a3b8;font-size:11px}
-      @page{size:A4 landscape;margin:10mm}
-      @media print{ .noprint{display:none} body{margin:12mm 10mm} }
+      @page{size:A4 portrait;margin:10mm}
+      @media print{ .noprint{display:none} body{margin:0} }
     </style></head><body>
     <div class="head">
       ${logo?`<img src="${esc(logo)}" alt="">`:''}
       <div style="flex:1">
         <h1>ทะเบียนคุมเงินสดย่อย</h1>
         <div class="co">${esc(co.fullName||co.name)}</div>
-        <div class="sub">รอบ ${esc(pcRoundLabel(d.round))} · พิมพ์เมื่อ ${today} · หน่วย: บาท</div>
+        <div class="sub">รอบ ${esc(pcRoundLabel(d.round))}${fund?` · เฉพาะวงเงิน: ${esc(fund)}`:''} · พิมพ์เมื่อ ${today} · หน่วย: บาท</div>
       </div>
     </div>
-    <div class="summary">
-      <div><span class="l">ยอดยกมาต้นรอบ</span><span class="v">${pcFmt(R.opening)}</span></div>
-      <div><span class="l">รับ / เติมเงิน</span><span class="v" style="color:#0f766e">${pcFmt(R.totalIn)}</span></div>
-      <div><span class="l">จ่าย (เบิก)</span><span class="v" style="color:#b91c1c">${pcFmt(R.totalOut)}</span></div>
-      <div><span class="l">คงเหลือยกไป</span><span class="v">${pcFmt(R.closing)}</span></div>
-    </div>
+    ${sumLine}
     <table>
-      <thead><tr><th style="width:32px">#</th><th style="width:92px">เลขที่การเบิก</th><th style="width:64px">วันที่</th><th style="width:110px">เลขที่เอกสาร</th><th style="width:160px">ผู้เบิก</th><th>รายการ</th><th style="text-align:right;width:82px">รับ</th><th style="text-align:right;width:82px">จ่าย</th><th style="text-align:right;width:92px">คงเหลือ</th><th style="width:90px">หมายเหตุ</th></tr></thead>
+      <thead>${thead}</thead>
       <tbody>
-        <tr class="op"><td colspan="8">ยอดยกมาต้นรอบ ${esc(pcRoundLabel(d.round))}</td><td style="text-align:right">${pcFmt(R.opening)}</td><td></td></tr>
-        ${tr||`<tr><td colspan="10" style="text-align:center;color:#94a3b8;padding:20px">— ไม่มีรายการ —</td></tr>`}
+        ${openRow}
+        ${tr||`<tr><td colspan="${showCols.length}" style="text-align:center;color:#94a3b8;padding:20px">— ไม่มีรายการ —</td></tr>`}
       </tbody>
-      <tfoot><tr><td colspan="6" style="text-align:right">รวมในรอบ</td><td style="text-align:right;color:#0f766e">${pcFmt(R.totalIn)}</td><td style="text-align:right;color:#b91c1c">${pcFmt(R.totalOut)}</td><td style="text-align:right">${pcFmt(R.closing)}</td><td></td></tr></tfoot>
+      <tfoot><tr>${footCells}</tr></tfoot>
     </table>
     <div class="sig">
       <div><div class="ln">&nbsp;</div>ผู้จัดทำ<div class="dt">วันที่ ......../......../........</div></div>
@@ -12618,9 +12705,34 @@ async function renderToolPettyCash(){
       </div>
     </div>` : '';
 
-  const rowsHtml = R.rows.map(e=>{
+  // ★ ฟิลเตอร์ (ผู้เบิก/แผนก/เจ้าของวงเงิน/สถานะรอโอน) — คงยอดคงเหลือวิ่ง (global _bal) + สรุปยอดที่กรอง
+  const fReq=d.fReq||'', fDept=d.fDept||'', fFund=d.fFund||'', fPaid=d.fPaid||'';
+  const anyF = !!(fReq||fDept||fFund||fPaid);
+  const matchF = e => (!fReq||String(e.requester||'').trim()===fReq) && (!fDept||String(e.department||'').trim()===fDept)
+      && (!fFund||String(e.fund_holder||'').trim()===fFund) && (!fPaid || (fPaid==='unpaid'? e.is_paid===false : e.is_paid!==false));
+  const dispRows = anyF ? R.rows.filter(matchF) : R.rows;
+  const unpaidN = R.rows.filter(e=>e.is_paid===false).length;
+  const fIn = dispRows.reduce((s,e)=>s+(Number(e.amount_in)||0),0);
+  const fOut = dispRows.reduce((s,e)=>s+(Number(e.amount_out)||0),0);
+  // ตัวเลือกฟิลเตอร์จากรายการในรอบ
+  const reqOpts=[...new Set(ent.map(e=>String(e.requester||'').trim()).filter(Boolean))].sort();
+  const deptOpts=[...new Set(ent.map(e=>String(e.department||'').trim()).filter(Boolean))].sort();
+  const fundOpts=[...new Set(ent.map(e=>String(e.fund_holder||'').trim()).filter(Boolean))].sort();
+  const selOf=(k,cur,ph,arr)=>`<select onchange="pcSetFilter('${k}',this.value)" class="pc-inp" style="min-width:130px;font-size:12px;padding:5px 8px"><option value="">${esc(ph)}</option>${arr.map(x=>`<option value="${esc(x)}" ${cur===x?'selected':''}>${esc(x)}</option>`).join('')}</select>`;
+  const filterBar = `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:9px 14px;margin-bottom:12px">
+    <span style="font-size:12px;font-weight:700;color:#334155">🔎 ฟิลเตอร์:</span>
+    ${selOf('fReq',fReq,'ผู้เบิก: ทั้งหมด',reqOpts)}
+    ${selOf('fDept',fDept,'แผนก: ทั้งหมด',deptOpts)}
+    ${selOf('fFund',fFund,'เจ้าของวงเงิน: ทั้งหมด',fundOpts)}
+    <button class="pc-btn" style="background:${fPaid==='unpaid'?'#f59e0b':'#fef3c7'};color:${fPaid==='unpaid'?'#fff':'#92400e'};font-weight:700" onclick="pcToggleFilter('fPaid','unpaid')" title="กรองเฉพาะที่ยังไม่จ่าย/รอโอน">⏳ รอโอน ${unpaidN}</button>
+    <button class="pc-btn" style="background:${fPaid==='paid'?'#16a34a':'#dcfce7'};color:${fPaid==='paid'?'#fff':'#15803d'}" onclick="pcToggleFilter('fPaid','paid')">✓ จ่ายแล้ว</button>
+    ${anyF?`<button class="pc-btn" style="background:#fef2f2;color:#b91c1c;margin-left:auto" onclick="pcClearFilters()">✕ ล้างฟิลเตอร์</button><span style="font-size:12px;color:#64748b">แสดง <b style="color:#334155">${dispRows.length}</b> รายการ · จ่ายรวม <b style="color:#b91c1c">${pcFmt(fOut)}</b></span>`:''}
+  </div>`;
+
+  const rowsHtml = dispRows.map(e=>{
     const att=Array.isArray(e.attachments)?e.attachments:[];
-    const attHtml = att.length ? att.map(a=>`<button class="pc-btn" style="background:transparent;color:#0d9488;padding:2px 4px" title="${esc(a.name||'ไฟล์')}" onclick="pcOpenAtt('${esc(a.path)}')">📎</button>`).join('') : '<span style="color:#cbd5e1">—</span>';
+    const attBtns = att.map(a=>`<button class="pc-btn" style="background:transparent;color:#0d9488;padding:2px 3px" title="${esc(a.name||'ไฟล์')}" onclick="pcOpenAtt('${esc(a.path)}')">📎</button>`).join('');
+    const attHtml = `${attBtns||'<span style="color:#cbd5e1">—</span>'}${canW?`<button class="pc-btn" style="background:transparent;color:#0d9488;padding:2px 3px;font-weight:800" title="แนบเอกสารเพิ่ม" onclick="pcAttachTo('${e.id}')">＋</button>`:''}`;
     const paid = e.is_paid!==false;
     const paidHtml = canW
       ? `<button class="pc-btn" style="background:${paid?'#dcfce7':'#fef3c7'};color:${paid?'#15803d':'#92400e'};padding:3px 9px;font-size:11px;font-weight:700;white-space:nowrap" onclick="pcTogglePaid('${e.id}')" title="คลิกเพื่อสลับสถานะ">${paid?'✓ จ่ายแล้ว':'⏳ ยังไม่จ่าย'}</button>`
@@ -12631,7 +12743,6 @@ async function renderToolPettyCash(){
     <td style="font-family:monospace;font-size:12px">${esc(e.doc_no||'')}</td>
     <td>${esc(e.requester||'')}</td>
     <td>${esc(e.department||'')}</td>
-    <td>${esc(e.fund_holder||'')}</td>
     <td>${esc(e.description||'')}</td>
     <td class="num pc-in">${Number(e.amount_in)?pcFmt(e.amount_in):''}</td>
     <td class="num pc-out">${Number(e.amount_out)?pcFmt(e.amount_out):''}</td>
@@ -12658,7 +12769,7 @@ async function renderToolPettyCash(){
           ${canW?`<button class="pc-btn" style="background:#eef2f1;color:#334155" onclick="pcSetOpening()">ยอดยกมา</button>`:''}
           ${canW?`<button class="pc-btn" style="background:#eef2f1;color:#334155" onclick="pcImport()">↑ นำเข้า Excel</button>`:''}
           <button class="pc-btn" style="background:#eef2f1;color:#334155" onclick="pcExport()">↓ ส่งออก</button>
-          <button class="pc-btn" style="background:var(--brand,#0d9488);color:#fff" onclick="pcPrintPdf()">🖨 พิมพ์ PDF</button>
+          <button class="pc-btn" style="background:var(--brand,#0d9488);color:#fff" onclick="pcOpenPrintDialog()">🖨 พิมพ์ PDF</button>
           ${canW?`<button class="pc-btn" style="background:#fef2f2;color:#b91c1c" onclick="pcClearRound()">🗑 ล้างรอบนี้</button>`:''}
         </div>
       </div>
@@ -12669,13 +12780,15 @@ async function renderToolPettyCash(){
         <div class="c"><div class="l">จ่าย (เบิก)</div><div class="v" style="color:#b91c1c">${pcFmt(R.totalOut)}</div></div>
         <div class="c"><div class="l">คงเหลือยกไป</div><div class="v">${pcFmt(R.closing)}</div></div>
       </div>
+      ${filterBar}
       <div style="overflow-x:auto">
         <table class="pc-tbl">
-          <thead><tr><th>เลขที่การเบิก</th><th>วันที่จ่าย</th><th>เลขที่เอกสาร</th><th>ผู้เบิก</th><th>แผนก</th><th>เจ้าของวงเงิน</th><th>รายการ</th><th style="text-align:right">รับ</th><th style="text-align:right">จ่าย</th><th style="text-align:right">คงเหลือ</th><th>เบิกคืนวันที่</th><th style="text-align:center">เอกสาร</th><th>หมายเหตุ</th><th style="text-align:center">สถานะจ่าย</th><th></th></tr></thead>
+          <thead><tr><th>เลขที่การเบิก</th><th>วันที่จ่าย</th><th>เลขที่เอกสาร</th><th>ผู้เบิก</th><th>แผนก</th><th>รายการ</th><th style="text-align:right">รับ</th><th style="text-align:right">จ่าย</th><th style="text-align:right">คงเหลือ</th><th>เบิกคืนวันที่</th><th style="text-align:center">เอกสาร</th><th>หมายเหตุ</th><th style="text-align:center">สถานะจ่าย</th><th></th></tr></thead>
           <tbody>
-            <tr style="background:#f1f5f9"><td colspan="9" style="font-weight:700">ยอดยกมาต้นรอบ ${esc(pcRoundLabel(d.round))}${openingCarried?' <span style="font-weight:600;color:#64748b;font-size:11px">(ยกมาจากเดือนก่อน)</span>':''}</td><td class="num pc-bal">${pcFmt(R.opening)}</td><td colspan="5"></td></tr>
-            ${rowsHtml||`<tr><td colspan="15" style="text-align:center;color:#94a3b8;padding:24px">— ยังไม่มีรายการในเดือนนี้ ${canW?'· กด "＋ เพิ่มรายการ" หรือ "นำเข้า Excel"':''} —</td></tr>`}
-            <tr style="background:#ecfdf5;font-weight:800"><td colspan="7">รวมในเดือน</td><td class="num pc-in">${pcFmt(R.totalIn)}</td><td class="num pc-out">${pcFmt(R.totalOut)}</td><td class="num pc-bal">${pcFmt(R.closing)}</td><td colspan="5"></td></tr>
+            ${anyF?'':`<tr style="background:#f1f5f9"><td colspan="8" style="font-weight:700">ยอดยกมาต้นรอบ ${esc(pcRoundLabel(d.round))}${openingCarried?' <span style="font-weight:600;color:#64748b;font-size:11px">(ยกมาจากเดือนก่อน)</span>':''}</td><td class="num pc-bal">${pcFmt(R.opening)}</td><td colspan="5"></td></tr>`}
+            ${rowsHtml||`<tr><td colspan="14" style="text-align:center;color:#94a3b8;padding:24px">— ${anyF?'ไม่มีรายการตามฟิลเตอร์':`ยังไม่มีรายการในเดือนนี้ ${canW?'· กด "＋ เพิ่มรายการ" หรือ "นำเข้า Excel"':''}`} —</td></tr>`}
+            ${anyF?`<tr style="background:#fff7ed;font-weight:800"><td colspan="6">รวมที่กรอง (${dispRows.length} รายการ)</td><td class="num pc-in">${pcFmt(fIn)}</td><td class="num pc-out">${pcFmt(fOut)}</td><td colspan="6"></td></tr>`:''}
+            <tr style="background:#ecfdf5;font-weight:800"><td colspan="6">รวมในเดือน (ทั้งรอบ)</td><td class="num pc-in">${pcFmt(R.totalIn)}</td><td class="num pc-out">${pcFmt(R.totalOut)}</td><td class="num pc-bal">${pcFmt(R.closing)}</td><td colspan="5"></td></tr>
           </tbody>
         </table>
       </div>

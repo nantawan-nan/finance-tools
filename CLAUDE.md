@@ -184,6 +184,15 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-22 (4) — ★ เงินสดย่อย: ซ่อนคอลัมน์เจ้าของวงเงิน + แนบไฟล์ต่อแถว + ฟิลเตอร์ + พิมพ์ PDF แนวตั้ง/เลือกคอลัมน์
+- **เจ้าของขอ 5 อย่าง:** (1) ซ่อนคอลัมน์เจ้าของวงเงิน (เกะกะ) แต่เก็บข้อมูล+Excel (2) แนบเอกสารเพิ่มต่อแถว (3) ฟิลเตอร์คล้าย AP (ผู้เบิก/แผนก/รอโอน) (4) PDF แนวตั้ง (5) เลือกคอลัมน์/เจ้าของวงเงินตอนพิมพ์
+- **ซ่อน fund column** (จอ) · ตาราง 15→14 คอลัมน์ · **`pcExport` ไม่แตะ** (Excel ยังมีเจ้าของวงเงิน) · ฟอร์มยังกรอกได้
+- **แนบต่อแถว `pcAttachTo(id)`:** ปุ่ม "＋" ในคอลัมน์เอกสาร → อัป Storage `documents` (path ASCII) → ต่อท้าย attachments · ไม่ต้องเปิดฟอร์มแก้ไข
+- **ฟิลเตอร์ `pcSetFilter`/`pcToggleFilter`/`pcClearFilters`** (`d.fReq`/`fDept`/`fFund`/`fPaid`): dropdown ผู้เบิก/แผนก/เจ้าของวงเงิน + ปุ่ม "รอโอน N"(unpaid)/จ่ายแล้ว · **คงยอดคงเหลือวิ่ง (global `_bal`)** — filter เฉพาะแถวที่แสดง · แถว "รวมที่กรอง" (fIn/fOut) · ซ่อน opening row เมื่อกรอง · colspan opening 9→8 · total 7→6 · empty 15→14
+- **PDF (`pcPrintPdf(opts)`):** **A4 portrait** · คอลัมน์ dynamic จาก **`PC_PDF_COLS`** (config key/label/get/al/w/def) · `opts.cols`(Set)+`opts.fund` · footer/opening row สร้างตาม showCols (`balIdx`/`firstNumIdx`)
+- **โมดอลก่อนพิมพ์ `pcOpenPrintDialog`/`pcDoPrintFromDialog`:** เลือกเจ้าของวงเงิน (พิมพ์เฉพาะคนนั้น = filter rows + สรุป รับ/จ่าย/คงเหลือ รายคน) + ติ๊กคอลัมน์ (default def:true) · อ่านค่าจาก DOM ตอนกดพิมพ์ (ไม่ re-render)
+- **หมายเหตุ:** `pcFundSummary` เป็น dead code (ไม่ถูก render) — การ์ดสรุปรายคนใช้ filter+รวมที่กรองแทน · syntax OK · กระทบหน้าอื่น = 0 · ไม่ต้อง migration
+
 ### 2026-07-22 (3) — ★ รับชำระ: เลือกดูตามเดือน / ช่วงวันรับเงิน (ทะเบียนรับชำระ + จับคู่ IV↔Income)
 - **เจ้าของขอ:** ดูสถานะรายการรับชำระของเดือนนั้น ๆ ว่าขาดอะไร — เดิมรวมทุกเดือน (5-6-7 ที่ยังขึ้นระบบไม่เต็ม) ปนกัน
 - **`incDateBarHtml`:** chip เดือน (auto จาก `incAvailableMonths` = วันรับเงินที่มีจริง · `incMonthLabel` เดือนไทย) + ช่วงวันที่ from/to + ล้าง · `incIsoInRange`/`incRowInRange` · setters `incSetIncMonth`/`incSetIncDate`/`incClearIncDate` · state `d.incMonth`/`incFrom`/`incTo` (ISO · from/to override เดือน)

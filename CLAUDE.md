@@ -184,6 +184,14 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-22 (3) — ★ รับชำระ: เลือกดูตามเดือน / ช่วงวันรับเงิน (ทะเบียนรับชำระ + จับคู่ IV↔Income)
+- **เจ้าของขอ:** ดูสถานะรายการรับชำระของเดือนนั้น ๆ ว่าขาดอะไร — เดิมรวมทุกเดือน (5-6-7 ที่ยังขึ้นระบบไม่เต็ม) ปนกัน
+- **`incDateBarHtml`:** chip เดือน (auto จาก `incAvailableMonths` = วันรับเงินที่มีจริง · `incMonthLabel` เดือนไทย) + ช่วงวันที่ from/to + ล้าง · `incIsoInRange`/`incRowInRange` · setters `incSetIncMonth`/`incSetIncDate`/`incClearIncDate` · state `d.incMonth`/`incFrom`/`incTo` (ISO · from/to override เดือน)
+- **แสดงเฉพาะแท็บ list + recon** (renderToolSalesIncome) · กรอง incRows ตาม `paid_date`
+- **`incReconData`:** กลุ่มฝั่ง income (ready/received/noIv/noOrder/cancel/creditNote) กรองตามเดือน · **noIncome กรองตาม `iv_date`** (ไม่มีวันรับเงิน) · **"มี income" (incByOrder) เช็คจาก `allInc` ทั้งหมด** (ไม่ผูกเดือน) — กัน noIncome หลอกเมื่อ income คนละเดือนกับ IV
+- **`incRenderList`:** empty state เช็ค `allRows` (ไม่มีข้อมูลเลย) · ที่เหลือใช้ `rows` (กรองเดือน) · verified date logic (เดือน/ช่วง/ทั้งหมด) · syntax OK · กระทบหน้าอื่น = 0 · ไม่ต้อง migration
+- **หมายเหตุ:** แท็บ fees มี month filter ของตัวเอง (`feeMonth`) แยกกัน · export tab มี from/to แยก — ไม่ชนกับ `incMonth`
+
 ### 2026-07-22 (2) — ★ รับชำระ: แยกออเดอร์ net≤0 (มี IV) เป็นกลุ่ม "ต้องออกใบลดหนี้ (CN)"
 - **เจ้าของแจ้ง:** ออเดอร์ที่เงินเข้าสุทธิ **≤ 0** บัญชี**ไม่รับชำระ** → ออก**ใบลดหนี้ (CN)** แทน · (net ติดลบมักจากค่าขนส่งถูกหักจากกระเป๋าแพลตฟอร์ม บันทึกตอนฝากเช็ค)
 - **`incReconData`:** มี IV + `net≤0` + ยังไม่รับชำระ → กลุ่มใหม่ `creditNote` (เดิมอยู่ `ready`) → **`ready` เหลือเฉพาะ net>0** (ตรงกับหน้าส่งออก RE ที่ `probOf` บล็อก net≤0 อยู่แล้ว = สองหน้า consistent) · `cancelledRefund` = เฉพาะที่**ยังไม่มี IV** (net≤0/ยกเลิก) แยกจาก creditNote (มี IV)

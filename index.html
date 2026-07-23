@@ -24003,14 +24003,20 @@ const BMP_SHOP_ROUTING = {
   // depositCode = รหัสบัญชีฝากใน AutoKey ของ Express (01/02/S1)
   "mommam_official": { companyId:"mbark", bankCode:"SCB", accountNo:"1362709281", depositCode:"S1", channel:"shopee", channelLabel:"Shopee mommam", descSuffix:"Shopee mommam" },
   "benya_official":  { companyId:"benya", bankCode:"SCB", accountNo:"4170771640", depositCode:"01", channel:"shopee", channelLabel:"Shopee Qi care",  descSuffix:"Shopee Qi care" },
-  "betra_brand":     { companyId:"benya", bankCode:"BBL", accountNo:"8650980405", depositCode:"02", channel:"shopee", channelLabel:"Shopee Betra",    descSuffix:"Shopee Betra" }
+  "betra_brand":     { companyId:"benya", bankCode:"BBL", accountNo:"8650980405", depositCode:"02", channel:"shopee", channelLabel:"Shopee Betra",    descSuffix:"Shopee Betra" },
+  // ★ TikTok — ชื่อร้านสร้างจากเลขบัญชีที่ถอนเข้า (ไฟล์ TikTok ไม่มีชื่อร้าน) ดู BMP_TT_ACCT
+  "tiktok mommam":   { companyId:"mbark", bankCode:"SCB", accountNo:"1362709281", depositCode:"S1", channel:"tiktok", channelLabel:"TikTok mommam", descSuffix:"TikTok mommam" },
+  "tiktok qi care":  { companyId:"benya", bankCode:"SCB", accountNo:"4170771640", depositCode:"01", channel:"tiktok", channelLabel:"TikTok Qi care", descSuffix:"TikTok Qi care" },
+  "tiktok betra":    { companyId:"benya", bankCode:"BBL", accountNo:"8650980405", depositCode:"02", channel:"tiktok", channelLabel:"TikTok Betra",   descSuffix:"TikTok Betra" }
 };
 
 function bmpRouting(shopName){
   const k = String(shopName||"").trim().toLowerCase();
   if(BMP_SHOP_ROUTING[k]) return BMP_SHOP_ROUTING[k];
-  // fallback — generic shopee, no routing
-  return { companyId:null, bankCode:null, accountNo:null, channel:"shopee", channelLabel:`Shopee ${shopName}`, descSuffix:`Shopee ${shopName}` };
+  // fallback — ไม่รู้จักร้าน (ไม่ route บัญชี) · แยก label ตามช่องทางที่เดาได้จากชื่อ
+  const isTt = /tiktok/.test(k);
+  const lbl = isTt ? ("TikTok " + String(shopName).replace(/^\s*tiktok\s*/i,"")) : ("Shopee " + shopName);
+  return { companyId:null, bankCode:null, accountNo:null, channel:isTt?"tiktok":"shopee", channelLabel:lbl, descSuffix:lbl };
 }
 
 /* ------- TIS-620 / windows-874 CSV parsing ------- */
@@ -24127,7 +24133,108 @@ function bmpIsoFromAny(v){
   const s = String(v).trim();
   let m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
   if(m) return `${m[1]}-${m[2]}-${m[3]}`;
+  // ★ TikTok เขียน yyyy/mm/dd (ต้องจับก่อน bmpThaiDate ที่เป็น dd/mm/yyyy พ.ศ. — ไม่งั้นปีเพี้ยน)
+  m = s.match(/^(\d{4})\/(\d{1,2})\/(\d{1,2})/);
+  if(m) return `${m[1]}-${m[2].padStart(2,"0")}-${m[3].padStart(2,"0")}`;
   return bmpThaiDate(s);
+}
+
+/* ============================================================
+   PARSER 1b — TikTok Shop "รายการรับเงิน" (กระเป๋าเงิน) .xlsx
+   ใช้ 2 ชีต: "รายละเอียดคำสั่งซื้อ" (ออเดอร์ + ค่าโฆษณา GMV) · "บันทึกการถอน" (Earnings / Withdrawal / GMV Pay Deduction)
+   → แปลงเป็น txn stream หน้าตาเดียวกับ bmpParseShopeeBalance เพื่อ reuse FIFO/BQ/เลขที่เช็ค/export ทั้งชุด
+   ★ ยืนยันกับไฟล์จริง: Earnings ของวัน = Σ ออเดอร์ที่ TikTok ชำระวันนั้น (ตรง 51/51 วัน หลังแยกค่าโฆษณา)
+   ★ TikTok ไม่มี running balance ในไฟล์ · ลำดับเวลาจริงอ่านจากชีต "บันทึกการถอน" (ไฟล์เรียงใหม่→เก่า)
+   ============================================================ */
+const BMP_TT_ACCT = {     // เลขบัญชี 4 ตัวท้าย (ชีตบันทึกการถอน) → ชื่อร้าน TikTok (key ของ BMP_SHOP_ROUTING)
+  "9281": "tiktok mommam",    // M Bark  SCB 136-270928-1
+  "1640": "tiktok qi care",   // Benya   SCB 417-077164-0
+  "0405": "tiktok betra"      // Benya   BBL 865-0-98040-5
+};
+function bmpIsTiktokWallet(workbook){
+  const ns = (workbook.SheetNames||[]).map(n=>String(n));
+  return ns.some(n=>/บันทึกการถอน/.test(n)) && ns.some(n=>/รายละเอียดคำสั่งซื้อ/.test(n));
+}
+function bmpTtSheetRows(workbook, re){
+  const name = (workbook.SheetNames||[]).find(n=>re.test(String(n)));
+  if(!name) return null;
+  return XLSX.utils.sheet_to_json(workbook.Sheets[name], { header:1, defval:"", raw:true });
+}
+function bmpTtNum(v){ const n = Number(String(v==null?"":v).replace(/[, ]/g,"")); return isFinite(n)?n:0; }
+function bmpTtIsNum(v){ if(v===""||v==null) return false; return isFinite(Number(String(v).replace(/[, ]/g,""))); }
+function bmpParseTiktokWallet(workbook){
+  const oRows = bmpTtSheetRows(workbook, /รายละเอียดคำสั่งซื้อ/);
+  const wRows = bmpTtSheetRows(workbook, /บันทึกการถอน/);
+  if(!oRows || !wRows) throw new Error("ไฟล์ TikTok ไม่ครบชีต — ต้องมี 'รายละเอียดคำสั่งซื้อ' + 'บันทึกการถอน'");
+
+  // ---------- ชีตออเดอร์: จัดกลุ่มตาม "วันที่ TikTok ชำระเข้ากระเป๋า" ----------
+  const oh = (oRows[0]||[]).map(x=>String(x||"").trim());
+  const oIdx = (name, dflt)=>{ const i = oh.indexOf(name); return i>=0?i:dflt; };
+  const cId=oIdx("หมายเลขคำสั่งซื้อ/การปรับ",0), cTyp=oIdx("ประเภทธุรกรรม",1),
+        cSettle=oIdx("เวลาที่ชำระคำสั่งซื้อ",3), cNet=oIdx("จำนวนเงินที่ชำระทั้งหมด",5);
+  const ordersByDate = new Map();   // ISO → [{order_id, amount}]  (ออเดอร์ + รายการปรับระดับออเดอร์)
+  const adsByDate = new Map();      // ISO → [{order_id, amount}]  (ค่าโฆษณา GMV — ใช้เติมรายละเอียดให้ชีตถอน)
+  for(let i=1;i<oRows.length;i++){
+    const r = oRows[i]; if(!r) continue;
+    const id = String(r[cId]||"").trim(); if(!id) continue;
+    const iso = bmpIsoFromAny(r[cSettle]); if(!iso) continue;
+    const typ = String(r[cTyp]||"").trim();
+    const rec = { order_id:id, amount:bmpTtNum(r[cNet]), typ };
+    const bucket = /GMV|โฆษณา/i.test(typ) ? adsByDate : ordersByDate;
+    if(!bucket.has(iso)) bucket.set(iso, []);
+    bucket.get(iso).push(rec);
+  }
+
+  // ---------- ชีตบันทึกการถอน = ลำดับเวลาจริงของกระเป๋า ----------
+  const wh = (wRows[0]||[]).map(x=>String(x||"").trim());
+  const wIdx = (name, dflt)=>{ const i = wh.indexOf(name); return i>=0?i:dflt; };
+  const wTyp=wIdx("ประเภทธุรกรรม",0), wRef=wIdx("ID อ้างอิง",1), wReq=wIdx("เวลาส่งคำขอ",2),
+        wAmt=wIdx("จำนวน",3), wSt=wIdx("สถานะ",4), wDone=wIdx("เวลาที่สำเร็จ",5), wAcct=wIdx("บัญชีธนาคาร",6);
+  const ents = [];
+  for(let i=1;i<wRows.length;i++){
+    const r = wRows[i]; if(!r) continue;
+    const t = String(r[wTyp]||"").trim(); if(!t) continue;
+    const iso = bmpIsoFromAny(r[wDone]) || bmpIsoFromAny(r[wReq]); if(!iso) continue;
+    // ★ บางแถวยอดถูกแบ่ง 2 ช่อง (ช่อง "สถานะ" กลายเป็นตัวเลข) → บวกรวมเป็นยอดเดียว
+    const amt = bmpTtNum(r[wAmt]) + (bmpTtIsNum(r[wSt]) ? bmpTtNum(r[wSt]) : 0);
+    ents.push({ type:t, iso, amount:amt, ref:String(r[wRef]||"").trim(), acct:String(r[wAcct]||"").trim() });
+  }
+  if(ents.length>1 && ents[0].iso > ents[ents.length-1].iso) ents.reverse();   // ไฟล์เรียงใหม่→เก่า
+
+  // ---------- ร้าน/บัญชี: เดาจากเลขบัญชีที่ถอนเข้า ----------
+  let shopName = null;
+  for(const e of ents){
+    if(!/withdraw|ถอน/i.test(e.type)) continue;
+    const dg = String(e.acct||"").replace(/\D/g,"");
+    if(dg.length>=4){ shopName = BMP_TT_ACCT[dg.slice(-4)] || ("tiktok ****"+dg.slice(-4)); break; }
+  }
+
+  // ---------- ประกอบ txn stream ตามลำดับเวลา ----------
+  const txns = []; const usedDates = new Set(); const tick = new Map();
+  const stamp = (iso)=>{ const n=(tick.get(iso)||0)+1; tick.set(iso,n);
+    const h=String(Math.floor(n/3600)%24).padStart(2,"0"), m=String(Math.floor(n/60)%60).padStart(2,"0"), s=String(n%60).padStart(2,"0");
+    return `${iso} ${h}:${m}:${s}`; };
+  const pushOrders = (iso)=>{
+    if(usedDates.has(iso)) return; usedDates.add(iso);
+    for(const o of (ordersByDate.get(iso)||[])){
+      txns.push({ datetime:stamp(iso), txn_date:iso, type:"รายรับจากคำสั่งซื้อ", desc:o.typ||"", order_id:o.order_id, flow:"", amount:o.amount, status:"", balance_after:0 });
+    }
+  };
+  for(const e of ents){
+    if(/withdraw|ถอน/i.test(e.type)){
+      txns.push({ datetime:stamp(e.iso), txn_date:e.iso, type:"การถอนเงิน", desc:"ถอนเข้าบัญชี "+(e.acct||""), order_id:"", flow:"", amount:-Math.abs(e.amount), status:"", balance_after:0 });
+    } else if(/GMV|โฆษณา/i.test(e.type)){
+      const hit = (adsByDate.get(e.iso)||[]).find(a=>!a._used && Math.abs(Math.abs(a.amount)-Math.abs(e.amount))<0.01);
+      if(hit) hit._used = true;
+      txns.push({ datetime:stamp(e.iso), txn_date:e.iso, type:"รายการปรับปรุง", desc:"ค่าโฆษณา TikTok (GMV)", order_id:(hit?hit.order_id:e.ref)||"", flow:"", amount:-Math.abs(e.amount), status:"", balance_after:0 });
+    } else {
+      pushOrders(e.iso);   // Earnings = เงินเข้ากระเป๋าวันนั้น = ออเดอร์ที่ชำระวันนั้น
+    }
+  }
+  for(const iso of [...ordersByDate.keys()].sort()) pushOrders(iso);   // ออเดอร์ปลายงวดที่ยังไม่มีแถว Earnings
+  const allDates = [...ordersByDate.keys(), ...ents.map(e=>e.iso)].sort();
+  return { shopName: shopName || "tiktok (ไม่ทราบบัญชี)", periodFrom: allDates[0]||null,
+           periodTo: allDates[allDates.length-1]||null, txns, source:"tiktok" };
 }
 
 /* ============================================================
@@ -24521,6 +24628,13 @@ function bmpGroupWithdrawals(parsed, arData, chqData, salesData, shopName, share
         }
         acc += amt; assigned.push(queue.shift());
       }
+      // ★ กวาดรายการปรับปรุง (ค่าโฆษณา ฯลฯ) ที่ค้างอยู่หน้าคิว ถ้าดึงเข้ามาแล้วยอด "ใกล้ยอดถอน" ขึ้น
+      //   (เดิม loop break ทันทีที่ order ตัวถัดไปเกิน → ค่าโฆษณาที่ต่อท้ายตกไปงวดหน้า ทั้งที่เป็นก้อนเดียวกัน
+      //    เจอชัดใน TikTok ที่หักค่าโฆษณา GMV วันเดียวกับออเดอร์)
+      while(queue.length && queue[0].type === "รายการปรับปรุง"
+            && Math.abs((acc + queue[0].amount) - wdAmount) < Math.abs(acc - wdAmount)){
+        acc += queue[0].amount; assigned.push(queue.shift());
+      }
       const orders = assigned.filter(t => t.type === "รายรับจากคำสั่งซื้อ");
       const adjustments = assigned.filter(t => t.type === "รายการปรับปรุง");
       const sumNet = orders.reduce((s,o)=> s + o.amount, 0);
@@ -24573,7 +24687,7 @@ function bmpGroupWithdrawals(parsed, arData, chqData, salesData, shopName, share
       const adjRows = adjustments.map(a => ({
         channel: routing.channel,
         order_id: a.order_id || "-",
-        cheque_no: a.order_id ? ("SP"+a.order_id) : null,
+        cheque_no: a.order_id ? ((routing.channel==="tiktok"?"TT":"SP")+a.order_id) : null,
         txn_datetime: a.datetime,
         txn_type: "adjustment",
         express_gross: 0,
@@ -24677,7 +24791,7 @@ function bmpRenderUploadModal(){
     return `<div style="font-size:11px;color:#16a34a;margin-top:6px">✓ ใช้ที่อัปไว้ล่าสุด — ไม่ต้องอัปใหม่ (อัปใหม่เฉพาะถ้ามีข้อมูลเพิ่ม)</div>`;
   };
   const cacheBanner = hasCache
-    ? `<div style="font-size:12px;color:#1e40af;background:#dbeafe;border-radius:8px;padding:8px 12px;margin-bottom:12px">💾 มี Express เก็บไว้แล้ว (อัปเมื่อ ${new Date(cache.updated_at).toLocaleString("th-TH")}) — <b>ครั้งนี้อัปแค่ Shopee พอ</b> · อัป Express ใหม่เฉพาะตอนมี IV/รับชำระเพิ่ม</div>`
+    ? `<div style="font-size:12px;color:#1e40af;background:#dbeafe;border-radius:8px;padding:8px 12px;margin-bottom:12px">💾 มี Express เก็บไว้แล้ว (อัปเมื่อ ${new Date(cache.updated_at).toLocaleString("th-TH")}) — <b>ครั้งนี้อัปแค่รายงานกระเป๋าเงินพอ</b> · อัป Express ใหม่เฉพาะตอนมี IV/รับชำระเพิ่ม</div>`
     : "";
   const html = `
     <div id="bmpUploadModal" style="position:fixed;inset:0;background:rgba(15,23,42,.5);display:flex;align-items:center;justify-content:center;z-index:9999;backdrop-filter:blur(4px)">
@@ -24686,7 +24800,7 @@ function bmpRenderUploadModal(){
         <div style="font-size:12.5px;color:var(--ink-3);margin-bottom:14px">เลือกได้หลายไฟล์ต่อช่อง (Ctrl/Shift+คลิก) — ระบบจะ merge ให้</div>
         ${cacheBanner}
         <div style="display:flex;flex-direction:column;gap:10px">
-          ${bmpFileBox('shopee', 'Shopee Balance Transaction Report', '.xlsx', f.shopee)}
+          ${bmpFileBox('shopee', 'รายงานกระเป๋าเงิน — Shopee Balance / TikTok รายการรับเงิน', '.xlsx', f.shopee)}
           ${bmpFileBox('sales', 'Express รายงานขาย 723-5'+(hasCache?' (มีเก็บไว้แล้ว)':''), '.csv', f.sales)}${cacheNote('sales')}
           ${bmpFileBox('receipt', 'Express รายงานการรับชำระหนี้'+(hasCache?' (มีเก็บไว้แล้ว)':''), '.csv', f.receipt)}${cacheNote('receipt')}
           ${bmpFileBox('cheque', 'Express รายงานเช็ครับ'+(hasCache?' (มีเก็บไว้แล้ว)':''), '.csv', f.cheque)}${cacheNote('cheque')}
@@ -29280,7 +29394,7 @@ async function bmpRunUpload(){
   if(d.mp.parsing){ console.warn("bmpRunUpload: already in progress, ignored"); return; }
   const f = d.mp.files;
   const hasExpressFiles = !!(f.sales.length || f.receipt.length || f.cheque.length);
-  if(!f.shopee.length){ alert("เลือกไฟล์ Shopee Balance ก่อน"); return; }
+  if(!f.shopee.length){ alert("เลือกไฟล์รายงานกระเป๋าเงินก่อน (Shopee Balance หรือ TikTok รายการรับเงิน)"); return; }
   const co = d.companyId || await fopCompanyId();
   if(!co){ alert("หา company_id ไม่เจอ"); return; }
   // ถ้าไม่อัป Express ใหม่ → ต้องมี cache เดิม
@@ -29292,7 +29406,8 @@ async function bmpRunUpload(){
     for(const sf of f.shopee){
       const buf = await sf.arrayBuffer();
       const wb = XLSX.read(buf, { type:"array", cellDates:false });
-      const sd = bmpParseShopeeBalance(wb);
+      // ★ รองรับ 2 รูปแบบ: Shopee Balance / TikTok "รายการรับเงิน" (auto-detect จากชื่อชีต)
+      const sd = bmpIsTiktokWallet(wb) ? bmpParseTiktokWallet(wb) : bmpParseShopeeBalance(wb);
       const sn = sd.shopName || "(unknown)";
       if(!shopeeByName.has(sn)) shopeeByName.set(sn, { shopName:sn, txns:[], periodFrom:null, periodTo:null, files:[] });
       const g = shopeeByName.get(sn);
@@ -29821,7 +29936,7 @@ function bmpRenderTab(d){
     return `<div class="brec-empty">
       <i data-lucide="shopping-bag" style="color:#f59e0b"></i>
       <div class="ttl">ยังไม่มีรายการ Marketplace</div>
-      <div>กดปุ่ม <b>Marketplace (3 ไฟล์)</b> ที่ toolbar เพื่ออัป Shopee balance + Express รับชำระ + Express เช็ครับ</div>
+      <div>กดปุ่ม <b>Marketplace (3 ไฟล์)</b> ที่ toolbar เพื่ออัป รายงานกระเป๋าเงิน (Shopee Balance / TikTok รายการรับเงิน) + Express รับชำระ + Express เช็ครับ</div>
     </div>`;
   }
   const ordersByWd = new Map();
@@ -29916,7 +30031,7 @@ function bmpRenderTab(d){
       ${isExpanded ? `<div class="bmp-body">
         <table class="bmp-tbl">
           <thead><tr>
-            <th>#</th><th>รหัสคำสั่งซื้อ Shopee</th><th>IV / อ้างอิง</th><th>เลขที่เช็ค</th><th class="r">gross EXPRESS</th><th class="r">net Shopee</th><th class="r">ผลต่าง</th><th>สถานะ</th><th style="text-align:center">แก้แล้ว</th>
+            <th>#</th><th>รหัสคำสั่งซื้อ</th><th>IV / อ้างอิง</th><th>เลขที่เช็ค</th><th class="r">gross EXPRESS</th><th class="r">net กระเป๋า</th><th class="r">ผลต่าง</th><th>สถานะ</th><th style="text-align:center">แก้แล้ว</th>
           </tr></thead>
           <tbody>
             ${orderRows.map((o,i) => {

@@ -24617,34 +24617,36 @@ function bmpGroupWithdrawals(parsed, arData, chqData, salesData, shopName, share
 
   const routing = bmpRouting(shopName);
   const withdrawals = [];
-  // ★ FIFO wallet model — Shopee เป็นกระเป๋าสะสม การถอนไม่ผูก order ชุดเดียว
-  // queue เก็บ order+adjustment ที่ยังไม่ถูก assign · ถอนแต่ละครั้งดึง FIFO จนใกล้ยอดถอนสุด
+  // ★ Model A: 1 การถอน = ทุก txn ที่สะสมในกระเป๋าตั้งแต่ถอนครั้งก่อน (orders + ค่าโฆษณา + ยกเลิก)
+  //   → ทุกออเดอร์ในงวดได้เช็ครับครบ · ค่าโฆษณา/ยกเลิก = ค่าใช้จ่าย · pool net = ยอดถอน (ถอนเต็มกระเป๋า)
+  //   ★ ห้ามหยุดที่จุดยอดสะสม = ยอดถอน "ครั้งแรก" — ค่าโฆษณาก้อนใหญ่กลางคิว (เช่น GMV -8420)
+  //     ทำให้ยอดสะสมตัดผ่านยอดถอน 2 รอบ · ถ้าหยุดรอบแรกจะทิ้งออเดอร์+ค่าโฆษณาครึ่งหลังของงวด
+  //   ถอนบางส่วน (pool > ยอดถอน เช่น TikTok): ดัน "ทั้งวันใหม่สุด" กลับเป็นยอดยกไปงวดหน้า
+  //   คร่อมกลางวัน (ตัดไม่ลงวัน) → เก็บเป็น "ยอดยกมา/ยกไป" (carry cash · เช็คออกงวดที่ออเดอร์อยู่ · เงินถอนงวดถัดไป)
   const queue = [];
+  let carryCash = 0;   // เงินคงเหลือจากงวดก่อน (เช็คออกงวดก่อนแล้ว แต่ถอนงวดนี้)
   for(const tx of txns){
     if(tx.type === "การถอนเงิน"){
       const wdAmount = Math.abs(tx.amount);
-      // FIFO pull: ดึงจากหน้า queue สะสมจน "ใกล้ยอดถอนสุด"
-      const assigned = [];
-      let acc = 0;
-      while(queue.length){
-        const front = queue[0];
-        const amt = front.amount; // order = +net, adjustment = ส่วนใหญ่ติดลบ
-        // ถ้าเป็น order แล้วบวกเข้าไปจะเกินยอดถอน → ใส่ต่อเฉพาะถ้าทำให้ "ใกล้ขึ้น"
-        if(front.type === "รายรับจากคำสั่งซื้อ" && (acc + amt) > wdAmount){
-          if(Math.abs((acc + amt) - wdAmount) < Math.abs(acc - wdAmount)){
-            acc += amt; assigned.push(queue.shift());
-          }
-          break;
-        }
-        acc += amt; assigned.push(queue.shift());
+      const carryIn = +carryCash.toFixed(2);
+      // เอาทั้ง pool (ทุก txn ก่อนการถอนนี้) + ยอดยกมา
+      const assigned = queue.splice(0);
+      let acc = +(carryIn + assigned.reduce((s,t)=> s + t.amount, 0)).toFixed(2);
+      // ถอนบางส่วน: pool เกินยอดถอน → ดัน "ทั้งวันใหม่สุด" กลับเข้าคิว (ยกไปงวดหน้า)
+      //   ★ ดันทีละ "วัน" (ไม่ใช่รายออเดอร์) — กันออเดอร์ยกเลิก (net<0) คั่นขอบ · วัน net ติดลบ (วันหักโฆษณา) ไม่ดัน
+      while(assigned.length && (acc - wdAmount) > 0.01){
+        const lastDate = assigned[assigned.length-1].txn_date;
+        let i = assigned.length, dayNet = 0;
+        while(i > 0 && assigned[i-1].txn_date === lastDate){ dayNet += assigned[i-1].amount; i--; }
+        if(dayNet > 0 && (acc - dayNet) >= (wdAmount - 0.01)){
+          const popped = assigned.splice(i);            // ตัดทั้งวันใหม่สุดออก
+          for(let k = popped.length-1; k >= 0; k--) queue.unshift(popped[k]);
+          acc = +(acc - dayNet).toFixed(2);
+        } else break;
       }
-      // ★ กวาดรายการปรับปรุง (ค่าโฆษณา ฯลฯ) ที่ค้างอยู่หน้าคิว ถ้าดึงเข้ามาแล้วยอด "ใกล้ยอดถอน" ขึ้น
-      //   (เดิม loop break ทันทีที่ order ตัวถัดไปเกิน → ค่าโฆษณาที่ต่อท้ายตกไปงวดหน้า ทั้งที่เป็นก้อนเดียวกัน
-      //    เจอชัดใน TikTok ที่หักค่าโฆษณา GMV วันเดียวกับออเดอร์)
-      while(queue.length && queue[0].type === "รายการปรับปรุง"
-            && Math.abs((acc + queue[0].amount) - wdAmount) < Math.abs(acc - wdAmount)){
-        acc += queue[0].amount; assigned.push(queue.shift());
-      }
+      // เศษที่ตัดไม่ลงวัน (คร่อมกลางวัน) → ยกไปงวดหน้า · เช็คของออเดอร์นี้ออกงวดนี้ แต่เงินถอนงวดหน้า
+      const carryOut = Math.max(0, +(acc - wdAmount).toFixed(2));
+      carryCash = carryOut;
       const orders = assigned.filter(t => t.type === "รายรับจากคำสั่งซื้อ");
       const adjustments = assigned.filter(t => t.type === "รายการปรับปรุง");
       const sumNet = orders.reduce((s,o)=> s + o.amount, 0);
@@ -24717,8 +24719,10 @@ function bmpGroupWithdrawals(parsed, arData, chqData, salesData, shopName, share
       // (FIFO เกือบลงตัว — เศษเป็น carry เล็กน้อยที่ยกไปงวดถัดไป)
       const carryDiff = +(sumGross + adjAmount - wdAmount).toFixed(2);
       const mismatchCount = orderRows.filter(o=>o.mismatch_flag).length;
-      // เตือนถ้ายอด assign ต่ำกว่ายอดถอนมาก (มียอดยกมาจากก่อนงวด — orders ไม่ครบ)
-      const shortfall = (sumGross + adjAmount) < (wdAmount - 1);
+      // ★ ยกมา/ยกไป balances: carryIn + Σnet(ออเดอร์บวก) − ค่าใช้จ่าย − carryOut = ยอดถอน
+      //   shortfall = ออเดอร์ในไฟล์ไม่ครบยอดถอน (มียอดยกมาจากก่อนช่วงไฟล์ · เช่นงวดแรก 6/03)
+      const sumPosNet = orderRows.filter(o=>Number(o.shopee_net)>0).reduce((s,o)=> s + Number(o.shopee_net), 0);
+      const shortfall = +(carryIn + sumPosNet - wdAmount).toFixed(2) < -1;
 
       withdrawals.push({
         channel: routing.channel,
@@ -24737,6 +24741,8 @@ function bmpGroupWithdrawals(parsed, arData, chqData, salesData, shopName, share
         sum_net: +sumNet.toFixed(2),
         total_fee: carryDiff,
         adjustment_amount: +adjAmount.toFixed(2),
+        carry_in: carryIn,
+        carry_out: carryOut,
         carry_shortfall: shortfall,
         mismatch_count: mismatchCount,
         orders: orderRows,
@@ -29639,6 +29645,7 @@ async function bmpRunUpload(){
           description: wd.description, order_count: wd.order_count,
           sum_gross: wd.sum_gross, sum_net: wd.sum_net,
           total_fee: wd.total_fee, adjustment_amount: wd.adjustment_amount,
+          carry_in: wd.carry_in||0, carry_out: wd.carry_out||0, carry_shortfall: !!wd.carry_shortfall,
           mismatch_count: wd.mismatch_count
         }).select("id").single();
         if(we) throw we;
@@ -30005,13 +30012,17 @@ function bmpRenderTab(d){
     //   (เจ้าของยืนยัน: เช็ครับ = ยอด net ที่เข้ากระเป๋า ไม่ใช่ยอด IV/gross · ยอดลบยกเลิก = ค่าใช้จ่าย)
     const sumCheque = +orderRows.reduce((s,o)=> s + Number(o.shopee_net||0), 0).toFixed(2);
     const withdrawAmt = Number(wd.withdraw_amount||0);
-    // ★ ค่าใช้จ่ายในกระเป๋าเงิน = ยอด "-" ทั้งหมดรวมกัน (ยกเลิก net<0 + ค่าโฆษณา)
-    //   = ผ่านเช็ค − เงินเข้าแบงค์จริง (identity balances เสมอ → คงเหลือ = ยอดถอน = STM)
-    const walletExpense = +(sumCheque - withdrawAmt).toFixed(2);
+    // ★ ยอดยกมา/ยกไป (carry) — งวดที่ถอนคร่อมวัน: เช็คของออเดอร์ออกงวดที่มันอยู่ · เงินถอนงวดถัดไป
+    const carryIn = Number(wd.carry_in||0);
+    const carryOut = Number(wd.carry_out||0);
+    // ★ ค่าใช้จ่ายในกระเป๋าเงิน = ยอด "-" ทั้งหมด (ยกเลิก net<0 + ค่าโฆษณา)
+    //   สมการ: ยกมา + รวมเช็ครับ − ค่าใช้จ่าย − ยกไป = ยอดถอน (= STM)  → identity balances เสมอ
+    const walletExpense = +(carryIn + sumCheque - withdrawAmt - carryOut).toFixed(2);
     const sumCancelled = +cancelledRows.reduce((s,o)=> s + Number(o.shopee_net||0), 0).toFixed(2); // ≤0
     const liveAdj = adjRows.reduce((s,o)=> s + Number(o.shopee_net||0), 0);
-    // shortfall: order ในงวด assign ไม่ครบยอดถอน (มียอดยกมาจากก่อนงวด)
-    const isShortfall = (sumCheque + sumCancelled + liveAdj) < (withdrawAmt - 1);
+    // shortfall: ออเดอร์ในไฟล์ไม่ครบยอดถอน (มียอดยกมาจากก่อนช่วงไฟล์) — persisted flag ก่อน, fallback คำนวณสด
+    const isShortfall = wd.carry_shortfall != null ? !!wd.carry_shortfall
+      : (carryIn + sumCheque + sumCancelled + liveAdj) < (withdrawAmt - 1);
 
     const isSel = d.mp.selected.has(wd.id);
     const bm = bmpMatchBank(d, wd);
@@ -30041,15 +30052,17 @@ function bmpRenderTab(d){
           const remain = withdrawAmt;   // ยอดเข้าแบงค์จริงตามรายงานถอน
           const stmOk = bankActual!=null && Math.abs(remain - bankActual) < 0.5;
           return `<div class="bmp-recon">
+            ${carryIn>0.005?`<div class="bx"><span class="k">ยอดยกมา <small>(เช็คออกงวดก่อน · ถอนงวดนี้)</small></span><span class="v">${bmpFmtMoney(carryIn)}</span></div><div class="op">+</div>`:''}
             <div class="bx"><span class="k">รวมยอดที่ต้องผ่านเช็ค <small>(เช็ครับ = net เข้ากระเป๋า)</small></span><span class="v">${bmpFmtMoney(sumCheque)}</span></div>
             <div class="op">−</div>
             <div class="bx fee"><span class="k">หัก ค่าใช้จ่ายในกระเป๋าเงิน <small>(ยอด − : ยกเลิก+โฆษณา)</small></span><span class="v">${bmpFmtMoney(walletExpense)}</span></div>
+            ${carryOut>0.005?`<div class="op">−</div><div class="bx"><span class="k">ยอดยกไป <small>(เช็คออกงวดนี้ · ถอนงวดหน้า)</small></span><span class="v">${bmpFmtMoney(carryOut)}</span></div>`:''}
             <div class="op">=</div>
             <div class="bx res"><span class="k">คงเหลือเข้าแบงค์</span><span class="v">${bmpFmtMoney(remain)}</span></div>
             <div class="op">${stmOk?'✓':(bankActual!=null?'✗':'·')}</div>
             <div class="bx ${stmOk?'good':(bankActual!=null?'no':'')}"><span class="k">เงินเข้าแบงค์จริง (STM)</span><span class="v">${bankActual!=null?bmpFmtMoney(bankActual):'— ไม่มี STM —'}</span></div>
           </div>
-          ${isShortfall?`<div class="bmp-warnline">⚠️ ออเดอร์ในงวดยังไม่ครบยอดถอน (มียอดยกมาจากก่อนงวด) — อัปไฟล์กระเป๋าเงินย้อนหลังเพิ่มเพื่อให้ครบ · ค่าใช้จ่ายที่โชว์ยังไม่ถูกต้อง</div>`:''}
+          ${isShortfall?`<div class="bmp-warnline">⚠️ ออเดอร์ในไฟล์ไม่ครบยอดถอน (มียอดยกมาจากก่อนช่วงไฟล์) — อัปไฟล์กระเป๋าเงินย้อนหลังเพิ่มเพื่อให้ครบ · เช็ครับที่โชว์ยังไม่ครบ</div>`:''}
           ${(bankActual!=null && !stmOk)?`<div class="bmp-warnline">⚠️ ยอดถอน ${bmpFmtMoney(remain)} ≠ เงินเข้าแบงค์จริง ${bmpFmtMoney(bankActual)} — ต่าง ${bmpFmtMoney(remain-bankActual)}</div>`:''}`;
         })()}
         <div class="bmp-toggle"><i data-lucide="${isExpanded?'chevron-up':'chevron-down'}"></i> ${isExpanded?'ซ่อน':'ขยาย'}ดูออเดอร์ (${orderRows.length}${cancelledRows.length?` + ยกเลิก ${cancelledRows.length}`:''}${adjRows.length?` + adj ${adjRows.length}`:''})</div>

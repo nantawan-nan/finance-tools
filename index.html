@@ -29792,9 +29792,22 @@ function bmpFilteredWds(d){
   });
 }
 
-/* ------- effective mismatch (mismatch ที่ยังไม่ถูก resolved) ------- */
+/* ------- ออเดอร์ยกเลิก (net ≤ 0) = คืนเงิน/ยกเลิก → บัญชีทำใบลดหนี้ ไม่ดึงมารับชำระ ------- */
+/*   ยอดติดลบ (เช่น -38 = ค่าส่งที่ถูกหักคืนตอนยกเลิก) การเงินรวมเป็น "ค่าใช้จ่ายในกระเป๋า" ตอน BQ */
+function bmpIsCancelledOrder(o){
+  return o && o.txn_type === "order" && Number(o.shopee_net||0) <= 0;
+}
+/* ------- เลขที่เช็คจริง (ขึ้นต้น TT/SP/LZ ตามช่องทาง + เลขออเดอร์) — ไม่ใช่เลข RE ------- */
+/*   ถ้ามีเลขเช็คจริงจาก Express (ไม่ใช่ fallback RE-/PENDING-/UNKNOWN-) ใช้เลย · ไม่งั้นสร้างจากช่องทาง */
+function bmpChequePrefix(channel){ return {tiktok:"TT", shopee:"SP", lazada:"LZ"}[channel] || "TT"; }
+function bmpRealCheque(o, channel){
+  const raw = String(o.cheque_no||"");
+  if(raw && !/^(RE-|PENDING-|UNKNOWN-)/.test(raw)) return raw;   // เลขเช็คจริงจาก Express
+  return o.order_id ? (bmpChequePrefix(channel) + o.order_id) : "";
+}
+/* ------- effective mismatch (mismatch ที่ยังไม่ถูก resolved) — ★ ไม่นับออเดอร์ยกเลิก (ทำใบลดหนี้ ไม่ใช่ mismatch) ------- */
 function bmpEffMismatch(orders){
-  return (orders||[]).filter(o => o.mismatch_flag && !o.resolved).length;
+  return (orders||[]).filter(o => o.mismatch_flag && !o.resolved && !bmpIsCancelledOrder(o)).length;
 }
 
 /* ------- ติ๊ก "แก้แล้ว" ต่อ order ------- */
@@ -29857,8 +29870,8 @@ function bmpExportCsv(){
   let no = 0;
   for(const wd of exportWds){
     const allOrds = ordersByWd.get(wd.id)||[];
-    // เรียงเลขที่เช็คน้อย→มาก ในแต่ละวันที่เงินเข้า
-    const list = allOrds.filter(o=>o.txn_type==="order")
+    // ★ เฉพาะออเดอร์จริง (ผ่านเช็ค · net>0) — ยกเลิก (net≤0) ไม่เป็นแถวเช็ค แต่รวมเป็นค่าใช้จ่าย
+    const list = allOrds.filter(o=>o.txn_type==="order" && !bmpIsCancelledOrder(o))
       .slice().sort((a,b)=> String(a.cheque_no||"").localeCompare(String(b.cheque_no||""), undefined, {numeric:true}));
     // skip ทั้ง withdrawal ถ้ายังมี mismatch ที่ไม่ได้ติ๊ก "แก้แล้ว" (กันคีย์ผิด)
     if(bmpEffMismatch(allOrds) > 0) continue;
@@ -29866,10 +29879,9 @@ function bmpExportCsv(){
     // คำนวณ depositCode สด ๆ จาก shop_name (เผื่อ schema ยังไม่ persist deposit_code)
     const routing = bmpRouting(wd.shop_name);
     const depCode = routing.depositCode || "";
-    // recompute ค่าธรรมเนียมที่บันทึก = |ยอดเช็ค+adj−แบงค์| − |adj| · เลขบวกเสมอ (Express คีย์บวก=หัก)
-    const adjSum = allOrds.filter(o=>o.txn_type==="adjustment").reduce((s,o)=> s + Number(o.shopee_net||0), 0);
-    const gapTotal = list.reduce((s,o)=> s + Number(o.express_gross||0), 0) + adjSum - Number(wd.withdraw_amount||0);
-    const feeTotal = Math.abs(gapTotal) - Math.abs(adjSum);
+    // ★ ค่าใช้จ่ายในกระเป๋าเงิน (บันทึก 1 ยอดตอน BQ) = รวมยอดผ่านเช็ค − เงินเข้าแบงค์จริง
+    //   (= ค่าธรรมเนียมแพลตฟอร์ม + ยอดยกเลิก net<0 + ค่าโฆษณา — ทั้งหมดที่เป็น "ยอด −")
+    const feeTotal = list.reduce((s,o)=> s + Number(o.express_gross||0), 0) - Number(wd.withdraw_amount||0);
     list.forEach((o, idx) => {
       no++;
       const isFirst = idx === 0;
@@ -29878,7 +29890,7 @@ function bmpExportCsv(){
         isFirst ? wd.bq_number : "",
         isFirst ? dt : "",
         isFirst ? depCode : "",
-        o.cheque_no || "",
+        bmpRealCheque(o, wd.channel),
         Number(o.express_gross||0).toFixed(2),
         Number(o.shopee_net||0).toFixed(2),
         Number(o.fee_diff||0).toFixed(2),
@@ -29973,8 +29985,11 @@ function bmpRenderTab(d){
 
   const cards = filtered.map(wd => {
     const ords = ordersByWd.get(wd.id) || [];
-    const orderRows = ords.filter(o => o.txn_type === "order")
+    const allOrderRows = ords.filter(o => o.txn_type === "order")
       .slice().sort((a,b)=> String(a.cheque_no||"").localeCompare(String(b.cheque_no||""), undefined, {numeric:true}));
+    // ★ แยกออเดอร์ยกเลิก (net≤0) ออกจากออเดอร์ที่ต้องผ่านเช็ค — ยกเลิก = ทำใบลดหนี้ + เป็นค่าใช้จ่ายในกระเป๋า
+    const orderRows = allOrderRows.filter(o => !bmpIsCancelledOrder(o));   // ออเดอร์จริง (ผ่านเช็ค)
+    const cancelledRows = allOrderRows.filter(o => bmpIsCancelledOrder(o)); // ยกเลิก → ใบลดหนี้ + ค่าใช้จ่าย
     const adjRows = ords.filter(o => o.txn_type === "adjustment");
     const isExpanded = d.mp.expanded.has(wd.id);
     const effMis = bmpEffMismatch(ords);
@@ -29986,15 +30001,16 @@ function bmpRenderTab(d){
     const acctRec = d.accounts.find(a=>a.id===wd.bank_account_id);
     const accountLabel = acctRec ? (acctRec.bank_code+" "+acctRec.account_no)
       : (routing.bankCode ? (routing.bankCode+" "+routing.accountNo) : "—");
-    // ส่วนต่าง (ค่าธรรมเนียมที่คีย์หัก) = sum_gross + adj − ยอดเข้าแบงค์ (recompute สด ๆ เผื่อแก้)
-    const liveGross = orderRows.reduce((s,o)=> s + Number(o.express_gross||0), 0);
+    // ★ รวมยอดเงินที่ต้องผ่านเช็ค = Σ มูลค่าเช็ครับ (gross) ของออเดอร์จริง (ไม่รวมยกเลิก)
+    const sumCheque = +orderRows.reduce((s,o)=> s + Number(o.express_gross||0), 0).toFixed(2);
+    const withdrawAmt = Number(wd.withdraw_amount||0);
+    // ★ ค่าใช้จ่ายในกระเป๋าเงิน = ยอด "-" ทั้งหมดรวมกัน (ค่าธรรมเนียมแพลตฟอร์ม + ยกเลิก net<0 + ค่าโฆษณา)
+    //   = ผ่านเช็ค − เงินเข้าแบงค์จริง (identity balances เสมอ → คงเหลือ = ยอดถอน = STM)
+    const walletExpense = +(sumCheque - withdrawAmt).toFixed(2);
+    const sumCancelled = +cancelledRows.reduce((s,o)=> s + Number(o.shopee_net||0), 0).toFixed(2); // ≤0
     const liveAdj = adjRows.reduce((s,o)=> s + Number(o.shopee_net||0), 0);
-    const liveGap = +(liveGross + liveAdj - Number(wd.withdraw_amount||0)).toFixed(2);
-    // ★ ค่าธรรมเนียมที่บันทึกใน Express = บวกเสมอ + หักลบยอดปรับปรุงในกระเป๋า
-    //   เช่น gap 130, ปรับปรุง 73 → บันทึก 57 (Express คีย์เลขบวก = หักออก)
-    const liveFee = +(Math.abs(liveGap) - Math.abs(liveAdj)).toFixed(2);
     // shortfall: order ในงวด assign ไม่ครบยอดถอน (มียอดยกมาจากก่อนงวด)
-    const isShortfall = (liveGross + liveAdj) < (Number(wd.withdraw_amount||0) - 1);
+    const isShortfall = (sumCheque + sumCancelled + liveAdj) < (withdrawAmt - 1);
 
     const isSel = d.mp.selected.has(wd.id);
     const bm = bmpMatchBank(d, wd);
@@ -30017,49 +30033,49 @@ function bmpRenderTab(d){
           <div><span class="lbl">วันที่ถอน</span><span class="val">${dateThai}</span></div>
           <div><span class="lbl">เลขที่ BQ</span><span class="val mono">${esc(wd.bq_number||"-")}</span></div>
           <div><span class="lbl">บัญชี (รหัส ${esc(depCode)})</span><span class="val">${esc(accountLabel)}</span></div>
-          <div><span class="lbl">ออเดอร์</span><span class="val">${wd.order_count}${adjRows.length?` + adj ${adjRows.length}`:''}</span></div>
+          <div><span class="lbl">ออเดอร์ (ผ่านเช็ค)</span><span class="val">${orderRows.length}${cancelledRows.length?` · ยกเลิก ${cancelledRows.length}`:''}${adjRows.length?` · adj ${adjRows.length}`:''}</span></div>
         </div>
         ${(() => {
           const bankActual = bm.found ? Number(bm.row.deposit) : null;
-          const remain = Number(wd.withdraw_amount||0);   // ยอดเข้าแบงค์จริงตามรายงานถอน
+          const remain = withdrawAmt;   // ยอดเข้าแบงค์จริงตามรายงานถอน
           const stmOk = bankActual!=null && Math.abs(remain - bankActual) < 0.5;
           return `<div class="bmp-recon">
-            <div class="bx"><span class="k">รวมเช็ค (Express)</span><span class="v">${bmpFmtMoney(liveGross)}</span></div>
-            ${Math.abs(liveAdj)>0.005?`<div class="op">+</div><div class="bx"><span class="k">ปรับปรุงในกระเป๋า</span><span class="v">${bmpFmtMoney(liveAdj)}</span></div>`:''}
+            <div class="bx"><span class="k">รวมยอดที่ต้องผ่านเช็ค <small>(ตามเช็ครับที่คีย์)</small></span><span class="v">${bmpFmtMoney(sumCheque)}</span></div>
             <div class="op">−</div>
-            <div class="bx fee"><span class="k">หัก ค่าธรรมเนียม <small>(บันทึก 1 ยอด, เลขบวก)</small></span><span class="v">${bmpFmtMoney(liveFee)}</span></div>
+            <div class="bx fee"><span class="k">หัก ค่าใช้จ่ายในกระเป๋าเงิน <small>(ยอด − ทั้งหมด: ค่าธรรมเนียม+ยกเลิก+โฆษณา)</small></span><span class="v">${bmpFmtMoney(walletExpense)}</span></div>
             <div class="op">=</div>
             <div class="bx res"><span class="k">คงเหลือเข้าแบงค์</span><span class="v">${bmpFmtMoney(remain)}</span></div>
             <div class="op">${stmOk?'✓':(bankActual!=null?'✗':'·')}</div>
             <div class="bx ${stmOk?'good':(bankActual!=null?'no':'')}"><span class="k">เงินเข้าแบงค์จริง (STM)</span><span class="v">${bankActual!=null?bmpFmtMoney(bankActual):'— ไม่มี STM —'}</span></div>
           </div>
-          ${isShortfall?`<div class="bmp-warnline">⚠️ order ในงวด assign ไม่ครบยอดถอน (มียอดยกมาจากก่อนงวด) — อัปไฟล์ Shopee ย้อนหลังเพิ่มเพื่อให้ครบ · ค่าธรรมเนียมที่โชว์ยังไม่ถูกต้อง</div>`:''}
+          ${isShortfall?`<div class="bmp-warnline">⚠️ ออเดอร์ในงวดยังไม่ครบยอดถอน (มียอดยกมาจากก่อนงวด) — อัปไฟล์กระเป๋าเงินย้อนหลังเพิ่มเพื่อให้ครบ · ค่าใช้จ่ายที่โชว์ยังไม่ถูกต้อง</div>`:''}
           ${(bankActual!=null && !stmOk)?`<div class="bmp-warnline">⚠️ ยอดถอน ${bmpFmtMoney(remain)} ≠ เงินเข้าแบงค์จริง ${bmpFmtMoney(bankActual)} — ต่าง ${bmpFmtMoney(remain-bankActual)}</div>`:''}`;
         })()}
-        <div class="bmp-toggle"><i data-lucide="${isExpanded?'chevron-up':'chevron-down'}"></i> ${isExpanded?'ซ่อน':'ขยาย'}ดูออเดอร์ (${orderRows.length}${adjRows.length?` + adj ${adjRows.length}`:''})</div>
+        <div class="bmp-toggle"><i data-lucide="${isExpanded?'chevron-up':'chevron-down'}"></i> ${isExpanded?'ซ่อน':'ขยาย'}ดูออเดอร์ (${orderRows.length}${cancelledRows.length?` + ยกเลิก ${cancelledRows.length}`:''}${adjRows.length?` + adj ${adjRows.length}`:''})</div>
       </div>
       ${isExpanded ? `<div class="bmp-body">
         <table class="bmp-tbl">
           <thead><tr>
-            <th>#</th><th>รหัสคำสั่งซื้อ</th><th>IV / อ้างอิง</th><th>เลขที่เช็ค</th><th class="r">gross EXPRESS</th><th class="r">net กระเป๋า</th><th class="r">ผลต่าง</th><th>สถานะ</th><th style="text-align:center">แก้แล้ว</th>
+            <th>#</th><th>รหัสคำสั่งซื้อ</th><th>เลขที่เช็ค (จริง)</th><th>IV / เลข RE</th><th class="r">gross EXPRESS</th><th class="r">net กระเป๋า</th><th class="r">ผลต่าง</th><th>สถานะ</th><th style="text-align:center">แก้แล้ว</th>
           </tr></thead>
           <tbody>
             ${orderRows.map((o,i) => {
               const isMis = o.mismatch_flag;
               const isResolved = !!o.resolved;
               const rowCls = isMis && !isResolved ? "mis" : (isMis && isResolved ? "fixed" : "");
+              const realChq = bmpRealCheque(o, wd.channel);
               const chqCell = isMis
                 ? `<input value="${esc(o.cheque_no||"")}" onclick="event.stopPropagation()" onchange="bmpEditOrderField('${o.id}','cheque_no',this.value)" class="bmp-edit mono" placeholder="เลขที่เช็ค" title="แก้เลขที่เช็คจริงจาก Express">`
-                : `<span class="mono">${esc(o.cheque_no||"")}</span>`;
+                : `<span class="mono">${esc(realChq)}</span>`;
               const grossCell = isMis
                 ? `<input value="${Number(o.express_gross||0).toFixed(2)}" onclick="event.stopPropagation()" onchange="bmpEditOrderField('${o.id}','express_gross',this.value)" class="bmp-edit num" title="แก้ยอดเช็คจริง">`
                 : bmpFmtMoney(o.express_gross);
-              const ivRef = o.receipt_no || (o.cheque_no && o.cheque_no.startsWith("PENDING-") ? o.cheque_no.replace("PENDING-","") : "");
+              const ivRef = o.receipt_no || (o.cheque_no && o.cheque_no.startsWith("PENDING-") ? o.cheque_no.replace("PENDING-","") : (o.cheque_no && o.cheque_no.startsWith("RE-") ? o.cheque_no.replace("RE-","") : ""));
               return `<tr class="${rowCls}">
               <td>${i+1}</td>
               <td class="mono" style="font-size:11px">${esc(o.order_id||"")}</td>
-              <td class="mono" style="font-size:11px;color:var(--ink-2,#475569)">${esc(ivRef)}</td>
               <td>${chqCell}</td>
+              <td class="mono" style="font-size:11px;color:var(--ink-2,#475569)">${esc(ivRef)}</td>
               <td class="r money">${grossCell}</td>
               <td class="r money">${bmpFmtMoney(o.shopee_net)}</td>
               <td class="r money">${bmpFmtMoney(o.fee_diff)}</td>
@@ -30067,6 +30083,16 @@ function bmpRenderTab(d){
               <td style="text-align:center">${isMis?`<input type="checkbox" ${isResolved?'checked':''} onclick="event.stopPropagation()" onchange="bmpResolveOrder('${o.id}', this.checked)" style="width:16px;height:16px;accent-color:#16a34a;cursor:pointer" title="ติ๊กถ้าแก้ไขใน Express แล้ว — จะนับ withdrawal นี้พร้อม export">`:''}</td>
             </tr>`;
             }).join("")}
+            ${cancelledRows.length ? `<tr class="adj"><td>·</td><td colspan="8" style="background:#fff7ed;color:#9a3412;font-weight:600;font-size:11.5px">↩ ออเดอร์ยกเลิก/คืนเงิน ${cancelledRows.length} รายการ — บัญชีทำ<b>ใบลดหนี้</b> (ไม่ดึงมารับชำระ) · ยอดติดลบรวมเป็นค่าใช้จ่ายในกระเป๋าตอน BQ</td></tr>` : ''}
+            ${cancelledRows.map((o,i) => `<tr class="adj">
+              <td>${orderRows.length+i+1}</td>
+              <td class="mono" style="font-size:11px">${esc(o.order_id||"")}</td>
+              <td colspan="2"><span style="font-size:11px;color:#9a3412">ยกเลิก → ใบลดหนี้</span></td>
+              <td class="r money">—</td>
+              <td class="r money">${bmpFmtMoney(o.shopee_net)}</td>
+              <td class="r money">—</td>
+              <td colspan="2"><span style="font-size:11px;color:#9a3412">↩ ค่าใช้จ่ายในกระเป๋า</span></td>
+            </tr>`).join("")}
             ${adjRows.map(a => `<tr class="adj">
               <td>·</td>
               <td colspan="5">📌 ${esc(a.note||"adjustment")}</td>
@@ -30102,7 +30128,7 @@ function bmpRenderTab(d){
     <div class="bmp-sum">
       <div class="bmp-sc"><div class="l">Withdrawal</div><div class="v">${filtered.length}</div></div>
       <div class="bmp-sc"><div class="l">รวม net เข้าแบงค์</div><div class="v">${bmpFmtMoney(totalNet)}</div></div>
-      <div class="bmp-sc"><div class="l">รวมหัก ค่าธรรมเนียม</div><div class="v">${bmpFmtMoney(totalFee)}</div></div>
+      <div class="bmp-sc"><div class="l">รวมค่าใช้จ่ายในกระเป๋า</div><div class="v">${bmpFmtMoney(totalFee)}</div></div>
       <div class="bmp-sc ${totalMismatch?'warn':'ok'}"><div class="l">${totalMismatch?'⚠️ ออเดอร์ไม่ตรง':'✓ ผ่านการตรวจ'}</div><div class="v">${totalMismatch||"0"}</div></div>
       <div class="bmp-sc ${stmStats.miss?'warn':'ok'}"><div class="l">ตรงกับ STM</div><div class="v">${stmStats.ok}/${filtered.length}</div><div class="s" style="font-size:11px;color:var(--ink-3,#94a3b8)">${stmStats.nostmt?`ยังไม่อัป STM ${stmStats.nostmt}`:(stmStats.miss?`ไม่พบ ${stmStats.miss}`:'ครบ')}</div></div>
     </div>

@@ -24158,7 +24158,17 @@ function bmpIsTiktokWallet(workbook){
 function bmpTtSheetRows(workbook, re){
   const name = (workbook.SheetNames||[]).find(n=>re.test(String(n)));
   if(!name) return null;
-  return XLSX.utils.sheet_to_json(workbook.Sheets[name], { header:1, defval:"", raw:true });
+  const sheet = workbook.Sheets[name];
+  // ★★ ไฟล์ TikTok ประกาศช่วงข้อมูล (!ref) ผิด — เช่น "A1:S3" ทั้งที่มีจริง 74 แถว
+  //    SheetJS เชื่อ !ref → อ่านได้แค่ 2-3 แถว (เคยทำให้หา withdrawal ไม่เจอ = "ไม่ทราบบัญชี")
+  //    → คำนวณช่วงจริงจาก cell address ทั้งหมดเอง แล้วส่งเป็น range
+  let maxR = 0, maxC = 0;
+  for(const k in sheet){
+    if(!k || k[0] === "!") continue;
+    try{ const c = XLSX.utils.decode_cell(k); if(c.r > maxR) maxR = c.r; if(c.c > maxC) maxC = c.c; }catch(e){}
+  }
+  const range = XLSX.utils.encode_range({ s:{r:0,c:0}, e:{r:maxR, c:maxC} });
+  return XLSX.utils.sheet_to_json(sheet, { header:1, defval:"", raw:true, range });
 }
 function bmpTtNum(v){ const n = Number(String(v==null?"":v).replace(/[, ]/g,"")); return isFinite(n)?n:0; }
 function bmpTtIsNum(v){ if(v===""||v==null) return false; return isFinite(Number(String(v).replace(/[, ]/g,""))); }

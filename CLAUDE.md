@@ -191,6 +191,12 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-24 (5) — ★ ส่งออก RE (M Bark): รหัสลูกค้าเพี้ยน "ลูกค้าทั่วไป-SHOPEE" → ใช้โค้ดช่องทางเหมือน IV
+- **เจ้าของแจ้ง (ไฟล์ RE_AutoKey_mbark):** คอลัมน์รหัสลูกค้าคีย์ออกมาเป็น "ลูกค้าทั่วไป-SHOPEE / -TIKTOK" (ชื่อลูกค้าเต็ม) ทั้งที่ M Bark ต้องเป็นโค้ดช่องทางสั้น SHOPEE/TIKTOK/FACE
+- **ต้นเหตุ:** `incReCandidates.arCustCode` (M Bark) ดึงจาก `ivCustMap[iv_no]` = ช่อง "ลูกค้า" ใน 141.RWT = **ชื่อลูกค้า** ("ลูกค้าทั่วไป-SHOPEE") ไม่ใช่ **รหัส** · ต่างจากส่งออก IV (`ivrOrderExportMeta`) ที่ M Bark ใช้ `platLabel` (SHOPEE/TIKTOK/LAZADA) / `directCust` (FACE/LINE/Dealer/CSR) → IV กับ RE ไม่ตรงกัน
+- **แก้:** M Bark `arCustCode = ivrOrderExportMeta(ord).cust` (สูตรเดียวกับ IV) แทน "" → fallback ivCustMap/customer เฉพาะเมื่อว่าง · Benya คงเดิม (custCodeBenya ช่องทาง×แบรนด์)
+- **verified (หน้าจริง · 8 เคส):** shopee→SHOPEE(check SH·bank Down13) · tiktok→TIKTOK(TT·12) · lazada→LAZADA(LZ·11) · FB100→FACE · LMS100→LINE · DR100→Dealer · order_total 0→CSR · `mbarkCheckCode`/`mbarkBankDownByCust` ยังทำงาน (token match SHOPEE/TIKTOK เหมือนเดิม) · boot 0 error · กระทบ Benya = 0
+
 ### 2026-07-24 (4) — Orders recon: ยกเลิกที่ตรงกัน (cxl_ok) นับเป็น "ตรงกัน" + ออกจาก "ที่ต้องตรวจ"
 - **เจ้าของถาม "ต่างยังไง":** ออเดอร์ยกเลิก cxl_ok (BigSeller+หลังบ้านยกเลิกตรงกัน · ยอด 680=680) โผล่ในกลุ่ม "ที่ต้องตรวจ" ทั้งที่ไม่ได้ต่าง — เพราะ filter "ที่ต้องตรวจ" = ทุกสถานะที่ไม่ใช่ `matched` (cxl_ok มี status ≠ matched เลยติดมา) · badge โชว์ `cxl_ok` ดิบ
 - **แก้ `ordRenderRecon`:** `cxlMatched(s)= ordIsCxlStatus(s) && ORD_CXL_META[s].ok` (cxl_ok/cxl_nobe/cxl_nobs = ยกเลิกที่กระทบยอดแล้ว) → **นับเข้า KPI "ตรงกัน"** (label "ตรงกัน ✓ (รวมยกเลิกตรงกัน)") · **ตัดออกจาก "ที่ต้องตรวจ"** (`inFilter` problems = `status!=='matched' && !cxlMatched`) · ยกเลิกที่ยังไม่ตรง (cxl_open/cxl_bs · ok:false) → นับเข้า "ต้องตรวจอื่นๆ" (`c.cxlprob`) คงอยู่ในที่ต้องตรวจ

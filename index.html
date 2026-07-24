@@ -4361,7 +4361,10 @@ function incReCandidates(d){
       arDate: ord.iv_date||null, arIv: ord.iv_no, actualBrand: incBrandOf(ord),
       arOutstanding: outstanding, orderNo: r.order_id, channel, channelGroup: r.channel_group||"",
       paymentDate: r.paid_date||null, paidISO: parseDate(r.paid_date||""), netAmount: net, diff: round2(outstanding-net),
-      arCustCode: (state.company!=="mbark" ? custCodeBenya(channel, incBrandOf(ord)) : "") || ivCustMap[ord.iv_no] || ord.customer || r.channel_group || "", bankCode: bankCodeOf(channel, incBrandOf(ord)),
+      // ★ รหัสลูกค้า: ใช้สูตรเดียวกับส่งออก IV (ivrOrderExportMeta) ให้ IV↔RE ตรงกัน
+      //   M Bark = โค้ดช่องทาง (SHOPEE/TIKTOK/LAZADA/FACE/LINE/Dealer) · Benya = ช่องทาง×แบรนด์
+      //   เลิกดึงชื่อเต็มจาก 141.RWT ("ลูกค้าทั่วไป-SHOPEE") ที่เป็น "ชื่อลูกค้า" ไม่ใช่ "รหัส"
+      arCustCode: (state.company!=="mbark" ? custCodeBenya(channel, incBrandOf(ord)) : ivrOrderExportMeta(ord).cust) || ivCustMap[ord.iv_no] || ord.customer || r.channel_group || "", bankCode: bankCodeOf(channel, incBrandOf(ord)),
       re_no: ord.re_no||null, inReport191,
       warning: !ord.iv_date ? "ไม่มีวันที่ IV" : (outstanding<=0 ? "ไม่มียอด IV ในระบบ" : "")
     });

@@ -27854,16 +27854,19 @@ function ordRenderRecon(d){
       ${upBtn}</div>`;
   }
   const res=rec.results;
-  const c={matched:0,only_be:0,only_bs:0,diff:0};
-  res.forEach(r=>c[r.status]++);
+  // ★ ยกเลิกที่กระทบยอดแล้ว (cxl_ok/cxl_nobe/cxl_nobs · ok:true) = นับเป็น "ตรงกัน" (ยกเลิกตรงกัน · ไม่ต้องตรวจ)
+  //   ยกเลิกที่ยังไม่ตรง (cxl_open/cxl_bs · ok:false) = งานค้าง → เข้า "ต้องตรวจอื่นๆ"
+  const cxlMatched=(s)=> ordIsCxlStatus(s) && ORD_CXL_META[s].ok;
+  const c={matched:0,only_be:0,only_bs:0,diff:0,cxlprob:0};
+  res.forEach(r=>{ const k = cxlMatched(r.status) ? 'matched' : (ordIsCxlProblem(r.status) ? 'cxlprob' : r.status); if(c[k]!=null) c[k]++; });
   const filt = rec.filter || 'problems';
-  const inFilter=(r)=> filt==='all' ? true : filt==='matched' ? r.status==='matched' : filt==='only_be' ? r.status==='only_be' : filt==='other' ? (r.status==='diff'||r.status==='only_bs') : r.status!=='matched';
+  const inFilter=(r)=> filt==='all' ? true : filt==='matched' ? (r.status==='matched'||cxlMatched(r.status)) : filt==='only_be' ? r.status==='only_be' : filt==='other' ? (r.status==='diff'||r.status==='only_bs'||ordIsCxlProblem(r.status)) : (r.status!=='matched' && !cxlMatched(r.status));
   const list = res.filter(inFilter).sort((a,b)=>(a.status>b.status?1:-1)||((a.date||'')<(b.date||'')?1:-1));
   const kpiCls={ all:'', matched:'soft-green', only_be:'soft-red', other:'soft-amber' };
   const kpiCard=(key,n,l)=>`<div class="ord-k ${kpiCls[key]||''} click" onclick="ordReconFilter('${key}')" style="${filt===key?'outline:2px solid currentColor;outline-offset:-2px':''}"><div class="lbl">${l}</div><div class="v tnum">${n.toLocaleString("th-TH")}</div></div>`;
   const bdMap={ matched:'ok', only_be:'danger', diff:'warn', only_bs:'info' };
   const labMap={ matched:'ตรงกัน ✓', only_be:'หลังบ้านมี · ขายไม่คีย์', diff:'ยอด/SKU ไม่ตรง', only_bs:'BigSeller เกิน · หลังบ้านไม่มี' };
-  const detailOf=(r)=> r.status==='matched' ? `ยอดสุทธิ <b class="tnum">${fmt(ordReconNet(r.bs||{}))}</b> · ${esc((r.bs&&r.bs.products)||'')}` : r.status==='diff'?(r.diffs||[]).map(df=>`<span style="margin-right:14px"><b>${df.f}:</b> ${df.txt?esc(df.bs):fmt(df.bs)} <span style="color:var(--n-400)">vs</span> ${df.txt?esc(df.be):fmt(df.be)}</span>`).join(''):(r.status==='only_be'?`ยอด <b class="tnum">${fmt(ordReconNet(r.be||{}))}</b> · ${esc((r.be&&r.be.products)||'')}`:`ยอด <b class="tnum">${fmt(ordReconNet(r.bs||{}))}</b> · ${esc((r.bs&&r.bs.products)||'')}`);
+  const detailOf=(r)=> ordIsCxlStatus(r.status) ? `<span style="color:${ORD_CXL_META[r.status].c}">🚫 ${esc(ORD_CXL_META[r.status].hint||'ยกเลิก')}</span> · ยอด <b class="tnum">${fmt(ordReconNet(r.bs||r.be||{}))}</b> · ${esc(((r.bs||r.be||{}).products)||'')}` : r.status==='matched' ? `ยอดสุทธิ <b class="tnum">${fmt(ordReconNet(r.bs||{}))}</b> · ${esc((r.bs&&r.bs.products)||'')}` : r.status==='diff'?(r.diffs||[]).map(df=>`<span style="margin-right:14px"><b>${df.f}:</b> ${df.txt?esc(df.bs):fmt(df.bs)} <span style="color:var(--n-400)">vs</span> ${df.txt?esc(df.be):fmt(df.be)}</span>`).join(''):(r.status==='only_be'?`ยอด <b class="tnum">${fmt(ordReconNet(r.be||{}))}</b> · ${esc((r.be&&r.be.products)||'')}`:`ยอด <b class="tnum">${fmt(ordReconNet(r.bs||{}))}</b> · ${esc((r.bs&&r.bs.products)||'')}`);
   const filtLabel={all:'ทั้งหมด',matched:'ตรงกัน',only_be:'ขายคีย์ไม่ครบ',other:'ต้องตรวจอื่นๆ',problems:'ที่ต้องตรวจ'}[filt]||filt;
   return `
     <div class="ord-actions">
@@ -27878,9 +27881,9 @@ function ordRenderRecon(d){
     ${ordReconCoverageHtml(d,res)}
     <div class="ord-kpis" style="margin-bottom:8px">
       ${kpiCard('all',res.length,'ตรวจทั้งหมด')}
-      ${kpiCard('matched',c.matched,'ตรงกัน ✓')}
+      ${kpiCard('matched',c.matched,'ตรงกัน ✓ (รวมยกเลิกตรงกัน)')}
       ${kpiCard('only_be',c.only_be,'ขายคีย์ไม่ครบ')}
-      ${kpiCard('other',c.diff+c.only_bs,'ต้องตรวจอื่นๆ')}
+      ${kpiCard('other',c.diff+c.only_bs+c.cxlprob,'ต้องตรวจอื่นๆ')}
     </div>
     <div style="font:500 12px/1.4 inherit;color:var(--n-500);margin-bottom:12px">👆 คลิกการ์ดเพื่อกรอง · กำลังดู: <b style="color:var(--n-900)">${esc(filtLabel)}</b> (${list.length.toLocaleString("th-TH")})</div>
     ${list.length? `<div class="ord-card">
@@ -27888,7 +27891,7 @@ function ordRenderRecon(d){
         <table class="ord-table">
           <thead><tr><th style="width:90px">วันที่</th><th style="width:90px">ช่องทาง</th><th style="width:170px">เลขออเดอร์</th><th>สถานะ / ผลต่าง</th></tr></thead>
           <tbody>
-          ${list.slice(0,800).map(r=>{ const bd=bdMap[r.status]||'mute'; const lab=labMap[r.status]||r.status; const exp=rec.expanded&&rec.expanded.has(r.order_no); const detail=detailOf(r);
+          ${list.slice(0,800).map(r=>{ const cxlMeta=ordIsCxlStatus(r.status)?ORD_CXL_META[r.status]:null; const bd=cxlMeta?(cxlMeta.ok?'ok':'warn'):(bdMap[r.status]||'mute'); const lab=cxlMeta?('🚫 '+cxlMeta.short):(labMap[r.status]||r.status); const exp=rec.expanded&&rec.expanded.has(r.order_no); const detail=detailOf(r);
             return `<tr class="${exp?'exp':''}" onclick="ordReconToggle('${encodeURIComponent(r.order_no)}')">
               <td class="tnum" style="font-size:12px">${r.date||'—'}</td>
               <td style="font-size:12px">${esc(r.channel||'')}</td>

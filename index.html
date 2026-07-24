@@ -29879,9 +29879,9 @@ function bmpExportCsv(){
     // คำนวณ depositCode สด ๆ จาก shop_name (เผื่อ schema ยังไม่ persist deposit_code)
     const routing = bmpRouting(wd.shop_name);
     const depCode = routing.depositCode || "";
-    // ★ ค่าใช้จ่ายในกระเป๋าเงิน (บันทึก 1 ยอดตอน BQ) = รวมยอดผ่านเช็ค − เงินเข้าแบงค์จริง
-    //   (= ค่าธรรมเนียมแพลตฟอร์ม + ยอดยกเลิก net<0 + ค่าโฆษณา — ทั้งหมดที่เป็น "ยอด −")
-    const feeTotal = list.reduce((s,o)=> s + Number(o.express_gross||0), 0) - Number(wd.withdraw_amount||0);
+    // ★ ค่าใช้จ่ายในกระเป๋าเงิน (บันทึก 1 ยอดตอน BQ) = รวมเช็ครับ (net) − เงินเข้าแบงค์จริง
+    //   (= ยอดยกเลิก net<0 + ค่าโฆษณา — "ยอด −" ทั้งหมด)
+    const feeTotal = list.reduce((s,o)=> s + Number(o.shopee_net||0), 0) - Number(wd.withdraw_amount||0);
     list.forEach((o, idx) => {
       no++;
       const isFirst = idx === 0;
@@ -29891,7 +29891,7 @@ function bmpExportCsv(){
         isFirst ? dt : "",
         isFirst ? depCode : "",
         bmpRealCheque(o, wd.channel),
-        Number(o.express_gross||0).toFixed(2),
+        Number(o.shopee_net||0).toFixed(2),
         Number(o.shopee_net||0).toFixed(2),
         Number(o.fee_diff||0).toFixed(2),
         isFirst ? feeTotal.toFixed(2) : "",
@@ -30001,10 +30001,11 @@ function bmpRenderTab(d){
     const acctRec = d.accounts.find(a=>a.id===wd.bank_account_id);
     const accountLabel = acctRec ? (acctRec.bank_code+" "+acctRec.account_no)
       : (routing.bankCode ? (routing.bankCode+" "+routing.accountNo) : "—");
-    // ★ รวมยอดเงินที่ต้องผ่านเช็ค = Σ มูลค่าเช็ครับ (gross) ของออเดอร์จริง (ไม่รวมยกเลิก)
-    const sumCheque = +orderRows.reduce((s,o)=> s + Number(o.express_gross||0), 0).toFixed(2);
+    // ★ รวมยอดที่ต้องผ่านเช็ค = Σ เงินเข้ากระเป๋าสุทธิ (net) ของออเดอร์จริง (net>0) = มูลค่าเช็ครับที่คีย์
+    //   (เจ้าของยืนยัน: เช็ครับ = ยอด net ที่เข้ากระเป๋า ไม่ใช่ยอด IV/gross · ยอดลบยกเลิก = ค่าใช้จ่าย)
+    const sumCheque = +orderRows.reduce((s,o)=> s + Number(o.shopee_net||0), 0).toFixed(2);
     const withdrawAmt = Number(wd.withdraw_amount||0);
-    // ★ ค่าใช้จ่ายในกระเป๋าเงิน = ยอด "-" ทั้งหมดรวมกัน (ค่าธรรมเนียมแพลตฟอร์ม + ยกเลิก net<0 + ค่าโฆษณา)
+    // ★ ค่าใช้จ่ายในกระเป๋าเงิน = ยอด "-" ทั้งหมดรวมกัน (ยกเลิก net<0 + ค่าโฆษณา)
     //   = ผ่านเช็ค − เงินเข้าแบงค์จริง (identity balances เสมอ → คงเหลือ = ยอดถอน = STM)
     const walletExpense = +(sumCheque - withdrawAmt).toFixed(2);
     const sumCancelled = +cancelledRows.reduce((s,o)=> s + Number(o.shopee_net||0), 0).toFixed(2); // ≤0
@@ -30040,9 +30041,9 @@ function bmpRenderTab(d){
           const remain = withdrawAmt;   // ยอดเข้าแบงค์จริงตามรายงานถอน
           const stmOk = bankActual!=null && Math.abs(remain - bankActual) < 0.5;
           return `<div class="bmp-recon">
-            <div class="bx"><span class="k">รวมยอดที่ต้องผ่านเช็ค <small>(ตามเช็ครับที่คีย์)</small></span><span class="v">${bmpFmtMoney(sumCheque)}</span></div>
+            <div class="bx"><span class="k">รวมยอดที่ต้องผ่านเช็ค <small>(เช็ครับ = net เข้ากระเป๋า)</small></span><span class="v">${bmpFmtMoney(sumCheque)}</span></div>
             <div class="op">−</div>
-            <div class="bx fee"><span class="k">หัก ค่าใช้จ่ายในกระเป๋าเงิน <small>(ยอด − ทั้งหมด: ค่าธรรมเนียม+ยกเลิก+โฆษณา)</small></span><span class="v">${bmpFmtMoney(walletExpense)}</span></div>
+            <div class="bx fee"><span class="k">หัก ค่าใช้จ่ายในกระเป๋าเงิน <small>(ยอด − : ยกเลิก+โฆษณา)</small></span><span class="v">${bmpFmtMoney(walletExpense)}</span></div>
             <div class="op">=</div>
             <div class="bx res"><span class="k">คงเหลือเข้าแบงค์</span><span class="v">${bmpFmtMoney(remain)}</span></div>
             <div class="op">${stmOk?'✓':(bankActual!=null?'✗':'·')}</div>

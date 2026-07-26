@@ -1031,6 +1031,7 @@ function toggleNavGroup(gid){
 }
 function setTool(id){
   state.tool=id;
+  try{ homeTrackTool(id); }catch(e){}
   document.getElementById('sb').classList.remove('show');
   renderSidebar();
   renderTool();
@@ -7945,10 +7946,21 @@ async function homeLoadStats(){
       orders=orders.concat(data);
       if(data.length<osz) break; ofrom+=osz;
     }
-    const [apRes, balRes, balDateRes] = await Promise.all([
+    const [apRes, balRes, apOverRes, stmRes, incRes, codRes, reconRes, presRes] = await Promise.all([
       sb.from("ap_invoices").select("amount_outstanding").eq("company_id",co).is("deleted_at",null),
       sb.rpc("fn_balance_as_of",{ p_company:co, p_as_of: todayISO }),
-      sb.from("bank_balances").select("balance_date").eq("company_id",co).order("balance_date",{ascending:false}).limit(1)
+      // AP เลยกำหนดชำระ (planned_payment_date เป็นอดีต) แต่ยังค้างจ่าย
+      sb.from("ap_invoices").select("planned_payment_date,amount_outstanding,vendor_name").eq("company_id",co).is("deleted_at",null).lt("planned_payment_date",todayISO).gt("amount_outstanding",0).order("planned_payment_date",{ascending:true}),
+      // สเตทเมนต์ล่าสุดที่อัปเข้าระบบ (กระทบยอด)
+      sb.from("brec_imports").select("created_at,period_to").eq("company_id",co).is("deleted_at",null).order("created_at",{ascending:false}).limit(1),
+      // รายงาน Income ล่าสุด
+      sb.from("sales_income_rows").select("created_at,paid_date").eq("company_id",co).is("deleted_at",null).order("created_at",{ascending:false}).limit(1),
+      // COD (iShip) ล่าสุด
+      sb.from("brec_cod_data").select("updated_at").eq("company_id",co).limit(1),
+      // กระทบยอดหลังบ้านล่าสุด
+      sb.from("order_recon").select("created_at").eq("company_id",co).order("created_at",{ascending:false}).limit(1),
+      // ผู้ใช้งานล่าสุด (presence · global)
+      sb.from("user_presence").select("email,display_name,role,last_seen,current_tool").order("last_seen",{ascending:false}).limit(8)
     ]);
     // ★ สถิติออเดอร์ = เฉพาะ "เดือนปัจจุบัน" (ภาพรวมการทำงานเดือนนี้) · AP/เงินสด = ยอด ณ ปัจจุบัน (ไม่ผูกเดือน)
     const curYm = todayISO.slice(0,7);
@@ -7963,6 +7975,22 @@ async function homeLoadStats(){
     const saleSum = active.reduce((s,o)=>s+Number(o.order_total||0),0);
     const cancelledSum = cancelledOrders.reduce((s,o)=>s+Number(o.order_total||0),0);
     const maxOrderDate = orders.reduce((mx,o)=> (o.order_date && o.order_date>mx)?o.order_date:mx, "");
+    // ★ ค้างคีย์ IV (ทุกเดือน · active) — เตือน "ไม่คีย์มากี่วัน"
+    const activeAll = orders.filter(o=>o.status!=="cancelled");
+    const unkeyedAll = activeAll.filter(o=>!o.iv_no);
+    const unkeyedCount = unkeyedAll.length;
+    const oldestUnkeyed = unkeyedAll.reduce((mn,o)=> (o.order_date && (!mn||o.order_date<mn))?o.order_date:mn, "");
+    // ★ reminders data
+    const apOverdue = (apOverRes.data||[]);
+    const apOverdueSum = apOverdue.reduce((s,r)=>s+Number(r.amount_outstanding||0),0);
+    const stm0 = (stmRes.data&&stmRes.data[0])||null;
+    const lastStm = stm0? stm0.created_at : null;
+    const stmPeriodTo = stm0? stm0.period_to : null;
+    const inc0 = (incRes.data&&incRes.data[0])||null;
+    const lastIncome = inc0? (inc0.created_at||inc0.paid_date) : null;
+    const lastCod = (codRes.data&&codRes.data[0])? codRes.data[0].updated_at : null;
+    const lastRecon = (reconRes.data&&reconRes.data[0])? reconRes.data[0].created_at : null;
+    const recentUsers = (presRes.data||[]);
     // ★ ค่าใช้จ่ายถึงกำหนดชำระ "รอบใกล้สุด" — ใช้ logic เดียวกับ Cash Flow Forecast (รวมค่าใช้จ่ายประจำ/recurring ด้วย ไม่ใช่แค่ AP)
     let payRound=null;
     try{
@@ -7983,15 +8011,30 @@ async function homeLoadStats(){
         }
       }
     }catch(e){ console.warn("home payRound", e); }
-    const lastBalDate = (balDateRes.data && balDateRes.data[0]) ? balDateRes.data[0].balance_date : null;
     state.home.stats = {
       ivPct: active.length? Math.round(withIv.length/active.length*100):0,
       ivKeyed: withIv.length, ordTotal: active.length, cancelled: cancelledOrders.length, cancelledSum,
       rePending: rePending.length, bankIn: active.filter(o=>o.bank_in_date).length,
-      apSum, cash, saleSum, maxOrderDate, payRound, lastBalDate, _loaded:true
+      apSum, cash, saleSum, maxOrderDate, payRound,
+      apOverdueCount: apOverdue.length, apOverdueSum,
+      unkeyedCount, oldestUnkeyed, lastStm, stmPeriodTo, lastIncome, lastCod, lastRecon, recentUsers,
+      _loaded:true
     };
   }catch(e){ console.warn("home stats", e); }
 }
+// ★ ทางลัดที่ใช้บ่อย — นับการเข้าใช้ต่อ user (localStorage)
+function homeUsageKey(){ return "ft-usage-"+((AUTH&&AUTH.email)||"anon"); }
+function homeTrackTool(id){ try{ if(!id||id==="home") return; const k=homeUsageKey(); const m=JSON.parse(localStorage.getItem(k)||"{}"); m[id]=(m[id]||0)+1; localStorage.setItem(k,JSON.stringify(m)); }catch(e){} }
+function homeTopTools(n){
+  let m={}; try{ m=JSON.parse(localStorage.getItem(homeUsageKey())||"{}"); }catch(e){}
+  const vis=TOOLS.filter(t=> t.id!=="home" && t.status==="live" && appToolVisible(t));
+  const scored=vis.map((t,i)=>({t, c:m[t.id]||0, i}));
+  scored.sort((a,b)=> (b.c-a.c) || (a.i-b.i));
+  return scored.slice(0,n).map(x=>({ id:x.t.id, name:x.t.name, desc:x.t.desc, icon:x.t.icon, uses:x.c }));
+}
+// เวลาแบบสัมพัทธ์ (ไทย)
+function homeAgo(t){ if(!t) return "—"; const ms=Date.now()-new Date(t).getTime(); if(ms<0) return "เมื่อครู่"; const mnt=Math.floor(ms/60000); if(mnt<1) return "เมื่อครู่"; if(mnt<60) return mnt+" นาทีที่แล้ว"; const h=Math.floor(mnt/60); if(h<24) return h+" ชม.ที่แล้ว"; const d=Math.floor(h/24); if(d<30) return d+" วันก่อน"; return Math.floor(d/30)+" เดือนก่อน"; }
+function homeDaysSince(iso){ if(!iso) return null; const s=String(iso); const dt=new Date(s.length<=10? s+"T00:00:00" : s); if(isNaN(dt)) return null; return Math.floor((Date.now()-dt.getTime())/86400000); }
 function renderToolHome(){
   homeInjectCSS();
   // โหลดสถิติจริงครั้งแรก แล้ว re-render
@@ -8013,15 +8056,6 @@ function renderToolHome(){
   const thYear = today.getFullYear()+543 > 2500 ? today.getFullYear() : today.getFullYear();
   const dateLabel = today.toLocaleDateString("th-TH",{day:"numeric",month:"short",year:"numeric"});
   const fmt = (n)=> Number(n||0).toLocaleString("th-TH");
-
-  const activity = [
-    { who:"นันทวรรณ", text:"อัปโหลด Statement SCB เดือนมิถุนายน", time:"5 นาทีที่แล้ว", initial:"น", bg:"#E6F7F1", color:"#0E9A88" },
-    { who:"นันทวรรณ", text:"กระทบยอด Marketplace Shopee 7 รายการ", time:"32 นาทีที่แล้ว", initial:"น", bg:"#E6F7F1", color:"#0E9A88" },
-    { who:"ทีม AR", text:"บันทึกรับชำระเงิน RE 12 รายการ", time:"1 ชั่วโมงที่แล้ว", initial:"A", bg:"#FBEFD7", color:"#C77E14" },
-    { who:"ระบบ", text:"สำรองฐานข้อมูลอัตโนมัติสำเร็จ", time:"วันนี้ 02:00", initial:"S", bg:"#EEF0FF", color:"#5468FF" },
-  ];
-  // โมดูลที่ใช้บ่อย — จาก TOOLS จริง (live, ผ่าน page_permissions + adminOnly)
-  const quickMods = TOOLS.filter(t=> t.id!=="home" && t.status==="live" && appToolVisible(t)).slice(0,8);
 
   const kpiCard = (opts) => `
     <div class="hd-kpi ${opts.tool?'click':''}" ${opts.tool?`onclick="setTool('${opts.tool}')"`:''} style="${opts.dark?'color:#fff;background:linear-gradient(140deg,var(--brand) 0%,var(--brand-dark) 100%);box-shadow:0 10px 24px rgba(13,150,132,.3);border:none':''};${opts.delay?`animation-delay:${opts.delay}`:''}">
@@ -8059,11 +8093,57 @@ function renderToolHome(){
       ${kpiCard({ icon:"clipboard-list", iconBg:"var(--brand-soft)", iconColor:"var(--brand-dark)", tag: S._loaded?("อัพถึง "+thD(S.maxOrderDate)):"...", tagColor:"var(--brand-dark)", tagBg:"#E6F7F1", label:"ยอดขายเดือนนี้ (ทะเบียนคำสั่งซื้อ)", value: S._loaded?fmtB(S.saleSum):"—", sub:`ขายทั้งหมด ${S.ordTotal??0} ออเดอร์<br><span style="color:#E23D4B">ยกเลิก ${S.cancelled??0} ออเดอร์ · ${S._loaded?fmtB(S.cancelledSum):'—'}</span>`, link:"ดูทะเบียนคำสั่งซื้อ", tool:"orders" })}
       ${kpiCard({ icon:"hand-coins", iconBg:"#FBF1DC", iconColor:"#C77E14", tag:"ต้องติดตาม", tagColor:"#C77E14", tagBg:"#FBEFD7", label:"รอรับชำระ (RE)", value:`${S.rePending??'—'}<span style="font-size:15px;color:var(--ink3);font-weight:500"> ออเดอร์</span>`, sub:`มี IV แล้วแต่ยังไม่รับชำระ`, bar: (S.ivKeyed? Math.round((S.ivKeyed-(S.rePending||0))/S.ivKeyed*100):0), barColor:"linear-gradient(90deg,#F0A02E,#E08C16)", link:"ดูทะเบียนคำสั่งซื้อ", linkColor:"#C77E14", tool:"orders", delay:".06s" })}
       ${kpiCard({ icon:"git-compare-arrows", iconBg:"var(--brand-soft)", iconColor:"var(--brand-dark)", tag:"เงินเข้าแบงค์", tagColor:"var(--brand-dark)", tagBg:"#E6F7F1", label:"ออเดอร์เงินเข้าแบงค์แล้ว", value:`${S.bankIn??'—'}<span style="font-size:16px;color:var(--ink3)">/${S.ordTotal??0}</span>`, sub:`ติดตามถึง stage เงินเข้าบัญชี`, bar:(S.ordTotal? Math.round((S.bankIn||0)/S.ordTotal*100):0), barColor:"linear-gradient(90deg,var(--brand),var(--brand-dark))", link:"กระทบยอด", linkColor:"var(--brand-dark)", tool:"bankrec", delay:".12s" })}
-      ${kpiCard({ icon:"file-warning", iconBg:"#FDECEE", iconColor:"#E23D4B", tag:"เจ้าหนี้", tagColor:"#E23D4B", tagBg:"#FDECEE", label:"AP Outstanding", value: S._loaded?fmtB(S.apSum):"—", sub:`ยอดเจ้าหนี้คงค้างจริง`, bar:54, barColor:"linear-gradient(90deg,#F36C79,#E23D4B)", link:"ตรวจสอบเจ้าหนี้", linkColor:"#E23D4B", tool:"ap_outstanding", delay:".18s" })}
+      ${kpiCard({ icon:"file-warning", iconBg:"#FDECEE", iconColor:"#E23D4B", tag:"เจ้าหนี้", tagColor:"#E23D4B", tagBg:"#FDECEE", label:"AP Outstanding", value: S._loaded?fmtB(S.apSum):"—", sub: S.apOverdueCount? `<span style="color:#E23D4B">⚠ เลยกำหนด ${S.apOverdueCount} ใบ · ${fmtB(S.apOverdueSum)}</span>` : `ยอดเจ้าหนี้คงค้างจริง`, bar:(S.apSum? Math.min(100,Math.round((S.apOverdueSum||0)/S.apSum*100)):0), barColor:"linear-gradient(90deg,#F36C79,#E23D4B)", link:"ตรวจสอบเจ้าหนี้", linkColor:"#E23D4B", tool:"ap_outstanding", delay:".18s" })}
       ${kpiCard({ dark:true, icon:"wallet", tag: S._loaded?"จริง":"...", label:"ยอดเงินในบัญชี ณ วันนี้ (รวม)", value: S._loaded?fmtB(S.cash):"—", sub:`ยอดล่าสุดที่บันทึก`, spark:true, tool:"bank_balance", delay:".24s" })}
     </div>
 
-    <!-- งานที่ต้องทำ: ค่าใช้จ่ายถึงกำหนดชำระ (รอบใกล้สุด) + เตือนอัปยอด STM -->
+    <!-- ★ TO-DO / สิ่งที่ต้องทำ (ข้อมูลจริง) -->
+    ${(()=>{
+      const dS=homeDaysSince;
+      const sev={ danger:{c:'#DC2626',bg:'#FDECEC',b:'#F7D6DB'}, warn:{c:'#C77E14',bg:'#FBEFD7',b:'#F6E4BE'}, ok:{c:'var(--brand-dark)',bg:'#E6F7F1',b:'#CDEBDF'} };
+      const sdSale=dS(S.maxOrderDate), ou=dS(S.oldestUnkeyed), stD=dS(S.lastStm), icD=dS(S.lastIncome), cdD=dS(S.lastCod);
+      const worstIC=Math.max(icD==null?999:icD, cdD==null?999:cdD);
+      const T=[
+        { g:'บัญชี', icon:'upload-cloud', title:'อัปไฟล์ข้อมูลการขาย (BigSeller + รายงานหลังบ้าน)',
+          detail: S.maxOrderDate ? `ข้อมูลการขายล่าสุด ${thDY(S.maxOrderDate)} (${sdSale} วันก่อน)`+(S.lastRecon?` · กระทบยอดหลังบ้าน ${homeAgo(S.lastRecon)}`:'') : 'ยังไม่มีข้อมูลการขายในระบบ',
+          sev: !S.maxOrderDate?'danger':(sdSale>=5?'danger':(sdSale>=2?'warn':'ok')), tool:'orders', act:'นำเข้าการขาย' },
+        { g:'บัญชี', icon:'file-pen-line', title:'คีย์การขายลงระบบ (ออก IV)',
+          detail: S.unkeyedCount ? `ออเดอร์ยังไม่คีย์ IV <b>${S.unkeyedCount}</b> ใบ`+(ou!=null?` · ค้างนานสุด ${ou} วัน`:'') : 'คีย์ IV ครบทุกออเดอร์แล้ว',
+          sev: !S.unkeyedCount?'ok':((ou!=null&&ou>=5)?'danger':'warn'), tool:'sales_orders', act:'ไปคีย์ IV' },
+        { g:'การเงิน', icon:'file-up', title:'อัปสเตทเมนต์ (STM) — โหลด Excel ประจำสัปดาห์',
+          detail: S.lastStm ? `อัปล่าสุด ${homeAgo(S.lastStm)} (${thDY(S.lastStm)})`+(S.stmPeriodTo?` · ครอบถึง ${thDY(S.stmPeriodTo)}`:'') : 'ยังไม่เคยอัปสเตทเมนต์เข้าระบบ',
+          sev: !S.lastStm?'danger':(stD>=10?'danger':(stD>=7?'warn':'ok')), tool:'bankrec', act:'ไปอัป STM' },
+        { g:'การเงิน', icon:'download', title:'โหลดรายงาน Income + COD',
+          detail:`Income ${S.lastIncome?thDY(S.lastIncome)+` (${icD} วันก่อน)`:'— ยังไม่เคยโหลด'} · COD ${S.lastCod?thDY(S.lastCod)+` (${cdD} วันก่อน)`:'— ยังไม่เคยโหลด'}`,
+          sev: worstIC>=10?'danger':(worstIC>=7?'warn':'ok'), tool:'sales_income', act:'ไปหน้ารับชำระ' },
+        { g:'การเงิน', icon:'alert-triangle', title:'AP เลยกำหนดชำระ · ยังไม่ผ่านไปจ่าย/ยังไม่อัปรายงานจ่าย',
+          detail: S.apOverdueCount ? `<b>${S.apOverdueCount}</b> ใบ · รวม <b>${fmtB(S.apOverdueSum)}</b> — เกินวันชำระที่กรอกไว้แล้ว` : 'ไม่มีบิลเลยกำหนดชำระที่ค้างจ่าย',
+          sev: S.apOverdueCount?'danger':'ok', tool:'ap_outstanding', act:'ไปหน้า AP' },
+      ];
+      if(!S._loaded){ return `<div class="hd-card" style="margin-top:18px;text-align:center;color:var(--ink3);padding:26px">กำลังโหลดสิ่งที่ต้องทำ…</div>`; }
+      const rank={danger:0,warn:1,ok:2};
+      const todoRow=(it)=>{ const sv=sev[it.sev]; return `<div style="display:flex;align-items:flex-start;gap:12px;padding:12px 13px;border:1px solid ${sv.b};background:${it.sev==='ok'?'#fff':sv.bg};border-radius:12px">
+        <span style="width:34px;height:34px;border-radius:9px;background:${sv.bg};color:${sv.c};display:flex;align-items:center;justify-content:center;flex:none"><i data-lucide="${it.icon}" style="width:17px;height:17px"></i></span>
+        <div style="min-width:0;flex:1"><div style="font-size:14px;font-weight:600;line-height:1.35">${it.title}</div><div style="font-size:12.5px;color:var(--ink2);margin-top:3px;line-height:1.5">${it.detail}</div></div>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex:none">
+          ${it.sev==='ok'?'<span style="color:var(--brand-dark);font-size:12px;font-weight:700">✓ ปกติ</span>':`<span style="font-size:11px;font-weight:700;color:${sv.c};background:${sv.bg};padding:2px 9px;border-radius:999px">${it.sev==='danger'?'ด่วน':'ควรทำ'}</span>`}
+          <span class="hd-link" style="color:${sv.c};font-size:12.5px;white-space:nowrap" onclick="setTool('${it.tool}')">${it.act} <span>→</span></span>
+        </div>
+      </div>`; };
+      const nAct=T.filter(t=>t.sev!=='ok').length;
+      const colHtml=(key)=> T.filter(t=>t.g===key).sort((a,b)=>rank[a.sev]-rank[b.sev]).map(todoRow).join('');
+      return `<div class="hd-card" style="margin-top:18px">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
+          <div style="font-size:18px;font-weight:700"><i data-lucide="list-checks" style="width:19px;height:19px;vertical-align:-3px;color:var(--brand-dark)"></i> สิ่งที่ต้องทำ (TO-DO)</div>
+          <span style="font-size:12.5px;font-weight:600;color:${nAct?'#C77E14':'var(--brand-dark)'};background:${nAct?'#FBEFD7':'#E6F7F1'};padding:4px 12px;border-radius:999px">${nAct?`${nAct} รายการที่ต้องดำเนินการ`:'งานเป็นปัจจุบันทั้งหมด ✓'}</span>
+        </div>
+        <div class="hd-2col" style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:15px;align-items:flex-start">
+          ${[['บัญชี','📊 บัญชี'],['การเงิน','💰 การเงิน']].map(([k,lbl])=>`<div><div style="font-size:13px;font-weight:700;color:var(--ink2);margin-bottom:9px">${lbl}</div><div style="display:flex;flex-direction:column;gap:9px">${colHtml(k)}</div></div>`).join('')}
+        </div>
+      </div>`;
+    })()}
+
+    <!-- ค่าใช้จ่ายถึงกำหนดชำระ (รอบใกล้สุด) + ผู้ใช้งานล่าสุด -->
     <div class="hd-2col" style="display:grid;grid-template-columns:1.42fr 1fr;gap:18px;margin-top:18px;align-items:flex-start">
       ${(()=>{
         const PR = S.payRound;
@@ -8089,81 +8169,33 @@ function renderToolHome(){
       </div>`;})()}
 
       ${(()=>{
-        const stale = !S.lastBalDate || S.lastBalDate < todayISO;
-        const msg = S.lastBalDate
-          ? `ยอดเงินในบัญชีอัปล่าสุด <b>${thDY(S.lastBalDate)}</b>${stale?' — ควรอัปยอด STM ของวันนี้ให้ครบทุกบัญชี เพื่อให้ประมาณการกระแสเงินสดแม่นยำ':' — เป็นปัจจุบันแล้ววันนี้'}`
-          : `ยังไม่พบการบันทึกยอดเงินในบัญชี — เริ่มอัปยอด STM ลงระบบวันนี้`;
-        return `<div style="display:flex;flex-direction:column;gap:14px">
-        <div class="hd-card" style="border:1px solid ${stale?'#F7D6DB':'#CDEBDF'};background:${stale?'#FEF6F6':'#F1FBF6'}">
-          <div style="display:flex;align-items:flex-start;gap:13px">
-            <span style="width:44px;height:44px;border-radius:12px;background:${stale?'#FDECEC':'#E6F7F1'};color:${stale?'#DC2626':'var(--brand-dark)'};display:flex;align-items:center;justify-content:center;flex:none"><i data-lucide="${stale?'alert-triangle':'check-circle'}"></i></span>
-            <div style="min-width:0">
-              <div style="font-size:15.5px;font-weight:700">${stale?'ถึงเวลาอัปยอด STM ลงระบบ':'ยอด STM เป็นปัจจุบันแล้ว'}</div>
-              <div style="font-size:13px;color:var(--ink2);margin-top:5px;line-height:1.55">${msg}</div>
-              <div class="hd-link" style="margin-top:12px;color:${stale?'#DC2626':'var(--brand-dark)'}" onclick="setTool('bank_balance')">ไปอัปยอดเงินในบัญชี <span>→</span></div>
-            </div>
-          </div>
-        </div>
-        <div class="hd-card" style="display:flex;align-items:center;gap:13px;padding:16px 18px;cursor:pointer" onclick="setTool('bankrec')">
-          <span style="width:44px;height:44px;border-radius:12px;background:#EEF0FF;color:#5468FF;display:flex;align-items:center;justify-content:center;flex:none"><i data-lucide="file-up"></i></span>
-          <div style="min-width:0"><div style="font-size:14.5px;font-weight:600">อัปสเตทเมนต์เพื่อกระทบยอด</div><div style="font-size:12.5px;color:var(--ink3);margin-top:2px">Bank Reconciliation · Express ↔ Statement</div></div>
-        </div>
-      </div>`;})()}
+        const us=S.recentUsers||[];
+        const toolName=(id)=>{ const t=TOOLS.find(x=>x.id===id); return t?t.name:(id||''); };
+        const list = us.length ? us.map(u=>{ const nm=u.display_name||(u.email?u.email.split('@')[0]:'ผู้ใช้'); const online=u.last_seen && (Date.now()-new Date(u.last_seen).getTime())<5*60000;
+          return `<div style="display:flex;align-items:center;gap:12px;padding:11px 0;border-bottom:1px solid #F1F5F9">
+            <div style="position:relative;flex:none"><div style="width:36px;height:36px;border-radius:50%;background:var(--brand-soft);color:var(--brand-dark);font-size:14px;font-weight:700;display:flex;align-items:center;justify-content:center">${esc(nm.slice(0,1).toUpperCase())}</div>${online?'<span style="position:absolute;right:-1px;bottom:-1px;width:11px;height:11px;border-radius:50%;background:#16a34a;border:2px solid #fff"></span>':''}</div>
+            <div style="flex:1;min-width:0"><div style="font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(nm)}${u.role?` <span style="font-size:11px;font-weight:500;color:var(--ink3)">· ${esc(u.role)}</span>`:''}</div><div style="font-size:12px;color:var(--ink3);margin-top:1px">${online?'<span style="color:#16a34a;font-weight:600">● ออนไลน์</span>':homeAgo(u.last_seen)}${u.current_tool?` · ${esc(toolName(u.current_tool))}`:''}</div></div>
+          </div>`; }).join('')
+          : `<div style="padding:26px 20px;text-align:center;color:var(--ink3);font-size:13px">${S._loaded?'ยังไม่มีข้อมูลการใช้งานล่าสุด':'กำลังโหลด…'}</div>`;
+        return `<div class="hd-card">
+          <div style="display:flex;align-items:center;justify-content:space-between"><div style="font-size:18px;font-weight:700">ผู้ใช้งานล่าสุด</div>${us.length?`<span style="font-size:12px;color:var(--ink3)">${us.length} คน</span>`:''}</div>
+          <div style="margin-top:6px">${list}</div>
+        </div>`;
+      })()}
     </div>
 
-    <!-- CASH FLOW -->
-    <div class="hd-2col" style="display:grid;grid-template-columns:1.42fr 1fr;gap:18px;margin-top:18px">
-      <div class="hd-card">
-        <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px">
-          <div><div style="font-size:18px;font-weight:700">ภาพรวมเงินสดและกระแสเงินสด</div><div style="font-size:13.5px;color:var(--ink3);margin-top:2px">ยอดเงินคงเหลือรายวัน · ${thMonth} ${thYear}</div></div>
-        </div>
-        <svg viewBox="0 0 740 270" style="width:100%;height:auto;margin-top:14px" class="tnum">
-          <defs><linearGradient id="hdbal" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="rgba(18,181,160,.28)"/><stop offset="1" stop-color="rgba(18,181,160,0)"/></linearGradient></defs>
-          <g stroke="#EEF2F7" stroke-width="1"><line x1="60" y1="30" x2="725" y2="30"/><line x1="60" y1="90" x2="725" y2="90"/><line x1="60" y1="150" x2="725" y2="150"/><line x1="60" y1="210" x2="725" y2="210"/></g>
-          <g fill="#9AA8BF" font-size="12" text-anchor="end"><text x="50" y="34">3.0M</text><text x="50" y="94">2.6M</text><text x="50" y="154">2.2M</text><text x="50" y="214">1.8M</text></g>
-          <path d="M70,150 C110,158 130,120 170,128 C210,136 230,96 270,104 C310,112 330,150 370,140 C410,130 430,86 470,96 C510,106 530,70 570,78 C610,86 630,52 670,58 L710,46 L710,210 L70,210 Z" fill="url(#hdbal)"/>
-          <path d="M70,150 C110,158 130,120 170,128 C210,136 230,96 270,104 C310,112 330,150 370,140 C410,130 430,86 470,96 C510,106 530,70 570,78 C610,86 630,52 670,58 L710,46" fill="none" stroke="var(--brand-dark)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
-          <g fill="#7A8AA3" font-size="12" text-anchor="middle"><text x="70" y="234">1</text><text x="230" y="234">6</text><text x="390" y="234">11</text><text x="550" y="234">16</text><text x="710" y="234">21 มิ.ย.</text></g>
-        </svg>
-      </div>
-      <div style="display:flex;flex-direction:column;gap:14px">
-        <div class="hd-card" style="flex:1;display:flex;align-items:center;gap:15px;padding:18px 20px">
-          <div style="width:46px;height:46px;border-radius:13px;background:#E6F7F1;display:flex;align-items:center;justify-content:center;flex:none"><i data-lucide="arrow-up" style="color:var(--brand-dark)"></i></div>
-          <div><div style="font-size:13.5px;color:var(--ink2)">เงินเข้าเดือนนี้</div><div class="tnum" style="font-size:23px;font-weight:700;color:var(--brand-dark);margin-top:1px">฿4,120,000</div></div>
-        </div>
-        <div class="hd-card" style="flex:1;display:flex;align-items:center;gap:15px;padding:18px 20px">
-          <div style="width:46px;height:46px;border-radius:13px;background:#FDECEE;display:flex;align-items:center;justify-content:center;flex:none"><i data-lucide="arrow-down" style="color:#E23D4B"></i></div>
-          <div><div style="font-size:13.5px;color:var(--ink2)">เงินออกเดือนนี้</div><div class="tnum" style="font-size:23px;font-weight:700;color:#E23D4B;margin-top:1px">฿3,815,000</div></div>
-        </div>
-        <div style="flex:1;border-radius:18px;padding:18px 20px;display:flex;align-items:center;gap:15px;background:linear-gradient(135deg,#5468FF,#3A45C9);box-shadow:0 8px 20px rgba(58,69,201,.28)">
-          <div style="width:46px;height:46px;border-radius:13px;background:rgba(255,255,255,.2);display:flex;align-items:center;justify-content:center;flex:none"><i data-lucide="bar-chart-3" style="color:#fff"></i></div>
-          <div><div style="font-size:13.5px;color:rgba(255,255,255,.82)">คาดการณ์คงเหลือสิ้นเดือน</div><div class="tnum" style="font-size:23px;font-weight:700;color:#fff;margin-top:1px">฿3,150,000</div></div>
-        </div>
-      </div>
-    </div>
-
-    <!-- QUICK ACCESS -->
-    <div style="margin-top:26px;display:flex;align-items:center;justify-content:space-between">
-      <div style="font-size:18px;font-weight:700">โมดูลที่ใช้บ่อย</div>
+    <!-- ★ ทางลัดที่ใช้บ่อย (แทนกราฟภาพรวมเงินสด · เรียงตามที่ user เปิดบ่อย) -->
+    <div style="margin-top:26px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
+      <div style="font-size:18px;font-weight:700">ทางลัดที่ใช้บ่อย</div>
+      <span style="font-size:12.5px;color:var(--ink3)">เรียงตามหน้าที่คุณเปิดบ่อย</span>
     </div>
     <div class="hd-mods" style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-top:14px">
-      ${quickMods.map(m=>`<div class="hd-mod" onclick="setTool('${m.id}')">
+      ${homeTopTools(8).map((m,i)=>`<div class="hd-mod" onclick="setTool('${m.id}')">
         <div style="display:flex;align-items:center;gap:13px">
-          <div style="width:42px;height:42px;border-radius:12px;background:var(--brand-soft);display:flex;align-items:center;justify-content:center;flex:none;color:var(--brand-dark)"><i data-lucide="${m.icon||'square'}" style="width:21px;height:21px"></i></div>
-          <div style="min-width:0;flex:1"><div style="font-size:14.5px;font-weight:600">${esc(m.name)}</div><div style="font-size:12px;color:var(--ink3);margin-top:1px">${esc(m.desc||'')}</div></div>
+          <div style="width:42px;height:42px;border-radius:12px;background:var(--brand-soft);display:flex;align-items:center;justify-content:center;flex:none;color:var(--brand-dark);position:relative"><i data-lucide="${m.icon||'square'}" style="width:21px;height:21px"></i>${i<3&&m.uses?`<span style="position:absolute;top:-6px;right:-6px;background:var(--brand);color:#fff;font-size:10px;font-weight:700;padding:1px 6px;border-radius:999px">★</span>`:''}</div>
+          <div style="min-width:0;flex:1"><div style="font-size:14.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(m.name)}</div><div style="font-size:12px;color:var(--ink3);margin-top:1px">${m.uses?`เปิดบ่อย · ${m.uses} ครั้ง`:esc(m.desc||'')}</div></div>
         </div>
       </div>`).join("")}
-    </div>
-
-    <!-- ACTIVITY -->
-    <div class="hd-card" style="margin-top:26px">
-      <div style="display:flex;align-items:center;justify-content:space-between"><div style="font-size:18px;font-weight:700">Activity ล่าสุด</div></div>
-      <div style="margin-top:16px">
-        ${activity.map(a=>`<div style="display:flex;align-items:flex-start;gap:14px;padding:12px 0;border-bottom:1px solid #F1F5F9">
-          <div style="width:34px;height:34px;border-radius:50%;background:${a.bg};color:${a.color};font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center;flex:none">${a.initial}</div>
-          <div style="flex:1;min-width:0"><div style="font-size:14.5px"><strong style="font-weight:600">${esc(a.who)}</strong> ${esc(a.text)}</div><div style="font-size:12.5px;color:var(--ink3);margin-top:2px">${a.time}</div></div>
-        </div>`).join("")}
-      </div>
     </div>
   </div>`;
   if(window.lucide && window.lucide.createIcons){ try{ window.lucide.createIcons(); }catch(e){} }

@@ -191,6 +191,15 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-26 (23) — ★★ หน้าหลัก: ข้อมูลจริงทั้งหมด + TO-DO เตือนงาน + ทางลัดใช้บ่อย + ผู้ใช้ล่าสุด
+- **เจ้าของ:** หน้าหลักให้เป็นข้อมูลจริงทั้งหมด · เปลี่ยนกราฟ "ภาพรวมเงินสด" เป็นทางลัดหน้าที่ใช้บ่อย · กรอบผู้ใช้งานล่าสุดจริง · เพิ่ม TO-DO เตือนงาน · STM โชว์ 09/09/69 ผิด (เพี้ยนตอน import) เอาออก
+- **ลบของปลอมทิ้ง:** `activity` array (mock) · SVG กราฟเงินสด + เงินเข้า/ออก/คาดการณ์ hardcode (4.12M/3.815M/3.15M) · การ์ด STM ที่อ่าน `bank_balances` (มี future date เพี้ยน) — ตัด `lastBalDate` ทิ้ง (KPI เงินสดใช้ `fn_balance_as_of(today)` กรอง future อยู่แล้ว)
+- **TO-DO (`homeBuildTodos` inline) 2 กลุ่ม บัญชี/การเงิน · sev danger/warn/ok:** (1) อัปไฟล์ขาย BigSeller+หลังบ้าน (จาก `maxOrderDate`/`lastRecon` · >2วัน warn) (2) คีย์ IV (`unkeyedCount`+`oldestUnkeyed` วัน) (3) อัป STM รายสัปดาห์ (`brec_imports.created_at` ล่าสุด · >7วัน warn) (4) โหลด Income+COD (`sales_income_rows`/`brec_cod_data` ล่าสุด) (5) AP เลยกำหนดชำระยังไม่จ่าย (`ap_invoices` planned_payment_date<today & outstanding>0)
+- **ทางลัดที่ใช้บ่อย** (แทนกราฟ): `homeTrackTool` นับการเปิดต่อ user (localStorage `ft-usage-{email}` · hook ใน `setTool`) → `homeTopTools(8)` เรียง top · badge ★ 3 อันดับแรก
+- **ผู้ใช้งานล่าสุด** (แทน STM box): `user_presence` (last_seen desc · online <5นาที = จุดเขียว · โชว้ tool ที่กำลังใช้)
+- **KPI AP** bar เปลี่ยนจาก hardcode 54 → สัดส่วนเลยกำหนดจริง (`apOverdueSum/apSum`) · sub โชว์ "เลยกำหนด N ใบ"
+- **verified:** syntax OK · boot 0 error · display/query-only · ไม่ต้อง migration (reuse ตารางเดิม · presRes/reconRes/codRes fail → null handled)
+
 ### 2026-07-26 (22) — ★ Bank Recon: ปุ่ม "ดูที่มา" เงินเข้าค้างกระทบ → เด้งไปหน้าต้นทาง + ไฮไลต์
 - **เจ้าของ:** เงินเข้าใน Bank ที่ค้างกระทบ อยากคลิกดูที่มา — platform→หน้าถอน Marketplace ของยอดวันนั้น · iShip→หน้า COD ขนส่ง · คนธรรมดาโอนตรง→หน้ารับชำระโอนตรง
 - **`brecTraceType(row)`** ระบุประเภทจาก **หมายเหตุ (user_note) ก่อน** (แม่นสุด · ผู้ใช้พิมพ์ COD/โอนตรง/SHOPEE/TIKTOK/LAZADA) → fallback description (ไอชิพ/PIPO/SHOPEEPAY/ชื่อบุคคล) → `direct`/`cod`/`marketplace`/null

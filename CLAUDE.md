@@ -191,6 +191,14 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-26 (13) — ★★ ถอน Marketplace: รองรับ Lazada (แมพยอดโอนออก ↔ ออเดอร์ เหมือน TikTok/Shopee)
+- **เจ้าของขอ:** อัป Lazada "ยอดของฉัน" (Balance) + "รายงานรับของฉัน" (Income Overview) → แมพยอดโอนออก↔ออเดอร์ เหมือน TikTok/Shopee (M Bark)
+- **โครง Lazada:** `Balance Transactions` = Deposit(Settlement · เงินเข้ากระเป๋าต่อรอบบิล อ้าง "Statement No. XXX") + **Withdrawal(Auto Withdrawal = ถอนเต็มกระเป๋า)** · `Income Overview` = แตกรายได้/ค่าธรรมเนียมต่อออเดอร์ · จับ `รหัสรอบบิล` ↔ Statement No. → deposit.amount = Σ income รอบบิล เป๊ะ
+- **`bmpParseLazadaWallet(incomeWb, balanceWb)`** (ใหม่ · 2 ไฟล์ → txn stream เดียวกับ Shopee/TikTok): Deposit → แตกเป็น "รายรับจากคำสั่งซื้อ"/"รายการปรับปรุง"(net≤0) ต่อออเดอร์ (datetime=deposit time) · Withdrawal → "การถอนเงิน" · seller code จาก ref (`TH1JWZ3V46`) → `BMP_LZ_SELLER`→ร้าน · helper `bmpLzDateTime` (DD Mon YYYY อังกฤษ) · **reuse `bmpGroupWithdrawals`/BQ/STM/export ทั้งชุด** (Model A ถอนเต็มกระเป๋า = เหมือน Shopee)
+- **routing `BMP_SHOP_ROUTING["lazada mommam"]`** = M Bark SCB 1362709281 · channel `lazada` · **upload flow:** จับคู่ Lazada 2 ไฟล์ (`bmpIsLazadaIncome`/`bmpIsLazadaBalance` · detect จากชื่อชีต) ก่อน loop Shopee/TikTok ต่อไฟล์ · ป้ายช่องอัป +Lazada
+- **verified (node + ไฟล์จริง M Bark):** 6/7 งวดถอนตรงเป๊ะ (301.14/1208.89/166.47/580.26/257.29/880.08 = Σออเดอร์−ปรับ) · งวดแรก 01 มิ.ย. ยกมาก่อนไฟล์ (flag shortfall) · งวดสุดท้าย 549.42 pending · syntax OK · ไม่ต้อง migration (client-side · reuse brec_mp_*)
+- **ต้องคีย์ IV/RE ก่อนถึงได้เลขเช็ค** (เหมือน Shopee/TikTok · Lazada prefix LZ) · Benya Lazada ยังไม่ map (รอไฟล์ · ตอนนี้ unknown seller→"lazada {code}")
+
 ### 2026-07-26 (12) — ★★ COD เฟส 2: ลิงก์ด้วย "เบอร์โทร" (key แม่นสุด · เจ้าของเสนอ)
 - **เจ้าของเสนอ:** แมพด้วย **เบอร์โทรลูกค้า** — iShip `0891449887` = BigSeller `0891449887` ตรงเป๊ะ (ไม่ mask · ไม่มีปัญหาสะกดชื่อ · unique/ลูกค้า) · **verified เคสจริง: คุณสิรินัยน์ 0891449887 COD2128 → BigSeller OD1A80G010169 ฿2128**
 - **เก็บเบอร์โทร:** parser `ci.phone` (fuzzy `เบอร์โทร|โทรศัพท์|phone|มือถือ`) → `order_ledger.phone` (migration +column +index) · ingest insert+backfill · `codLoadOrders` select phone

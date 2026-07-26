@@ -24020,7 +24020,9 @@ const BMP_SHOP_ROUTING = {
   // ★ TikTok — ชื่อร้านสร้างจากเลขบัญชีที่ถอนเข้า (ไฟล์ TikTok ไม่มีชื่อร้าน) ดู BMP_TT_ACCT
   "tiktok mommam":   { companyId:"mbark", bankCode:"SCB", accountNo:"1362709281", depositCode:"S1", channel:"tiktok", channelLabel:"TikTok mommam", descSuffix:"TikTok mommam" },
   "tiktok qi care":  { companyId:"benya", bankCode:"SCB", accountNo:"4170771640", depositCode:"01", channel:"tiktok", channelLabel:"TikTok Qi care", descSuffix:"TikTok Qi care" },
-  "tiktok betra":    { companyId:"benya", bankCode:"BBL", accountNo:"8650980405", depositCode:"02", channel:"tiktok", channelLabel:"TikTok Betra",   descSuffix:"TikTok Betra" }
+  "tiktok betra":    { companyId:"benya", bankCode:"BBL", accountNo:"8650980405", depositCode:"02", channel:"tiktok", channelLabel:"TikTok Betra",   descSuffix:"TikTok Betra" },
+  // ★ Lazada — ชื่อร้านจาก seller code (prefix รอบบิล) ดู BMP_LZ_SELLER
+  "lazada mommam":   { companyId:"mbark", bankCode:"SCB", accountNo:"1362709281", depositCode:"S1", channel:"lazada", channelLabel:"Lazada mommam", descSuffix:"Lazada mommam" }
 };
 
 function bmpRouting(shopName){
@@ -24258,6 +24260,78 @@ function bmpParseTiktokWallet(workbook){
   const allDates = [...ordersByDate.keys(), ...ents.map(e=>e.iso)].sort();
   return { shopName: shopName || "tiktok (ไม่ทราบบัญชี)", periodFrom: allDates[0]||null,
            periodTo: allDates[allDates.length-1]||null, txns, source:"tiktok" };
+}
+
+/* ============================================================
+   PARSER Lazada — ยอดของฉัน (Balance) + รายงานรับของฉัน (Income Overview) → txn stream
+   ★ Lazada: settlement (รอบบิล) เข้ากระเป๋า (Deposit) → Auto Withdrawal ถอนเต็มกระเป๋า (Model A เหมือน Shopee)
+     Balance.Deposit อ้าง "Statement No. XXX" = Income.รหัสรอบบิล → แตกเป็นออเดอร์ · Withdrawal = การถอนเงิน
+   ============================================================ */
+const BMP_LZ_SELLER = {   // seller code (prefix ของ Statement/Bank Ref) → ชื่อร้าน (key ของ BMP_SHOP_ROUTING)
+  "TH1JWZ3V46": "lazada mommam"   // M Bark (เจ้าของยืนยัน)
+};
+function bmpLzMonth(m){ return {jan:1,feb:2,mar:3,apr:4,may:5,jun:6,jul:7,aug:8,sep:9,oct:10,nov:11,dec:12}[String(m||"").slice(0,3).toLowerCase()]||0; }
+function bmpLzDateTime(s){
+  const m = String(s||"").trim().match(/(\d{1,2})\s+([A-Za-z]{3,})\s+(\d{4})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+  if(!m) return null;
+  const mo = bmpLzMonth(m[2]); if(!mo) return null;
+  const iso = `${m[3]}-${String(mo).padStart(2,"0")}-${m[1].padStart(2,"0")}`;
+  const time = m[4]!=null ? `${m[4].padStart(2,"0")}:${m[5]}:${(m[6]||"00")}` : null;
+  return { iso, datetime: time ? `${iso} ${time}` : iso };
+}
+function bmpLzNum(v){ return Number(String(v==null?"":v).replace(/[,+\s]/g,""))||0; }
+function bmpLzSheet(wb, re){ const n = wb.SheetNames.find(x=>re.test(x)) || wb.SheetNames[0]; return XLSX.utils.sheet_to_json(wb.Sheets[n], {header:1, raw:false, defval:""}); }
+function bmpIsLazadaIncome(wb){ return wb.SheetNames.some(n=>/income overview/i.test(n)); }
+function bmpIsLazadaBalance(wb){ return wb.SheetNames.some(n=>/balance transaction/i.test(n)); }
+function bmpParseLazadaWallet(incomeWb, balanceWb){
+  // ----- INCOME → statement → [{order_id, net}] -----
+  const irows = bmpLzSheet(incomeWb, /income overview/i);
+  const ih = (irows[0]||[]).map(x=>String(x||"").trim());
+  const iix = (name)=>ih.indexOf(name);
+  const ci = { stmt:iix("รหัสรอบบิล"), amt:iix("จำนวนเงิน(รวมภาษี)"), order:iix("หมายเลขคำสั่งซื้อ") };
+  const stmtOrders = new Map();   // statement → Map(order_id → net)
+  for(let i=1;i<irows.length;i++){
+    const r = irows[i]||[]; const st = String(r[ci.stmt]||"").trim(); if(!st) continue;
+    const oid = String(r[ci.order]||"").trim() || st;
+    if(!stmtOrders.has(st)) stmtOrders.set(st, new Map());
+    const m = stmtOrders.get(st); m.set(oid, round2((m.get(oid)||0) + bmpLzNum(r[ci.amt])));
+  }
+  // ----- BALANCE → deposits (settlement) + withdrawals -----
+  const brows = bmpLzSheet(balanceWb, /balance transaction/i);
+  const bh = (brows[0]||[]).map(x=>String(x||"").trim());
+  const bix = (name)=>bh.indexOf(name);
+  const cb = { time:bix("Transaction Time"), typ:bix("Type"), amt:bix("Amount"), rem:bix("Remarks") };
+  const bal = [];
+  let sellerCode = null;
+  for(let i=1;i<brows.length;i++){
+    const r = brows[i]||[]; const typ = String(r[cb.typ]||"").trim(); if(!typ) continue;
+    const dt = bmpLzDateTime(r[cb.time]); if(!dt) continue;
+    const rem = String(r[cb.rem]||"");
+    const codeM = rem.match(/([A-Z0-9]{6,})-\d/); if(codeM && !sellerCode) sellerCode = codeM[1];
+    const stM = rem.match(/Statement No\.?\s*(\S+)/i);
+    bal.push({ datetime:dt.datetime, iso:dt.iso, typ, amount:bmpLzNum(r[cb.amt]), stmt: stM?stM[1]:null });
+  }
+  bal.sort((a,b)=> String(a.datetime).localeCompare(String(b.datetime)));   // เก่า→ใหม่
+  const shopName = (sellerCode && BMP_LZ_SELLER[sellerCode]) || (sellerCode ? ("lazada "+sellerCode) : "lazada (ไม่ทราบร้าน)");
+  // ----- ประกอบ txn stream ตามลำดับเวลา -----
+  const txns = []; const tick = new Map();
+  const stamp = (dt)=>{ const n=(tick.get(dt)||0)+1; tick.set(dt,n); return dt.length>10 ? dt : `${dt} 02:${String(Math.floor(n/60)%60).padStart(2,"0")}:${String(n%60).padStart(2,"0")}`; };
+  for(const b of bal){
+    if(/withdraw/i.test(b.typ)){
+      txns.push({ datetime:b.datetime, txn_date:b.iso, type:"การถอนเงิน", desc:"Auto Withdrawal (Lazada)", order_id:"", flow:"", amount:-Math.abs(b.amount), status:"", balance_after:0 });
+    } else {   // Deposit (Settlement) → แตกเป็นออเดอร์จาก Income
+      const orders = b.stmt ? stmtOrders.get(b.stmt) : null;
+      if(orders && orders.size){
+        for(const [oid,net] of orders){
+          txns.push({ datetime:stamp(b.datetime), txn_date:b.iso, type: net<=0?"รายการปรับปรุง":"รายรับจากคำสั่งซื้อ", desc:b.stmt||"", order_id:oid, flow:"", amount:round2(net), status:"", balance_after:0 });
+        }
+      } else {   // ไม่มีดีเทลใน Income → ก้อนเดียว
+        txns.push({ datetime:b.datetime, txn_date:b.iso, type: b.amount<=0?"รายการปรับปรุง":"รายรับจากคำสั่งซื้อ", desc:"Settlement "+(b.stmt||""), order_id:b.stmt||"", flow:"", amount:round2(b.amount), status:"", balance_after:0 });
+      }
+    }
+  }
+  const allDates = txns.map(t=>t.txn_date).filter(Boolean).sort();
+  return { shopName, periodFrom:allDates[0]||null, periodTo:allDates[allDates.length-1]||null, txns, source:"lazada" };
 }
 
 /* ============================================================
@@ -24914,7 +24988,7 @@ function bmpRenderUploadModal(){
         <div style="font-size:12.5px;color:var(--ink-3);margin-bottom:14px">เลือกได้หลายไฟล์ต่อช่อง (Ctrl/Shift+คลิก) — ระบบจะ merge ให้</div>
         ${cacheBanner}
         <div style="display:flex;flex-direction:column;gap:10px">
-          ${bmpFileBox('shopee', 'รายงานกระเป๋าเงิน — Shopee Balance / TikTok รายการรับเงิน', '.xlsx', f.shopee)}
+          ${bmpFileBox('shopee', 'รายงานกระเป๋าเงิน — Shopee Balance / TikTok รายการรับเงิน / Lazada (ยอดของฉัน + รายงานรับของฉัน 2 ไฟล์)', '.xlsx', f.shopee)}
           ${bmpFileBox('sales', 'Express รายงานขาย 723-5'+(hasCache?' (มีเก็บไว้แล้ว)':''), '.csv', f.sales)}${cacheNote('sales')}
           ${bmpFileBox('receipt', 'Express รายงานการรับชำระหนี้'+(hasCache?' (มีเก็บไว้แล้ว)':''), '.csv', f.receipt)}${cacheNote('receipt')}
           ${bmpFileBox('cheque', 'Express รายงานเช็ครับ'+(hasCache?' (มีเก็บไว้แล้ว)':''), '.csv', f.cheque)}${cacheNote('cheque')}
@@ -29547,18 +29621,32 @@ async function bmpRunUpload(){
   try{
     // ----- parse Shopee files แยกตาม shop_name (รองรับหลาย shop ในรอบเดียว) -----
     const shopeeByName = new Map(); // shopName → { shopName, txns, periodFrom, periodTo, files:[] }
-    for(const sf of f.shopee){
-      const buf = await sf.arrayBuffer();
-      const wb = XLSX.read(buf, { type:"array", cellDates:false });
-      // ★ รองรับ 2 รูปแบบ: Shopee Balance / TikTok "รายการรับเงิน" (auto-detect จากชื่อชีต)
-      const sd = bmpIsTiktokWallet(wb) ? bmpParseTiktokWallet(wb) : bmpParseShopeeBalance(wb);
+    const addToShop = (sd, ...fnames)=>{
       const sn = sd.shopName || "(unknown)";
       if(!shopeeByName.has(sn)) shopeeByName.set(sn, { shopName:sn, txns:[], periodFrom:null, periodTo:null, files:[] });
       const g = shopeeByName.get(sn);
       g.txns = g.txns.concat(sd.txns);
-      g.files.push(sf.name);
+      fnames.filter(Boolean).forEach(fn=>g.files.push(fn));
       if(sd.periodFrom && (!g.periodFrom || sd.periodFrom < g.periodFrom)) g.periodFrom = sd.periodFrom;
       if(sd.periodTo && (!g.periodTo || sd.periodTo > g.periodTo)) g.periodTo = sd.periodTo;
+    };
+    // ★ อ่านไฟล์กระเป๋าทั้งหมด · แยก Lazada (ต้องจับคู่ Income+Balance) จาก Shopee/TikTok (ไฟล์เดียว)
+    const singleFiles = []; let lzInc=null, lzIncName="", lzBal=null, lzBalName="";
+    for(const sf of f.shopee){
+      const buf = await sf.arrayBuffer();
+      const wb = XLSX.read(buf, { type:"array", cellDates:false });
+      if(bmpIsLazadaIncome(wb)){ lzInc=wb; lzIncName=sf.name; continue; }
+      if(bmpIsLazadaBalance(wb)){ lzBal=wb; lzBalName=sf.name; continue; }
+      singleFiles.push({ wb, name:sf.name });
+    }
+    if(lzInc || lzBal){
+      if(!lzInc || !lzBal) throw new Error("Lazada ต้องอัป 2 ไฟล์: 'รายงานรับของฉัน' (Income Overview) + 'ยอดของฉัน' (Balance Transactions)");
+      addToShop(bmpParseLazadaWallet(lzInc, lzBal), lzIncName, lzBalName);
+    }
+    for(const { wb, name:sfname } of singleFiles){
+      // ★ รองรับ 2 รูปแบบ: Shopee Balance / TikTok "รายการรับเงิน" (auto-detect จากชื่อชีต)
+      const sd = bmpIsTiktokWallet(wb) ? bmpParseTiktokWallet(wb) : bmpParseShopeeBalance(wb);
+      addToShop(sd, sfname);
     }
     // dedupe + sort per shop
     for(const g of shopeeByName.values()){

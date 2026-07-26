@@ -191,6 +191,14 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-26 (17) — ★★ รับชำระ เฟส A: แท็บ "รับชำระ COD (เฟส/LINE)" — ดึงจาก COD ขนส่ง → ส่งออก RE
+- **เจ้าของขอ (เฟส A ของแผนรับชำระ FACE/LINE/Dealer):** COD ใช้ข้อมูลหน้า COD ขนส่งที่มี (พัสดุ→ออเดอร์+IV · จับ STM = รับเงินแล้ว) → ส่งออก RE · เข้าได้ 2 ทาง (แท็บรับชำระ + Bank Recon COD)
+- **subtab ใหม่ `codre` "รับชำระ COD (เฟส/LINE)"** ใน `renderToolSalesIncome` · โหลด `brec_cod_data` ผ่าน `codLoadFromDb(brecGet())` (regroup+relink) · guard flag `_codReLoaded` กัน loop
+- **`incCodReCandidates`:** 1 พัสดุที่ `_link.order` = 1 RE candidate · โอนตรง/COD = **เงินเข้าเต็มยอด IV · diff 0** (ไม่มีค่าธรรมเนียม เหมือน direct-transfer) · custCode = FACE/LINE/Dealer (`ordChannelDetail`) · paymentDate = วัน STM ที่พบ (fallback วันโอน) · `incCodReReady` = มี IV+วันที่ IV + `_stm`(เงินเข้าแล้ว) + ยังไม่ออก RE + COD=IV
+- **`incExportCodRe`** reuse `incReRow(r,i,co,seed)` (เพิ่ม param `seedOverride`) + `A_HEAD` 19 คอลัมน์ · seed แยก `codReSeed` · CSV/xlsx (`forceTextCells`) · `incRenderCodRe` = KPI (พร้อม/ยังไม่คีย์ IV/รอ STM/ออกแล้ว) + ตาราง (BQ/ออเดอร์/IV/ลูกค้า/ผู้รับ/ยอด/วันเข้า/STM/สถานะ)
+- **ปุ่ม "ไปรับชำระ (ออก RE)"** ใน Bank Recon COD tab → `incSetCodReGoto` (setTool sales_income + subtab codre) · syntax OK · ไม่ต้อง migration (reuse brec_cod_data + order_ledger + RE format เดิม)
+- **ยังไม่ทำ (เฟส B/C):** โอนตรง Prepaid (col BM=Prepaid · จับ STM โอนบุคคล) · COD ใน BigSeller col BM · checkbox เลือก/ตัดรายตัว + batch RE (ตอนนี้ export ready ทั้งหมด)
+
 ### 2026-07-26 (16) — ★ COD ลิงก์: เลขพัสดุมาก่อน + เลือกออเดอร์เอง (dropdown) เคสหลายตัวเลือก/ไม่พบ + จำไว้
 - **เจ้าของ:** เคส "2 ตัวเลือก" เลือกไม่ได้ · เลขพัสดุ iShip=BigSeller ตรงกันแล้ว (หลัง re-import) แต่ order_ledger ยังไม่มี tracking → ตกไปยอดตรง
 - **`codLinkParcels` ลำดับใหม่:** (0) **เลือกเอง (manual · จำไว้)** → (1) **เลขพัสดุตรง** (ขึ้นมาก่อนเบอร์ · unique/พัสดุ) → (2) เบอร์ → (3) ชื่อ+ยอด → (4) ยอด

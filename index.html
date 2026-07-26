@@ -3721,6 +3721,9 @@ async function renderToolSalesIncome(){
       <button class="sal-stab ${subtab==='export'?'active':''}" onclick="incSetSubtab('export')">
         <i data-lucide="download"></i> ส่งออก RE → AutoKey
       </button>
+      <button class="sal-stab ${subtab==='codre'?'active':''}" onclick="incSetSubtab('codre')">
+        <i data-lucide="truck"></i> รับชำระ COD (เฟส/LINE)
+      </button>
       <button class="sal-stab ${subtab==='verify'?'active':''}" onclick="incSetSubtab('verify')">
         <i data-lucide="check-circle-2"></i> ตรวจการคีย์ (1.9.1)
         ${verRows.length ? `<span class="c">${verRows.length}</span>` : ""}
@@ -3749,10 +3752,20 @@ async function renderToolSalesIncome(){
     return;
   }
 
+  // ★ รับชำระ COD — โหลดข้อมูล COD ขนส่ง (brec_cod_data) ครั้งแรก · guard ด้วย flag กัน loop เมื่อไม่มีข้อมูล
+  if(subtab === 'codre' && (typeof brecGet==='function') && !((brecGet().cod||{}).groups) && !d._codReLoaded && !d._codReLoading){
+    d._codReLoading = true;
+    main.innerHTML = `<div class="ord-page sal-page">${heroHtml}${tabHtml}<div style="padding:60px;text-align:center"><i data-lucide="loader-2" style="width:36px;height:36px;color:var(--brand)"></i><div style="margin-top:12px;color:#64748b">กำลังโหลดข้อมูล COD ขนส่ง...</div></div></div>`;
+    if(window.lucide) lucide.createIcons();
+    codLoadFromDb(brecGet()).then(()=>{ d._codReLoading=false; d._codReLoaded=true; renderToolSalesIncome(); }).catch(()=>{ d._codReLoading=false; d._codReLoaded=true; renderToolSalesIncome(); });
+    return;
+  }
+
   let bodyHtml = '';
   if(subtab === 'list')        bodyHtml = incRenderList(d);
   else if(subtab === 'recon')  bodyHtml = incRenderRecon(d);
   else if(subtab === 'export') bodyHtml = incRenderExport(d);
+  else if(subtab === 'codre')  bodyHtml = incRenderCodRe(d);
   else if(subtab === 'verify') bodyHtml = incRenderVerify(d);
   else if(subtab === 'fees')   bodyHtml = incRenderFeeReport(d);
 
@@ -4484,9 +4497,9 @@ function incExportView(d){
   const arSettled = d.arReport ? view.filter(r=>r.arStatus==="settled").length : 0;
   return { cands, ready, done, view, selected, noteCounts, arSettled };
 }
-/* สร้าง 1 แถว RE (mirror aRowOf ของ armap แต่ใช้ seed ของหน้า income) */
-function incReRow(r,i,company){
-  const seed = incGet().reSeed;
+/* สร้าง 1 แถว RE (mirror aRowOf ของ armap แต่ใช้ seed ของหน้า income) · seedOverride = ใช้ seed อื่น (เช่น COD) */
+function incReRow(r,i,company,seedOverride){
+  const seed = seedOverride!=null ? seedOverride : incGet().reSeed;
   const isMbark = company==="mbark";
   const lettOther = isMbark ? "{Down 18}" : "{Up 1}";
   const downCmd  = isMbark ? mbarkBankDownByCust(r.arCustCode) : bankDownCmd(r.actualBrand, r.channel);
@@ -4496,6 +4509,115 @@ function incReRow(r,i,company){
     pay_date_long:fmtDateDDMMYYYY(r.paymentDate), pay_date_short:fmtDateDDMMYY(r.paymentDate),
     net:round2(r.netAmount), diff:round2(r.diff), cust:r.arCustCode, lett_other:lettOther,
     enter:"{Enter}", bank_down:downCmd, bank_code:r.bankCode||"", check_code:checkCode, warning:r.warning||"" };
+}
+
+/* ===== ★ รับชำระ COD (เฟส A) — ดึงจาก COD ขนส่ง (พัสดุ→ออเดอร์+IV · จับ STM = รับเงินแล้ว) → ส่งออก RE ===== */
+function incSetCodReSeed(v){ incGet().codReSeed=v; renderToolSalesIncome(); }
+function incSetCodReGoto(){ incGet().subtab='codre'; setTool('sales_income'); }   // เข้าจาก Bank Recon COD → หน้ารับชำระ COD
+/* candidate RE จาก COD: 1 พัสดุที่ลิงก์ออเดอร์ได้ = 1 RE · โอนตรง (FACE/LINE) เงินเข้าเต็ม ไม่มีค่าธรรมเนียม */
+function incCodReCandidates(){
+  const b = (typeof brecGet==='function') ? brecGet() : null;
+  const cod = (b && b.cod) || {};
+  const custMap = { face:"FACE", line:"LINE", dealer:"Dealer", csr:"CSR" };
+  const out = [];
+  for(const g of (cod.groups||[])){
+    const bm = (typeof codMatchBank==='function') ? codMatchBank(b, g) : { found:false };
+    const paidISO = bm.found ? bm.row.txn_date : g.dateKey;   // วันเงินเข้าบัญชีจริง (STM ถ้าพบ)
+    for(const p of (g.parcels||[])){
+      const L = p._link; if(!L || !L.order) continue;
+      const o = L.order;
+      const cust = custMap[ordChannelDetail(o)] || "Dealer";
+      const brand = incBrandOf(o);
+      const outstanding = Number(o.sale_amount)||Number(o.order_total)||Number(p.cod)||0;
+      const codAmt = Number(p.cod)||0;
+      out.push({
+        arDate:o.iv_date||null, arIv:o.iv_no||null, actualBrand:brand,
+        arOutstanding:outstanding, orderNo:o.order_id, channel:'',
+        paymentDate:paidISO, paidISO, netAmount:outstanding, diff:0,   // โอนตรง/COD: เงินเข้าเต็ม ไม่มีค่าธรรมเนียม
+        arCustCode:cust, bankCode:bankCodeOf('', brand), re_no:o.re_no||null,
+        _bq:g.bq, _stm:bm.found, _cod:codAmt, _tracking:p.tracking, _recipient:p.recipient, _linkVia:L.via,
+        warning: !o.iv_no ? "ยังไม่คีย์ IV" : (!o.iv_date ? "ไม่มีวันที่ IV" : (o.re_no ? "ออก RE แล้ว" : (!bm.found ? "ยังไม่พบเงินเข้าใน STM" : (Math.abs(codAmt-outstanding)>0.5?`COD ${codAmt}≠IV ${outstanding}`:""))))
+      });
+    }
+  }
+  return out;
+}
+function incCodReReady(cands){ return cands.filter(r=> r.arIv && r.arDate && !r.re_no && r._stm && !(Math.abs((r._cod||0)-(r.arOutstanding||0))>0.5)); }
+function incExportCodRe(fmt){
+  const d=incGet(); const company=state.company;
+  const seed=d.codReSeed||"";
+  if(!/^\D*\d+$/.test(seed)){ alert("กรอกเลข RE เริ่มต้นให้ถูก (ลงท้ายด้วยตัวเลข)"); return; }
+  const ready=incCodReReady(incCodReCandidates());
+  if(!ready.length){ alert("ไม่มีรายการ COD ที่พร้อมออก RE\n(ต้อง: ลิงก์ออเดอร์ได้ + คีย์ IV แล้ว + เงินเข้า STM แล้ว + ยังไม่ออก RE)"); return; }
+  const aoa=[A_HEAD].concat(ready.map((r,i)=>{ const a=incReRow(r,i,company,seed);
+    return [a.ลำดับ,a.doc_no,a.iv_date,a.iv,a.brand,a.outstanding,a.orderNo,a.channel,a.pay_date_long,a.pay_date_short,a.net,a.diff,a.cust,a.lett_other,a.enter,a.bank_down,a.bank_code,a.check_code,a.warning]; }));
+  const co=COMPANIES.find(c=>c.id===company); const stamp=(new Date().toISOString().slice(0,10)).replace(/-/g,"");
+  const fname=`RE_COD_${(co&&co.code)||company}_${stamp}`;
+  if(fmt==="csv"){
+    const csv=aoa.map(row=>row.map(v=>{ const s=String(v==null?"":v); return /[",\n]/.test(s)?`"${s.replace(/"/g,'""')}"`:s; }).join(",")).join("\r\n");
+    const blob=new Blob(["﻿"+csv],{type:"text/csv;charset=utf-8"}); const url=URL.createObjectURL(blob); const a=document.createElement("a"); a.href=url; a.download=fname+".csv"; a.click(); URL.revokeObjectURL(url);
+  } else {
+    const ws=XLSX.utils.aoa_to_sheet(aoa); forceTextCells(ws,[1,3,6,12]);
+    const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, "RE COD"); XLSX.writeFile(wb, fname+".xlsx");
+  }
+}
+function incRenderCodRe(d){
+  const b = (typeof brecGet==='function') ? brecGet() : null;
+  const cod = (b && b.cod) || {};
+  if(!cod.groups){
+    return `<div class="sal-empty" style="padding:56px 30px;text-align:center;background:#fff;border:1px solid #e2e8f0;border-radius:14px;margin-top:2px">
+      <i data-lucide="truck" style="width:46px;height:46px;color:var(--brand);margin-bottom:12px;stroke-width:1.4"></i>
+      <div style="font-size:16px;font-weight:700;color:#1e293b">ยังไม่มีข้อมูล COD ขนส่ง</div>
+      <div style="color:#64748b;font-size:13px;margin-top:8px">ไปที่ <b>Bank Reconciliation → 🚚 COD ขนส่ง</b> อัป 2 ไฟล์ iShip ก่อน (ระบบจะลิงก์พัสดุ→ออเดอร์ + จับ STM ให้)</div>
+      <div style="margin-top:18px"><button class="ord-btn" onclick="setTool('bankrec')"><i data-lucide="landmark"></i> ไปหน้า Bank Reconciliation</button></div>
+    </div>`;
+  }
+  const cands=incCodReCandidates(); const ready=incCodReReady(cands);
+  const seed=d.codReSeed||""; const seedValid=/^\D*\d+$/.test(seed); const canExport=ready.length>0&&seedValid;
+  const noIv=cands.filter(r=>!r.arIv).length, noStm=cands.filter(r=>r.arIv&&!r._stm&&!r.re_no).length, done=cands.filter(r=>r.re_no).length;
+  const fmtM=(n)=>salesFmt(n);
+  const kpi=`<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:14px 0">
+    <div class="sal-kpi" style="border-top:4px solid #16a34a"><div class="k">พร้อมออก RE</div><div class="v">${ready.length}</div><div class="s">ลิงก์+IV+เงินเข้า STM</div></div>
+    <div class="sal-kpi" style="border-top:4px solid #d97706"><div class="k">ยังไม่คีย์ IV</div><div class="v">${noIv}</div><div class="s">ไปคีย์ IV ที่ขั้นตอน 1</div></div>
+    <div class="sal-kpi" style="border-top:4px solid #0369a1"><div class="k">รอเงินเข้า (STM)</div><div class="v">${noStm}</div><div class="s">ยังไม่จับ STM</div></div>
+    <div class="sal-kpi" style="border-top:4px solid #94a3b8"><div class="k">ออก RE แล้ว</div><div class="v">${done}</div></div>
+  </div>`;
+  const seedHtml=`<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:12px;background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:12px 16px">
+    <div style="font-size:13px;color:#334155;font-weight:600">เลข RE เริ่มต้น (COD)</div>
+    <input value="${esc(seed)}" oninput="incSetCodReSeed(this.value)" placeholder="เช่น 2607000001" style="font-family:monospace;font-size:14px;padding:7px 12px;border:2px solid ${seed?(seedValid?'#16a34a':'#dc2626'):'#e2e8f0'};border-radius:8px;width:180px;outline:none">
+    <span style="font-size:12px;color:#94a3b8">${seed?(seedValid?`✓ รันต่อ ${ready.length} ใบ`:'รูปแบบไม่ถูก'):'RE โอนตรง/COD = เงินเข้าเต็มยอด IV · ไม่มีค่าธรรมเนียม'}</span>
+    <div style="flex:1"></div>
+    <button class="ord-btn" ${canExport?'':'disabled'} style="${canExport?'background:var(--brand);color:#fff;border-color:var(--brand)':'opacity:.5'}" onclick="incExportCodRe('xlsx')"><i data-lucide="file-spreadsheet"></i> ส่งออก Excel (${ready.length})</button>
+    <button class="ord-btn" ${canExport?'':'disabled'} style="${canExport?'':'opacity:.5'}" onclick="incExportCodRe('csv')"><i data-lucide="download"></i> CSV</button>
+  </div>`;
+  const rows=cands.slice(0,500).map(r=>{
+    const ok=r.arIv&&r.arDate&&!r.re_no&&r._stm&&!(Math.abs((r._cod||0)-(r.arOutstanding||0))>0.5);
+    const bg=r.re_no?'#f8fafc':(ok?'':'#fffbeb');
+    return `<tr style="border-bottom:1px solid #f1f5f9${bg?`;background:${bg}`:''}">
+      <td style="padding:6px 8px;font-family:monospace;font-size:11px">${esc(r._bq||'')}</td>
+      <td style="padding:6px 8px;font-family:monospace;font-size:11px">${esc(r.orderNo||'')}</td>
+      <td style="padding:6px 8px;font-family:monospace;font-size:11px;white-space:nowrap">${esc(r.arIv||'—')}</td>
+      <td style="padding:6px 8px">${esc(r.arCustCode)}</td>
+      <td style="padding:6px 8px">${esc(r._recipient||'')}</td>
+      <td style="padding:6px 8px;text-align:right;font-variant-numeric:tabular-nums">${fmtM(r.arOutstanding)}</td>
+      <td style="padding:6px 8px;white-space:nowrap">${r.paymentDate?esc(bmpFmtThaiShort(String(r.paymentDate).slice(0,10))):'—'}</td>
+      <td style="padding:6px 8px">${r._stm?'<span style="color:#16a34a;font-size:11px">✓ เข้าแล้ว</span>':'<span style="color:#a16207;font-size:11px">รอเข้า</span>'}</td>
+      <td style="padding:6px 8px;font-size:11px;color:${ok?'#16a34a':'#b45309'}">${ok?'✓ พร้อม':esc(r.warning||'')}</td>
+    </tr>`;
+  }).join("");
+  const table=cands.length?`<div style="overflow-x:auto;border:1px solid #e2e8f0;border-radius:10px;background:#fff">
+    <table style="width:100%;border-collapse:collapse;font-size:12px">
+      <thead><tr style="background:#f8fafc;border-bottom:2px solid #e2e8f0">
+        <th style="padding:8px;text-align:left">BQ</th><th style="padding:8px;text-align:left">ออเดอร์</th><th style="padding:8px;text-align:left">เลข IV</th>
+        <th style="padding:8px;text-align:left">ลูกค้า</th><th style="padding:8px;text-align:left">ผู้รับ</th><th style="padding:8px;text-align:right">ยอด IV</th>
+        <th style="padding:8px;text-align:left">วันเงินเข้า</th><th style="padding:8px;text-align:left">STM</th><th style="padding:8px;text-align:left">สถานะ</th>
+      </tr></thead><tbody>${rows}</tbody>
+    </table></div>`:`<div class="sal-empty" style="padding:44px;text-align:center;background:#fff;border:1px solid #e2e8f0;border-radius:14px">ยังไม่มีพัสดุ COD ที่ลิงก์ออเดอร์ได้ — ไปลิงก์ที่หน้า COD ขนส่งก่อน</div>`;
+  return `<div style="padding:16px 0 0">
+    <div style="font-size:12.5px;color:#64748b;margin-bottom:10px">💡 ดึงจากหน้า <b>COD ขนส่ง</b> — พัสดุที่ลิงก์ออเดอร์ได้ + คีย์ IV แล้ว + เงินเข้า STM แล้ว = พร้อมออก RE (โอนตรง = เงินเข้าเต็มยอด IV ไม่มีค่าธรรมเนียม)</div>
+    ${kpi}${seedHtml}${table}
+    <div style="color:#94a3b8;font-size:11px;margin-top:8px">แสดง ${Math.min(cands.length,500)}/${cands.length} · แถวเหลือง = ยังไม่พร้อม (ยังไม่คีย์ IV / รอเงินเข้า / COD≠IV)</div>
+  </div>`;
 }
 function incRenderExport(d){
   const company = state.company;
@@ -30322,6 +30444,7 @@ function codRenderTab(d){
     <div style="display:flex;gap:8px;margin:0 0 12px;flex-wrap:wrap;align-items:center">
       <div style="font-size:12.5px;color:var(--ink-2,#475569)">1 การโอน = พัสดุที่ 'วันที่โอนเงิน' ตรงกัน · แต่ละพัสดุลิงก์ไปออเดอร์ในระบบ (เลขพัสดุ/ยอด)</div>
       <div style="flex:1"></div>
+      <button class="brec-btn" onclick="incSetCodReGoto()"><i data-lucide="receipt"></i> ไปรับชำระ (ออก RE)</button>
       <button class="brec-btn primary" onclick="codExportXlsx()"><i data-lucide="file-spreadsheet"></i> ⬇ Export (สรุป + รายพัสดุ)</button>
       <button class="brec-btn warn" onclick="codClear()"><i data-lucide="trash-2"></i> ล้าง</button>
     </div>

@@ -191,6 +191,14 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-26 (22) — ★ Bank Recon: ปุ่ม "ดูที่มา" เงินเข้าค้างกระทบ → เด้งไปหน้าต้นทาง + ไฮไลต์
+- **เจ้าของ:** เงินเข้าใน Bank ที่ค้างกระทบ อยากคลิกดูที่มา — platform→หน้าถอน Marketplace ของยอดวันนั้น · iShip→หน้า COD ขนส่ง · คนธรรมดาโอนตรง→หน้ารับชำระโอนตรง
+- **`brecTraceType(row)`** ระบุประเภทจาก **หมายเหตุ (user_note) ก่อน** (แม่นสุด · ผู้ใช้พิมพ์ COD/โอนตรง/SHOPEE/TIKTOK/LAZADA) → fallback description (ไอชิพ/PIPO/SHOPEEPAY/ชื่อบุคคล) → `direct`/`cod`/`marketplace`/null
+- **`brecTraceSource(id)`:** marketplace→`brecSetTab('mp')` · cod→`brecSetTab('cod')` (เปิด filter=ทั้งหมด กันการ์ด "ทำแล้ว" ถูกซ่อน) · direct→`setTool('sales_income')`+subtab direct · เก็บ `d._traceTarget`/`inc._traceBk` (bkid+amt+date)
+- **ไฮไลต์:** การ์ด mp/cod + แถวโอนตรง มี `data-src-bkid`/`data-src-amt`/`data-src-date` (จาก `bm.row`/`x.dep`) · `brecApplyTraceScroll`/`incApplyTraceScroll` (ท้าย render) หา element (bkid ก่อน → fallback ยอด±0.01+วัน) → `brecFlashEl` (scrollIntoView + เรืองม่วง 2.6 วิ) · ไม่พบ → `brecToast`
+- **ปุ่ม compass (ม่วง)** ในคอลัมน์จัดการของแถว "ค้าง Bank" เฉพาะเงินเข้า (deposit>0) · ระบุที่มาไม่ได้ → alert แนะนำให้พิมพ์หมายเหตุก่อน
+- **verified:** syntax OK (node) · boot 0 error · display/navigation-only · ไม่ต้อง migration (reuse brec_bank_rows id ร่วมทุกแท็บ)
+
 ### 2026-07-26 (21) — ★ ส่งออก RE โอนตรง (M Bark): เลือก Bank {Down 2} · ไม่มีรหัสเช็ค + ติ๊กเลือกส่งออก
 - **เจ้าของ:** โอนตรง (Prepaid) ของ M Bark ≠ FACE COD — **เงินเข้าแบงค์เลย** → "เลือก Bank"=`{Down 2}` (ไม่ใช่ `{Down 10}` แบบ FACE) · **รหัสเช็ค/ธนาคาร เว้นว่าง** (ไม่ผ่านช่องทาง FB) · บันทึก batch + ติ๊กเลือกรายการที่จะส่งออก
 - **`incReRow` +เคส `r._directBank`** (หลัง isDirect): `isMbark && _directBank` → `downCmd="{Down 2}"` · `checkCode=""` · `bankCode=""` (lett/enter ยังเว้นว่างจาก isDirect) — override เฉพาะโอนตรงเข้าแบงค์ · **FACE COD (ไม่มี _directBank) คงเดิม** ({Down 10}/FB)

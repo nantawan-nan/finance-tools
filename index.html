@@ -3786,6 +3786,7 @@ async function renderToolSalesIncome(){
   const dateBar = (subtab==='list'||subtab==='recon') ? `<div style="padding:16px 0 0">${incDateBarHtml(d)}</div>` : '';
   main.innerHTML = `<div class="ord-page sal-page">${heroHtml}${tabHtml}${dateBar}${bodyHtml}</div>`;
   if(window.lucide) lucide.createIcons();
+  incApplyTraceScroll();   // ★ เด้ง/ไฮไลต์ออเดอร์โอนตรง (ถ้ามาจากปุ่ม "ดูที่มา" ในหน้า Bank Recon)
 }
 
 /* รวมค่าใช้จ่ายของ 1 ออเดอร์เป็นหมวด — คิดเครื่องหมาย (หักกลบขาเข้า/ขาออก) → ค่าบวก = รายจ่าย
@@ -4783,7 +4784,7 @@ function incRenderDirect(d){
       stmCell=`<span style="color:#a16207">⚠ ${x.candidates.length} เงินเข้ายอดตรง</span> <select onchange="incDirectPick('${esc(o.order_id)}', this.value)" style="font-size:11px;padding:2px 5px;border:1px solid #fde68a;border-radius:6px;max-width:260px;background:#fffbeb"><option value="">— เลือกเงินเข้า —</option>${opts}</select>`; }
     else stmCell=`<span style="color:#dc2626">✕ ไม่พบเงินเข้ายอดตรง</span>`;
     const chkCell=isReady?`<input type="checkbox" ${sel?'checked':''} onchange="incDirectToggleRow('${esc(o.order_id)}')" style="cursor:pointer">`:`<span style="color:#cbd5e1">—</span>`;
-    return `<tr style="border-bottom:1px solid #f1f5f9${x.dep?(sel?';background:#f0fdf4':''):';background:#fffbeb'}">
+    return `<tr style="border-bottom:1px solid #f1f5f9${x.dep?(sel?';background:#f0fdf4':''):';background:#fffbeb'}"${x.dep?` data-src-bkid="${esc(String(x.dep.id))}" data-src-amt="${Number(o.order_total)||0}"`:''}>
       <td style="padding:6px 8px;text-align:center">${chkCell}</td>
       <td style="padding:6px 8px;font-family:monospace;font-size:11px">${esc(o.order_id||'')}</td>
       <td style="padding:6px 8px;font-family:monospace;font-size:11px">${o.iv_no?esc(o.iv_no):'<span style="color:#dc2626">ยังไม่คีย์</span>'}</td>
@@ -23340,6 +23341,93 @@ function brecInjectCSS(){
 function brecRefresh(){ renderToolBankRec(); }
 
 function brecSetTab(t){ const d=brecGet(); d.tab=t; d.sel.ex.clear(); d.sel.bk.clear(); brecRefresh(); }
+
+/* ============================================================
+   ★ ดูที่มา (trace) — เงินเข้าใน Bank ที่ค้างกระทบ → เด้งไปหน้าต้นทาง + ไฮไลต์
+   - marketplace (SHOPEE/TIKTOK/LAZADA) → แท็บ "ถอน Marketplace"
+   - COD (iShip)                        → แท็บ "COD ขนส่ง"
+   - โอนตรง (บุคคลธรรมดา)                → หน้ารับชำระ "โอนตรง (Prepaid)"
+   ระบุประเภทจากหมายเหตุที่ผู้ใช้พิมพ์ก่อน (แม่นสุด) → fallback ข้อความรายการ
+   ============================================================ */
+function brecTraceType(row){
+  const note=String(row.user_note||'').toLowerCase();
+  const desc=String(row.description||row.ref_note||'').toLowerCase();
+  const s=note+' '+desc;
+  if(/โอนตรง|โอน ตรง|direct/.test(s)) return 'direct';
+  if(/\bcod\b|ไอชิพ|ไอ ชิพ|iship|i-ship|i ship|ishipping/.test(s)) return 'cod';
+  if(/shopee|ช้อปปี|ช็อปปี|tiktok|ติ๊กต็อก|ติกต็อก|lazada|ลาซาด้า|pipo|shopeepay|marketplace|มาร์เก็ต/.test(s)) return 'marketplace';
+  // fallback: ชื่อบุคคลในรายการ (ไม่ใช่บริษัท) → น่าจะโอนตรง
+  if(/นางสาว|นาย |นาง |mr |mrs |miss |ms /.test(desc) && !/บริษัท|บจก|company|limited|co\.,|ltd|จำกัด/.test(desc)) return 'direct';
+  return null;
+}
+function brecTraceSource(id){
+  const d=brecGet(); const row=(d.bank||[]).find(r=>String(r.id)===String(id));
+  if(!row){ alert('ไม่พบรายการ Bank นี้'); return; }
+  const kind=brecTraceType(row);
+  const amt=Number(row.deposit)||Number(row.withdrawal)||0;
+  const date=row.txn_date||'';
+  if(!kind){
+    alert('ยังระบุที่มาไม่ได้ 🤔\n\nพิมพ์ "หมายเหตุ" ของแถวนี้เป็น COD / โอนตรง / SHOPEE / TIKTOK / LAZADA ก่อน แล้วกด "ดูที่มา" อีกครั้ง\n(หรือระบบจะเดาจากชื่อผู้โอน/ธนาคารในรายการให้)');
+    return;
+  }
+  if(kind==='direct'){
+    const inc=incGet(); inc._traceBk={ id:String(id), amt, date, ts:Date.now() }; inc.subtab='direct';
+    setTool('sales_income');   // render + auto-load direct → scroll ท้าย render
+    return;
+  }
+  // marketplace / cod = แท็บในหน้า bankrec เดียวกัน
+  d._traceTarget={ bkid:String(id), amt, date, kind, kindLabel: kind==='cod'?'COD ขนส่ง':'ถอน Marketplace' };
+  // เปิด filter เป็น "ทั้งหมด" กันการ์ดที่ติ๊ก "ทำแล้ว" ถูกซ่อน → trace หาไม่เจอ
+  if(kind==='cod'){ d.cod=d.cod||{}; d.cod.doneFilter='all'; }
+  else { d.mp=d.mp||{}; d.mp.filterDone='all'; d.mp.filterChannel='all'; d.mp.filterAccount='all'; }
+  brecSetTab(kind==='cod'?'cod':'mp');   // → renderToolBankRec → brecApplyTraceScroll ท้าย render
+}
+function brecFlashEl(el){
+  if(!el) return;
+  try{ el.scrollIntoView({behavior:'smooth', block:'center'}); }catch(e){ try{ el.scrollIntoView(); }catch(_){} }
+  const pS=el.style.boxShadow, pB=el.style.background, pT=el.style.transition;
+  el.style.transition='box-shadow .25s, background .25s';
+  el.style.boxShadow='0 0 0 3px #7c3aed'; el.style.background='#f5f3ff';
+  setTimeout(()=>{ el.style.boxShadow=pS; el.style.background=pB; setTimeout(()=>{ el.style.transition=pT; },300); }, 2600);
+}
+function brecFindSrcEl(scope, t){
+  let el=t.bkid && scope.querySelector(`[data-src-bkid="${t.bkid}"]`);
+  if(el) return el;
+  const nodes=[...scope.querySelectorAll('[data-src-amt]')];
+  return nodes.find(n=> Math.abs(Number(n.getAttribute('data-src-amt'))-t.amt)<0.01 && (!t.date || n.getAttribute('data-src-date')===t.date))
+      || nodes.find(n=> Math.abs(Number(n.getAttribute('data-src-amt'))-t.amt)<0.01) || null;
+}
+function brecApplyTraceScroll(){
+  const d=brecGet(); const t=d._traceTarget; if(!t) return;
+  const want=t.kind==='cod'?'cod':'mp';
+  if(d.tab!==want) return;   // ยังไม่ถึงแท็บเป้าหมาย (รอ re-render)
+  d._traceTarget=null;
+  requestAnimationFrame(()=>{
+    const el=brecFindSrcEl(document, t);
+    if(el) brecFlashEl(el);
+    else brecToast(`ไปที่แท็บ "${t.kindLabel}" แล้ว — ไม่พบการ์ดยอด ${Number(t.amt).toLocaleString('th-TH',{minimumFractionDigits:2})} วันที่ ${t.date||'—'} (อาจยังไม่ได้อัปไฟล์ต้นทางของงวดนี้ หรือยังไม่จับ STM)`);
+  });
+}
+function brecToast(msg){
+  let t=document.getElementById('brecToast');
+  if(!t){ t=document.createElement('div'); t.id='brecToast';
+    t.style.cssText='position:fixed;left:50%;bottom:34px;transform:translateX(-50%);background:#1e293b;color:#fff;padding:11px 18px;border-radius:10px;font:600 13px/1.5 inherit;box-shadow:0 8px 24px rgba(0,0,0,.28);z-index:99999;max-width:560px;text-align:center;opacity:0;transition:opacity .3s';
+    document.body.appendChild(t); }
+  t.textContent=msg; requestAnimationFrame(()=>{ t.style.opacity='1'; });
+  clearTimeout(t._to); t._to=setTimeout(()=>{ t.style.opacity='0'; }, 5000);
+}
+/* trace ฝั่งหน้ารับชำระโอนตรง (คนละ tool) */
+function incApplyTraceScroll(){
+  const d=incGet(); const t=d._traceBk; if(!t) return;
+  if(d.subtab!=='direct' || !d.directLoaded) return;   // รอโหลด direct เสร็จก่อน
+  d._traceBk=null;
+  requestAnimationFrame(()=>{
+    const pane=document.getElementById('incDirectPane')||document;
+    const el=brecFindSrcEl(pane, t);
+    if(el) brecFlashEl(el);
+    else brecToast(`ไปที่ "รับชำระ โอนตรง (Prepaid)" แล้ว — ไม่พบออเดอร์ที่จับกับยอด ${Number(t.amt).toLocaleString('th-TH',{minimumFractionDigits:2})} (ยังไม่ได้เลือกจับคู่ STM?)`);
+  });
+}
 function brecSetPeriodMode(m){ const d=brecGet(); d.period.mode=m; brecLoad().then(brecRefresh); }
 function brecSetMonth(v){ const d=brecGet(); d.period.month=v; brecReloadForPeriod(d); }
 /* เปลี่ยนงวดแล้วโหลดใหม่ตาม view: overview → recompute สถิติภาพรวม · detail → โหลด rows ของบัญชี */
@@ -24142,7 +24230,7 @@ async function renderToolBankRec(){
               ${brecSideHTML(r.bk,"bk",sel)}
               <div class="brec-conf"><span class="brec-tag" style="background:#dbeafe;color:#1e40af">ค้าง Bank</span></div>
               ${noteCell('bk', r.bk.id, r.bk.user_note)}
-              <div class="brec-acts"><button onclick="brecManualLink()" title="จับคู่เอง"><i data-lucide="link"></i></button>${brecCanWrite()?`<button onclick="brecDeleteRow('bk','${r.bk.id}')" style="color:#dc2626;border-color:#fecaca" title="ลบแถวนี้ทิ้ง (เช่น ยอดเก่าที่แก้แล้วอัปใหม่)"><i data-lucide="trash-2"></i></button>`:''}</div>
+              <div class="brec-acts">${Number(r.bk.deposit)>0?`<button onclick="brecTraceSource('${r.bk.id}')" style="color:#7c3aed;border-color:#ddd6fe" title="ดูที่มาของเงินเข้านี้ (ถอน Marketplace / COD ขนส่ง / รับชำระโอนตรง)"><i data-lucide="compass"></i></button>`:''}<button onclick="brecManualLink()" title="จับคู่เอง"><i data-lucide="link"></i></button>${brecCanWrite()?`<button onclick="brecDeleteRow('bk','${r.bk.id}')" style="color:#dc2626;border-color:#fecaca" title="ลบแถวนี้ทิ้ง (เช่น ยอดเก่าที่แก้แล้วอัปใหม่)"><i data-lucide="trash-2"></i></button>`:''}</div>
             </div>`;
           }
         }).join("")}
@@ -24316,6 +24404,7 @@ async function renderToolBankRec(){
     ${brecRenderHistoryModal(d)}
   `;
   if(window.lucide && window.lucide.createIcons){ try{ window.lucide.createIcons(); }catch(e){} }
+  brecApplyTraceScroll();   // ★ เด้ง/ไฮไลต์การ์ดต้นทาง (ถ้ามาจากปุ่ม "ดูที่มา")
 }
 
 
@@ -30632,7 +30721,8 @@ function codRenderTab(d){
       : `<span class="bmp-stm bad">⚠️ ไม่พบใน STM</span>`;
     const isEx=cod.expanded.has(g.id);
     const balOk=g.grossOk&&g.netOk; const isDone=!!doneMap[g.ref];
-    return `<div class="bmp-card ${balOk?'':'warn'} ${isDone?'done':''}">
+    const srcAttr=bm.found?` data-src-bkid="${esc(String(bm.row.id))}" data-src-amt="${Number(bm.row.deposit)}" data-src-date="${esc(bm.row.txn_date||'')}"`:'';
+    return `<div class="bmp-card ${balOk?'':'warn'} ${isDone?'done':''}"${srcAttr}>
       <div class="bmp-head" onclick="codToggleExpand('${esc(g.id)}')">
         <div class="bmp-h1">
           <span class="bmp-chip">🚚 COD</span>${stmBadge}
@@ -31104,7 +31194,8 @@ function bmpRenderTab(d){
       : bm.found
         ? `<span class="bmp-stm ok" title="พบเงินเข้าตรงใน Statement: ${esc(bm.row.txn_date)} ${bmpFmtMoney(bm.row.deposit)}">✓ ตรง STM${bm.exact?'':` · เข้าจริง ${bmpFmtThaiShort(bm.row.txn_date)}`}</span>`
         : `<span class="bmp-stm bad" title="ไม่พบเงินเข้ายอดนี้ใน Statement">⚠️ ไม่พบใน STM</span>`;
-    return `<div class="bmp-card ${hasMismatch?'warn':''} ${isSel?'sel':''} ${wd.done?'done':''}">
+    const srcAttr=bm.found?` data-src-bkid="${esc(String(bm.row.id))}" data-src-amt="${Number(bm.row.deposit)}" data-src-date="${esc(bm.row.txn_date||'')}"`:'';
+    return `<div class="bmp-card ${hasMismatch?'warn':''} ${isSel?'sel':''} ${wd.done?'done':''}"${srcAttr}>
       <div class="bmp-head" onclick="bmpToggleExpand('${wd.id}')">
         <div class="bmp-h1">
           <input type="checkbox" ${isSel?'checked':''} onclick="event.stopPropagation();bmpToggleSelectWd('${wd.id}')" style="width:16px;height:16px;accent-color:var(--brand);cursor:pointer" title="เลือก export">

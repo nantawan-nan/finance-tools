@@ -191,6 +191,13 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-26 (8) — ★ ถอน Marketplace: prefix เลขเช็คคาดการณ์ = เรียนจากรายงาน 191 จริง (M Bark Shopee = SH ไม่ใช่ SP)
+- **เจ้าของ:** TT/SP ที่เคยบอกเป็นแค่ตัวอย่าง — จริงต้องดึงจาก **รายงาน 191 (รับชำระ)** · M Bark Shopee เลขเช็คขึ้นต้น **SH** ไม่ใช่ SP
+- **ต้นเหตุ:** order ที่อยู่ใน 191 → ได้เลขเช็คจริง (`chq.cheque_no`) ถูกแล้ว · แต่ order ที่**ยังไม่อยู่ใน 191** → สร้างคาดการณ์ด้วย `bmpChequePrefix` **ตายตัว {shopee:SP}** → M Bark ได้ SP ผิด
+- **แก้ `bmpGroupWithdrawals`:** เรียนรู้ **prefix จริงต่อช่องทาง จาก `arData.cheques` (191)** → `chqPrefixByChannel` (นับ prefix ที่พบบ่อยสุด · เช่น shopee→SH, tiktok→TT) · ใช้ตอนสร้าง `chequeNo` คาดการณ์ (`learnedPfx + reDigits`) แทน prefix ตายตัว · order ใน 191 ยังใช้เลขจริงเหมือนเดิม
+- **`bmpChequePrefix` fallback → M Bark-aware** (shopee→SH) เผื่อ 191 ยังไม่มีข้อมูลช่องนั้น · **verified (node):** cheques SH×3/TT×2 → เรียน {shopee:SH, tiktok:TT} · สร้าง RE2607000262→SH2607000262 (ไม่ใช่ SP)
+- **display จาก grouping ตอน upload → ต้อง re-upload ไฟล์กระเป๋าเงิน + 191 ให้ครบ** (เรียน prefix จาก 191 ที่ cache รวม) · syntax OK · order ใน 191 = เลขจริง 100%
+
 ### 2026-07-26 (7) — ★ ถอน Marketplace: แจ้ง "ออเดอร์มีเงินเข้าแต่ไม่อยู่ในทะเบียน" (orphan) + ปุ่มไปนำเข้า BigSeller + export
 - **เจ้าของสงสัย:** หน้ากระทบยอดเห็นออเดอร์ "ยังไม่คีย์ IV" (UNKNOWN-) แต่ไปหน้าส่งออก IV ไม่มี — เพราะ 2 หน้าคนละแหล่ง: กระทบยอด = ไฟล์กระเป๋าเงิน · ส่งออก IV = ทะเบียน (order_ledger จาก BigSeller) · ออเดอร์พวกนี้มีเงินเข้ากระเป๋าแต่ **ไม่เคยนำเข้า BigSeller เข้าทะเบียน** → คีย์ IV ไม่ได้ (IV ต้องมี SKU/จำนวน/ราคาจาก BigSeller · ไฟล์กระเป๋าเงินมีแค่ยอด)
 - **`bmpLoadRegistrySet(d)`** (ใหม่ · lazy · paginate) โหลด `order_ledger.order_id` ทั้งบริษัทเป็น Set · trigger ใน `bmpRenderTab` (guard `registrySet===undefined && !_regLoading`) · reset ใน `bmpLoadFromDb` (โหลดใหม่หลังนำเข้า/re-upload กัน orphan ค้าง)

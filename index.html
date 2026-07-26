@@ -24655,6 +24655,21 @@ function bmpGroupWithdrawals(parsed, arData, chqData, salesData, shopName, share
   }
 
   const routing = bmpRouting(shopName);
+  // ★ เรียนรู้ "prefix เลขเช็คจริง" ต่อช่องทาง จากรายงานรับชำระ (191) — เช่น M Bark Shopee = SH (ไม่ใช่ SP), TikTok = TT, Lazada = LZ
+  //   ใช้ตอน "สร้างเลขเช็คคาดการณ์" ให้ออเดอร์ที่ยังไม่อยู่ใน 191 → prefix ตรงกับที่ Express ออกจริง (ไม่เดาผิด)
+  const chqPrefixCount = { shopee:{}, tiktok:{}, lazada:{} };
+  for(const c of (arData.cheques||[])){
+    const pm = String(c.cheque_no||"").match(/^([A-Zก-๙]{2,4})\d/);
+    if(!pm) continue;
+    const ch = /shopee/i.test(c.channel)?"shopee":(/tiktok/i.test(c.channel)?"tiktok":(/lazada/i.test(c.channel)?"lazada":null));
+    if(!ch) continue;
+    chqPrefixCount[ch][pm[1]] = (chqPrefixCount[ch][pm[1]]||0) + 1;
+  }
+  const chqPrefixByChannel = {};
+  for(const ch of Object.keys(chqPrefixCount)){
+    const es = Object.entries(chqPrefixCount[ch]);
+    if(es.length) chqPrefixByChannel[ch] = es.sort((a,b)=>b[1]-a[1])[0][0];   // prefix ที่พบบ่อยสุดในรายงานจริง
+  }
   const withdrawals = [];
   // ★ Model A: 1 การถอน = ทุก txn ที่สะสมในกระเป๋าตั้งแต่ถอนครั้งก่อน (orders + ค่าโฆษณา + ยกเลิก)
   //   → ทุกออเดอร์ในงวดได้เช็ครับครบ · ค่าโฆษณา/ยกเลิก = ค่าใช้จ่าย · pool net = ยอดถอน (ถอนเต็มกระเป๋า)
@@ -24743,9 +24758,12 @@ function bmpGroupWithdrawals(parsed, arData, chqData, salesData, shopName, share
         const feeDiff = gross ? +(gross - net).toFixed(2) : 0;
         // ใบเสร็จ (RE): เช็ค SP จาก รับชำระ → RE/เลขเช็ค ในทะเบียน
         const hasReceipt = !!chq || !!(led && (led.re_no || led.cheque_no));
+        // เลขที่เช็ค: (1) เลขจริงจากรับชำระ 191 · (2) เลขเช็คจริงในทะเบียน (ไม่ใช่ RE) · (3) สร้างคาดการณ์ = prefix จริงที่เรียนจาก 191 + เลข RE · (4) ยังไม่มี RE
+        const learnedPfx = chqPrefixByChannel[routing.channel] || bmpChequePrefix(routing.channel);
+        const reDigits = (led && led.re_no) ? String(led.re_no).replace(/\D/g,"") : "";
         const chequeNo = chq ? chq.cheque_no
-                             : (led && led.cheque_no ? led.cheque_no
-                             : (led && led.re_no ? ("RE-" + led.re_no)
+                             : (led && led.cheque_no && !/^RE/i.test(led.cheque_no) ? led.cheque_no
+                             : (reDigits ? (learnedPfx + reDigits)
                              : (ivNo ? ("PENDING-" + ivNo) : ("UNKNOWN-" + o.order_id))));
         let mismatch = false; let reason = "";
         if(!ivNo){ mismatch = true; reason = "ยังไม่คีย์ IV (ไม่พบในทะเบียน/รายงาน)"; }
@@ -24775,7 +24793,7 @@ function bmpGroupWithdrawals(parsed, arData, chqData, salesData, shopName, share
       const adjRows = adjustments.map(a => ({
         channel: routing.channel,
         order_id: a.order_id || "-",
-        cheque_no: a.order_id ? ((routing.channel==="tiktok"?"TT":"SP")+a.order_id) : null,
+        cheque_no: a.order_id ? ((chqPrefixByChannel[routing.channel]||bmpChequePrefix(routing.channel))+a.order_id) : null,
         txn_datetime: a.datetime,
         txn_type: "adjustment",
         express_gross: 0,
@@ -29886,7 +29904,11 @@ function bmpIsCancelledOrder(o){
 }
 /* ------- เลขที่เช็คจริง (ขึ้นต้น TT/SP/LZ ตามช่องทาง + เลขออเดอร์) — ไม่ใช่เลข RE ------- */
 /*   ถ้ามีเลขเช็คจริงจาก Express (ไม่ใช่ fallback RE-/PENDING-/UNKNOWN-) ใช้เลย · ไม่งั้นสร้างจากช่องทาง */
-function bmpChequePrefix(channel){ return {tiktok:"TT", shopee:"SP", lazada:"LZ"}[channel] || "TT"; }
+/* prefix เลขเช็ค fallback (ใช้เมื่อยังเรียน prefix จริงจากรายงานรับชำระ 191 ไม่ได้) — M Bark Shopee = SH */
+function bmpChequePrefix(channel){
+  if(state.company==="mbark" && channel==="shopee") return "SH";
+  return {tiktok:"TT", shopee:"SP", lazada:"LZ"}[channel] || "TT";
+}
 function bmpRealCheque(o, channel){
   const raw = String(o.cheque_no||"").trim();
   // (1) เลขเช็คจริงจาก Express (เช็ครับ) — ค่าที่ไม่ใช่ RE/PENDING/UNKNOWN (มักขึ้นต้น TT/SP/LZ อยู่แล้ว)

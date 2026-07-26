@@ -191,6 +191,12 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-26 (14) — ★ COD ขนส่ง: persist ลง DB (กัน refresh แล้วหาย)
+- **เจ้าของแจ้ง:** COD จับเบอร์ตรงเยอะดีแล้ว แต่ **refresh เว็บแล้วข้อมูลหาย** ต้องอัปใหม่ (COD เป็น client-side ล้วน · ต่างจาก Marketplace ที่เก็บ DB)
+- **Migration `bankrec-cod-data.sql`:** ตาราง `brec_cod_data` (`company_id` PK · `parcels`/`transfers` jsonb · RLS + policy เหมือน exec_cashflow) — เก็บ **raw parsed** (ไม่เก็บ groups/link) → โหลดมา regroup+relink ใหม่ = link อัปเดตตาม order_ledger ล่าสุดเอง
+- **`codSaveToDb`** (upsert หลัง upload) · **`codLoadFromDb`** (โหลด → `codGroup` + `codLoadBankRows` + `codLoadOrders` + `codLinkParcels`) เสียบใน monkey-patch `brecLoad` (โหลดทุกครั้งที่เข้าหน้า bankrec · guard early-return ถ้าไม่มีข้อมูล) · `codClear` ลบ DB ด้วย
+- **verified:** syntax OK · **ต้อง push (migration) ก่อน** · reuse codGroup/codLinkParcels เดิม · ไม่กระทบ Marketplace (bmp เก็บ brec_mp_* แยก)
+
 ### 2026-07-26 (13b) — ★ fix Lazada: โชว์รหัสรอบบิลแทนเลขออเดอร์ (SheetJS อ่านแค่คอลัมน์ A)
 - **เจ้าของแจ้ง:** การ์ด Lazada โชว์ **รหัสรอบบิล** (`TH1JWZ3V46-2026-0713`) แทน **รหัสคำสั่งซื้อ** — อยากเห็นออเดอร์ในรอบบิล + net/ออเดอร์
 - **ต้นเหตุ:** ไฟล์ Lazada ประกาศ `!ref = "A1:A536"` (แค่คอลัมน์ A) → SheetJS `sheet_to_json` อ่านคอลัมน์เดียว → `iix("หมายเลขคำสั่งซื้อ")` = -1 → `oid` fall ไป statement ทุกแถว (openpyxl อ่านครบ 19 คอลัมน์ → sim ผ่าน แต่ SheetJS ในแอปพลาด)

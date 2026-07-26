@@ -30054,6 +30054,35 @@ async function codLoadBankRows(d){
     d.cod = d.cod||{}; d.cod.bankRows = data||[];
   }catch(e){ console.warn("codLoadBankRows",e); d.cod=d.cod||{}; d.cod.bankRows=[]; }
 }
+/* ★ persist COD ลง DB (กัน refresh แล้วหาย) — เก็บ parcels+transfers ดิบ · โหลดมา regroup+relink ใหม่ */
+async function codSaveToDb(d){
+  try{
+    const co = d.companyId || await fopCompanyId(); if(!co) return;
+    const { error } = await sb.from("brec_cod_data").upsert(
+      { company_id:co, parcels:(d.cod&&d.cod.parcels)||[], transfers:(d.cod&&d.cod.transfers)||[],
+        updated_at:new Date().toISOString(), updated_by:(AUTH.user&&AUTH.user.id)||null },
+      { onConflict:"company_id" });
+    if(error) console.warn("codSaveToDb", error);
+  }catch(e){ console.warn("codSaveToDb", e); }
+}
+async function codLoadFromDb(d){
+  try{
+    const co = d.companyId || await fopCompanyId(); if(!co) return;
+    const { data } = await sb.from("brec_cod_data").select("parcels,transfers").eq("company_id", co).maybeSingle();
+    if(!data || !((data.parcels&&data.parcels.length)||(data.transfers&&data.transfers.length))) return;
+    d.cod = d.cod || {};
+    d.cod.parcels = data.parcels||[]; d.cod.transfers = data.transfers||[];
+    if(d.cod.parcels.length && d.cod.transfers.length){
+      const g = codGroup(d.cod.parcels, d.cod.transfers);
+      d.cod.groups = g.groups; d.cod.pending = g.pending;
+      d.cod.expanded = d.cod.expanded || new Set();
+      await codLoadBankRows(d);
+      await codLoadOrders(d);
+      codLinkParcels(d);   // re-link ด้วยเบอร์/ยอด จาก order_ledger ล่าสุด (link อัปเดตเอง)
+    }
+  }catch(e){ console.warn("codLoadFromDb", e); }
+}
+function codClearDb(){ const d=brecGet(); (async()=>{ const co=d.companyId||await fopCompanyId(); if(co) await sb.from("brec_cod_data").delete().eq("company_id",co); })().catch(e=>console.warn("codClearDb",e)); }
 /* โหลดออเดอร์ในทะเบียน (order_ledger) → ใช้ลิงก์พัสดุ COD → ออเดอร์ */
 async function codLoadOrders(d){
   try{
@@ -30148,6 +30177,7 @@ function codOpenUpload(){
       await codLoadBankRows(d);
       await codLoadOrders(d);          // ★ โหลดทะเบียน → ลิงก์พัสดุ → ออเดอร์
       if(d.cod.groups) codLinkParcels(d);
+      codSaveToDb(d);                  // ★ บันทึกลง DB (กัน refresh แล้วหาย)
       renderToolBankRec();
       const nT=(d.cod.transfers||[]).length, nP=(d.cod.parcels||[]).length;
       if(!(d.cod.parcels&&d.cod.transfers)) alert(`อัปแล้ว: ${gotP?`พัสดุ ${nP}`:''}${gotT?`โอน ${nT}`:''}\nอัปอีกไฟล์ (${gotP?'รายงานเครดิต':'รายงานเก็บเงินปลายทาง'}) เพื่อจับคู่`);
@@ -30156,7 +30186,7 @@ function codOpenUpload(){
   inp.click();
 }
 function codToggleExpand(id){ const d=brecGet(); d.cod.expanded=d.cod.expanded||new Set(); if(d.cod.expanded.has(id)) d.cod.expanded.delete(id); else d.cod.expanded.add(id); renderToolBankRec(); }
-function codClear(){ const d=brecGet(); if(!confirm("ล้างข้อมูล COD (ในหน้าจอ)?")) return; d.cod={}; renderToolBankRec(); }
+function codClear(){ const d=brecGet(); if(!confirm("ล้างข้อมูล COD (ลบออกจากระบบด้วย)?")) return; d.cod={}; codClearDb(); renderToolBankRec(); }
 function codExportXlsx(){
   const d=brecGet(); const groups=(d.cod&&d.cod.groups)||[];
   if(!groups.length){ alert("ยังไม่มีข้อมูลจับคู่ — อัปครบ 2 ไฟล์ก่อน"); return; }
@@ -30883,6 +30913,7 @@ const _origBrecLoad = brecLoad;
 brecLoad = async function(){
   await _origBrecLoad();
   try{ await bmpLoadFromDb(); }catch(e){ console.warn("bmp load fail", e); }
+  try{ await codLoadFromDb(brecGet()); }catch(e){ console.warn("cod load fail", e); }
 };
 
 

@@ -24653,7 +24653,21 @@ function bmpGroupWithdrawals(parsed, arData, chqData, salesData, shopName, share
           acc = +(acc - dayNet).toFixed(2);
         } else break;
       }
-      // เศษที่ตัดไม่ลงวัน (คร่อมกลางวัน) → ยกไปงวดหน้า · เช็คของออเดอร์นี้ออกงวดนี้ แต่เงินถอนงวดหน้า
+      // ★ เศษที่คร่อมกลางวัน → ดัน "รายออเดอร์" (เช็ค) ใหม่สุดไปงวดหน้า (ไม่ใช่ยกเป็นเงินสด)
+      //   เดิม: เช็คของออเดอร์ยกไปยังค้างในงวดนี้ → ใบฝากเช็คงวดนี้เกิน STM (เจ้าของแจ้ง: "ต้องเลือกเช็คใบไหนออก งง")
+      //   ตอนนี้: ย้ายทั้งออเดอร์ (เช็ค) ไปงวดหน้า → ใบฝากงวดนี้ = ตรง STM · เช็คยกไปอยู่ในใบฝากงวดถัดไปจริง
+      //   ดันเฉพาะออเดอร์บวก (net>0 = มีเช็ค) · ค่าใช้จ่าย (ยกเลิก/โฆษณา net≤0) คงอยู่งวดนี้ · หยุดถ้าดันแล้วงวดนี้จะขาด
+      while((acc - wdAmount) > 0.01){
+        let j = assigned.length - 1;
+        while(j >= 0 && !(assigned[j].type === "รายรับจากคำสั่งซื้อ" && assigned[j].amount > 0.01)) j--;
+        if(j < 0) break;                                  // ไม่มีออเดอร์บวกให้ดันแล้ว
+        const t = assigned[j];
+        if((acc - t.amount) < (wdAmount - 0.01)) break;   // ดันออกแล้วงวดนี้ขาดยอดถอน → หยุด (เหลือเศษเล็กน้อยยกเป็นเงินสด)
+        assigned.splice(j, 1);
+        queue.unshift(t);                                 // ไปงวดหน้า (ก่อน "ทั้งวัน" ที่ดันไปแล้ว = เรียงเวลาถูก)
+        acc = +(acc - t.amount).toFixed(2);
+      }
+      // เศษที่เหลือ (ออเดอร์เดียวคร่อมยอดถอนพอดี · ดันไม่ได้เพราะจะขาด) → ยกเป็นเงินสดเล็กน้อย
       const carryOut = Math.max(0, +(acc - wdAmount).toFixed(2));
       carryCash = carryOut;
       const orders = assigned.filter(t => t.type === "รายรับจากคำสั่งซื้อ");
@@ -30074,11 +30088,11 @@ function bmpRenderTab(d){
           const remain = withdrawAmt;   // ยอดเข้าแบงค์จริงตามรายงานถอน
           const stmOk = bankActual!=null && Math.abs(remain - bankActual) < 0.5;
           return `<div class="bmp-recon">
-            ${carryIn>0.005?`<div class="bx"><span class="k">ยอดยกมา <small>(เช็คออกงวดก่อน · ถอนงวดนี้)</small></span><span class="v">${bmpFmtMoney(carryIn)}</span></div><div class="op">+</div>`:''}
+            ${carryIn>0.005?`<div class="bx"><span class="k">ยอดยกมา <small>(เศษเงินสดจากงวดก่อน)</small></span><span class="v">${bmpFmtMoney(carryIn)}</span></div><div class="op">+</div>`:''}
             <div class="bx"><span class="k">รวมยอดที่ต้องผ่านเช็ค <small>(เช็ครับ = net เข้ากระเป๋า)</small></span><span class="v">${bmpFmtMoney(sumCheque)}</span></div>
             <div class="op">−</div>
             <div class="bx fee"><span class="k">หัก ค่าใช้จ่ายในกระเป๋าเงิน <small>(ยอด − : ยกเลิก+โฆษณา)</small></span><span class="v">${bmpFmtMoney(walletExpense)}</span></div>
-            ${carryOut>0.005?`<div class="op">−</div><div class="bx"><span class="k">ยอดยกไป <small>(เช็คออกงวดนี้ · ถอนงวดหน้า)</small></span><span class="v">${bmpFmtMoney(carryOut)}</span></div>`:''}
+            ${carryOut>0.005?`<div class="op">−</div><div class="bx"><span class="k">ยอดยกไป <small>(เศษออเดอร์คร่อมยอดถอน · เช็คไปงวดหน้า)</small></span><span class="v">${bmpFmtMoney(carryOut)}</span></div>`:''}
             <div class="op">=</div>
             <div class="bx res"><span class="k">คงเหลือเข้าแบงค์</span><span class="v">${bmpFmtMoney(remain)}</span></div>
             <div class="op">${stmOk?'✓':(bankActual!=null?'✗':'·')}</div>

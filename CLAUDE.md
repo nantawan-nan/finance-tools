@@ -191,6 +191,15 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-26 (20) — ★★ รับชำระ เฟส C: โอนตรง (Prepaid) → จับ STM บุคคลธรรมดา (เลือกเอง · ห้าม auto)
+- **เจ้าของ:** ออเดอร์ Prepaid (Manual · โอนตรงเข้าบัญชี) → จับกับเงินเข้าใน Statement → ส่งออก RE · **★ ห้าม auto-confirm ยอดซ้ำ** (จับผิด = ลูกหนี้ผิด · [[project_direct_transfer_cod]])
+- **subtab ใหม่ `direct` "รับชำระ โอนตรง (Prepaid)"** · `incDirectLoadData` โหลด order_ledger (payment_method Prepaid · non-marketplace · ไม่ยกเลิก · ยังไม่ RE) + `brec_bank_rows` (deposit>0) + matches
+- **`incDirectCandidates`:** ต่อออเดอร์หา deposit ที่ **ยอดตรงเป๊ะ + วัน ≥ วันสั่ง + ยังไม่ถูกจับกับออเดอร์อื่น** → เป็น candidates (ไม่ auto-pick) · เลือกแล้ว = `via:manual`
+- **UI:** dropdown "เลือกเงินเข้า" ต่อออเดอร์ (`incDirectPick` · โชว์ วัน·ยอด·ผู้โอน จาก description/ref_note) → persist `brec_direct_match` (order_id→bank_row_id) · KPI พร้อม/มีตัวเลือก/จับแล้วยังไม่ IV/ไม่พบ
+- **`incExportDirectRe`** reuse `incReRow` (โอนตรง = เงินเข้าเต็ม diff 0 · cust FACE/LINE/Dealer · paymentDate = วัน STM) + สร้าง batch (`incCreateReBatch`) · seed แยก `directSeed` (live update ไม่ re-render — [[feedback_input_no_rerender]])
+- **Migration `direct-transfer-match.sql`** (jsonb · RLS เหมือน exec_cashflow) · syntax OK · **ต้อง push + re-import BigSeller (payment_method) + อัป Statement บัญชีบริษัท**
+- **ครบแผนรับชำระ FACE/LINE/Dealer:** A (COD ขนส่ง) · B (COD BigSeller รอเก็บ) · C (Prepaid โอนตรง)
+
 ### 2026-07-26 (19) — ★ COD ขนส่ง: ส่งออก BQ (CSV เหมือนแพลตฟอร์ม) + ติ๊กทำแล้ว + filter รอ/เสร็จ
 - **เจ้าของ:** อยากให้ COD มี "ส่งออก BQ" เหมือนหน้า ถอน Marketplace + "ติ๊กว่าทำแล้วหรือยัง"
 - **`codExportBq`** (CSV · 10 คอลัมน์เหมือน `bmpExportCsv`): 1 แถว/พัสดุ · หัวการโอน (BQ/วันเงินเข้า STM/รหัสบัญชี S1/ค่าธรรมเนียมรวม=iShip fee/desc) · เลขที่เช็ค = RE ของออเดอร์ (fallback IV/tracking) · มูลค่าเช็ค=COD · ส่งเฉพาะการโอนที่ยอดตรง + ตาม filter

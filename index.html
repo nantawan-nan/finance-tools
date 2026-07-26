@@ -24579,15 +24579,35 @@ function bmpParseChequeReport(text){
    - buffer orders + adjustments until เจอ "การถอนเงิน"
    - close group, create withdrawal
    ============================================================ */
-/* ★ หา subset ของออเดอร์ (index ใน assigned) ที่ net รวม = targetCents (สตางค์ · ±1) — เดี่ยว→คู่→สาม
-   posIdx เรียงใหม่สุดก่อน → prefer ย้ายออเดอร์ใหม่สุด · คืน array ของ index หรือ null (หาเป๊ะไม่ได้) */
+/* ★ หา subset ของออเดอร์ (index ใน assigned) ที่ net รวม = targetCents เป๊ะ (±TOL สตางค์ · กี่ออเดอร์ก็ได้)
+   subset-sum DP บนหน่วยสตางค์ · posIdx ควรเรียงใหม่สุดก่อน (prefer ออเดอร์ใหม่) · คืน array ของ index หรือ null */
 function bmpSubsetForCarry(posIdx, assigned, targetCents){
-  const arr = posIdx.map(k => ({ k, c: Math.round(Number(assigned[k].amount||0)*100) }));
-  const n = arr.length;
-  for(let i=0;i<n;i++) if(Math.abs(arr[i].c - targetCents) <= 1) return [arr[i].k];
-  for(let i=0;i<n;i++) for(let j=i+1;j<n;j++) if(Math.abs(arr[i].c + arr[j].c - targetCents) <= 1) return [arr[i].k, arr[j].k];
-  for(let i=0;i<n;i++) for(let j=i+1;j<n;j++) for(let l=j+1;l<n;l++) if(Math.abs(arr[i].c + arr[j].c + arr[l].c - targetCents) <= 1) return [arr[i].k, arr[j].k, arr[l].k];
-  return null;
+  const T = Math.round(targetCents);
+  if(T <= 0) return null;
+  const TOL = 2;                 // ยอมคลาด ±2 สตางค์ (ปัดเศษสะสมหลายออเดอร์)
+  const CAP = T + TOL;
+  const items = posIdx.map(k => ({ k, c: Math.round(Number(assigned[k].amount||0)*100) }))
+                      .filter(x => x.c > 0 && x.c <= CAP);
+  const n = items.length;
+  if(!n) return null;
+  const last = new Int32Array(CAP+1).fill(-1);   // -1 = ยังไปไม่ถึง sum นี้
+  const prev = new Int32Array(CAP+1).fill(-1);
+  last[0] = -2;                                  // sum 0 ถึงได้ (base · ไม่มี item)
+  for(let idx=0; idx<n; idx++){
+    const c = items[idx].c;
+    for(let s=CAP; s>=c; s--){
+      if(last[s] === -1 && last[s-c] !== -1){ last[s] = idx; prev[s] = s-c; }
+    }
+  }
+  // หา sum ที่ reachable ใกล้ T สุด (ภายใน ±TOL)
+  let hit = -1, best = TOL+1;
+  for(let s=Math.max(0,T-TOL); s<=CAP; s++){
+    if(last[s] !== -1){ const dd=Math.abs(s-T); if(dd<best){ best=dd; hit=s; } }
+  }
+  if(hit < 0 || best > TOL) return null;
+  const res = []; let s = hit;
+  while(s > 0 && last[s] >= 0){ res.push(items[last[s]].k); s = prev[s]; }
+  return res.length ? res : null;
 }
 function bmpGroupWithdrawals(parsed, arData, chqData, salesData, shopName, sharedSeqByDay, ledgerByOrder){
   const txns = parsed.txns;
@@ -24665,16 +24685,23 @@ function bmpGroupWithdrawals(parsed, arData, chqData, salesData, shopName, share
       }
       // ★ เศษที่คร่อมกลางวัน → "หาออเดอร์ที่ net รวม = เศษพอดี" แล้วย้ายไปงวดหน้า → ยอดยกไป = 0
       //   เจ้าของ: ถอนคร่อมวันต้อง "หาเจอว่าออเดอร์ไหน" เอาออเดอร์นั้นไปงวดถัดไป (ไม่ยกเป็นเงินสด)
-      //   วิธี: หา subset ของออเดอร์บวก (เดี่ยว→คู่→สาม · เลือกใหม่สุดก่อน) ที่ net รวม = เศษ (ปัดสตางค์) แล้วย้ายทั้งชุด
+      //   วิธี: subset-sum เต็ม (กี่ออเดอร์ก็ได้) หาชุดออเดอร์บวกใน "วันที่คร่อม" ที่ net รวม = เศษ → ย้ายทั้งชุด
+      //   จำกัดที่วันคร่อม (วันใหม่สุดที่เหลือ) เพราะ push "ทั้งวัน" ก่อนหน้าเอาวันที่ครบออกไปแล้ว → เศษ ≤ net วันนี้
       //   เช็คของออเดอร์ที่ย้าย → ไปอยู่ในใบฝากงวดถัดไปจริง · ใบฝากงวดนี้ = ตรง STM เป๊ะ
       let carryOut = Math.max(0, +(acc - wdAmount).toFixed(2));
       if(carryOut > 0.01){
+        const boundaryDate = assigned.length ? assigned[assigned.length-1].txn_date : null;
         const posIdx = [];
-        for(let k = assigned.length-1; k >= 0; k--){   // ★ ไล่จากท้าย (ใหม่สุด) ก่อน — prefer ย้ายออเดอร์ใหม่สุด
+        for(let k = assigned.length-1; k >= 0 && assigned[k].txn_date === boundaryDate; k--){   // เฉพาะวันคร่อม
           const t = assigned[k];
           if(t.type === "รายรับจากคำสั่งซื้อ" && t.amount > 0.01) posIdx.push(k);
         }
-        const pick = bmpSubsetForCarry(posIdx, assigned, Math.round(carryOut*100));
+        let pick = bmpSubsetForCarry(posIdx, assigned, Math.round(carryOut*100));
+        if(!pick){   // เผื่อเศษไม่ลงตัวในวันเดียว → ลองทุกออเดอร์บวกที่เหลือ
+          const allPos = [];
+          for(let k = assigned.length-1; k >= 0; k--){ const t=assigned[k]; if(t.type==="รายรับจากคำสั่งซื้อ" && t.amount>0.01) allPos.push(k); }
+          pick = bmpSubsetForCarry(allPos, assigned, Math.round(carryOut*100));
+        }
         if(pick){
           const moved = pick.map(k => assigned[k]);
           pick.slice().sort((a,b)=> b-a).forEach(k => assigned.splice(k,1));   // ลบจากท้าย กัน index เลื่อน

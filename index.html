@@ -4591,6 +4591,8 @@ function incExportCodRe(fmt){
     const ws=XLSX.utils.aoa_to_sheet(aoa); forceTextCells(ws,[1,3,6,12]);
     const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, "RE COD"); XLSX.writeFile(wb, fname+".xlsx");
   }
+  // ★ จำใบส่งออก (batch) → ตรวจกลับด้วย 1.9.1 ว่าคีย์ครบไหม (เหมือน RE ปกติ · ใช้ seed ของ COD)
+  incCreateReBatch(company, ready, seed).catch(e=>console.warn("cod re batch", e));
 }
 function incRenderCodRe(d){
   const b = (typeof brecGet==='function') ? brecGet() : null;
@@ -4906,10 +4908,10 @@ function incReBatchCoverage(d){
   return { batch:b, expectedN:expected.length, keyedN:foundSet.size, missing, extra, mismatched, reIvChecked };
 }
 /* สร้าง RE export batch หลังส่งออก — จำ order_ids + ช่วงเลข RE (fire-and-forget) */
-async function incCreateReBatch(company, ready){
+async function incCreateReBatch(company, ready, seedOverride){
   try{
     const co = await fopCompanyId(); if(!co || !ready.length) return;
-    const seed = incGet().reSeed;
+    const seed = seedOverride!=null ? seedOverride : incGet().reSeed;
     const startRe = armapRunRE(seed, 0), endRe = armapRunRE(seed, ready.length-1);
     const dates = ready.map(r=>r.paidISO).filter(Boolean).sort();
     const channels = [...new Set(ready.map(r=>r.channelGroup).filter(Boolean))];

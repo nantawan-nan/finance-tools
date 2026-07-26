@@ -191,6 +191,10 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-26 (18d) — ★ รับชำระ COD: บันทึก batch (re_export_batches) → ตรวจกลับด้วย 1.9.1 ได้
+- **เจ้าของ:** คีย์ COD RE เสร็จ → บันทึก batch ไหม · ตรวจกลับได้ไหม (เหมือน RE ปกติ)
+- **แก้:** `incCreateReBatch(company, ready, seedOverride)` +param seed (COD ใช้ `codReSeed` ไม่ใช่ `reSeed`) · `incExportCodRe` เรียกท้าย (fire-and-forget) → insert `re_export_batches` (order_ids=COD order_id · start/end_re จาก codReSeed) · **แท็บ "ตรวจ 1.9.1" เลือก batch นี้ตรวจ coverage ได้เลย** (`incReBatchCoverage` join order_ledger — COD orders อยู่ในทะเบียน) · syntax OK · ไม่ต้อง migration (reuse re_export_batches + verify flow เดิม)
+
 ### 2026-07-26 (18c) — ★ ส่งออก RE ขายตรง (FACE/LINE/Dealer): LETT OTHER/Enter เว้นว่าง · เลือก Bank/ธนาคาร/เช็ค
 - **เจ้าของ (format AutoKey RE):** ออเดอร์ FACE (โอนตรง/COD) ต่างจากแพลตฟอร์ม — **ไม่มียอดหัก** → "เลือก LETT OTHER" + "Enter less other" **เว้นว่าง** · "เลือก Bank"=`{Down 10}` · "ธนาคาร"=FB · "รหัสเช็ค"=FB
 - **`mbarkBankDownByCust` +FACE** = `{Down 10}` (บัญชี FB) · **`mbarkCheckCode` +FACE** = FB (เดิมจับแค่ FACEBOOK/FB ไม่จับ "FACE" → ธนาคาร/เช็คว่าง)

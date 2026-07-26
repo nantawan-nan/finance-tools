@@ -29821,11 +29821,16 @@ function bmpIsCancelledOrder(o){
 function bmpChequePrefix(channel){ return {tiktok:"TT", shopee:"SP", lazada:"LZ"}[channel] || "TT"; }
 function bmpRealCheque(o, channel){
   const raw = String(o.cheque_no||"").trim();
-  // ★ เลขเช็คจริงจาก Express ขึ้นต้นด้วยช่องทาง (TT/SP/LZ) — ไม่ใช่เลข RE/ใบเสร็จ
-  //   กัน RE ทุกรูปแบบหลุดมาโชว์แทนเลขเช็ค: "RE-xxxx" (มีขีด) · "RE2606000512" (ไม่มีขีด · จาก order_ledger.cheque_no) · PENDING-/UNKNOWN-
-  //   เดิมเช็คแค่ /^RE-/ (มีขีด) → "RE2606..." หลุดผ่านมาเป็น "เลขเช็คจริง" → ช่องเลขที่เช็คขึ้น RE
-  if(raw && !/^(RE|PENDING-|UNKNOWN-)/i.test(raw)) return raw;   // เลขเช็คจริงจาก Express (TT/SP/LZ...)
-  return o.order_id ? (bmpChequePrefix(channel) + o.order_id) : "";
+  // (1) เลขเช็คจริงจาก Express (เช็ครับ) — ค่าที่ไม่ใช่ RE/PENDING/UNKNOWN (มักขึ้นต้น TT/SP/LZ อยู่แล้ว)
+  if(raw && !/^(RE|PENDING-|UNKNOWN-)/i.test(raw)) return raw;
+  // (2) ★ มีเลข RE แล้ว → เลขที่เช็ค = "ช่องทาง + เลขเดียวกับ RE" (แค่เปลี่ยน prefix RE→TT/SP/LZ)
+  //     ตามที่ Express คีย์จริงในช่อง "ชำระโดยอื่นๆ": RE2606000488 → TT2606000488 (ไม่ใช่ TT+รหัสออเดอร์)
+  if(/^RE/i.test(raw)){
+    const reDigits = String(o.receipt_no||raw).replace(/\D/g,"");   // ดึงเฉพาะตัวเลขของเลข RE
+    if(reDigits) return bmpChequePrefix(channel) + reDigits;
+  }
+  // (3) PENDING (มี IV ยังไม่ออก RE) / UNKNOWN (ไม่พบ IV/RE) / ว่าง → ยังไม่มีเลขเช็ค
+  return "";
 }
 /* ------- effective mismatch (mismatch ที่ยังไม่ถูก resolved) — ★ ไม่นับออเดอร์ยกเลิก (ทำใบลดหนี้ ไม่ใช่ mismatch) ------- */
 function bmpEffMismatch(orders){
@@ -29945,6 +29950,8 @@ function bmpExportMismatchXlsx(){
     return {
       "วันที่ถอน": wd?.withdraw_date,
       "BQ (gen)": wd?.bq_number,
+      "รหัสคำสั่งซื้อ": o.order_id||"",
+      "วันเงินเข้ากระเป๋า": o.txn_datetime ? bmpFmtThaiShort(String(o.txn_datetime).slice(0,10)) : "",   // ★ วันขาย/รับเงิน — ช่วยหาออเดอร์ที่ยังไม่พบ IV/RE
       "เลขที่เช็ค": bmpRealCheque(o, wd?.channel),   // ★ ขึ้นต้น TT/SP/LZ เสมอ (ไม่ให้เลข RE หลุดมา)
       "Express gross": Number(o.express_gross||0),
       "Shopee net": Number(o.shopee_net||0),
@@ -30085,7 +30092,7 @@ function bmpRenderTab(d){
       ${isExpanded ? `<div class="bmp-body">
         <table class="bmp-tbl">
           <thead><tr>
-            <th>#</th><th>รหัสคำสั่งซื้อ</th><th>เลขที่เช็ค (จริง)</th><th>IV / เลข RE</th><th class="r">gross EXPRESS</th><th class="r">net กระเป๋า</th><th class="r">ผลต่าง</th><th>สถานะ</th><th style="text-align:center">แก้แล้ว</th>
+            <th>#</th><th>รหัสคำสั่งซื้อ</th><th title="วันที่เงินเข้ากระเป๋า (วันขาย/รับเงิน) — ช่วยหาออเดอร์ที่ยังไม่พบ IV/RE">วันเงินเข้ากระเป๋า</th><th>เลขที่เช็ค (จริง)</th><th>IV / เลข RE</th><th class="r">gross EXPRESS</th><th class="r">net กระเป๋า</th><th class="r">ผลต่าง</th><th>สถานะ</th><th style="text-align:center">แก้แล้ว</th>
           </tr></thead>
           <tbody>
             ${orderRows.map((o,i) => {
@@ -30100,9 +30107,11 @@ function bmpRenderTab(d){
                 ? `<input value="${Number(o.express_gross||0).toFixed(2)}" onclick="event.stopPropagation()" onchange="bmpEditOrderField('${o.id}','express_gross',this.value)" class="bmp-edit num" title="แก้ยอดเช็คจริง">`
                 : bmpFmtMoney(o.express_gross);
               const ivRef = o.receipt_no || (o.cheque_no && o.cheque_no.startsWith("PENDING-") ? o.cheque_no.replace("PENDING-","") : (o.cheque_no && o.cheque_no.startsWith("RE-") ? o.cheque_no.replace("RE-","") : ""));
+              const saleDate = o.txn_datetime ? bmpFmtThaiShort(String(o.txn_datetime).slice(0,10)) : "";
               return `<tr class="${rowCls}">
               <td>${i+1}</td>
               <td class="mono" style="font-size:11px">${esc(o.order_id||"")}</td>
+              <td class="mono" style="font-size:11px;white-space:nowrap;color:var(--ink-2,#475569)">${esc(saleDate)||'<span style="color:#cbd5e1">—</span>'}</td>
               <td>${chqCell}</td>
               <td class="mono" style="font-size:11px;color:var(--ink-2,#475569)">${esc(ivRef)}</td>
               <td class="r money">${grossCell}</td>
@@ -30112,10 +30121,11 @@ function bmpRenderTab(d){
               <td style="text-align:center">${isMis?`<input type="checkbox" ${isResolved?'checked':''} onclick="event.stopPropagation()" onchange="bmpResolveOrder('${o.id}', this.checked)" style="width:16px;height:16px;accent-color:#16a34a;cursor:pointer" title="ติ๊กถ้าแก้ไขใน Express แล้ว — จะนับ withdrawal นี้พร้อม export">`:''}</td>
             </tr>`;
             }).join("")}
-            ${cancelledRows.length ? `<tr class="adj"><td>·</td><td colspan="8" style="background:#fff7ed;color:#9a3412;font-weight:600;font-size:11.5px">↩ ออเดอร์ยกเลิก/คืนเงิน ${cancelledRows.length} รายการ — บัญชีทำ<b>ใบลดหนี้</b> (ไม่ดึงมารับชำระ) · ยอดติดลบรวมเป็นค่าใช้จ่ายในกระเป๋าตอน BQ</td></tr>` : ''}
+            ${cancelledRows.length ? `<tr class="adj"><td>·</td><td colspan="9" style="background:#fff7ed;color:#9a3412;font-weight:600;font-size:11.5px">↩ ออเดอร์ยกเลิก/คืนเงิน ${cancelledRows.length} รายการ — บัญชีทำ<b>ใบลดหนี้</b> (ไม่ดึงมารับชำระ) · ยอดติดลบรวมเป็นค่าใช้จ่ายในกระเป๋าตอน BQ</td></tr>` : ''}
             ${cancelledRows.map((o,i) => `<tr class="adj">
               <td>${orderRows.length+i+1}</td>
               <td class="mono" style="font-size:11px">${esc(o.order_id||"")}</td>
+              <td class="mono" style="font-size:11px;white-space:nowrap;color:#9a3412">${o.txn_datetime?esc(bmpFmtThaiShort(String(o.txn_datetime).slice(0,10))):'—'}</td>
               <td colspan="2"><span style="font-size:11px;color:#9a3412">ยกเลิก → ใบลดหนี้</span></td>
               <td class="r money">—</td>
               <td class="r money">${bmpFmtMoney(o.shopee_net)}</td>
@@ -30124,7 +30134,7 @@ function bmpRenderTab(d){
             </tr>`).join("")}
             ${adjRows.map(a => `<tr class="adj">
               <td>·</td>
-              <td colspan="5">📌 ${esc(a.note||"adjustment")}</td>
+              <td colspan="6">📌 ${esc(a.note||"adjustment")}</td>
               <td class="r money">${bmpFmtMoney(a.shopee_net)}</td>
               <td colspan="2"><span style="color:#64748b">ปรับปรุง</span></td>
             </tr>`).join("")}

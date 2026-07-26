@@ -191,6 +191,13 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-26 (3) — ★★ ถอน Marketplace: เลขที่เช็คจริง = ช่องทาง + "เลขเดียวกับ RE" + เพิ่มคอลัมน์วันเงินเข้ากระเป๋า
+- **เจ้าของแก้ (สำคัญ · แก้ (2) ที่ทำผิดทิศ):** เลขที่เช็คจริงที่ Express คีย์ในช่อง "ชำระโดยอื่นๆ" = **`TT` + เลขเดียวกับ RE** (RE2606000488 → **TT2606000488**) **ไม่ใช่** `TT`+รหัสออเดอร์ (ที่ (2) เพิ่งแก้ไปเป็น TT+order_id = ผิด)
+- **`bmpRealCheque` แก้ใหม่:** (1) ค่าที่ไม่ใช่ RE/PENDING/UNKNOWN (เช็คจริงจากเช็ครับ · มักขึ้น TT/SP/LZ) → ใช้เลย · (2) **ขึ้นต้น RE → `bmpChequePrefix(channel) + digits(o.receipt_no||raw)`** (ดึงตัวเลขจากเลข RE · เปลี่ยน prefix RE→TT/SP/LZ) · (3) **PENDING (มี IV ยังไม่ออก RE) / UNKNOWN (ไม่พบ) / ว่าง → คืน "" (ยังไม่มีเลขเช็ค)** · **verified (node · 8 เคส):** RE-RE→TT2606000488 · RE ไม่มีขีด→TT… · shopee→SP… · PENDING/UNKNOWN/ว่าง→"" · เช็คจริง TT คงไว้
+- **★ เพิ่มคอลัมน์ "วันเงินเข้ากระเป๋า"** (จาก `o.txn_datetime` · `bmpFmtThaiShort`) ในตารางออเดอร์ (หลังรหัสคำสั่งซื้อ) — ช่วยหา**ออเดอร์ที่ยังไม่พบ IV/RE** (UNKNOWN/PENDING · เจ้าของขอ "วันที่ขาย/รับเงิน") · เพิ่มในไฟล์ **รายงานไม่ตรง (Excel)** ด้วย (`bmpExportMismatchXlsx` +รหัสคำสั่งซื้อ +วันเงินเข้ากระเป๋า) · **ไม่ต้อง migration** (txn_datetime มีใน brec_mp_orders + load select `*` อยู่แล้ว)
+- **ตาราง 9→10 คอลัมน์** · colspan cancelled header 8→9 · cancelled data +td วันที่ · adj colspan5→6 · syntax OK · display-only · main CSV (bmpExportCsv) ใช้ bmpRealCheque อยู่แล้ว (ได้ TT+RE digits ตาม)
+- **หมายเหตุ:** ยังไม่มี "วันที่ IV จริง / วันที่ RE จริง" แยก (txn_datetime = วันเงินเข้ากระเป๋า ≈ วันรับเงิน · IV/RE date ต้อง migration + เก็บตอน group + re-upload ถ้าเจ้าของอยากได้แยก)
+
 ### 2026-07-26 (2) — ★ ถอน Marketplace: เลขที่เช็คขึ้น RE แทน TT/SP (regex เช็คแค่ "RE-" มีขีด)
 - **เจ้าของแจ้ง:** ช่อง "เลขที่เช็ค (จริง)" บางแถวขึ้น **เลข RE** (RE2606…) ทั้งที่เลขเช็คต้องขึ้นต้น **TT/SP/LZ** ตามช่องทาง
 - **ต้นเหตุ:** `bmpRealCheque` guard `/^(RE-|PENDING-|UNKNOWN-)/` เช็ค **"RE-" มีขีดเท่านั้น** → `chequeNo` fallback ที่เป็น `led.cheque_no` = "RE2606000512" (เลข RE ไม่มีขีด · จาก `order_ledger.cheque_no`) **หลุดผ่านมาเป็น "เลขเช็คจริง"** → โชว์ RE แทน TT/SP

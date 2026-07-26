@@ -29792,6 +29792,7 @@ async function bmpLoadFromDb(){
   d.mp.withdrawals = wds || [];
   d.mp.orders = orders;
   d.mp.mismatchOrders = orders.filter(o => o.mismatch_flag && !o.resolved);
+  d.mp.registrySet = undefined;   // ★ โหลดทะเบียนใหม่ (กัน orphan ค้างหลังนำเข้า BigSeller เพิ่ม)
 
   // ★ โหลด bank deposit rows "ทั้งบริษัท" (ไม่ผูก account_id) → match กับ STM
   // เพราะ withdrawal กับ statement อาจอยู่คนละ account record (เลขบัญชี normalize ต่างกัน)
@@ -30006,6 +30007,43 @@ function bmpExportCsv(){
   URL.revokeObjectURL(url);
 }
 
+/* ------- โหลด order_id ที่มีในทะเบียนคำสั่งซื้อ (order_ledger) → ตรวจ orphan ------- */
+async function bmpLoadRegistrySet(d){
+  try{
+    const co = d.companyId || await fopCompanyId();
+    const set = new Set();
+    if(co){
+      const PAGE = 1000;
+      for(let from=0; ; from+=PAGE){
+        const { data, error } = await sb.from("order_ledger").select("order_id")
+          .eq("company_id", co).is("deleted_at", null).range(from, from+PAGE-1);
+        if(error){ console.warn("registry set load", error); break; }
+        (data||[]).forEach(r => { if(r.order_id) set.add(String(r.order_id)); });
+        if(!data || data.length < PAGE) break;
+      }
+    }
+    d.mp.registrySet = set;
+  }catch(e){ console.warn("bmpLoadRegistrySet", e); d.mp.registrySet = new Set(); }
+}
+function bmpToggleOrphan(){ const d=brecGet(); d.mp.orphanOpen = !d.mp.orphanOpen; renderToolBankRec(); }
+/* ------- EXPORT orphan (ออเดอร์มีเงินเข้าแต่ไม่อยู่ในทะเบียน) — รายการไปตามหาใน BigSeller ------- */
+function bmpExportOrphans(){
+  const d = brecGet(); const orphans = d.mp._orphans || [];
+  if(!orphans.length){ alert("ไม่มีออเดอร์ที่ไม่อยู่ในทะเบียน"); return; }
+  const co = COMPANIES.find(c=>c.id===state.company);
+  const rows = orphans.map(x => ({
+    "รหัสคำสั่งซื้อ": x.o.order_id||"",
+    "ช่องทาง": x.o.channel||"",
+    "วันเงินเข้ากระเป๋า": x.o.txn_datetime ? bmpFmtThaiShort(String(x.o.txn_datetime).slice(0,10)) : "",
+    "net เข้ากระเป๋า": Number(x.o.shopee_net||0),
+    "BQ": x.bq||"",
+    "วันที่ถอน": x.wdDate||""
+  }));
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), "ยังไม่อยู่ในทะเบียน");
+  const p = brecComputePeriod(d);
+  XLSX.writeFile(wb, `Orphan_${(co&&co.code)||state.company}_${p.from}_${p.to}.xlsx`);
+}
 /* ------- EXPORT mismatch (Excel) ------- */
 function bmpExportMismatchXlsx(){
   const d = brecGet();
@@ -30062,6 +30100,11 @@ function bmpRenderTab(d){
     if(!ordersByWd.has(o.withdrawal_id)) ordersByWd.set(o.withdrawal_id,[]);
     ordersByWd.get(o.withdrawal_id).push(o);
   }
+  // ★ lazy โหลด order_id ในทะเบียนคำสั่งซื้อ (order_ledger) → ตรวจ orphan (มีเงินเข้าแต่ไม่อยู่ในทะเบียน)
+  if(d.mp.registrySet === undefined && !d.mp._regLoading){
+    d.mp._regLoading = true;
+    bmpLoadRegistrySet(d).then(()=>{ d.mp._regLoading=false; renderToolBankRec(); });
+  }
   // ----- filter bar (ช่องทาง + บัญชี) -----
   const allChannels = [...new Set(wds.map(w=>w.channel).filter(Boolean))];
   const acctIds = [...new Set(wds.map(w=>w.bank_account_id).filter(Boolean))];
@@ -30076,6 +30119,45 @@ function bmpRenderTab(d){
   const exportable = filtered.filter(w => bmpEffMismatch(ordersByWd.get(w.id)||[]) === 0).length;
   const filteredIds = filtered.map(w=>w.id);
   const selCount = filteredIds.filter(i=>d.mp.selected.has(i)).length;
+  // ★ orphan: ออเดอร์มีเงินเข้ากระเป๋า (net>0) แต่ order_id ไม่อยู่ในทะเบียนคำสั่งซื้อ → คีย์ IV ไม่ได้จนกว่าจะนำเข้า BigSeller
+  const regSet = d.mp.registrySet;
+  const orphans = [];
+  if(regSet){
+    for(const w of filtered){
+      for(const o of (ordersByWd.get(w.id)||[])){
+        if(o.txn_type!=="order" || Number(o.shopee_net)<=0) continue;   // เฉพาะออเดอร์จริง (ตัดยกเลิก/ปรับปรุง)
+        if(o.order_id && !regSet.has(String(o.order_id))) orphans.push({ o, bq:w.bq_number, wdDate:w.withdraw_date });
+      }
+    }
+  }
+  d.mp._orphans = orphans;
+  const orphanSum = orphans.reduce((s,x)=> s + Number(x.o.shopee_net||0), 0);
+  const orphanBanner = orphans.length ? `
+    <div style="background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:12px 14px;margin-bottom:12px">
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <span style="font-size:13px;font-weight:700;color:#92400e">⚠️ มี ${orphans.length} ออเดอร์ มีเงินเข้ากระเป๋า (รวม ${bmpFmtMoney(orphanSum)}) แต่ยังไม่อยู่ในทะเบียนคำสั่งซื้อ</span>
+        <div style="flex:1"></div>
+        <button class="brec-btn" onclick="bmpToggleOrphan()"><i data-lucide="list"></i> ${d.mp.orphanOpen?'ซ่อน':'ดูรายการ'}</button>
+        <button class="brec-btn" onclick="bmpExportOrphans()"><i data-lucide="file-spreadsheet"></i> ⬇ Export รายการ</button>
+        <button class="brec-btn primary" onclick="setTool('orders')"><i data-lucide="upload"></i> ไปนำเข้า BigSeller</button>
+      </div>
+      <div style="font-size:11.5px;color:#b45309;margin-top:6px">คีย์ IV ไม่ได้จนกว่าจะนำเข้าไฟล์ BigSeller ที่มีออเดอร์เหล่านี้เข้าทะเบียนก่อน (IV ต้องมี SKU/จำนวน/ราคาจาก BigSeller — ไฟล์กระเป๋าเงินมีแค่ยอดเงิน)</div>
+      ${d.mp.orphanOpen ? `<div style="overflow-x:auto;margin-top:10px;border:1px solid #fde68a;border-radius:8px;background:#fff">
+        <table style="width:100%;border-collapse:collapse;font-size:12px">
+          <thead><tr style="background:#fef3c7">
+            <th style="padding:6px 10px;text-align:left">รหัสคำสั่งซื้อ</th><th style="padding:6px 10px;text-align:left">ช่องทาง</th>
+            <th style="padding:6px 10px;text-align:left">วันเงินเข้ากระเป๋า</th><th style="padding:6px 10px;text-align:right">net เข้ากระเป๋า</th><th style="padding:6px 10px;text-align:left">BQ</th>
+          </tr></thead><tbody>
+          ${orphans.map(x=>`<tr style="border-top:1px solid #fef3c7">
+            <td style="padding:6px 10px;font-family:monospace;font-size:11px">${esc(x.o.order_id||"")}</td>
+            <td style="padding:6px 10px">${esc(x.o.channel||"")}</td>
+            <td style="padding:6px 10px;white-space:nowrap">${x.o.txn_datetime?esc(bmpFmtThaiShort(String(x.o.txn_datetime).slice(0,10))):'—'}</td>
+            <td style="padding:6px 10px;text-align:right;font-variant-numeric:tabular-nums">${bmpFmtMoney(x.o.shopee_net)}</td>
+            <td style="padding:6px 10px;font-family:monospace;font-size:11px">${esc(x.bq||"")}</td>
+          </tr>`).join("")}
+        </tbody></table>
+      </div>` : ''}
+    </div>` : '';
   // STM match stats
   const stmStats = filtered.reduce((a,w)=>{ const m=bmpMatchBank(d,w); if(!m.hasStmt)a.nostmt++; else if(m.found)a.ok++; else a.miss++; return a; }, {ok:0,miss:0,nostmt:0});
 
@@ -30238,6 +30320,7 @@ function bmpRenderTab(d){
       <div class="bmp-sc ${totalMismatch?'warn':'ok'}"><div class="l">${totalMismatch?'⚠️ ออเดอร์ไม่ตรง':'✓ ผ่านการตรวจ'}</div><div class="v">${totalMismatch||"0"}</div></div>
       <div class="bmp-sc ${stmStats.miss?'warn':'ok'}"><div class="l">ตรงกับ STM</div><div class="v">${stmStats.ok}/${filtered.length}</div><div class="s" style="font-size:11px;color:var(--ink-3,#94a3b8)">${stmStats.nostmt?`ยังไม่อัป STM ${stmStats.nostmt}`:(stmStats.miss?`ไม่พบ ${stmStats.miss}`:'ครบ')}</div></div>
     </div>
+    ${orphanBanner}
     ${stmStats.nostmt>0?`<div style="font-size:12px;color:#1e40af;background:#dbeafe;border-radius:8px;padding:8px 12px;margin-bottom:10px">💡 บาง withdrawal ยังไม่มี Statement ของบัญชีนั้น — อัป Statement ผ่านปุ่ม "Statement" บน toolbar (เลือกบัญชี+งวดให้ตรง) แล้วระบบจะจับยอด withdrawal กับ STM ให้อัตโนมัติ</div>`:''}
     ${(chanChips||acctChips)?`<div style="display:flex;flex-wrap:wrap;gap:14px;margin-bottom:10px">${chanChips}${acctChips}</div>`:''}
     <div style="display:flex;gap:8px;margin:0 0 12px;flex-wrap:wrap;align-items:center">

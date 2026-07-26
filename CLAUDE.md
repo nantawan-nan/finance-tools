@@ -191,6 +191,12 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-26 (7) — ★ ถอน Marketplace: แจ้ง "ออเดอร์มีเงินเข้าแต่ไม่อยู่ในทะเบียน" (orphan) + ปุ่มไปนำเข้า BigSeller + export
+- **เจ้าของสงสัย:** หน้ากระทบยอดเห็นออเดอร์ "ยังไม่คีย์ IV" (UNKNOWN-) แต่ไปหน้าส่งออก IV ไม่มี — เพราะ 2 หน้าคนละแหล่ง: กระทบยอด = ไฟล์กระเป๋าเงิน · ส่งออก IV = ทะเบียน (order_ledger จาก BigSeller) · ออเดอร์พวกนี้มีเงินเข้ากระเป๋าแต่ **ไม่เคยนำเข้า BigSeller เข้าทะเบียน** → คีย์ IV ไม่ได้ (IV ต้องมี SKU/จำนวน/ราคาจาก BigSeller · ไฟล์กระเป๋าเงินมีแค่ยอด)
+- **`bmpLoadRegistrySet(d)`** (ใหม่ · lazy · paginate) โหลด `order_ledger.order_id` ทั้งบริษัทเป็น Set · trigger ใน `bmpRenderTab` (guard `registrySet===undefined && !_regLoading`) · reset ใน `bmpLoadFromDb` (โหลดใหม่หลังนำเข้า/re-upload กัน orphan ค้าง)
+- **orphan = order (`txn_type==="order"` · `shopee_net>0`) ที่ `order_id` ไม่อยู่ใน registrySet** → **แบนเนอร์เหลือง** เหนือการ์ด: "มี N ออเดอร์ มีเงินเข้ากระเป๋า (รวม X) แต่ยังไม่อยู่ในทะเบียน" + ปุ่ม **ดูรายการ** (`bmpToggleOrphan` · ตาราง order_id/ช่อง/วันเงินเข้า/net/BQ) · **⬇ Export รายการ** (`bmpExportОrphans` · xlsx ไว้ไปตามหาใน BigSeller) · **ไปนำเข้า BigSeller** (`setTool('orders')`)
+- **display-only · ไม่ต้อง migration** (reuse order_ledger + brec_mp_orders) · syntax OK · **ไม่ export IV ตรง** (ทำไม่ได้ — ไม่มี SKU/ราคา · ต้องนำเข้า BigSeller ก่อน) · หมายเหตุ: นำเข้า BigSeller ในแท็บอื่นแล้วกลับมา อาจต้องสลับแท็บ/refresh ให้ registrySet โหลดใหม่
+
 ### 2026-07-26 (6) — ★ ถอน Marketplace: subset-sum เศษยกไป = DP เต็ม (กี่ออเดอร์ก็ได้ · เดิมแค่ 3 ใบไม่พอ)
 - **เจ้าของ:** re-upload แล้ว "ยังเหลือยกไปอยู่เลย" — (5) หา subset แค่ เดี่ยว/คู่/สาม → เศษที่ต้องย้าย **หลายออเดอร์** (คร่อมวันมีหลายใบ) หาไม่เจอ
 - **แก้ `bmpSubsetForCarry` → subset-sum DP เต็ม** (บนหน่วยสตางค์ · กี่ออเดอร์ก็ได้ · ±2 สตางค์รับปัดเศษสะสม) · reconstruct ชุดที่รวม = เศษ · caller จำกัดหาใน **"วันคร่อม" (วันใหม่สุดที่เหลือ)** ก่อน (เศษ ≤ net วันนั้นเพราะ push ทั้งวันเอาวันครบออกไปแล้ว) → ไม่เจอค่อยลองทุกออเดอร์ที่เหลือ

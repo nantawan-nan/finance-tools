@@ -191,6 +191,14 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-26 (16) — ★ COD ลิงก์: เลขพัสดุมาก่อน + เลือกออเดอร์เอง (dropdown) เคสหลายตัวเลือก/ไม่พบ + จำไว้
+- **เจ้าของ:** เคส "2 ตัวเลือก" เลือกไม่ได้ · เลขพัสดุ iShip=BigSeller ตรงกันแล้ว (หลัง re-import) แต่ order_ledger ยังไม่มี tracking → ตกไปยอดตรง
+- **`codLinkParcels` ลำดับใหม่:** (0) **เลือกเอง (manual · จำไว้)** → (1) **เลขพัสดุตรง** (ขึ้นมาก่อนเบอร์ · unique/พัสดุ) → (2) เบอร์ → (3) ชื่อ+ยอด → (4) ยอด
+- **เลือกเอง (`codPickOrder`/`codManualKey`):** เคส multi หรือ "ไม่พบ" → `codLinkCell` แสดง **dropdown ออเดอร์ยอดตรง** (order_id·IV·฿·วัน) ให้เลือก → จำใน `d.cod.manual{เลขพัสดุ→order_id}` · badge "✓ เลือกเอง" (ม่วง) + ปุ่ม ✕ ยกเลิก
+- **persist manual:** `brec_cod_data` +`manual jsonb` (ALTER IF NOT EXISTS) · save/load ครบ · คงไว้ตอน re-upload (ไม่ reset) → เลือกครั้งเดียวจำตลอด
+- **verified:** syntax OK · **ต้อง push (migration manual column) + re-import BigSeller** (tracking/phone เข้าทะเบียน → auto-link แม่นขึ้น · เคสซ้ำจริงเลือกเอง)
+- **★ ยังไม่ทำ (เจ้าของขอ · ใหญ่):** หน้ารับชำระเพิ่ม FACE/LINE/Dealer · 2 แท็บย่อย **COD** (ใช้ข้อมูล COD ขนส่ง → ส่งออก RE · เข้าได้ 2 ทาง) + **โอนตรง** (BigSeller platform=Manual[col J] · วิธีชำระ[col BM]=Prepaid → จับ STM โอนบุคคล · COD=จับว่ารับเงินหรือยัง) → เฟสถัดไป
+
 ### 2026-07-26 (15) — ★ ถอน Marketplace: ลบรายตัว (เอาลบทั้งงวดออก) · STM วันจริง · ติ๊กทำแล้ว · แก้ BQ มือ
 - **เจ้าของขอ 4 อย่าง:** (1) เอาปุ่ม "ลบทั้งหมดในงวด" ออก (อยากลบแค่บางช่อง/รายการซ้ำ เช่น 06/07 มี 2 บรรทัด BQ 003/004 = re-upload หลายรอบ) (2) STM (วันต่าง) บอกวันเงินเข้าจริง (3) ติ๊ก "ทำแล้ว" → แท็บดำเนินการแล้ว (4) แก้เลข BQ มือก่อน export
 - **(1)** ลบปุ่ม `bmpPurgePeriod` ออกจาก toolbar · เพิ่มปุ่ม 🗑 **ลบรายการ** บนหัวการ์ด (`bmpDeleteWithdrawal` มีอยู่แล้ว · เดิมมีในตัวขยาย · ย้ายขึ้นหัวให้เห็นเสมอ)

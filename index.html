@@ -30060,6 +30060,7 @@ async function codSaveToDb(d){
     const co = d.companyId || await fopCompanyId(); if(!co) return;
     const { error } = await sb.from("brec_cod_data").upsert(
       { company_id:co, parcels:(d.cod&&d.cod.parcels)||[], transfers:(d.cod&&d.cod.transfers)||[],
+        manual:(d.cod&&d.cod.manual)||{},
         updated_at:new Date().toISOString(), updated_by:(AUTH.user&&AUTH.user.id)||null },
       { onConflict:"company_id" });
     if(error) console.warn("codSaveToDb", error);
@@ -30068,10 +30069,10 @@ async function codSaveToDb(d){
 async function codLoadFromDb(d){
   try{
     const co = d.companyId || await fopCompanyId(); if(!co) return;
-    const { data } = await sb.from("brec_cod_data").select("parcels,transfers").eq("company_id", co).maybeSingle();
+    const { data } = await sb.from("brec_cod_data").select("parcels,transfers,manual").eq("company_id", co).maybeSingle();
     if(!data || !((data.parcels&&data.parcels.length)||(data.transfers&&data.transfers.length))) return;
     d.cod = d.cod || {};
-    d.cod.parcels = data.parcels||[]; d.cod.transfers = data.transfers||[];
+    d.cod.parcels = data.parcels||[]; d.cod.transfers = data.transfers||[]; d.cod.manual = data.manual||{};
     if(d.cod.parcels.length && d.cod.transfers.length){
       const g = codGroup(d.cod.parcels, d.cod.transfers);
       d.cod.groups = g.groups; d.cod.pending = g.pending;
@@ -30117,22 +30118,27 @@ function codLinkParcels(d){
     if(amt) push(byAmt, amt, o);
     if(o.sale_amount!=null && centsOf(o.sale_amount)!==amt && centsOf(o.sale_amount)) push(byAmt, centsOf(o.sale_amount), o);
   }
-  let nPhone=0,nTrack=0,nName=0,nAmt=0,nMulti=0,nNone=0;
+  const byOid = new Map(orders.map(o=>[String(o.order_id), o]));
+  const manual = (d.cod&&d.cod.manual) || {};
+  let nManual=0,nPhone=0,nTrack=0,nName=0,nAmt=0,nMulti=0,nNone=0;
   for(const g of ((d.cod&&d.cod.groups)||[])){
     for(const p of g.parcels){
       const codC=centsOf(p.cod);
-      // (1) ★ เบอร์โทรตรง (แม่นสุด) — ถ้าลูกค้ามีหลายออเดอร์ → เลือกใบที่ยอด COD ตรงด้วย
+      // (0) ★ ผู้ใช้เลือกเอง (จำไว้ต่อ key) — มาก่อนสุด
+      const mk = codManualKey(p);
+      if(manual[mk] && byOid.has(String(manual[mk]))){ p._link={ order:byOid.get(String(manual[mk])), via:'manual' }; nManual++; continue; }
+      // (1) ★ เลขพัสดุตรง (unique/พัสดุ · แม่นสุดเมื่อ order_ledger มี tracking)
+      const oT = p.tracking ? byTrack.get(normTrack(p.tracking)) : null;
+      if(oT){ p._link={ order:oT, via:'track' }; nTrack++; continue; }
+      // (2) เบอร์โทรตรง — ลูกค้าหลายออเดอร์ → เลือกใบยอด COD ตรง · ยังซ้ำ → เลือกเอง
       const pk=codPhoneKey(p.phone);
       const pc = pk ? (byPhone.get(pk)||[]) : [];
       if(pc.length){
         if(pc.length===1){ p._link={ order:pc[0], via:'phone' }; nPhone++; continue; }
         const exact=pc.filter(o=>centsOf(o.order_total)===codC);
         if(exact.length===1){ p._link={ order:exact[0], via:'phone' }; nPhone++; continue; }
-        p._link={ candidates:exact.length?exact:pc, via:'multi' }; nMulti++; continue;   // ลูกค้าเดียวหลายออเดอร์ยอดซ้ำ → เลือกเอง
+        p._link={ candidates:exact.length?exact:pc, via:'multi' }; nMulti++; continue;
       }
-      // (2) เลขพัสดุตรง [ปกติไม่ตรง — iShip/BigSeller คนละระบบ]
-      const oT = p.tracking ? byTrack.get(normTrack(p.tracking)) : null;
-      if(oT){ p._link={ order:oT, via:'track' }; nTrack++; continue; }
       // (3) ชื่อผู้รับ + ยอด COD ตรง
       const nc = p.recipient ? (byNameAmt.get(normName(p.recipient)+"|"+codC)||[]) : [];
       if(nc.length===1){ p._link={ order:nc[0], via:'name' }; nName++; continue; }
@@ -30144,7 +30150,14 @@ function codLinkParcels(d){
       else { p._link=null; nNone++; }
     }
   }
-  d.cod.linkStats={ phone:nPhone, track:nTrack, name:nName, amt:nAmt, multi:nMulti, none:nNone };
+  d.cod.linkStats={ manual:nManual, phone:nPhone, track:nTrack, name:nName, amt:nAmt, multi:nMulti, none:nNone };
+}
+function codManualKey(p){ return p.tracking || codPhoneKey(p.phone) || ((p.recipient||"")+"|"+p.cod); }
+/* ผู้ใช้เลือกออเดอร์เองสำหรับพัสดุที่หลายตัวเลือก → จำไว้ (key=เลขพัสดุ) */
+function codPickOrder(key, orderId){
+  const d=brecGet(); d.cod=d.cod||{}; d.cod.manual=d.cod.manual||{};
+  if(orderId) d.cod.manual[key]=orderId; else delete d.cod.manual[key];
+  codLinkParcels(d); codSaveToDb(d); renderToolBankRec();
 }
 function codMatchBank(d, g){
   const rows=(d.cod&&d.cod.bankRows)||[]; if(!rows.length) return { found:false, hasStmt:false };
@@ -30208,15 +30221,28 @@ function codExportXlsx(){
 }
 /* เซลล์ "ออเดอร์ในระบบ" ต่อพัสดุ */
 function codLinkCell(p){
-  const L=p._link;
-  if(!L) return `<span style="color:#dc2626">✕ ไม่พบในทะเบียน</span>`;
-  if(L.via==='multi') return `<span style="color:#a16207" title="มีหลายออเดอร์ยอดตรงกัน — ต้องเลือกเอง / ลิงก์ด้วยเลขพัสดุ">⚠ ${L.candidates.length} ตัวเลือก (ยอดตรง)</span>`;
+  const L=p._link; const mk=esc(codManualKey(p));
+  if(L && L.via==='multi'){
+    const opts=L.candidates.map(o=>`<option value="${esc(o.order_id)}">${esc(o.order_id)}${o.iv_no?' · '+esc(o.iv_no):''} · ฿${Number(o.order_total||0).toFixed(0)}${o.order_date?' · '+esc(o.order_date):''}</option>`).join("");
+    return `<span style="color:#a16207">⚠ ${L.candidates.length} ตัวเลือก</span>
+      <select onchange="codPickOrder('${mk}', this.value)" onclick="event.stopPropagation()" style="font-size:11px;padding:2px 5px;border:1px solid #fde68a;border-radius:6px;background:#fffbeb;max-width:230px">
+        <option value="">— เลือกออเดอร์ —</option>${opts}</select>`;
+  }
+  if(!L){
+    // ไม่พบอัตโนมัติ — ให้เลือกจากทุกออเดอร์ยอดเท่ากันด้วยมือ (ถ้ามี)
+    const d=brecGet(); const cands=((d.cod&&d.cod.orders)||[]).filter(o=>o.status!=='cancelled' && Math.round(Number(o.order_total||0)*100)===Math.round(Number(p.cod||0)*100));
+    if(cands.length){ const opts=cands.slice(0,20).map(o=>`<option value="${esc(o.order_id)}">${esc(o.order_id)}${o.iv_no?' · '+esc(o.iv_no):''} · ฿${Number(o.order_total||0).toFixed(0)}</option>`).join("");
+      return `<span style="color:#dc2626">✕ ไม่พบ</span> <select onchange="codPickOrder('${mk}', this.value)" onclick="event.stopPropagation()" style="font-size:11px;padding:2px 5px;border:1px solid #fca5a5;border-radius:6px;max-width:220px"><option value="">— เลือกเอง —</option>${opts}</select>`; }
+    return `<span style="color:#dc2626">✕ ไม่พบในทะเบียน</span>`;
+  }
   const o=L.order; const ref=[o.order_id,o.iv_no,o.re_no].filter(Boolean).map(esc).join(" · ");
-  const badge = L.via==='phone' ? `<span style="color:#16a34a;font-weight:700" title="เบอร์โทรตรงกับออเดอร์ (แม่นสุด)">✓ เบอร์ตรง</span>`
-    : L.via==='track' ? `<span style="color:#16a34a;font-weight:700">✓ พัสดุตรง</span>`
+  const badge = L.via==='manual' ? `<span style="color:#7c3aed;font-weight:700" title="ผู้ใช้เลือกเอง">✓ เลือกเอง</span>`
+    : L.via==='phone' ? `<span style="color:#16a34a;font-weight:700" title="เบอร์โทรตรงกับออเดอร์">✓ เบอร์ตรง</span>`
+    : L.via==='track' ? `<span style="color:#16a34a;font-weight:700" title="เลขพัสดุตรง">✓ พัสดุตรง</span>`
     : L.via==='name' ? `<span style="color:#16a34a;font-weight:700" title="ชื่อผู้รับ + ยอด COD ตรง">✓ ชื่อ+ยอดตรง</span>`
     : `<span style="color:#0369a1" title="จับด้วยยอด COD อย่างเดียว">~ ยอดตรง</span>`;
-  return `${badge} <span class="mono" style="color:#475569">${ref||'—'}</span>`;
+  const undo = L.via==='manual' ? ` <a onclick="event.stopPropagation();codPickOrder('${mk}','')" style="cursor:pointer;color:#94a3b8;font-size:10px" title="ยกเลิกการเลือก">✕</a>` : '';
+  return `${badge} <span class="mono" style="color:#475569">${ref||'—'}</span>${undo}`;
 }
 function codRenderTab(d){
   const cod=d.cod||{};
@@ -30279,10 +30305,10 @@ function codRenderTab(d){
   }).join("");
   const pendHtml = pending.length ? `<div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:11px 14px;margin-bottom:12px;font-size:12.5px;color:#1e40af">
     ℹ️ มีพัสดุ ${pending.reduce((s,p)=>s+p.parcels.length,0)} ชิ้น (${pending.length} วัน · รวม COD ${fmtM(pending.reduce((s,p)=>s+p.sumCod,0))}) ที่ "โอนแล้ว" แต่ <b>ยังไม่มีในรายงานเครดิต</b> — อัปรายงานเครดิตให้ครอบวันล่าสุด หรือรอขนส่งโอน</div>` : '';
-  const ls=cod.linkStats||{phone:0,track:0,name:0,amt:0,multi:0,none:0}; const linkedN=(ls.phone||0)+(ls.track||0)+(ls.name||0)+(ls.amt||0);
+  const ls=cod.linkStats||{manual:0,phone:0,track:0,name:0,amt:0,multi:0,none:0}; const linkedN=(ls.manual||0)+(ls.phone||0)+(ls.track||0)+(ls.name||0)+(ls.amt||0);
   const linkLine = `<div style="background:${linkedN?'#f0fdf4':'#fffbeb'};border:1px solid ${linkedN?'#bbf7d0':'#fde68a'};border-radius:10px;padding:10px 14px;margin-bottom:12px;font-size:12.5px;color:#334155">
-    🔗 <b>ลิงก์ออเดอร์:</b> ${linkedN}/${totParcels} พัสดุ · <b style="color:#16a34a">เบอร์ตรง ${ls.phone||0}</b> · ชื่อ+ยอดตรง <b style="color:#16a34a">${ls.name||0}</b>${ls.track?` · พัสดุตรง <b style="color:#16a34a">${ls.track}</b>`:''} · ยอดตรง <b style="color:#0369a1">${ls.amt||0}</b> · หลายตัวเลือก <b style="color:#a16207">${ls.multi||0}</b> · ไม่พบ <b style="color:#dc2626">${ls.none||0}</b>
-    <div style="color:#92400e;margin-top:5px">ℹ️ ลิงก์ด้วย <b>เบอร์โทร</b> (แม่นสุด) → ชื่อ+ยอด → ยอด · ต้อง <b>re-import BigSeller</b> (ครอบวันเดียวกับ COD) ให้ทะเบียนมีเบอร์โทร · ออเดอร์ FACE/LINE ที่ยังไม่คีย์ = "ไม่พบ" · เลขพัสดุ iShip≠BigSeller (คนละระบบ)</div></div>`;
+    🔗 <b>ลิงก์ออเดอร์:</b> ${linkedN}/${totParcels} พัสดุ · <b style="color:#16a34a">พัสดุตรง ${ls.track||0}</b> · เบอร์ตรง <b style="color:#16a34a">${ls.phone||0}</b> · ชื่อ+ยอด <b style="color:#16a34a">${ls.name||0}</b> · ยอด <b style="color:#0369a1">${ls.amt||0}</b>${ls.manual?` · เลือกเอง <b style="color:#7c3aed">${ls.manual}</b>`:''} · <b style="color:#a16207">หลายตัวเลือก ${ls.multi||0}</b> · <b style="color:#dc2626">ไม่พบ ${ls.none||0}</b>
+    <div style="color:#92400e;margin-top:5px">ℹ️ ลำดับ: <b>เลขพัสดุ → เบอร์โทร → ชื่อ+ยอด → ยอด</b> · เคส "หลายตัวเลือก/ไม่พบ" มี dropdown ให้ <b>เลือกออเดอร์เอง</b> (ระบบจำไว้) · ต้อง <b>re-import BigSeller</b> ครอบวัน COD ให้ทะเบียนมีเลขพัสดุ+เบอร์ → ลิงก์อัตโนมัติแม่นขึ้น</div></div>`;
   return `
     <div class="bmp-sum">
       <div class="bmp-sc"><div class="l">รายการโอนเข้าบัญชี</div><div class="v">${groups.length}</div></div>

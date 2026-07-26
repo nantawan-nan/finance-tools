@@ -11,6 +11,8 @@ CREATE TABLE IF NOT EXISTS brec_cod_data (
   updated_by  uuid
 );
 
+ALTER TABLE brec_cod_data ADD COLUMN IF NOT EXISTS manual jsonb;   -- ★ ผู้ใช้เลือกออเดอร์เอง (key=เลขพัสดุ → order_id)
+
 GRANT ALL ON brec_cod_data TO authenticated;
 GRANT ALL ON brec_cod_data TO service_role;
 

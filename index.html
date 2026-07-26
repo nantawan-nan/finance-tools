@@ -1968,6 +1968,7 @@ const A_HEAD=["ลำดับที่","เลขที่เอกสาร",
 /* เฉพาะ M Bark: bank down ตามรหัสลูกค้า (จากรายงานขาย) */
 function mbarkBankDownByCust(custCode){
   const c = String(custCode||"").toUpperCase();
+  if(/FACE|FACEBOOK|\bFB\b/.test(c)) return "{Down 10}";   // ★ FACE (โอนตรง/COD) = บัญชี FB
   if(/LAZADA|\bLZ\b/.test(c)) return "{Down 11}";
   if(/TIKTOK|\bTT\b|\bTK\b/.test(c)) return "{Down 12}";
   if(/SHOPEE|\bSP\b|\bSH\b/.test(c)) return "{Down 13}";
@@ -1985,7 +1986,7 @@ function mbarkCheckCode(custCode){
   if(/SHOPEE/.test(c)   || has("SP","SH"))    return "SH";
   if(/TIKTOK/.test(c)   || has("TT","TK"))    return "TT";
   if(/DEALER/.test(c)   || has("DR"))         return "DR";
-  if(/FACEBOOK/.test(c) || has("FB"))         return "FB";
+  if(/FACEBOOK|FACE/.test(c) || has("FB"))    return "FB";   // ★ FACE (ขายตรง) = FB
   if(/INSTAGRAM/.test(c)|| has("IG"))         return "IG";
   if(/LINE/.test(c)     || has("LI"))         return "LI";
   if(/C-?BBL|กรุงเทพ/.test(c) || has("61"))   return "61";
@@ -4501,14 +4502,20 @@ function incExportView(d){
 function incReRow(r,i,company,seedOverride){
   const seed = seedOverride!=null ? seedOverride : incGet().reSeed;
   const isMbark = company==="mbark";
-  const lettOther = isMbark ? "{Down 18}" : "{Up 1}";
+  // ★ ขายตรง (FACE/LINE/Dealer · โอนตรง/COD) = เงินเข้าเต็ม ไม่มียอดหัก → LETT OTHER + Enter less other เว้นว่าง
+  //   ธนาคาร = รหัสเช็ค (FB/LI/DR) · เลือก Bank จาก mbarkBankDownByCust (FACE={Down 10})
+  const isDirect = !r.channel && /^(FACE|FACEBOOK|LINE|DEALER|CSR|FB|LI|DR)$/i.test(String(r.arCustCode||"").trim());
+  let lettOther = isMbark ? "{Down 18}" : "{Up 1}";
+  let enterCmd  = "{Enter}";
   const downCmd  = isMbark ? mbarkBankDownByCust(r.arCustCode) : bankDownCmd(r.actualBrand, r.channel);
   const checkCode = isMbark ? mbarkCheckCode(r.arCustCode) : "";
+  let bankCode = r.bankCode||"";
+  if(isMbark && isDirect){ lettOther = ""; enterCmd = ""; bankCode = checkCode; }   // โอนตรง/COD ไม่มียอดหัก
   return { ลำดับ:i+1, doc_no:armapRunRE(seed,i), iv_date:fmtDateDDMMYYYY(r.arDate), iv:r.arIv,
     brand:r.actualBrand||"", outstanding:round2(r.arOutstanding), orderNo:r.orderNo, channel:r.channel,
     pay_date_long:fmtDateDDMMYYYY(r.paymentDate), pay_date_short:fmtDateDDMMYY(r.paymentDate),
     net:round2(r.netAmount), diff:round2(r.diff), cust:r.arCustCode, lett_other:lettOther,
-    enter:"{Enter}", bank_down:downCmd, bank_code:r.bankCode||"", check_code:checkCode, warning:r.warning||"" };
+    enter:enterCmd, bank_down:downCmd, bank_code:bankCode, check_code:checkCode, warning:r.warning||"" };
 }
 
 /* ===== ★ รับชำระ COD (เฟส A) — ดึงจาก COD ขนส่ง (พัสดุ→ออเดอร์+IV · จับ STM = รับเงินแล้ว) → ส่งออก RE ===== */

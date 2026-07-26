@@ -191,6 +191,13 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-26 (18c) — ★ ส่งออก RE ขายตรง (FACE/LINE/Dealer): LETT OTHER/Enter เว้นว่าง · เลือก Bank/ธนาคาร/เช็ค
+- **เจ้าของ (format AutoKey RE):** ออเดอร์ FACE (โอนตรง/COD) ต่างจากแพลตฟอร์ม — **ไม่มียอดหัก** → "เลือก LETT OTHER" + "Enter less other" **เว้นว่าง** · "เลือก Bank"=`{Down 10}` · "ธนาคาร"=FB · "รหัสเช็ค"=FB
+- **`mbarkBankDownByCust` +FACE** = `{Down 10}` (บัญชี FB) · **`mbarkCheckCode` +FACE** = FB (เดิมจับแค่ FACEBOOK/FB ไม่จับ "FACE" → ธนาคาร/เช็คว่าง)
+- **`incReRow` เคสขายตรง** (`isDirect` = channel ว่าง + cust ∈ FACE/LINE/Dealer/CSR · M Bark): `lett_other=""` · `enter=""` · `bank_code=checkCode` (FB/LI/DR) · downCmd จาก mbarkBankDownByCust · **กระทบทั้ง COD RE + online direct-transfer RE** (ใช้ incReRow ร่วม) = format ตรงกัน
+- **verified (node):** FACE→LETT[]/Enter[]/Bank{Down 10}/ธนาคาร FB/เช็ค FB · LINE→LI · Dealer→DR · SHOPEE ไม่กระทบ (LETT{Down 18}/เช็คปกติ) · syntax OK · display/export-only
+- **หมายเหตุ:** LINE/Dealer ยังไม่มี "เลือก Bank" (down code) — เจ้าของให้แค่ FACE={Down 10} · รอ down code ของ LINE/Dealer
+
 ### 2026-07-26 (18b) — ★ fix รับชำระ COD: "ไม่มีวันที่ IV" ทุกแถว (codLoadOrders ลืม select iv_date)
 - **เจ้าของ:** อัป BigSeller แล้ว COD RE ทุกแถวขึ้น "ไม่มีวันที่ IV" · พร้อมออก RE = 0 · ส่งออกไม่ได้ (ทั้งที่มี IV + STM ✓)
 - **ต้นเหตุ:** `codLoadOrders` select ไม่มี `iv_date` → `o.iv_date` undefined → `incCodReReady` (ต้องมี arDate) fail หมด

@@ -4512,7 +4512,20 @@ function incReRow(r,i,company,seedOverride){
 }
 
 /* ===== ★ รับชำระ COD (เฟส A) — ดึงจาก COD ขนส่ง (พัสดุ→ออเดอร์+IV · จับ STM = รับเงินแล้ว) → ส่งออก RE ===== */
-function incSetCodReSeed(v){ incGet().codReSeed=v; renderToolSalesIncome(); }
+function incSetCodReSeed(v){
+  // ★ ห้าม re-render ทั้งหน้าตอนพิมพ์ (focus หลุด · พิมพ์ได้ทีละตัว) — อัปเดตเฉพาะ input/hint/ปุ่มตรงจุด
+  incGet().codReSeed = v;
+  const seed=String(v||"").trim(), valid=/^\D*\d+$/.test(seed);
+  const inp=document.getElementById("incCodReSeed");
+  const hint=document.getElementById("incCodReHint");
+  const bx=document.getElementById("incCodReBtnX"), bc=document.getElementById("incCodReBtnC");
+  const ready = inp && inp.closest("[data-cod-ready]") ? Number(inp.closest("[data-cod-ready]").getAttribute("data-cod-ready"))||0 : 0;
+  if(inp) inp.style.borderColor = seed?(valid?"#16a34a":"#dc2626"):"#e2e8f0";
+  if(hint) hint.textContent = seed?(valid?`✓ รันต่อ ${ready} ใบ`:"รูปแบบไม่ถูก"):"RE โอนตรง/COD = เงินเข้าเต็มยอด IV · ไม่มีค่าธรรมเนียม";
+  const canExport = ready>0 && valid;
+  [bx,bc].forEach(b=>{ if(!b) return; b.disabled=!canExport; b.style.opacity=canExport?"":"0.5"; });
+  if(bx) bx.style.background = canExport?"var(--brand)":""; if(bx) bx.style.color = canExport?"#fff":""; if(bx&&canExport) bx.style.borderColor="var(--brand)";
+}
 function incSetCodReGoto(){ incGet().subtab='codre'; setTool('sales_income'); }   // เข้าจาก Bank Recon COD → หน้ารับชำระ COD
 /* candidate RE จาก COD: 1 พัสดุที่ลิงก์ออเดอร์ได้ = 1 RE · โอนตรง (FACE/LINE) เงินเข้าเต็ม ไม่มีค่าธรรมเนียม */
 function incCodReCandidates(){
@@ -4607,13 +4620,13 @@ function incRenderCodRe(d){
         <td style="padding:6px 10px">${esc(o.recipient||'')} ${o.phone?`<span style="color:#94a3b8;font-size:11px">${esc(o.phone)}</span>`:''}</td>
       </tr>`).join("")}</tbody></table></div>
     <div style="font-size:11px;color:#7c3aed;margin-top:6px">พวกนี้จะพร้อมออก RE เมื่อ: ส่งของ → ขนส่งเก็บเงิน → เงินโอนเข้า → อัปรายงาน iShip ที่หน้า COD ขนส่ง</div></div>` : '';
-  const seedHtml=`<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:12px;background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:12px 16px">
+  const seedHtml=`<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:12px;background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:12px 16px" data-cod-ready="${ready.length}">
     <div style="font-size:13px;color:#334155;font-weight:600">เลข RE เริ่มต้น (COD)</div>
-    <input value="${esc(seed)}" oninput="incSetCodReSeed(this.value)" placeholder="เช่น 2607000001" style="font-family:monospace;font-size:14px;padding:7px 12px;border:2px solid ${seed?(seedValid?'#16a34a':'#dc2626'):'#e2e8f0'};border-radius:8px;width:180px;outline:none">
-    <span style="font-size:12px;color:#94a3b8">${seed?(seedValid?`✓ รันต่อ ${ready.length} ใบ`:'รูปแบบไม่ถูก'):'RE โอนตรง/COD = เงินเข้าเต็มยอด IV · ไม่มีค่าธรรมเนียม'}</span>
+    <input id="incCodReSeed" value="${esc(seed)}" oninput="incSetCodReSeed(this.value)" placeholder="เช่น 2607000001" style="font-family:monospace;font-size:14px;padding:7px 12px;border:2px solid ${seed?(seedValid?'#16a34a':'#dc2626'):'#e2e8f0'};border-radius:8px;width:180px;outline:none">
+    <span id="incCodReHint" style="font-size:12px;color:#94a3b8">${seed?(seedValid?`✓ รันต่อ ${ready.length} ใบ`:'รูปแบบไม่ถูก'):'RE โอนตรง/COD = เงินเข้าเต็มยอด IV · ไม่มีค่าธรรมเนียม'}</span>
     <div style="flex:1"></div>
-    <button class="ord-btn" ${canExport?'':'disabled'} style="${canExport?'background:var(--brand);color:#fff;border-color:var(--brand)':'opacity:.5'}" onclick="incExportCodRe('xlsx')"><i data-lucide="file-spreadsheet"></i> ส่งออก Excel (${ready.length})</button>
-    <button class="ord-btn" ${canExport?'':'disabled'} style="${canExport?'':'opacity:.5'}" onclick="incExportCodRe('csv')"><i data-lucide="download"></i> CSV</button>
+    <button id="incCodReBtnX" class="ord-btn" ${canExport?'':'disabled'} style="${canExport?'background:var(--brand);color:#fff;border-color:var(--brand)':'opacity:.5'}" onclick="incExportCodRe('xlsx')"><i data-lucide="file-spreadsheet"></i> ส่งออก Excel (${ready.length})</button>
+    <button id="incCodReBtnC" class="ord-btn" ${canExport?'':'disabled'} style="${canExport?'':'opacity:.5'}" onclick="incExportCodRe('csv')"><i data-lucide="download"></i> CSV</button>
   </div>`;
   const rows=cands.slice(0,500).map(r=>{
     const ok=r.arIv&&r.arDate&&!r.re_no&&r._stm&&!(Math.abs((r._cod||0)-(r.arOutstanding||0))>0.5);

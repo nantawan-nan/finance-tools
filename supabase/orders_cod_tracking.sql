@@ -7,6 +7,7 @@ begin
     alter table public.order_ledger add column if not exists tracking_no text;
     alter table public.order_ledger add column if not exists recipient   text;
     alter table public.order_ledger add column if not exists phone       text;   -- ★ เบอร์โทร = key ลิงก์ COD แม่นสุด
+    alter table public.order_ledger add column if not exists payment_method text; -- ★ วิธีชำระ (COD/Prepaid) แยกโอนตรง (เฟส B/C)
     create index if not exists idx_order_ledger_phone
       on public.order_ledger (company_id, phone)
       where phone is not null and deleted_at is null;

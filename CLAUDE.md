@@ -191,6 +191,14 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-26 (18) — ★ รับชำระ เฟส B: เก็บ "วิธีชำระ (COD/Prepaid)" + โชว์ COD BigSeller ที่รอเก็บเงินปลายทาง
+- **เจ้าของขอ (เฟส B):** col BM "วิธีการชำระเงิน"=COD → เช็คว่ารับเงินหรือยัง (จาก COD ขนส่ง) · แยกจาก Prepaid (โอนตรง = เฟส C)
+- **parser BigSeller เก็บ `payment_method`** (col [64] "วิธีการชำระเงิน" · fuzzy `วิธีการชำระเงิน|payment method`) → `order_ledger.payment_method` (migration `orders_cod_tracking.sql` +column) · ingest insert+backfill · `codLoadOrders` select · **verified (ไฟล์จริง):** ค่า COD 963/Prepaid 2183 · Manual = COD 147 + Prepaid 71
+- **`incCodPending`** = ออเดอร์ที่ `payment_method` เป็น COD (`incIsCodPayment` = /cod|ปลายทาง|เก็บเงิน/) + non-marketplace + ยังไม่อยู่ในรายงานขนส่ง (order_id ไม่อยู่ใน parcel ที่ลิงก์) = **รอเก็บเงินปลายทาง**
+- **UI (แท็บ รับชำระ COD):** KPI ใบใหม่ "รอเก็บเงินปลายทาง" (ม่วง · คลิกกาง `incToggleCodPend`) → ตาราง ออเดอร์/IV/วันสั่ง/ยอด/ผู้รับ+เบอร์ · บอกว่าจะพร้อมออก RE เมื่อส่ง→เก็บเงิน→เงินเข้า→อัป iShip
+- **verified:** syntax OK · **ต้อง push (migration) + re-import BigSeller** ให้ payment_method เข้าทะเบียน · ไม่กระทบเฟส A (candidate จาก parcel เหมือนเดิม)
+- **ยังไม่ทำ (เฟส C):** Prepaid (col BM=Prepaid · Manual) → จับ STM โอนบุคคลธรรมดา
+
 ### 2026-07-26 (17) — ★★ รับชำระ เฟส A: แท็บ "รับชำระ COD (เฟส/LINE)" — ดึงจาก COD ขนส่ง → ส่งออก RE
 - **เจ้าของขอ (เฟส A ของแผนรับชำระ FACE/LINE/Dealer):** COD ใช้ข้อมูลหน้า COD ขนส่งที่มี (พัสดุ→ออเดอร์+IV · จับ STM = รับเงินแล้ว) → ส่งออก RE · เข้าได้ 2 ทาง (แท็บรับชำระ + Bank Recon COD)
 - **subtab ใหม่ `codre` "รับชำระ COD (เฟส/LINE)"** ใน `renderToolSalesIncome` · โหลด `brec_cod_data` ผ่าน `codLoadFromDb(brecGet())` (regroup+relink) · guard flag `_codReLoaded` กัน loop

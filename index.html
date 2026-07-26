@@ -4543,6 +4543,16 @@ function incCodReCandidates(){
   return out;
 }
 function incCodReReady(cands){ return cands.filter(r=> r.arIv && r.arDate && !r.re_no && r._stm && !(Math.abs((r._cod||0)-(r.arOutstanding||0))>0.5)); }
+function incIsCodPayment(pm){ return /cod|ปลายทาง|เก็บเงิน/i.test(String(pm||"")); }
+/* ★ เฟส B: ออเดอร์ BigSeller ที่ "วิธีชำระ = COD" แต่ยังไม่อยู่ในรายงานขนส่ง (ยังไม่ได้เก็บเงิน) = รอเก็บเงินปลายทาง */
+function incCodPending(){
+  const b=(typeof brecGet==='function')?brecGet():null; const cod=(b&&b.cod)||{};
+  const linked=new Set();
+  for(const g of (cod.groups||[])) for(const p of (g.parcels||[])) if(p._link&&p._link.order) linked.add(String(p._link.order.order_id));
+  const isMp=(cg)=>/shopee|tiktok|lazada/i.test(String(cg||""));
+  return (cod.orders||[]).filter(o=> incIsCodPayment(o.payment_method) && !isMp(o.channel_group) && o.status!=='cancelled' && !linked.has(String(o.order_id)));
+}
+function incToggleCodPend(){ const d=incGet(); d.codPendOpen=!d.codPendOpen; renderToolSalesIncome(); }
 function incExportCodRe(fmt){
   const d=incGet(); const company=state.company;
   const seed=d.codReSeed||"";
@@ -4573,15 +4583,29 @@ function incRenderCodRe(d){
     </div>`;
   }
   const cands=incCodReCandidates(); const ready=incCodReReady(cands);
+  const pending=incCodPending();
   const seed=d.codReSeed||""; const seedValid=/^\D*\d+$/.test(seed); const canExport=ready.length>0&&seedValid;
   const noIv=cands.filter(r=>!r.arIv).length, noStm=cands.filter(r=>r.arIv&&!r._stm&&!r.re_no).length, done=cands.filter(r=>r.re_no).length;
   const fmtM=(n)=>salesFmt(n);
-  const kpi=`<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:14px 0">
+  const kpi=`<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin:14px 0">
     <div class="sal-kpi" style="border-top:4px solid #16a34a"><div class="k">พร้อมออก RE</div><div class="v">${ready.length}</div><div class="s">ลิงก์+IV+เงินเข้า STM</div></div>
     <div class="sal-kpi" style="border-top:4px solid #d97706"><div class="k">ยังไม่คีย์ IV</div><div class="v">${noIv}</div><div class="s">ไปคีย์ IV ที่ขั้นตอน 1</div></div>
     <div class="sal-kpi" style="border-top:4px solid #0369a1"><div class="k">รอเงินเข้า (STM)</div><div class="v">${noStm}</div><div class="s">ยังไม่จับ STM</div></div>
+    <div class="sal-kpi" style="border-top:4px solid #7c3aed;cursor:pointer" onclick="incToggleCodPend()"><div class="k">รอเก็บเงินปลายทาง</div><div class="v">${pending.length}</div><div class="s">BigSeller COD · ยังไม่ส่ง/เก็บ · คลิกดู</div></div>
     <div class="sal-kpi" style="border-top:4px solid #94a3b8"><div class="k">ออก RE แล้ว</div><div class="v">${done}</div></div>
   </div>`;
+  const pendHtml = (d.codPendOpen && pending.length) ? `<div style="background:#faf5ff;border:1px solid #e9d5ff;border-radius:10px;padding:12px 14px;margin-bottom:12px">
+    <div style="font-size:13px;font-weight:700;color:#6b21a8;margin-bottom:8px">🚚 ออเดอร์ COD ใน BigSeller ที่ยังไม่ได้เก็บเงิน (ยังไม่อยู่ในรายงานขนส่ง) — ${pending.length} ออเดอร์</div>
+    <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">
+      <thead><tr style="background:#f3e8ff"><th style="padding:6px 10px;text-align:left">ออเดอร์</th><th style="padding:6px 10px;text-align:left">เลข IV</th><th style="padding:6px 10px;text-align:left">วันสั่ง</th><th style="padding:6px 10px;text-align:right">ยอด</th><th style="padding:6px 10px;text-align:left">ผู้รับ/เบอร์</th></tr></thead>
+      <tbody>${pending.slice(0,200).map(o=>`<tr style="border-top:1px solid #f3e8ff">
+        <td style="padding:6px 10px;font-family:monospace;font-size:11px">${esc(o.order_id||'')}</td>
+        <td style="padding:6px 10px;font-family:monospace;font-size:11px">${o.iv_no?esc(o.iv_no):'<span style="color:#dc2626">ยังไม่คีย์</span>'}</td>
+        <td style="padding:6px 10px;white-space:nowrap">${o.order_date?esc(bmpFmtThaiShort(String(o.order_date).slice(0,10))):'—'}</td>
+        <td style="padding:6px 10px;text-align:right">${fmtM(o.order_total)}</td>
+        <td style="padding:6px 10px">${esc(o.recipient||'')} ${o.phone?`<span style="color:#94a3b8;font-size:11px">${esc(o.phone)}</span>`:''}</td>
+      </tr>`).join("")}</tbody></table></div>
+    <div style="font-size:11px;color:#7c3aed;margin-top:6px">พวกนี้จะพร้อมออก RE เมื่อ: ส่งของ → ขนส่งเก็บเงิน → เงินโอนเข้า → อัปรายงาน iShip ที่หน้า COD ขนส่ง</div></div>` : '';
   const seedHtml=`<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:12px;background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:12px 16px">
     <div style="font-size:13px;color:#334155;font-weight:600">เลข RE เริ่มต้น (COD)</div>
     <input value="${esc(seed)}" oninput="incSetCodReSeed(this.value)" placeholder="เช่น 2607000001" style="font-family:monospace;font-size:14px;padding:7px 12px;border:2px solid ${seed?(seedValid?'#16a34a':'#dc2626'):'#e2e8f0'};border-radius:8px;width:180px;outline:none">
@@ -4615,7 +4639,7 @@ function incRenderCodRe(d){
     </table></div>`:`<div class="sal-empty" style="padding:44px;text-align:center;background:#fff;border:1px solid #e2e8f0;border-radius:14px">ยังไม่มีพัสดุ COD ที่ลิงก์ออเดอร์ได้ — ไปลิงก์ที่หน้า COD ขนส่งก่อน</div>`;
   return `<div style="padding:16px 0 0">
     <div style="font-size:12.5px;color:#64748b;margin-bottom:10px">💡 ดึงจากหน้า <b>COD ขนส่ง</b> — พัสดุที่ลิงก์ออเดอร์ได้ + คีย์ IV แล้ว + เงินเข้า STM แล้ว = พร้อมออก RE (โอนตรง = เงินเข้าเต็มยอด IV ไม่มีค่าธรรมเนียม)</div>
-    ${kpi}${seedHtml}${table}
+    ${kpi}${pendHtml}${seedHtml}${table}
     <div style="color:#94a3b8;font-size:11px;margin-top:8px">แสดง ${Math.min(cands.length,500)}/${cands.length} · แถวเหลือง = ยังไม่พร้อม (ยังไม่คีย์ IV / รอเงินเข้า / COD≠IV)</div>
   </div>`;
 }
@@ -25269,6 +25293,7 @@ function ordParseSalesFile(rows){
   ci.track     = findHdr(h=> /แทรคกิ้ง|tracking|ติดตาม/i.test(h));
   ci.recipient = findHdr(h=> /^(ผู้รับ|ชื่อผู้รับ)$/.test(String(h||"").trim()) || /ชื่อผู้รับ|ผู้รับสินค้า/.test(h));
   ci.phone     = findHdr(h=> /เบอร์โทร|โทรศัพท์|phone|มือถือ|tel\b/i.test(h));   // ★ เบอร์โทร = key แม่นสุดสำหรับลิงก์ COD
+  ci.payMethod = findHdr(h=> /วิธีการชำระเงิน|วิธีชำระ|payment\s*method/i.test(h));   // ★ col BM = COD/Prepaid (แยก COD vs โอนตรง)
   // fallback (ชื่อคอลัมน์ไม่ตรง): หาคอลัมน์ที่ค่าส่วนใหญ่ขึ้นต้น TH+เลข = เลขแทรคกิ้งขนส่ง
   if(ci.track<0){
     const N=Math.min(rows.length,40); const score=new Array(headers.length).fill(0);
@@ -25280,7 +25305,7 @@ function ordParseSalesFile(rows){
   for(let r=1;r<rows.length;r++){
     const row = rows[r]; if(!row) continue;
     const oid = String(row[ci.order]||"").trim(); if(!oid) continue;
-    if(!groups.has(oid)) groups.set(oid, { order_id:oid, status:"", date:null, products:new Set(), skus:new Set(), itemMap:new Map(), qty:0, ret:0, gross:0, net:0, ship:0, disc:0, voucher:0, refund:0, platform:"", shop:"", cancelTime:"", tracking:"", recipient:"", phone:"" });
+    if(!groups.has(oid)) groups.set(oid, { order_id:oid, status:"", date:null, products:new Set(), skus:new Set(), itemMap:new Map(), qty:0, ret:0, gross:0, net:0, ship:0, disc:0, voucher:0, refund:0, platform:"", shop:"", cancelTime:"", tracking:"", recipient:"", phone:"", payMethod:"" });
     const g = groups.get(oid);
     if(ci.status>=0 && !g.status) g.status = String(row[ci.status]||"").trim();
     if(ci.date>=0 && !g.date) g.date = ordISO(row[ci.date]);
@@ -25324,6 +25349,7 @@ function ordParseSalesFile(rows){
     if(ci.track>=0 && !g.tracking){ const t=String(row[ci.track]||"").trim(); if(t) g.tracking=t; }
     if(ci.recipient>=0 && !g.recipient){ const rc=String(row[ci.recipient]||"").trim(); if(rc) g.recipient=rc; }
     if(ci.phone>=0 && !g.phone){ const ph=String(row[ci.phone]||"").trim(); if(ph) g.phone=ph; }
+    if(ci.payMethod>=0 && !g.payMethod){ const pm=String(row[ci.payMethod]||"").trim(); if(pm) g.payMethod=pm; }
   }
   const cancelRe = new RegExp(cfg.cancelKw, "i");
   // ★ source_cols — เก็บตัวอักษร Excel ของคอลัมน์ที่ใช้คำนวณ (gross/ship/disc/voucher) ต่อไฟล์
@@ -25368,6 +25394,7 @@ function ordParseSalesFile(rows){
       tracking_no: g.tracking || null,
       recipient: g.recipient || null,
       phone: g.phone || null,
+      payment_method: g.payMethod || null,
       source_cols: sourceCols
     };
   });
@@ -25539,7 +25566,7 @@ async function ordFetchAllRows(co, cols, applyFilters){
 async function ordIngestChannelOrders(co, parsed, srcLabel){
   const orders = parsed.orders || [];
   if(!orders.length) return { added:0, updated:0, total:0 };
-  const existing = await ordFetchAllRows(co, "id,order_id,status,order_date,order_total,channel_group,items,seller_discount,shipping_fee,seller_voucher,gross_total,source_cols,tracking_no,recipient,phone");
+  const existing = await ordFetchAllRows(co, "id,order_id,status,order_date,order_total,channel_group,items,seller_discount,shipping_fee,seller_voucher,gross_total,source_cols,tracking_no,recipient,phone,payment_method");
   const byOid = new Map((existing||[]).filter(o=>o.order_id).map(o=>[o.order_id, o]));
   const inserts = [], updates = [];
   const seen = new Set();
@@ -25556,7 +25583,7 @@ async function ordIngestChannelOrders(co, parsed, srcLabel){
       seller_voucher: o.seller_voucher, gross_total: o.gross_total,
       source_cols: o.source_cols || null,
       returned_qty: o.returned_qty, is_returned: o.is_returned,
-      tracking_no: o.tracking_no || null, recipient: o.recipient || null, phone: o.phone || null,
+      tracking_no: o.tracking_no || null, recipient: o.recipient || null, phone: o.phone || null, payment_method: o.payment_method || null,
       order_src: srcLabel, order_ingested_at: now
     };
     if(!ex){ inserts.push(rec); continue; }
@@ -25577,7 +25604,8 @@ async function ordIngestChannelOrders(co, parsed, srcLabel){
     const trackFill = (!ex.tracking_no && o.tracking_no) ? o.tracking_no : null;
     const recvFill  = (!ex.recipient && o.recipient) ? o.recipient : null;
     const phoneFill = (!ex.phone && o.phone) ? o.phone : null;
-    const changed = ex.status!==o.status || Number(ex.order_total||0)!==Number(o.order_total||0) || (!ex.order_date && o.order_date) || fillGroup || fillItems || discChanged || shipChanged || itemsChanged || vchChanged || grossChanged || colsChanged || trackFill || recvFill || phoneFill;
+    const pmFill    = (!ex.payment_method && o.payment_method) ? o.payment_method : null;
+    const changed = ex.status!==o.status || Number(ex.order_total||0)!==Number(o.order_total||0) || (!ex.order_date && o.order_date) || fillGroup || fillItems || discChanged || shipChanged || itemsChanged || vchChanged || grossChanged || colsChanged || trackFill || recvFill || phoneFill || pmFill;
     if(changed){
       const upd = { status:o.status, sale_status_raw:o.sale_status_raw, is_returned:o.is_returned, returned_qty:o.returned_qty, order_total:o.order_total, order_date:fillDate };
       if(fillGroup){ upd.channel_group=o.channel_group; upd.channel=o.channel; }
@@ -25590,6 +25618,7 @@ async function ordIngestChannelOrders(co, parsed, srcLabel){
       if(trackFill)    upd.tracking_no    = trackFill;
       if(recvFill)     upd.recipient      = recvFill;
       if(phoneFill)    upd.phone          = phoneFill;
+      if(pmFill)       upd.payment_method = pmFill;
       updates.push({ id: ex.id, upd });
     }
   }
@@ -30213,7 +30242,7 @@ async function codLoadOrders(d){
     const all=[]; const PAGE=1000;
     for(let from=0; ; from+=PAGE){
       const { data, error } = await sb.from("order_ledger")
-        .select("order_id,tracking_no,recipient,phone,order_total,sale_amount,order_date,iv_no,re_no,channel_group,status,products")
+        .select("order_id,tracking_no,recipient,phone,payment_method,order_total,sale_amount,order_date,iv_no,re_no,channel_group,status,products")
         .eq("company_id", co).is("deleted_at", null).range(from, from+PAGE-1);
       if(error){ console.warn("codLoadOrders", error); break; }
       all.push(...(data||[]));

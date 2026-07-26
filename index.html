@@ -4520,10 +4520,12 @@ function incReRow(r,i,company,seedOverride){
   const isDirect = !r.channel && /^(FACE|FACEBOOK|LINE|DEALER|CSR|FB|LI|DR)$/i.test(String(r.arCustCode||"").trim());
   let lettOther = isMbark ? "{Down 18}" : "{Up 1}";
   let enterCmd  = "{Enter}";
-  const downCmd  = isMbark ? mbarkBankDownByCust(r.arCustCode) : bankDownCmd(r.actualBrand, r.channel);
-  const checkCode = isMbark ? mbarkCheckCode(r.arCustCode) : "";
+  let downCmd  = isMbark ? mbarkBankDownByCust(r.arCustCode) : bankDownCmd(r.actualBrand, r.channel);
+  let checkCode = isMbark ? mbarkCheckCode(r.arCustCode) : "";
   let bankCode = r.bankCode||"";
-  if(isMbark && isDirect){ lettOther = ""; enterCmd = ""; bankCode = checkCode; }   // โอนตรง/COD ไม่มียอดหัก
+  if(isMbark && isDirect){ lettOther = ""; enterCmd = ""; bankCode = checkCode; }   // FACE/LINE/Dealer COD ไม่มียอดหัก
+  // ★ โอนตรง Prepaid (M Bark) = เงินเข้าแบงค์เลย → เลือก Bank = {Down 2} · ไม่มีรหัสเช็ค/ธนาคาร (ไม่ผ่านช่องทาง FB)
+  if(isMbark && r._directBank){ lettOther = ""; enterCmd = ""; downCmd = "{Down 2}"; checkCode = ""; bankCode = ""; }
   return { ลำดับ:i+1, doc_no:armapRunRE(seed,i), iv_date:fmtDateDDMMYYYY(r.arDate), iv:r.arIv,
     brand:r.actualBrand||"", outstanding:round2(r.arOutstanding), orderNo:r.orderNo, channel:r.channel,
     pay_date_long:fmtDateDDMMYYYY(r.paymentDate), pay_date_short:fmtDateDDMMYY(r.paymentDate),
@@ -4726,17 +4728,22 @@ function incDirectCandidates(d){
   });
 }
 function incDirectReady(cands){ return cands.filter(x=> x.dep && x.o.iv_no); }   // จับ STM แล้ว + คีย์ IV
+// ★ ติ๊กเลือกส่งออก (default = เลือกทุกใบที่พร้อม · override เก็บใน d.directSel[order_id])
+function incDirectIsSelected(d, orderId){ const ov=(d.directSel||{})[orderId]; return ov===undefined ? true : !!ov; }
+function incDirectToggleRow(orderId){ const d=incGet(); d.directSel=d.directSel||{}; d.directSel[orderId]=!incDirectIsSelected(d,orderId); incRenderDirectInPlace(d); }
+function incDirectSelectAll(on){ const d=incGet(); d.directSel=d.directSel||{}; incDirectReady(incDirectCandidates(d)).forEach(x=>{ d.directSel[x.o.order_id]=!!on; }); incRenderDirectInPlace(d); }
+function incRenderDirectInPlace(d){ const el=document.getElementById("incDirectPane"); if(el){ el.outerHTML=incRenderDirect(d); lucide.createIcons(); } else { renderToolSalesIncome(); } }
 function incExportDirectRe(fmt){
   const d=incGet(); const company=state.company; const seed=d.directSeed||"";
   if(!/^\D*\d+$/.test(seed)){ alert("กรอกเลข RE เริ่มต้นให้ถูก (ลงท้ายด้วยตัวเลข)"); return; }
-  const ready=incDirectReady(incDirectCandidates(d));
-  if(!ready.length){ alert("ไม่มีรายการโอนตรงที่พร้อมออก RE (ต้อง: จับคู่ STM แล้ว + คีย์ IV แล้ว)"); return; }
+  const ready=incDirectReady(incDirectCandidates(d)).filter(x=>incDirectIsSelected(d, x.o.order_id));   // เฉพาะที่ติ๊ก
+  if(!ready.length){ alert("ไม่มีรายการโอนตรงที่ติ๊กเลือก + พร้อมออก RE (ต้อง: จับคู่ STM แล้ว + คีย์ IV แล้ว)"); return; }
   const custMap={ face:"FACE", line:"LINE", dealer:"Dealer", csr:"CSR" };
   const rows=ready.map(x=>{ const o=x.o, dep=x.dep, brand=incBrandOf(o), cust=custMap[ordChannelDetail(o)]||"Dealer";
     const outstanding=Number(o.sale_amount)||Number(o.order_total)||0;
     return { arDate:o.iv_date||o.order_date||dep.txn_date, arIv:o.iv_no, actualBrand:brand, arOutstanding:outstanding,
       orderNo:o.order_id, channel:'', paymentDate:dep.txn_date, paidISO:dep.txn_date, netAmount:outstanding, diff:0,
-      arCustCode:cust, bankCode:bankCodeOf('',brand), re_no:o.re_no||null, warning:"" }; });
+      arCustCode:cust, bankCode:bankCodeOf('',brand), re_no:o.re_no||null, warning:"", _directBank:true }; });   // ★ โอนตรงเข้าแบงค์ = {Down 2}/ไม่มีเช็ค
   const aoa=[A_HEAD].concat(rows.map((r,i)=>{ const a=incReRow(r,i,company,seed);
     return [a.ลำดับ,a.doc_no,a.iv_date,a.iv,a.brand,a.outstanding,a.orderNo,a.channel,a.pay_date_long,a.pay_date_short,a.net,a.diff,a.cust,a.lett_other,a.enter,a.bank_down,a.bank_code,a.check_code,a.warning]; }));
   const co=COMPANIES.find(c=>c.id===company); const stamp=(new Date().toISOString().slice(0,10)).replace(/-/g,"");
@@ -4749,7 +4756,10 @@ function incExportDirectRe(fmt){
 function incDirectDepLabel(dp){ const nm=String(dp.description||dp.ref_note||"").replace(/\s+/g," ").trim().slice(0,40); return `${bmpFmtThaiShort(dp.txn_date)} · ${Number(dp.deposit).toFixed(2)}${nm?" · "+nm:""}`; }
 function incRenderDirect(d){
   const list=incDirectCandidates(d); const ready=incDirectReady(list); const seed=d.directSeed||"";
-  const seedValid=/^\D*\d+$/.test(seed); const canExport=ready.length>0&&seedValid;
+  const seedValid=/^\D*\d+$/.test(seed);
+  const selCount=ready.filter(x=>incDirectIsSelected(d,x.o.order_id)).length;   // ★ จำนวนที่ติ๊ก
+  const canExport=selCount>0&&seedValid;
+  const allSel=ready.length>0&&selCount===ready.length, someSel=selCount>0&&!allSel;
   const matched=list.filter(x=>x.dep).length, noStm=list.filter(x=>!x.dep&&x.via==='candidates').length, none=list.filter(x=>x.via==='none').length, noIv=list.filter(x=>x.dep&&!x.o.iv_no).length;
   const fmtM=(n)=>salesFmt(n);
   const kpi=`<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin:14px 0">
@@ -4758,21 +4768,23 @@ function incRenderDirect(d){
     <div class="sal-kpi" style="border-top:4px solid #d97706"><div class="k">จับแล้ว·ยังไม่คีย์ IV</div><div class="v">${noIv}</div></div>
     <div class="sal-kpi" style="border-top:4px solid #dc2626"><div class="k">ไม่พบเงินเข้า</div><div class="v">${none}</div><div class="s">ยังไม่มี STM ยอดตรง</div></div>
   </div>`;
-  const seedHtml=`<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:12px;background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:12px 16px" data-dir-ready="${ready.length}">
+  const seedHtml=`<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:12px;background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:12px 16px" data-dir-sel="${selCount}">
     <div style="font-size:13px;color:#334155;font-weight:600">เลข RE เริ่มต้น (โอนตรง)</div>
     <input id="incDirSeed" value="${esc(seed)}" oninput="incSetDirSeedLive(this.value)" placeholder="เช่น 2607000001" style="font-family:monospace;font-size:14px;padding:7px 12px;border:2px solid ${seed?(seedValid?'#16a34a':'#dc2626'):'#e2e8f0'};border-radius:8px;width:180px;outline:none">
-    <span id="incDirHint" style="font-size:12px;color:#94a3b8">${seed?(seedValid?`✓ รันต่อ ${ready.length} ใบ`:'รูปแบบไม่ถูก'):'RE โอนตรง = เงินเข้าเต็มยอด IV · ไม่มีค่าธรรมเนียม'}</span>
+    <span id="incDirHint" style="font-size:12px;color:#94a3b8">${seed?(seedValid?`✓ รันต่อ ${selCount} ใบ`:'รูปแบบไม่ถูก'):'RE โอนตรง = เงินเข้าเต็มยอด IV · ไม่มีค่าธรรมเนียม'}</span>
     <div style="flex:1"></div>
-    <button id="incDirBtnX" class="ord-btn" ${canExport?'':'disabled'} style="${canExport?'background:var(--brand);color:#fff;border-color:var(--brand)':'opacity:.5'}" onclick="incExportDirectRe('xlsx')"><i data-lucide="file-spreadsheet"></i> ส่งออก Excel (${ready.length})</button>
+    <button id="incDirBtnX" class="ord-btn" ${canExport?'':'disabled'} style="${canExport?'background:var(--brand);color:#fff;border-color:var(--brand)':'opacity:.5'}" onclick="incExportDirectRe('xlsx')"><i data-lucide="file-spreadsheet"></i> ส่งออก Excel (<span id="incDirCnt">${selCount}</span>)</button>
     <button id="incDirBtnC" class="ord-btn" ${canExport?'':'disabled'} style="${canExport?'':'opacity:.5'}" onclick="incExportDirectRe('csv')"><i data-lucide="download"></i> CSV</button>
   </div>`;
-  const rows=list.slice(0,500).map(x=>{ const o=x.o;
+  const rows=list.slice(0,500).map(x=>{ const o=x.o; const isReady=!!(x.dep&&o.iv_no); const sel=isReady&&incDirectIsSelected(d,o.order_id);
     let stmCell;
     if(x.dep){ stmCell=`<span style="color:#16a34a;font-weight:600">✓ ${esc(incDirectDepLabel(x.dep))}</span> <a onclick="incDirectPick('${esc(o.order_id)}','')" style="cursor:pointer;color:#94a3b8;font-size:10px" title="ยกเลิก">✕</a>`; }
     else if(x.candidates && x.candidates.length){ const opts=x.candidates.slice(0,30).map(dp=>`<option value="${esc(dp.id)}">${esc(incDirectDepLabel(dp))}</option>`).join("");
       stmCell=`<span style="color:#a16207">⚠ ${x.candidates.length} เงินเข้ายอดตรง</span> <select onchange="incDirectPick('${esc(o.order_id)}', this.value)" style="font-size:11px;padding:2px 5px;border:1px solid #fde68a;border-radius:6px;max-width:260px;background:#fffbeb"><option value="">— เลือกเงินเข้า —</option>${opts}</select>`; }
     else stmCell=`<span style="color:#dc2626">✕ ไม่พบเงินเข้ายอดตรง</span>`;
-    return `<tr style="border-bottom:1px solid #f1f5f9${x.dep?'':';background:#fffbeb'}">
+    const chkCell=isReady?`<input type="checkbox" ${sel?'checked':''} onchange="incDirectToggleRow('${esc(o.order_id)}')" style="cursor:pointer">`:`<span style="color:#cbd5e1">—</span>`;
+    return `<tr style="border-bottom:1px solid #f1f5f9${x.dep?(sel?';background:#f0fdf4':''):';background:#fffbeb'}">
+      <td style="padding:6px 8px;text-align:center">${chkCell}</td>
       <td style="padding:6px 8px;font-family:monospace;font-size:11px">${esc(o.order_id||'')}</td>
       <td style="padding:6px 8px;font-family:monospace;font-size:11px">${o.iv_no?esc(o.iv_no):'<span style="color:#dc2626">ยังไม่คีย์</span>'}</td>
       <td style="padding:6px 8px">${esc(o.recipient||'')}</td>
@@ -4780,26 +4792,28 @@ function incRenderDirect(d){
       <td style="padding:6px 8px;white-space:nowrap">${o.order_date?esc(bmpFmtThaiShort(String(o.order_date).slice(0,10))):'—'}</td>
       <td style="padding:6px 8px;font-size:11px">${stmCell}</td>
     </tr>`; }).join("");
+  const masterChk=`<input type="checkbox" ${allSel?'checked':''} onchange="incDirectSelectAll(this.checked)" style="cursor:pointer;${someSel?'opacity:.6':''}" title="เลือก/ไม่เลือกทั้งหมด (ที่พร้อม)">`;
   const table=list.length?`<div style="overflow-x:auto;border:1px solid #e2e8f0;border-radius:10px;background:#fff">
     <table style="width:100%;border-collapse:collapse;font-size:12px">
       <thead><tr style="background:#f8fafc;border-bottom:2px solid #e2e8f0">
+        <th style="padding:8px;text-align:center;width:36px" title="ติ๊กส่งออก">${masterChk}</th>
         <th style="padding:8px;text-align:left">ออเดอร์</th><th style="padding:8px;text-align:left">เลข IV</th><th style="padding:8px;text-align:left">ผู้รับ</th>
         <th style="padding:8px;text-align:right">ยอด</th><th style="padding:8px;text-align:left">วันสั่ง</th><th style="padding:8px;text-align:left">จับกับเงินเข้า STM (เลือกเอง)</th>
       </tr></thead><tbody>${rows}</tbody></table></div>`:`<div class="sal-empty" style="padding:44px;text-align:center;background:#fff;border:1px solid #e2e8f0;border-radius:14px">ยังไม่มีออเดอร์โอนตรง (Prepaid) — ต้อง re-import BigSeller ให้ทะเบียนมี payment_method</div>`;
-  return `<div style="padding:16px 0 0">
-    <div style="font-size:12.5px;color:#64748b;margin-bottom:10px">💡 ออเดอร์ <b>Prepaid</b> (โอนตรงเข้าบัญชี · non-marketplace) → เลือกจับกับ <b>เงินเข้าใน Statement</b> ที่ยอดตรง (ระบบ<b>ไม่จับให้อัตโนมัติเมื่อยอดซ้ำ</b> — ต้องเลือกเอง กันลูกหนี้ผิด) · ต้องอัป Statement บัญชีบริษัทที่หน้า Bank Recon ก่อน</div>
+  return `<div id="incDirectPane" style="padding:16px 0 0">
+    <div style="font-size:12.5px;color:#64748b;margin-bottom:10px">💡 ออเดอร์ <b>Prepaid</b> (โอนตรงเข้าบัญชี · non-marketplace) → เลือกจับกับ <b>เงินเข้าใน Statement</b> ที่ยอดตรง (ระบบ<b>ไม่จับให้อัตโนมัติเมื่อยอดซ้ำ</b> — ต้องเลือกเอง กันลูกหนี้ผิด) · ต้องอัป Statement บัญชีบริษัทที่หน้า Bank Recon ก่อน · <b>โอนตรง M Bark = เงินเข้าแบงค์เลย (เลือก Bank {Down 2} · ไม่มีรหัสเช็ค)</b></div>
     ${kpi}${seedHtml}${table}
-    <div style="color:#94a3b8;font-size:11px;margin-top:8px">แสดง ${Math.min(list.length,500)}/${list.length} · เลือกเงินเข้าที่ตรง → กลายเป็น "พร้อมออก RE" (ถ้าคีย์ IV แล้ว)</div>
+    <div style="color:#94a3b8;font-size:11px;margin-top:8px">แสดง ${Math.min(list.length,500)}/${list.length} · ติ๊กเลือก ${selCount}/${ready.length} พร้อมออก · เลือกเงินเข้าที่ตรง → กลายเป็น "พร้อมออก RE" (ถ้าคีย์ IV แล้ว)</div>
   </div>`;
 }
 /* live update seed (โอนตรง) — ไม่ re-render ทั้งหน้า */
 function incSetDirSeedLive(v){
   incGet().directSeed=v; const seed=String(v||"").trim(), valid=/^\D*\d+$/.test(seed);
   const inp=document.getElementById("incDirSeed"), hint=document.getElementById("incDirHint"), bx=document.getElementById("incDirBtnX"), bc=document.getElementById("incDirBtnC");
-  const ready=inp&&inp.closest("[data-dir-ready]")?Number(inp.closest("[data-dir-ready]").getAttribute("data-dir-ready"))||0:0;
+  const sel=inp&&inp.closest("[data-dir-sel]")?Number(inp.closest("[data-dir-sel]").getAttribute("data-dir-sel"))||0:0;
   if(inp) inp.style.borderColor=seed?(valid?"#16a34a":"#dc2626"):"#e2e8f0";
-  if(hint) hint.textContent=seed?(valid?`✓ รันต่อ ${ready} ใบ`:"รูปแบบไม่ถูก"):"RE โอนตรง = เงินเข้าเต็มยอด IV · ไม่มีค่าธรรมเนียม";
-  const can=ready>0&&valid; [bx,bc].forEach(b=>{ if(!b)return; b.disabled=!can; b.style.opacity=can?"":"0.5"; });
+  if(hint) hint.textContent=seed?(valid?`✓ รันต่อ ${sel} ใบ`:"รูปแบบไม่ถูก"):"RE โอนตรง = เงินเข้าเต็มยอด IV · ไม่มีค่าธรรมเนียม";
+  const can=sel>0&&valid; [bx,bc].forEach(b=>{ if(!b)return; b.disabled=!can; b.style.opacity=can?"":"0.5"; });
   if(bx){ bx.style.background=can?"var(--brand)":""; bx.style.color=can?"#fff":""; if(can)bx.style.borderColor="var(--brand)"; }
 }
 function incRenderExport(d){

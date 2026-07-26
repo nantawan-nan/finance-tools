@@ -191,6 +191,14 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-26 (21) — ★ ส่งออก RE โอนตรง (M Bark): เลือก Bank {Down 2} · ไม่มีรหัสเช็ค + ติ๊กเลือกส่งออก
+- **เจ้าของ:** โอนตรง (Prepaid) ของ M Bark ≠ FACE COD — **เงินเข้าแบงค์เลย** → "เลือก Bank"=`{Down 2}` (ไม่ใช่ `{Down 10}` แบบ FACE) · **รหัสเช็ค/ธนาคาร เว้นว่าง** (ไม่ผ่านช่องทาง FB) · บันทึก batch + ติ๊กเลือกรายการที่จะส่งออก
+- **`incReRow` +เคส `r._directBank`** (หลัง isDirect): `isMbark && _directBank` → `downCmd="{Down 2}"` · `checkCode=""` · `bankCode=""` (lett/enter ยังเว้นว่างจาก isDirect) — override เฉพาะโอนตรงเข้าแบงค์ · **FACE COD (ไม่มี _directBank) คงเดิม** ({Down 10}/FB)
+- **`incExportDirectRe`** ตั้ง `_directBank:true` ทุกแถว + กรอง `incDirectIsSelected` (เฉพาะที่ติ๊ก) · batch มีอยู่แล้ว (`incCreateReBatch`)
+- **ติ๊กเลือกส่งออก:** `incDirectIsSelected`/`incDirectToggleRow`/`incDirectSelectAll` (default = เลือกทุกใบที่พร้อม · override `d.directSel[order_id]`) · checkbox column + master + `incRenderDirectInPlace` (targeted DOM outerHTML `#incDirectPane` · [[feedback_input_no_rerender]]) · ปุ่ม/hint/seed นับ selCount
+- **verified:** syntax OK (node) · M Bark direct→bank {Down 2}/check ""/bank_code "" · FACE COD ไม่กระทบ · display/export-only · ไม่ต้อง migration
+- **หมายเหตุ:** {Down 2} = M Bark โอนตรงทุกช่อง (FACE/LINE/Dealer ที่ Prepaid) · Benya โอนตรงยังไม่ map
+
 ### 2026-07-26 (20) — ★★ รับชำระ เฟส C: โอนตรง (Prepaid) → จับ STM บุคคลธรรมดา (เลือกเอง · ห้าม auto)
 - **เจ้าของ:** ออเดอร์ Prepaid (Manual · โอนตรงเข้าบัญชี) → จับกับเงินเข้าใน Statement → ส่งออก RE · **★ ห้าม auto-confirm ยอดซ้ำ** (จับผิด = ลูกหนี้ผิด · [[project_direct_transfer_cod]])
 - **subtab ใหม่ `direct` "รับชำระ โอนตรง (Prepaid)"** · `incDirectLoadData` โหลด order_ledger (payment_method Prepaid · non-marketplace · ไม่ยกเลิก · ยังไม่ RE) + `brec_bank_rows` (deposit>0) + matches

@@ -4355,7 +4355,13 @@ function incReCandidates(d){
     if(!ord || !ord.iv_no) continue;   // ยังไม่คีย์ IV ในขั้นตอน 1 → ออก RE ไม่ได้
     const channel = r.channel_group==='shopee'?'SP':r.channel_group==='tiktok'?'TT':r.channel_group==='lazada'?'LZ':'';
     const outstanding = Number(ord.sale_amount)||0;
-    const net = Number(r.net_received)||0;
+    // ★ โอนตรง (FACE/LINE/Dealer — ไม่ใช่ marketplace): ลูกค้าโอนเข้าบัญชีบริษัทเต็มยอด IV
+    //   → ไม่มีค่าธรรมเนียมแพลตฟอร์มให้ตัด · เงินเข้าสุทธิ = ยอด IV · ค่าธรรมเนียม (diff) = 0
+    //   (บรรทัดแรกใน 191 ของเคสนี้ = เงินเข้าบัญชี ไม่ใช่ค่าธรรมเนียม) · marketplace เท่านั้นที่ net < IV
+    //   ยึด outstanding>0 ให้ CSR (ยอด 0/แจกเคลม) ไม่โดน · ยึด net_received ถ้าการเงินคีย์ค่าไว้จริง
+    const isDirect = !channel;
+    let net = Number(r.net_received)||0;
+    if(isDirect && outstanding>0 && !(net>0)) net = outstanding;   // โอนตรงไม่มี income (net=0) → เงินเข้าเต็มยอด
     const inReport191 = (ord.iv_no && keyedIv.has(ord.iv_no)) || keyedOrder.has(r.order_id);
     out.push({
       arDate: ord.iv_date||null, arIv: ord.iv_no, actualBrand: incBrandOf(ord),

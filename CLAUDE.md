@@ -191,6 +191,12 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-26 — ★ ส่งออก RE: โอนตรง (FACE/LINE/Dealer) = เงินเข้าเต็มยอด IV · ค่าธรรมเนียม 0
+- **เจ้าของแจ้ง (หน้ารับชำระหนี้):** ลูกค้า FACE/LINE โอนตรงเข้าบัญชีบริษัท → การเงินคีย์มือเอง · **ไม่มีค่าธรรมเนียมให้ตัด** (บรรทัดแรกใน 191 = เงินเข้าบัญชี ไม่ใช่ค่าธรรมเนียม) · แต่ RE export โชว์ FACE ยอด IV 580 → **ค่าธรรมเนียม −580 · สุทธิ 0.00** (ผิด)
+- **ต้นเหตุ:** โอนตรงไม่มีรายงาน payout แพลตฟอร์ม → `sales_income_rows.net_received = 0` → `incReCandidates` คิด diff = IV − 0 = เต็มยอด → นับเป็นค่าธรรมเนียมทั้งก้อน
+- **แก้ `incReCandidates`:** `isDirect = !channel` (ช่องทางไม่ใช่ SP/TT/LZ = โอนตรง) → ถ้า `outstanding>0 && net<=0` ตั้ง `net = outstanding` (เงินเข้าเต็มยอด) → `diff (ค่าธรรมเนียม) = 0` · guard `outstanding>0` กัน CSR (ยอด 0) · guard `!(net>0)` เคารพค่าที่การเงินคีย์ไว้จริง (ไม่ทับ)
+- **ผล:** FACE/LINE โชว์ เงินเข้าสุทธิ = ยอด IV · ค่าธรรมเนียม 0 · ตรงกับที่คีย์มือ (จ่ายเข้า FB Facebook 580 เต็ม) · marketplace ไม่กระทบ (มี channel → net จาก income เหมือนเดิม) · **display-only · ไม่ต้อง migration** · syntax OK
+
 ### 2026-07-24 (5) — ★ ส่งออก RE (M Bark): รหัสลูกค้าเพี้ยน "ลูกค้าทั่วไป-SHOPEE" → ใช้โค้ดช่องทางเหมือน IV
 - **เจ้าของแจ้ง (ไฟล์ RE_AutoKey_mbark):** คอลัมน์รหัสลูกค้าคีย์ออกมาเป็น "ลูกค้าทั่วไป-SHOPEE / -TIKTOK" (ชื่อลูกค้าเต็ม) ทั้งที่ M Bark ต้องเป็นโค้ดช่องทางสั้น SHOPEE/TIKTOK/FACE
 - **ต้นเหตุ:** `incReCandidates.arCustCode` (M Bark) ดึงจาก `ivCustMap[iv_no]` = ช่อง "ลูกค้า" ใน 141.RWT = **ชื่อลูกค้า** ("ลูกค้าทั่วไป-SHOPEE") ไม่ใช่ **รหัส** · ต่างจากส่งออก IV (`ivrOrderExportMeta`) ที่ M Bark ใช้ `platLabel` (SHOPEE/TIKTOK/LAZADA) / `directCust` (FACE/LINE/Dealer/CSR) → IV กับ RE ไม่ตรงกัน

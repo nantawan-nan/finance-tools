@@ -191,6 +191,14 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-26 (10) — ★ COD ขนส่ง เฟส 2: ลิงก์พัสดุ → ออเดอร์ในระบบ (เก็บเลขพัสดุ+ผู้รับ จาก BigSeller)
+- **เจ้าของ:** ทำเฟส 2 — จากเลขพัสดุ (TH…) แมพว่าเป็นออเดอร์ไหนในระบบ · blocker: `order_ledger` ไม่เก็บเลขพัสดุ/ชื่อผู้รับ (parser BigSeller ไม่จับ)
+- **Migration `orders_cod_tracking.sql`** (idempotent): `order_ledger` +`tracking_no`/`recipient` + index `(company_id,tracking_no)` partial · NOTIFY pgrst
+- **`ordParseSalesFile` เก็บเลขพัสดุ+ผู้รับ (fuzzy detect):** `findHdr` หา header — track = มี "พัสดุ/tracking" + "เลข/หมายเลข/ติดตาม/no/number" (ข้าม "สถานะพัสดุ") · recipient = "ผู้รับ/ชื่อผู้รับ/ผู้ซื้อ/ผู้รับสินค้า" (ข้าม "ที่อยู่ผู้รับ") · เก็บ `g.tracking`/`g.recipient` → output `tracking_no`/`recipient` · **ไม่มีคอลัมน์ในไฟล์ = ข้าม (ไม่กระทบ)** · `ordIngestChannelOrders` insert + backfill (เดิมว่าง→เติม)
+- **COD tab ลิงก์ (`codLoadOrders`/`codLinkParcels`):** (1) **เลขพัสดุตรง** (`tracking_no` · แม่น 100% · ✓ เขียว) · (2) fallback **ยอด COD = ยอดออเดอร์** (unique→~ฟ้า · ซ้ำ→⚠ N ตัวเลือก) · (3) ไม่พบ (✕ แดง) · คอลัมน์ "ออเดอร์ในระบบ" (order_id/IV/RE) ในตารางพัสดุ + แถบสรุป "ลิงก์ X/Y" + export sheet รายพัสดุ +ออเดอร์/IV/RE/วิธีลิงก์
+- **verified (node):** header detect 9 เคส · link track/amt/multi/none ถูก · syntax OK · **ต้อง push (migration) + re-import BigSeller** ที่มีคอลัมน์เลขพัสดุ → ลิงก์แม่นด้วยเลขพัสดุ (ถ้า BigSeller ไม่มีคอลัมน์เลขพัสดุ → ส่งไฟล์ตัวอย่างมาปรับ fuzzy)
+- **ยังไม่ทำ (เฟส 3):** เลือกคู่เอง (manual link) เคส multi + persist · ต่อ pipeline ออก RE/ผ่านเช็ค BQ
+
 ### 2026-07-26 (9) — ★★ Bank Recon แท็บใหม่ "🚚 COD ขนส่ง" — แมพเงินเข้าบัญชี ↔ พัสดุ COD (iShip)
 - **เจ้าของ:** อัป 2 ไฟล์ iShip (รายงานเก็บเงินปลายทาง + รายงานเครดิต) → แมพว่าเงินเข้าบัญชีก้อนไหน = พัสดุ/ออเดอร์ไหน (จากรหัสพัสดุ) · ตรงแผน "COD ผ่านขนส่ง"
 - **★ ตัวเชื่อม (พิสูจน์กับไฟล์จริง 20/20 ยอดตรง):** 1 การโอน (เครดิต) = พัสดุที่ **"วันที่โอนเงิน" = "วันที่" ของเครดิต** · `เครดิต.จำนวน = Σ COD` · `เครดิต.ค่าธรรมเนียม(หลัง) = Σ ค่าส่งรายพัสดุ` · `เครดิต.ยอดสุทธิ = Σ ยอดโอน = เงินเข้าบัญชีจริง`

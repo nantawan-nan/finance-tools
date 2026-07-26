@@ -25059,11 +25059,15 @@ function ordParseSalesFile(rows){
     sku:idx(cfg.sku), qty:idx(cfg.qty), ret:idx(cfg.ret), gross:idx(cfg.gross), net:idx(cfg.net),
     ship:idx(cfg.ship), disc:idx(cfg.disc), voucher:idx(cfg.voucher), refund:idx(cfg.refund), platform:idx(cfg.platform),
     shop:idx(cfg.shop), cancel:idx(cfg.cancel) };
+  // ★ เลขพัสดุ + ชื่อผู้รับ (ใช้ลิงก์ COD ขนส่ง) — fuzzy detect · ไม่มีในไฟล์ = ข้าม (ไม่กระทบ)
+  const findHdr = (test)=>{ for(let i=0;i<headers.length;i++){ if(test(headers[i])) return i; } return -1; };
+  ci.track     = findHdr(h=> /(พัสดุ|tracking)/i.test(h) && /(เลข|หมายเลข|ติดตาม|tracking|no\.?|number)/i.test(h));
+  ci.recipient = findHdr(h=> /^(ผู้รับ|ชื่อผู้รับ)$/.test(String(h||"").trim()) || /ชื่อผู้รับ|ผู้รับสินค้า|ผู้ซื้อ/.test(h));
   const groups = new Map();
   for(let r=1;r<rows.length;r++){
     const row = rows[r]; if(!row) continue;
     const oid = String(row[ci.order]||"").trim(); if(!oid) continue;
-    if(!groups.has(oid)) groups.set(oid, { order_id:oid, status:"", date:null, products:new Set(), skus:new Set(), itemMap:new Map(), qty:0, ret:0, gross:0, net:0, ship:0, disc:0, voucher:0, refund:0, platform:"", shop:"", cancelTime:"" });
+    if(!groups.has(oid)) groups.set(oid, { order_id:oid, status:"", date:null, products:new Set(), skus:new Set(), itemMap:new Map(), qty:0, ret:0, gross:0, net:0, ship:0, disc:0, voucher:0, refund:0, platform:"", shop:"", cancelTime:"", tracking:"", recipient:"" });
     const g = groups.get(oid);
     if(ci.status>=0 && !g.status) g.status = String(row[ci.status]||"").trim();
     if(ci.date>=0 && !g.date) g.date = ordISO(row[ci.date]);
@@ -25104,6 +25108,8 @@ function ordParseSalesFile(rows){
     if(ci.platform>=0 && !g.platform) g.platform = String(row[ci.platform]||"").trim();
     if(ci.shop>=0 && !g.shop) g.shop = String(row[ci.shop]||"").trim();
     if(ci.cancel>=0 && !g.cancelTime) g.cancelTime = String(row[ci.cancel]||"").trim();
+    if(ci.track>=0 && !g.tracking){ const t=String(row[ci.track]||"").trim(); if(t) g.tracking=t; }
+    if(ci.recipient>=0 && !g.recipient){ const rc=String(row[ci.recipient]||"").trim(); if(rc) g.recipient=rc; }
   }
   const cancelRe = new RegExp(cfg.cancelKw, "i");
   // ★ source_cols — เก็บตัวอักษร Excel ของคอลัมน์ที่ใช้คำนวณ (gross/ship/disc/voucher) ต่อไฟล์
@@ -25145,6 +25151,8 @@ function ordParseSalesFile(rows){
       seller_voucher: +(g.voucher||0).toFixed(2),
       returned_qty: g.ret,
       is_returned: returned,
+      tracking_no: g.tracking || null,
+      recipient: g.recipient || null,
       source_cols: sourceCols
     };
   });
@@ -25316,7 +25324,7 @@ async function ordFetchAllRows(co, cols, applyFilters){
 async function ordIngestChannelOrders(co, parsed, srcLabel){
   const orders = parsed.orders || [];
   if(!orders.length) return { added:0, updated:0, total:0 };
-  const existing = await ordFetchAllRows(co, "id,order_id,status,order_date,order_total,channel_group,items,seller_discount,shipping_fee,seller_voucher,gross_total,source_cols");
+  const existing = await ordFetchAllRows(co, "id,order_id,status,order_date,order_total,channel_group,items,seller_discount,shipping_fee,seller_voucher,gross_total,source_cols,tracking_no,recipient");
   const byOid = new Map((existing||[]).filter(o=>o.order_id).map(o=>[o.order_id, o]));
   const inserts = [], updates = [];
   const seen = new Set();
@@ -25333,6 +25341,7 @@ async function ordIngestChannelOrders(co, parsed, srcLabel){
       seller_voucher: o.seller_voucher, gross_total: o.gross_total,
       source_cols: o.source_cols || null,
       returned_qty: o.returned_qty, is_returned: o.is_returned,
+      tracking_no: o.tracking_no || null, recipient: o.recipient || null,
       order_src: srcLabel, order_ingested_at: now
     };
     if(!ex){ inserts.push(rec); continue; }
@@ -25349,7 +25358,10 @@ async function ordIngestChannelOrders(co, parsed, srcLabel){
     const grossChanged = ('gross_total' in (ex||{}))    ? Number(ex.gross_total||0)!==Number(o.gross_total||0)       : (o.gross_total!=null);
     // ★ source_cols backfill — เพิ่มถ้าเดิมไม่มี · อัปถ้าคอลัมน์ในไฟล์เปลี่ยน (เช่น header layout เปลี่ยน)
     const colsChanged = o.source_cols && JSON.stringify(ex.source_cols||null) !== JSON.stringify(o.source_cols);
-    const changed = ex.status!==o.status || Number(ex.order_total||0)!==Number(o.order_total||0) || (!ex.order_date && o.order_date) || fillGroup || fillItems || discChanged || shipChanged || itemsChanged || vchChanged || grossChanged || colsChanged;
+    // ★ เลขพัสดุ/ผู้รับ (COD link) — backfill ถ้าเดิมว่างแล้วไฟล์มี
+    const trackFill = (!ex.tracking_no && o.tracking_no) ? o.tracking_no : null;
+    const recvFill  = (!ex.recipient && o.recipient) ? o.recipient : null;
+    const changed = ex.status!==o.status || Number(ex.order_total||0)!==Number(o.order_total||0) || (!ex.order_date && o.order_date) || fillGroup || fillItems || discChanged || shipChanged || itemsChanged || vchChanged || grossChanged || colsChanged || trackFill || recvFill;
     if(changed){
       const upd = { status:o.status, sale_status_raw:o.sale_status_raw, is_returned:o.is_returned, returned_qty:o.returned_qty, order_total:o.order_total, order_date:fillDate };
       if(fillGroup){ upd.channel_group=o.channel_group; upd.channel=o.channel; }
@@ -25359,6 +25371,8 @@ async function ordIngestChannelOrders(co, parsed, srcLabel){
       if(vchChanged)   upd.seller_voucher = o.seller_voucher;
       if(grossChanged) upd.gross_total    = o.gross_total;
       if(colsChanged)  upd.source_cols    = o.source_cols;
+      if(trackFill)    upd.tracking_no    = trackFill;
+      if(recvFill)     upd.recipient      = recvFill;
       updates.push({ id: ex.id, upd });
     }
   }
@@ -29931,6 +29945,44 @@ async function codLoadBankRows(d){
     d.cod = d.cod||{}; d.cod.bankRows = data||[];
   }catch(e){ console.warn("codLoadBankRows",e); d.cod=d.cod||{}; d.cod.bankRows=[]; }
 }
+/* โหลดออเดอร์ในทะเบียน (order_ledger) → ใช้ลิงก์พัสดุ COD → ออเดอร์ */
+async function codLoadOrders(d){
+  try{
+    const co = d.companyId || await fopCompanyId();
+    const all=[]; const PAGE=1000;
+    for(let from=0; ; from+=PAGE){
+      const { data, error } = await sb.from("order_ledger")
+        .select("order_id,tracking_no,recipient,order_total,sale_amount,order_date,iv_no,re_no,channel_group,status,products")
+        .eq("company_id", co).is("deleted_at", null).range(from, from+PAGE-1);
+      if(error){ console.warn("codLoadOrders", error); break; }
+      all.push(...(data||[]));
+      if(!data || data.length<PAGE) break;
+    }
+    d.cod=d.cod||{}; d.cod.orders=all;
+  }catch(e){ console.warn("codLoadOrders", e); d.cod=d.cod||{}; d.cod.orders=[]; }
+}
+/* ลิงก์พัสดุ → ออเดอร์: (1) เลขพัสดุตรง (แม่น 100%) · (2) fallback ยอด COD = ยอดออเดอร์ (candidate) */
+function codLinkParcels(d){
+  const orders=(d.cod&&d.cod.orders)||[];
+  const norm=(t)=>String(t||"").replace(/\s/g,"").toUpperCase();
+  const byTrack=new Map();
+  for(const o of orders){ if(o.tracking_no) byTrack.set(norm(o.tracking_no), o); }
+  const amtIndex=new Map();
+  const addAmt=(amt,o)=>{ const k=Math.round(Number(amt||0)*100); if(!k) return; if(!amtIndex.has(k)) amtIndex.set(k,[]); amtIndex.get(k).push(o); };
+  for(const o of orders){ if(o.status==='cancelled') continue; addAmt(o.order_total,o); if(o.sale_amount!=null && Math.round(Number(o.sale_amount)*100)!==Math.round(Number(o.order_total)*100)) addAmt(o.sale_amount,o); }
+  let nTrack=0,nAmt=0,nMulti=0,nNone=0;
+  for(const g of ((d.cod&&d.cod.groups)||[])){
+    for(const p of g.parcels){
+      const oT = p.tracking ? byTrack.get(norm(p.tracking)) : null;
+      if(oT){ p._link={ order:oT, via:'track' }; nTrack++; continue; }
+      const cands=(amtIndex.get(Math.round(Number(p.cod||0)*100))||[]);
+      if(cands.length===1){ p._link={ order:cands[0], via:'amt' }; nAmt++; }
+      else if(cands.length>1){ p._link={ candidates:cands, via:'multi' }; nMulti++; }
+      else { p._link=null; nNone++; }
+    }
+  }
+  d.cod.linkStats={ track:nTrack, amt:nAmt, multi:nMulti, none:nNone };
+}
 function codMatchBank(d, g){
   const rows=(d.cod&&d.cod.bankRows)||[]; if(!rows.length) return { found:false, hasStmt:false };
   const amt=Number(g.net||0);
@@ -29960,6 +30012,8 @@ function codOpenUpload(){
       d.cod.expanded=d.cod.expanded||new Set();
       d.tab="cod";
       await codLoadBankRows(d);
+      await codLoadOrders(d);          // ★ โหลดทะเบียน → ลิงก์พัสดุ → ออเดอร์
+      if(d.cod.groups) codLinkParcels(d);
       renderToolBankRec();
       const nT=(d.cod.transfers||[]).length, nP=(d.cod.parcels||[]).length;
       if(!(d.cod.parcels&&d.cod.transfers)) alert(`อัปแล้ว: ${gotP?`พัสดุ ${nP}`:''}${gotT?`โอน ${nT}`:''}\nอัปอีกไฟล์ (${gotP?'รายงานเครดิต':'รายงานเก็บเงินปลายทาง'}) เพื่อจับคู่`);
@@ -29976,12 +30030,26 @@ function codExportXlsx(){
   const s1=groups.map((g,i)=>({ "ลำดับ":i+1, "เลขที่ BQ":g.bq, "วันที่โอน":g.dateKey, "อ้างอิง iShip":g.ref, "บัญชี":g.acctNo,
     "จำนวนพัสดุ":g.parcels.length, "ยอด COD รวม":g.sumCod, "ค่าธรรมเนียม":g.fee, "เข้าบัญชีสุทธิ":g.net, "ตรงยอด":(g.grossOk&&g.netOk)?"✓":"⚠ ตรวจ" }));
   const s2=[];
-  for(const g of groups) for(const p of g.parcels) s2.push({ "เลขที่ BQ":g.bq, "วันที่โอน":g.dateKey, "เลขพัสดุ":p.tracking, "ขนส่ง":p.carrier,
-    "ผู้รับ":p.recipient, "เบอร์โทร":p.phone, "COD":p.cod, "ค่าธรรมเนียมพัสดุ":p.fee, "โอนสุทธิ":p.net });
+  for(const g of groups) for(const p of g.parcels){
+    const L=p._link, o=(L&&L.order)||{};
+    s2.push({ "เลขที่ BQ":g.bq, "วันที่โอน":g.dateKey, "เลขพัสดุ":p.tracking, "ขนส่ง":p.carrier,
+      "ผู้รับ":p.recipient, "เบอร์โทร":p.phone, "COD":p.cod, "ค่าธรรมเนียมพัสดุ":p.fee, "โอนสุทธิ":p.net,
+      "ออเดอร์ในระบบ":o.order_id||"", "เลข IV":o.iv_no||"", "เลข RE":o.re_no||"",
+      "วิธีลิงก์": L? (L.via==='track'?'เลขพัสดุตรง':L.via==='amt'?'ยอดตรง':L.via==='multi'?`${L.candidates.length} ตัวเลือก`:'') : "ไม่พบ" });
+  }
   const wb=XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(s1), "สรุปการโอน");
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(s2), "รายพัสดุ");
   XLSX.writeFile(wb, `COD_${(co&&co.code)||state.company}_${new Date().toISOString().slice(0,10).replace(/-/g,"")}.xlsx`);
+}
+/* เซลล์ "ออเดอร์ในระบบ" ต่อพัสดุ */
+function codLinkCell(p){
+  const L=p._link;
+  if(!L) return `<span style="color:#dc2626">✕ ไม่พบในทะเบียน</span>`;
+  if(L.via==='multi') return `<span style="color:#a16207" title="มีหลายออเดอร์ยอดตรงกัน — ต้องเลือกเอง / ลิงก์ด้วยเลขพัสดุ">⚠ ${L.candidates.length} ตัวเลือก (ยอดตรง)</span>`;
+  const o=L.order; const ref=[o.order_id,o.iv_no,o.re_no].filter(Boolean).map(esc).join(" · ");
+  const badge = L.via==='track' ? `<span style="color:#16a34a;font-weight:700">✓ พัสดุตรง</span>` : `<span style="color:#0369a1" title="จับด้วยยอด COD = ยอดออเดอร์ (ยืนยันด้วยเลขพัสดุแม่นกว่า)">~ ยอดตรง</span>`;
+  return `${badge} <span class="mono" style="color:#475569">${ref||'—'}</span>`;
 }
 function codRenderTab(d){
   const cod=d.cod||{};
@@ -30033,16 +30101,21 @@ function codRenderTab(d){
         <div class="bmp-toggle"><i data-lucide="${isEx?'chevron-up':'chevron-down'}"></i> ${isEx?'ซ่อน':'ดู'}พัสดุ (${g.parcels.length})</div>
       </div>
       ${isEx?`<div class="bmp-body"><table class="bmp-tbl">
-        <thead><tr><th>#</th><th>เลขพัสดุ</th><th>ขนส่ง</th><th>ผู้รับ</th><th>เบอร์โทร</th><th class="r">COD</th><th class="r">ค่าส่ง</th><th class="r">โอนสุทธิ</th></tr></thead>
+        <thead><tr><th>#</th><th>เลขพัสดุ</th><th>ขนส่ง</th><th>ผู้รับ</th><th class="r">COD</th><th class="r">โอนสุทธิ</th><th>ออเดอร์ในระบบ</th></tr></thead>
         <tbody>${g.parcels.map((p,i)=>`<tr>
           <td>${i+1}</td><td class="mono" style="font-size:11px">${esc(p.tracking)}</td><td style="font-size:11px">${esc(p.carrier)}</td>
-          <td>${esc(p.recipient)}</td><td class="mono" style="font-size:11px">${esc(p.phone)}</td>
-          <td class="r money">${fmtM(p.cod)}</td><td class="r money">${fmtM(p.fee)}</td><td class="r money">${fmtM(p.net)}</td></tr>`).join("")}</tbody>
+          <td>${esc(p.recipient)}</td>
+          <td class="r money">${fmtM(p.cod)}</td><td class="r money">${fmtM(p.net)}</td>
+          <td style="font-size:11px">${codLinkCell(p)}</td></tr>`).join("")}</tbody>
       </table></div>`:''}
     </div>`;
   }).join("");
   const pendHtml = pending.length ? `<div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:11px 14px;margin-bottom:12px;font-size:12.5px;color:#1e40af">
     ℹ️ มีพัสดุ ${pending.reduce((s,p)=>s+p.parcels.length,0)} ชิ้น (${pending.length} วัน · รวม COD ${fmtM(pending.reduce((s,p)=>s+p.sumCod,0))}) ที่ "โอนแล้ว" แต่ <b>ยังไม่มีในรายงานเครดิต</b> — อัปรายงานเครดิตให้ครอบวันล่าสุด หรือรอขนส่งโอน</div>` : '';
+  const ls=cod.linkStats||{track:0,amt:0,multi:0,none:0}; const linkedN=ls.track+ls.amt;
+  const linkLine = `<div style="background:${ls.track?'#f0fdf4':'#fffbeb'};border:1px solid ${ls.track?'#bbf7d0':'#fde68a'};border-radius:10px;padding:10px 14px;margin-bottom:12px;font-size:12.5px;color:#334155">
+    🔗 <b>ลิงก์ออเดอร์:</b> ${linkedN}/${totParcels} พัสดุ · เลขพัสดุตรง <b style="color:#16a34a">${ls.track}</b> · ยอดตรง <b style="color:#0369a1">${ls.amt}</b> · หลายตัวเลือก <b style="color:#a16207">${ls.multi}</b> · ไม่พบ <b style="color:#dc2626">${ls.none}</b>
+    ${ls.track===0?`<div style="color:#92400e;margin-top:5px">⚠️ ทะเบียนยังไม่มี "เลขพัสดุ" — <b>re-import BigSeller</b> (หลัง migration รัน) ที่มีคอลัมน์เลขพัสดุ เพื่อลิงก์แม่น 100% ด้วยเลขพัสดุ (ตอนนี้จับด้วยยอด COD เป็นตัวช่วยชั่วคราว)</div>`:''}</div>`;
   return `
     <div class="bmp-sum">
       <div class="bmp-sc"><div class="l">รายการโอนเข้าบัญชี</div><div class="v">${groups.length}</div></div>
@@ -30052,8 +30125,9 @@ function codRenderTab(d){
       <div class="bmp-sc ${(groups.length-stmOk)?'warn':'ok'}"><div class="l">ตรงกับ STM</div><div class="v">${stmOk}/${groups.length}</div></div>
     </div>
     ${pendHtml}
+    ${linkLine}
     <div style="display:flex;gap:8px;margin:0 0 12px;flex-wrap:wrap;align-items:center">
-      <div style="font-size:12.5px;color:var(--ink-2,#475569)">1 การโอน = พัสดุที่ 'วันที่โอนเงิน' ตรงกัน · แต่ละพัสดุมีเลขติดตาม (TH…) + ผู้รับ → รู้ว่าเงินก้อนนี้มาจากออเดอร์ไหน</div>
+      <div style="font-size:12.5px;color:var(--ink-2,#475569)">1 การโอน = พัสดุที่ 'วันที่โอนเงิน' ตรงกัน · แต่ละพัสดุลิงก์ไปออเดอร์ในระบบ (เลขพัสดุ/ยอด)</div>
       <div style="flex:1"></div>
       <button class="brec-btn primary" onclick="codExportXlsx()"><i data-lucide="file-spreadsheet"></i> ⬇ Export (สรุป + รายพัสดุ)</button>
       <button class="brec-btn warn" onclick="codClear()"><i data-lucide="trash-2"></i> ล้าง</button>

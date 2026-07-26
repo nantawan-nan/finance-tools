@@ -30348,17 +30348,39 @@ function bmpSetFilter(kind, val){
   const d = brecGet();
   if(kind==="channel") d.mp.filterChannel = val;
   else if(kind==="account") d.mp.filterAccount = val;
+  else if(kind==="done") d.mp.filterDone = val;
   renderToolBankRec();
 }
 /* ออก withdrawal ที่ผ่าน filter ปัจจุบัน */
 function bmpFilteredWds(d){
   const fc = d.mp.filterChannel || "all";
   const fa = d.mp.filterAccount || "all";
+  const fd = d.mp.filterDone || "todo";   // todo | done | all
   return (d.mp.withdrawals||[]).filter(w => {
     if(fc !== "all" && (w.channel||"") !== fc) return false;
     if(fa !== "all" && (w.bank_account_id||"") !== fa) return false;
+    if(fd === "todo" && w.done) return false;
+    if(fd === "done" && !w.done) return false;
     return true;
   });
+}
+/* ★ ติ๊ก "ดำเนินการแล้ว" (คีย์ BQ เสร็จ) → ย้ายไปแท็บดำเนินการแล้ว */
+async function bmpToggleDone(id, checked){
+  if(!brecCanWrite()){ alert("ไม่มีสิทธิ์"); return; }
+  const d = brecGet(); const w = (d.mp.withdrawals||[]).find(x=>x.id===id);
+  if(w) w.done = checked;
+  renderToolBankRec();
+  const { error } = await sb.from("brec_mp_withdrawals").update({ done:checked, done_at:checked?new Date().toISOString():null }).eq("id", id);
+  if(error){ alert("บันทึกไม่สำเร็จ: "+(error.message||error)); if(w) w.done=!checked; renderToolBankRec(); }
+}
+/* ★ แก้เลข BQ เอง ก่อนส่งออก (เผื่อเลขซ้ำในระบบ → เปลี่ยนเป็นเลขถัดไป) */
+async function bmpEditWithdrawalBq(id, value){
+  if(!brecCanWrite()){ alert("ไม่มีสิทธิ์"); return; }
+  const d = brecGet(); const v = String(value||"").trim();
+  const w = (d.mp.withdrawals||[]).find(x=>x.id===id);
+  if(w) w.bq_number = v;
+  const { error } = await sb.from("brec_mp_withdrawals").update({ bq_number:v }).eq("id", id);
+  if(error) alert("บันทึกเลข BQ ไม่สำเร็จ: "+(error.message||error));
 }
 
 /* ------- ออเดอร์ยกเลิก (net ≤ 0) = คืนเงิน/ยกเลิก → บัญชีทำใบลดหนี้ ไม่ดึงมารับชำระ ------- */
@@ -30595,7 +30617,7 @@ function bmpRenderTab(d){
   const allChannels = [...new Set(wds.map(w=>w.channel).filter(Boolean))];
   const acctIds = [...new Set(wds.map(w=>w.bank_account_id).filter(Boolean))];
   const acctLabel = (id) => { const a=d.accounts.find(x=>x.id===id); return a? (a.bank_code+" "+a.account_no) : id; };
-  const fc = d.mp.filterChannel||"all", fa = d.mp.filterAccount||"all";
+  const fc = d.mp.filterChannel||"all", fa = d.mp.filterAccount||"all", fd = d.mp.filterDone||"todo";
   const filtered = bmpFilteredWds(d);
 
   const totalNet = filtered.reduce((s,w)=> s + Number(w.withdraw_amount||0), 0);
@@ -30686,9 +30708,9 @@ function bmpRenderTab(d){
     const stmBadge = !bm.hasStmt
       ? `<span class="bmp-stm none" title="ยังไม่ได้อัป Statement ของบัญชีนี้">STM —</span>`
       : bm.found
-        ? `<span class="bmp-stm ok" title="พบเงินเข้าตรงใน Statement: ${esc(bm.row.txn_date)} ${bmpFmtMoney(bm.row.deposit)}">✓ ตรง STM${bm.exact?'':' (วันต่าง)'}</span>`
+        ? `<span class="bmp-stm ok" title="พบเงินเข้าตรงใน Statement: ${esc(bm.row.txn_date)} ${bmpFmtMoney(bm.row.deposit)}">✓ ตรง STM${bm.exact?'':` · เข้าจริง ${bmpFmtThaiShort(bm.row.txn_date)}`}</span>`
         : `<span class="bmp-stm bad" title="ไม่พบเงินเข้ายอดนี้ใน Statement">⚠️ ไม่พบใน STM</span>`;
-    return `<div class="bmp-card ${hasMismatch?'warn':''} ${isSel?'sel':''}">
+    return `<div class="bmp-card ${hasMismatch?'warn':''} ${isSel?'sel':''} ${wd.done?'done':''}">
       <div class="bmp-head" onclick="bmpToggleExpand('${wd.id}')">
         <div class="bmp-h1">
           <input type="checkbox" ${isSel?'checked':''} onclick="event.stopPropagation();bmpToggleSelectWd('${wd.id}')" style="width:16px;height:16px;accent-color:var(--brand);cursor:pointer" title="เลือก export">
@@ -30697,10 +30719,14 @@ function bmpRenderTab(d){
           <span class="bmp-shop">${esc(wd.shop_name||"")}</span>
           ${isShortfall ? `<span class="bmp-warn" style="background:#fef3c7;color:#92400e">⚠️ ยอดยกมาจากก่อนงวด</span>` : ''}
           ${hasMismatch ? `<span class="bmp-warn">⚠️ ไม่ตรง ${effMis}</span>` : `<span class="bmp-ok">✓ ตรงครบ${(wd.mismatch_count||0)>0?' (แก้แล้ว)':''}</span>`}
+          <div style="margin-left:auto;display:flex;gap:8px;align-items:center" onclick="event.stopPropagation()">
+            <label style="display:flex;align-items:center;gap:4px;font-size:11.5px;font-weight:700;cursor:pointer;color:${wd.done?'#16a34a':'#94a3b8'}"><input type="checkbox" ${wd.done?'checked':''} onchange="bmpToggleDone('${wd.id}', this.checked)" style="width:15px;height:15px;accent-color:#16a34a;cursor:pointer"> ทำแล้ว</label>
+            <button onclick="bmpDeleteWithdrawal('${wd.id}')" title="ลบงวดถอนนี้ (เช่น รายการซ้ำ)" style="border:none;background:none;cursor:pointer;color:#dc2626;padding:2px;display:flex"><i data-lucide="trash-2" style="width:15px;height:15px"></i></button>
+          </div>
         </div>
         <div class="bmp-h2">
           <div><span class="lbl">วันที่ถอน</span><span class="val">${dateThai}</span></div>
-          <div><span class="lbl">เลขที่ BQ</span><span class="val mono">${esc(wd.bq_number||"-")}</span></div>
+          <div><span class="lbl">เลขที่ BQ <small style="color:#94a3b8">(แก้ได้)</small></span><input value="${esc(wd.bq_number||'')}" onclick="event.stopPropagation()" onchange="bmpEditWithdrawalBq('${wd.id}', this.value)" class="bmp-bqedit mono" title="แก้เลข BQ ก่อนส่งออก (เผื่อเลขซ้ำในระบบ → เปลี่ยนเป็นเลขถัดไป)"></div>
           <div><span class="lbl">บัญชี (รหัส ${esc(depCode)})</span><span class="val">${esc(accountLabel)}</span></div>
           <div><span class="lbl">ออเดอร์ (ผ่านเช็ค)</span><span class="val">${orderRows.length}${cancelledRows.length?` · ยกเลิก ${cancelledRows.length}`:''}${adjRows.length?` · adj ${adjRows.length}`:''}</span></div>
         </div>
@@ -30808,6 +30834,13 @@ function bmpRenderTab(d){
     </div>
     ${orphanBanner}
     ${stmStats.nostmt>0?`<div style="font-size:12px;color:#1e40af;background:#dbeafe;border-radius:8px;padding:8px 12px;margin-bottom:10px">💡 บาง withdrawal ยังไม่มี Statement ของบัญชีนั้น — อัป Statement ผ่านปุ่ม "Statement" บน toolbar (เลือกบัญชี+งวดให้ตรง) แล้วระบบจะจับยอด withdrawal กับ STM ให้อัตโนมัติ</div>`:''}
+    ${(()=>{ const wds=d.mp.withdrawals||[]; const doneN=wds.filter(w=>w.done).length; const todoN=wds.length-doneN;
+      return `<div class="bmp-filt" style="margin-bottom:10px">
+        <span class="fl">สถานะ:</span>
+        <button class="${fd==='todo'?'on':''}" onclick="bmpSetFilter('done','todo')">รอดำเนินการ ${todoN}</button>
+        <button class="${fd==='done'?'on':''}" onclick="bmpSetFilter('done','done')">✓ ดำเนินการแล้ว ${doneN}</button>
+        <button class="${fd==='all'?'on':''}" onclick="bmpSetFilter('done','all')">ทั้งหมด ${wds.length}</button>
+      </div>`; })()}
     ${(chanChips||acctChips)?`<div style="display:flex;flex-wrap:wrap;gap:14px;margin-bottom:10px">${chanChips}${acctChips}</div>`:''}
     <div style="display:flex;gap:8px;margin:0 0 12px;flex-wrap:wrap;align-items:center">
       <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;cursor:pointer">
@@ -30817,7 +30850,6 @@ function bmpRenderTab(d){
       <div style="flex:1"></div>
       <button class="brec-btn primary" onclick="bmpExportCsv()"><i data-lucide="download"></i> ⬇ Export CSV ${selCount?`(${selCount} ที่เลือก)`:'(ทั้งหมด)'}</button>
       <button class="brec-btn" onclick="bmpExportMismatchXlsx()" ${totalMismatch?'':'disabled'}><i data-lucide="file-warning"></i> ⬇ รายงานไม่ตรง (Excel)</button>
-      <button class="brec-btn warn" onclick="bmpPurgePeriod()"><i data-lucide="trash-2"></i> ลบทั้งหมดในงวด</button>
     </div>
     <div class="bmp-cards">${cards}</div>
   `;
@@ -30848,6 +30880,10 @@ function bmpInjectCSS(){
   .bmp-stm.ok{background:#dcfce7;color:#166534}
   .bmp-stm.bad{background:#fee2e2;color:#991b1b}
   .bmp-stm.none{background:#f1f5f9;color:#94a3b8}
+  .bmp-bqedit{font-family:ui-monospace,monospace;font-size:13px;font-weight:600;border:1px solid var(--line,#e2e8f0);border-radius:6px;padding:2px 7px;width:130px;background:#fffbeb;color:#0f172a}
+  .bmp-bqedit:focus{outline:none;border-color:var(--brand);background:#fff}
+  .bmp-card.done{opacity:.62;background:#f0fdf4}
+  .bmp-card.done .bmp-chip{filter:grayscale(.3)}
   .bmp-recon{display:flex;align-items:stretch;gap:6px;flex-wrap:wrap;margin:8px 0 4px;padding:8px 10px;background:#f8fafc;border-radius:8px}
   .bmp-recon .op{display:flex;align-items:center;font-size:15px;font-weight:700;color:var(--ink-3,#94a3b8);padding:0 2px}
   .bmp-recon .bx{display:flex;flex-direction:column;gap:1px;padding:5px 10px;background:#fff;border:1px solid var(--line,#e2e8f0);border-radius:7px;min-width:96px}

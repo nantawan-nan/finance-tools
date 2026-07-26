@@ -191,6 +191,14 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-26 (15) — ★ ถอน Marketplace: ลบรายตัว (เอาลบทั้งงวดออก) · STM วันจริง · ติ๊กทำแล้ว · แก้ BQ มือ
+- **เจ้าของขอ 4 อย่าง:** (1) เอาปุ่ม "ลบทั้งหมดในงวด" ออก (อยากลบแค่บางช่อง/รายการซ้ำ เช่น 06/07 มี 2 บรรทัด BQ 003/004 = re-upload หลายรอบ) (2) STM (วันต่าง) บอกวันเงินเข้าจริง (3) ติ๊ก "ทำแล้ว" → แท็บดำเนินการแล้ว (4) แก้เลข BQ มือก่อน export
+- **(1)** ลบปุ่ม `bmpPurgePeriod` ออกจาก toolbar · เพิ่มปุ่ม 🗑 **ลบรายการ** บนหัวการ์ด (`bmpDeleteWithdrawal` มีอยู่แล้ว · เดิมมีในตัวขยาย · ย้ายขึ้นหัวให้เห็นเสมอ)
+- **(2)** stmBadge วันต่าง → `✓ ตรง STM · เข้าจริง DD/MM/YY` (`bmpFmtThaiShort(bm.row.txn_date)`)
+- **(3)** migration `zz-bankrec-mp-done.sql` (+`done`/`done_at`) · checkbox "ทำแล้ว" บนหัวการ์ด (`bmpToggleDone`) · การ์ด done = จาง+เขียว · ชิปสถานะ **รอดำเนินการ/ดำเนินการแล้ว/ทั้งหมด** (`filterDone` default todo · `bmpFilteredWds` กรอง) → export/ยอดรวมนับเฉพาะที่กรอง
+- **(4)** เลขที่ BQ = `<input class="bmp-bqedit">` แก้แล้ว `bmpEditWithdrawalBq` update DB (bq_number) · export ใช้ค่าที่แก้
+- **verified:** syntax OK · **ต้อง push (migration) ก่อน** · reuse bmpDeleteWithdrawal/bmpFilteredWds · ไม่กระทบ COD/Lazada
+
 ### 2026-07-26 (14) — ★ COD ขนส่ง: persist ลง DB (กัน refresh แล้วหาย)
 - **เจ้าของแจ้ง:** COD จับเบอร์ตรงเยอะดีแล้ว แต่ **refresh เว็บแล้วข้อมูลหาย** ต้องอัปใหม่ (COD เป็น client-side ล้วน · ต่างจาก Marketplace ที่เก็บ DB)
 - **Migration `bankrec-cod-data.sql`:** ตาราง `brec_cod_data` (`company_id` PK · `parcels`/`transfers` jsonb · RLS + policy เหมือน exec_cashflow) — เก็บ **raw parsed** (ไม่เก็บ groups/link) → โหลดมา regroup+relink ใหม่ = link อัปเดตตาม order_ledger ล่าสุดเอง

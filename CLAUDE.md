@@ -191,6 +191,11 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-26 (13b) — ★ fix Lazada: โชว์รหัสรอบบิลแทนเลขออเดอร์ (SheetJS อ่านแค่คอลัมน์ A)
+- **เจ้าของแจ้ง:** การ์ด Lazada โชว์ **รหัสรอบบิล** (`TH1JWZ3V46-2026-0713`) แทน **รหัสคำสั่งซื้อ** — อยากเห็นออเดอร์ในรอบบิล + net/ออเดอร์
+- **ต้นเหตุ:** ไฟล์ Lazada ประกาศ `!ref = "A1:A536"` (แค่คอลัมน์ A) → SheetJS `sheet_to_json` อ่านคอลัมน์เดียว → `iix("หมายเลขคำสั่งซื้อ")` = -1 → `oid` fall ไป statement ทุกแถว (openpyxl อ่านครบ 19 คอลัมน์ → sim ผ่าน แต่ SheetJS ในแอปพลาด)
+- **แก้ `bmpLzSheet`:** สแกน cell keys จริงหา maxC/maxR → เขียน `ws["!ref"]` ใหม่ให้ครอบทุกคอลัมน์ ก่อน `sheet_to_json` · **verified (node+SheetJS+ไฟล์จริง):** statement 0713 → order `1105211238303738` net 293.26 · 0719 → `1107027817716081` net 292.80 (เลขออเดอร์จริง) · syntax OK
+
 ### 2026-07-26 (13) — ★★ ถอน Marketplace: รองรับ Lazada (แมพยอดโอนออก ↔ ออเดอร์ เหมือน TikTok/Shopee)
 - **เจ้าของขอ:** อัป Lazada "ยอดของฉัน" (Balance) + "รายงานรับของฉัน" (Income Overview) → แมพยอดโอนออก↔ออเดอร์ เหมือน TikTok/Shopee (M Bark)
 - **โครง Lazada:** `Balance Transactions` = Deposit(Settlement · เงินเข้ากระเป๋าต่อรอบบิล อ้าง "Statement No. XXX") + **Withdrawal(Auto Withdrawal = ถอนเต็มกระเป๋า)** · `Income Overview` = แตกรายได้/ค่าธรรมเนียมต่อออเดอร์ · จับ `รหัสรอบบิล` ↔ Statement No. → deposit.amount = Σ income รอบบิล เป๊ะ

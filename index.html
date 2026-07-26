@@ -24280,7 +24280,15 @@ function bmpLzDateTime(s){
   return { iso, datetime: time ? `${iso} ${time}` : iso };
 }
 function bmpLzNum(v){ return Number(String(v==null?"":v).replace(/[,+\s]/g,""))||0; }
-function bmpLzSheet(wb, re){ const n = wb.SheetNames.find(x=>re.test(x)) || wb.SheetNames[0]; return XLSX.utils.sheet_to_json(wb.Sheets[n], {header:1, raw:false, defval:""}); }
+function bmpLzSheet(wb, re){
+  const n = wb.SheetNames.find(x=>re.test(x)) || wb.SheetNames[0];
+  const ws = wb.Sheets[n];
+  // ★ ไฟล์ Lazada ประกาศ !ref แคบ (เช่น "A1:A536") → SheetJS อ่านแค่คอลัมน์ A · สแกน cell จริงแล้วขยาย range
+  let maxC=0, maxR=0;
+  for(const k in ws){ if(k[0]==="!") continue; const a=XLSX.utils.decode_cell(k); if(a.c>maxC)maxC=a.c; if(a.r>maxR)maxR=a.r; }
+  ws["!ref"] = XLSX.utils.encode_range({ s:{c:0,r:0}, e:{c:maxC, r:maxR} });
+  return XLSX.utils.sheet_to_json(ws, {header:1, raw:false, defval:""});
+}
 function bmpIsLazadaIncome(wb){ return wb.SheetNames.some(n=>/income overview/i.test(n)); }
 function bmpIsLazadaBalance(wb){ return wb.SheetNames.some(n=>/balance transaction/i.test(n)); }
 function bmpParseLazadaWallet(incomeWb, balanceWb){

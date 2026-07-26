@@ -29820,8 +29820,11 @@ function bmpIsCancelledOrder(o){
 /*   ถ้ามีเลขเช็คจริงจาก Express (ไม่ใช่ fallback RE-/PENDING-/UNKNOWN-) ใช้เลย · ไม่งั้นสร้างจากช่องทาง */
 function bmpChequePrefix(channel){ return {tiktok:"TT", shopee:"SP", lazada:"LZ"}[channel] || "TT"; }
 function bmpRealCheque(o, channel){
-  const raw = String(o.cheque_no||"");
-  if(raw && !/^(RE-|PENDING-|UNKNOWN-)/.test(raw)) return raw;   // เลขเช็คจริงจาก Express
+  const raw = String(o.cheque_no||"").trim();
+  // ★ เลขเช็คจริงจาก Express ขึ้นต้นด้วยช่องทาง (TT/SP/LZ) — ไม่ใช่เลข RE/ใบเสร็จ
+  //   กัน RE ทุกรูปแบบหลุดมาโชว์แทนเลขเช็ค: "RE-xxxx" (มีขีด) · "RE2606000512" (ไม่มีขีด · จาก order_ledger.cheque_no) · PENDING-/UNKNOWN-
+  //   เดิมเช็คแค่ /^RE-/ (มีขีด) → "RE2606..." หลุดผ่านมาเป็น "เลขเช็คจริง" → ช่องเลขที่เช็คขึ้น RE
+  if(raw && !/^(RE|PENDING-|UNKNOWN-)/i.test(raw)) return raw;   // เลขเช็คจริงจาก Express (TT/SP/LZ...)
   return o.order_id ? (bmpChequePrefix(channel) + o.order_id) : "";
 }
 /* ------- effective mismatch (mismatch ที่ยังไม่ถูก resolved) — ★ ไม่นับออเดอร์ยกเลิก (ทำใบลดหนี้ ไม่ใช่ mismatch) ------- */
@@ -29942,7 +29945,7 @@ function bmpExportMismatchXlsx(){
     return {
       "วันที่ถอน": wd?.withdraw_date,
       "BQ (gen)": wd?.bq_number,
-      "เลขที่เช็ค": o.cheque_no,
+      "เลขที่เช็ค": bmpRealCheque(o, wd?.channel),   // ★ ขึ้นต้น TT/SP/LZ เสมอ (ไม่ให้เลข RE หลุดมา)
       "Express gross": Number(o.express_gross||0),
       "Shopee net": Number(o.shopee_net||0),
       "ผลต่าง": Number(o.fee_diff||0),

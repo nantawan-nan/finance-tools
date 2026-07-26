@@ -191,6 +191,13 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-26 (2) — ★ ถอน Marketplace: เลขที่เช็คขึ้น RE แทน TT/SP (regex เช็คแค่ "RE-" มีขีด)
+- **เจ้าของแจ้ง:** ช่อง "เลขที่เช็ค (จริง)" บางแถวขึ้น **เลข RE** (RE2606…) ทั้งที่เลขเช็คต้องขึ้นต้น **TT/SP/LZ** ตามช่องทาง
+- **ต้นเหตุ:** `bmpRealCheque` guard `/^(RE-|PENDING-|UNKNOWN-)/` เช็ค **"RE-" มีขีดเท่านั้น** → `chequeNo` fallback ที่เป็น `led.cheque_no` = "RE2606000512" (เลข RE ไม่มีขีด · จาก `order_ledger.cheque_no`) **หลุดผ่านมาเป็น "เลขเช็คจริง"** → โชว์ RE แทน TT/SP
+- **แก้:** regex → `/^(RE|PENDING-|UNKNOWN-)/i` (RE ทุกรูปแบบ มีขีด/ไม่มีขีด → fallback สร้าง `{TT|SP|LZ}+order_id`) · `.trim()` raw ก่อนเทียบ · **verified (node · 7 เคส):** เช็คจริง TT คงไว้ · RE2606…/RE-RE…/PENDING-/UNKNOWN-/ว่าง → TT+ออเดอร์ · shopee ว่าง → SP+ออเดอร์
+- **`bmpExportMismatchXlsx`** (รายงานไม่ตรง Excel) เดิมใช้ `o.cheque_no` ดิบ → เปลี่ยนเป็น `bmpRealCheque(o, wd?.channel)` (ขึ้นต้น TT/SP/LZ เสมอ) · main CSV (`bmpExportCsv`) ใช้ `bmpRealCheque` อยู่แล้ว
+- **display-only · ไม่ต้อง migration** (คำนวณตอน render/export จาก cheque_no ที่มี) · syntax OK · หมายเหตุ 2 คอลัมน์: **"เลขที่เช็ค (จริง)"** = TT/SP/LZ · **"IV / เลข RE"** = เลข RE (คนละช่อง)
+
 ### 2026-07-26 — ★ ส่งออก RE: โอนตรง (FACE/LINE/Dealer) = เงินเข้าเต็มยอด IV · ค่าธรรมเนียม 0
 - **เจ้าของแจ้ง (หน้ารับชำระหนี้):** ลูกค้า FACE/LINE โอนตรงเข้าบัญชีบริษัท → การเงินคีย์มือเอง · **ไม่มีค่าธรรมเนียมให้ตัด** (บรรทัดแรกใน 191 = เงินเข้าบัญชี ไม่ใช่ค่าธรรมเนียม) · แต่ RE export โชว์ FACE ยอด IV 580 → **ค่าธรรมเนียม −580 · สุทธิ 0.00** (ผิด)
 - **ต้นเหตุ:** โอนตรงไม่มีรายงาน payout แพลตฟอร์ม → `sales_income_rows.net_received = 0` → `incReCandidates` คิด diff = IV − 0 = เต็มยอด → นับเป็นค่าธรรมเนียมทั้งก้อน

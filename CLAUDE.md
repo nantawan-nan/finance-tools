@@ -191,6 +191,13 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-26 (9) — ★★ Bank Recon แท็บใหม่ "🚚 COD ขนส่ง" — แมพเงินเข้าบัญชี ↔ พัสดุ COD (iShip)
+- **เจ้าของ:** อัป 2 ไฟล์ iShip (รายงานเก็บเงินปลายทาง + รายงานเครดิต) → แมพว่าเงินเข้าบัญชีก้อนไหน = พัสดุ/ออเดอร์ไหน (จากรหัสพัสดุ) · ตรงแผน "COD ผ่านขนส่ง"
+- **★ ตัวเชื่อม (พิสูจน์กับไฟล์จริง 20/20 ยอดตรง):** 1 การโอน (เครดิต) = พัสดุที่ **"วันที่โอนเงิน" = "วันที่" ของเครดิต** · `เครดิต.จำนวน = Σ COD` · `เครดิต.ค่าธรรมเนียม(หลัง) = Σ ค่าส่งรายพัสดุ` · `เครดิต.ยอดสุทธิ = Σ ยอดโอน = เงินเข้าบัญชีจริง`
+- **helper `cod*` (client-side · ไม่ persist · โครงเดียว bmp*):** `codParseCollection`/`codParseCredit` (หา header · sheet_to_json raw:false) · `codDkey` (DD/MM/YYYY + YYYY-MM-DD) · `codGroup` (จับกลุ่มตามวันโอน + verify Σ + gen BQ `YYMMDD+seq`) · `codLoadBankRows`/`codMatchBank` (จับ STM จาก brec_bank_rows · net + วัน) · `codOpenUpload` (2 ไฟล์ · auto-detect จาก header) · `codRenderTab` (การ์ดต่อการโอน: BQ/บัญชี/COD−ค่าส่ง=สุทธิ/STM badge + กางดูพัสดุ tracking/ผู้รับ/COD) · `codExportXlsx` (2 sheet: สรุปการโอน + รายพัสดุ)
+- **แท็บ `cod` (🚚 COD ขนส่ง)** ใน `renderToolBankRec` (ทำงานได้แม้ไม่มี bank_accounts เหมือน autocat) + ปุ่ม "COD ขนส่ง (2 ไฟล์)" ใน dropdown นำเข้า · **verified (node + ไฟล์จริง):** 20 การโอน ยอดตรง 20 · พัสดุยังไม่มีในเครดิต (07-24/25) → แจ้ง pending · syntax OK · **ไม่ต้อง migration** (client-side)
+- **ยังไม่ทำ (phase 2):** ลิงก์ **เลขพัสดุ → order_id ในระบบ** (order_ledger ไม่เก็บ tracking · ต้องเก็บตอน import BigSeller หรือจับด้วยชื่อผู้รับ) · persist ลง DB · ผ่านเช็ค/RE · ต่อ pipeline รับชำระ
+
 ### 2026-07-26 (8) — ★ ถอน Marketplace: prefix เลขเช็คคาดการณ์ = เรียนจากรายงาน 191 จริง (M Bark Shopee = SH ไม่ใช่ SP)
 - **เจ้าของ:** TT/SP ที่เคยบอกเป็นแค่ตัวอย่าง — จริงต้องดึงจาก **รายงาน 191 (รับชำระ)** · M Bark Shopee เลขเช็คขึ้นต้น **SH** ไม่ใช่ SP
 - **ต้นเหตุ:** order ที่อยู่ใน 191 → ได้เลขเช็คจริง (`chq.cheque_no`) ถูกแล้ว · แต่ order ที่**ยังไม่อยู่ใน 191** → สร้างคาดการณ์ด้วย `bmpChequePrefix` **ตายตัว {shopee:SP}** → M Bark ได้ SP ผิด

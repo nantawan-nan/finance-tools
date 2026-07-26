@@ -23699,6 +23699,7 @@ async function renderToolBankRec(){
     { id:"done",      l:"กระทบแล้ว",    ic:"check-check",   c: buckets.confirmed.length },
     { id:"all",       l:"ทั้งหมด",      ic:"list",          c: d.express.length + d.bank.length },
     { id:"mp",        l:"🛒 ถอน Marketplace", ic:"shopping-bag", c: mpWds.length },
+    { id:"cod",       l:"🚚 COD ขนส่ง",       ic:"truck",        c: (d.cod && d.cod.groups ? d.cod.groups.length : 0) },
     { id:"autocat",   l:"🏷️ จัดหมวด (AI)",  ic:"sparkles",     c: catbotCounts(catbotGet(d)).total },
   ];
   const tab = d.tab || "pending";
@@ -23707,6 +23708,8 @@ async function renderToolBankRec(){
   let body = "";
   if(tab === "autocat"){
     body = catbotRenderTab(d);   // ★ ทำงานได้แม้ยังไม่มีบัญชีธนาคาร (ไม่พึ่ง bank_accounts)
+  } else if(tab === "cod"){
+    body = codRenderTab(d);      // ★ COD ขนส่ง — client-side · ทำงานได้แม้ยังไม่มีบัญชีธนาคาร
   } else if(noAcct){
     body = `<div class="brec-empty">
       <i data-lucide="upload-cloud"></i>
@@ -23915,6 +23918,7 @@ async function renderToolBankRec(){
             <button onclick="brecTbMenuClose();brecReplaceUpload('stmt')" ${noAcct?'disabled':''} style="color:#9a3412"><i data-lucide="refresh-ccw"></i> ล้าง+อัปใหม่ Statement</button>
             <div class="brec-menu-sep"></div>
             <button onclick="brecTbMenuClose();bmpOpenUpload()" style="color:#92400e"><i data-lucide="shopping-bag"></i> Marketplace (3 ไฟล์: Shopee + Express + เช็ครับ)</button>
+            <button onclick="brecTbMenuClose();codOpenUpload()" style="color:#0f766e"><i data-lucide="truck"></i> COD ขนส่ง (2 ไฟล์: เก็บเงินปลายทาง + เครดิต)</button>
           </div>` : ''}
         </div>
         <div class="brec-menu">
@@ -29837,6 +29841,225 @@ function bmpMatchBank(d, wd){
   return { found:false, hasStmt:true };
 }
 
+/* ============================================================
+   COD ขนส่ง (iShip) — แมพเงินเข้าบัญชี (รายงานเครดิต) ↔ พัสดุ COD (รายงานเก็บเงินปลายทาง)
+   ★ ตัวเชื่อม: วันที่โอน (เครดิต.วันที่ = พัสดุ.วันที่โอนเงิน) · ยอด: เครดิต.จำนวน = Σ COD · เครดิต.ยอดสุทธิ = Σ ยอดโอน
+   client-side (ไม่ persist) — อัป 2 ไฟล์ → จับกลุ่ม → จับ STM → export · โครงเดียวกับ bmp*
+   ============================================================ */
+function codDkey(v){
+  const s = String(v==null?"":v).trim();
+  let m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);          // DD/MM/YYYY
+  if(m) return `${m[3]}-${m[2].padStart(2,"0")}-${m[1].padStart(2,"0")}`;
+  m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);                // YYYY-MM-DD
+  if(m) return `${m[1]}-${m[2].padStart(2,"0")}-${m[3].padStart(2,"0")}`;
+  return s.slice(0,10);
+}
+function codNum(v){ return Number(String(v==null?"":v).replace(/,/g,"").trim())||0; }
+function codParseCollection(wb){
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json(ws, { header:1, raw:false, defval:"" });
+  let hr=-1, H=null;
+  for(let i=0;i<Math.min(rows.length,8);i++){
+    const r=(rows[i]||[]).map(x=>String(x||"").trim());
+    if(r.includes("พัสดุ") && r.includes("COD") && r.includes("ยอดโอน")){ hr=i; H=r; break; }
+  }
+  if(hr<0) throw new Error("ไม่พบหัวตาราง 'รายงานเก็บเงินปลายทาง' (พัสดุ / COD / ยอดโอน)");
+  const ix=(n)=>H.indexOf(n);
+  const ci={ track:ix("พัสดุ"), recv:ix("ผู้รับ"), phone:ix("เบอร์โทร"), carrier:ix("ขนส่ง"),
+    cod:ix("COD"), fee:ix("ค่าธรรมเนียม"), net:ix("ยอดโอน"), xfer:ix("วันที่โอนเงิน"), status:ix("สถานะ") };
+  const out=[];
+  for(let i=hr+1;i<rows.length;i++){
+    const r=rows[i]||[]; const track=String(r[ci.track]||"").trim();
+    if(!track) continue;
+    out.push({ tracking:track, recipient:String(r[ci.recv]||"").trim(), phone:String(r[ci.phone]||"").trim(),
+      carrier:String(r[ci.carrier]||"").trim(), cod:codNum(r[ci.cod]), fee:codNum(r[ci.fee]), net:codNum(r[ci.net]),
+      xferRaw:String(r[ci.xfer]||"").trim(), xferKey:codDkey(r[ci.xfer]), status:String(r[ci.status]||"").trim() });
+  }
+  return out;
+}
+function codParseCredit(wb){
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json(ws, { header:1, raw:false, defval:"" });
+  let hr=-1, H=null;
+  for(let i=0;i<Math.min(rows.length,8);i++){
+    const r=(rows[i]||[]).map(x=>String(x||"").trim());
+    if(r.includes("อ้างอิง") && r.includes("จำนวน") && r.includes("ยอดสุทธิ")){ hr=i; H=r; break; }
+  }
+  if(hr<0) throw new Error("ไม่พบหัวตาราง 'รายงานเครดิต' (อ้างอิง / จำนวน / ยอดสุทธิ)");
+  const ix=(n)=>H.indexOf(n);
+  const feeIx = H.findIndex(x=>/ค่าธรรมเนียม\s*\(หลัง\)/.test(x));
+  const ci={ date:ix("วันที่"), ref:ix("อ้างอิง"), type:ix("ประเภท"), bank:ix("ธนาคาร"),
+    acctName:ix("ชื่อบัญชี"), acctNo:ix("เลขบัญชี"), gross:ix("จำนวน"), net:ix("ยอดสุทธิ") };
+  const out=[];
+  for(let i=hr+1;i<rows.length;i++){
+    const r=rows[i]||[]; const ref=String(r[ci.ref]||"").trim();
+    if(!ref) continue;
+    const gross=codNum(r[ci.gross]), net=codNum(r[ci.net]);
+    out.push({ ref, dateRaw:String(r[ci.date]||"").trim(), dateKey:codDkey(r[ci.date]),
+      type:String(r[ci.type]||"").trim(), bank:String(r[ci.bank]||"").trim(),
+      acctName:String(r[ci.acctName]||"").trim(), acctNo:String(r[ci.acctNo]||"").replace(/\D/g,""),
+      gross, net, fee:(feeIx>=0?codNum(r[feeIx]):round2(gross-net)) });
+  }
+  return out;
+}
+/* จับกลุ่ม: 1 เครดิต(โอน) = พัสดุที่ 'วันที่โอนเงิน' = 'วันที่' ของเครดิต · verify Σ COD = จำนวน · gen BQ */
+function codGroup(parcels, transfers){
+  const byKey = new Map();
+  for(const p of (parcels||[])){ if(!p.xferKey) continue; if(!byKey.has(p.xferKey)) byKey.set(p.xferKey,[]); byKey.get(p.xferKey).push(p); }
+  const seqByDay = new Map();
+  const nextBq = (key)=>{ const dd=key.replace(/-/g,"").slice(2); const n=(seqByDay.get(dd)||0)+1; seqByDay.set(dd,n); return dd+String(n).padStart(4,"0"); };
+  const trs = (transfers||[]).slice().sort((a,b)=> String(a.dateKey).localeCompare(String(b.dateKey)));
+  const groups=[]; const usedKeys=new Set();
+  for(const tr of trs){
+    const ps = byKey.get(tr.dateKey) || [];
+    usedKeys.add(tr.dateKey);
+    const sumCod=round2(ps.reduce((s,p)=>s+p.cod,0)), sumNet=round2(ps.reduce((s,p)=>s+p.net,0)), sumFee=round2(ps.reduce((s,p)=>s+p.fee,0));
+    groups.push({ ...tr, id:tr.ref, bq:nextBq(tr.dateKey), parcels:ps, sumCod, sumNet, sumFee,
+      grossOk:Math.abs(sumCod-tr.gross)<0.5, netOk:Math.abs(sumNet-tr.net)<0.5 });
+  }
+  const pending=[];
+  for(const [key,ps] of byKey){ if(usedKeys.has(key)) continue;
+    pending.push({ key, parcels:ps, sumCod:round2(ps.reduce((s,p)=>s+p.cod,0)), sumNet:round2(ps.reduce((s,p)=>s+p.net,0)) }); }
+  pending.sort((a,b)=> String(b.key).localeCompare(String(a.key)));
+  return { groups, pending };
+}
+async function codLoadBankRows(d){
+  try{
+    const co = d.companyId || await fopCompanyId();
+    const { data } = await sb.from("brec_bank_rows").select("id,bank_account_id,txn_date,deposit,description,ref_note")
+      .eq("company_id", co).is("deleted_at", null).gt("deposit", 0);
+    d.cod = d.cod||{}; d.cod.bankRows = data||[];
+  }catch(e){ console.warn("codLoadBankRows",e); d.cod=d.cod||{}; d.cod.bankRows=[]; }
+}
+function codMatchBank(d, g){
+  const rows=(d.cod&&d.cod.bankRows)||[]; if(!rows.length) return { found:false, hasStmt:false };
+  const amt=Number(g.net||0);
+  let hit=rows.find(r=> r.txn_date===g.dateKey && Math.abs(Number(r.deposit)-amt)<0.5);
+  if(hit) return { found:true, exact:true, row:hit, hasStmt:true };
+  hit=rows.find(r=> Math.abs(Number(r.deposit)-amt)<0.5);
+  if(hit) return { found:true, exact:false, row:hit, hasStmt:true };
+  return { found:false, hasStmt:true };
+}
+function codOpenUpload(){
+  const inp=document.createElement("input"); inp.type="file"; inp.accept=".xlsx,.xls"; inp.multiple=true;
+  inp.onchange=async(e)=>{
+    const files=[...(e.target.files||[])]; if(!files.length) return;
+    const d=brecGet();
+    try{
+      let gotP=false, gotT=false;
+      for(const f of files){
+        const buf=await f.arrayBuffer(); const wb=XLSX.read(buf,{type:"array"});
+        const ws=wb.Sheets[wb.SheetNames[0]];
+        const head=XLSX.utils.sheet_to_json(ws,{header:1,raw:false,defval:""}).slice(0,8).flat().join(" ");
+        d.cod=d.cod||{};
+        if(/พัสดุ/.test(head) && /ยอดโอน/.test(head)){ d.cod.parcels=codParseCollection(wb); gotP=true; }
+        else if(/อ้างอิง/.test(head) && /ยอดสุทธิ/.test(head)){ d.cod.transfers=codParseCredit(wb); gotT=true; }
+      }
+      if(!gotP && !gotT){ alert("ไม่พบไฟล์ที่ถูกต้อง — ต้องเป็น รายงานเก็บเงินปลายทาง และ/หรือ รายงานเครดิต (iShip)"); return; }
+      if(d.cod.parcels && d.cod.transfers){ const g=codGroup(d.cod.parcels,d.cod.transfers); d.cod.groups=g.groups; d.cod.pending=g.pending; }
+      d.cod.expanded=d.cod.expanded||new Set();
+      d.tab="cod";
+      await codLoadBankRows(d);
+      renderToolBankRec();
+      const nT=(d.cod.transfers||[]).length, nP=(d.cod.parcels||[]).length;
+      if(!(d.cod.parcels&&d.cod.transfers)) alert(`อัปแล้ว: ${gotP?`พัสดุ ${nP}`:''}${gotT?`โอน ${nT}`:''}\nอัปอีกไฟล์ (${gotP?'รายงานเครดิต':'รายงานเก็บเงินปลายทาง'}) เพื่อจับคู่`);
+    }catch(err){ alert("อ่านไฟล์ไม่สำเร็จ: "+(err.message||err)); }
+  };
+  inp.click();
+}
+function codToggleExpand(id){ const d=brecGet(); d.cod.expanded=d.cod.expanded||new Set(); if(d.cod.expanded.has(id)) d.cod.expanded.delete(id); else d.cod.expanded.add(id); renderToolBankRec(); }
+function codClear(){ const d=brecGet(); if(!confirm("ล้างข้อมูล COD (ในหน้าจอ)?")) return; d.cod={}; renderToolBankRec(); }
+function codExportXlsx(){
+  const d=brecGet(); const groups=(d.cod&&d.cod.groups)||[];
+  if(!groups.length){ alert("ยังไม่มีข้อมูลจับคู่ — อัปครบ 2 ไฟล์ก่อน"); return; }
+  const co=COMPANIES.find(c=>c.id===state.company);
+  const s1=groups.map((g,i)=>({ "ลำดับ":i+1, "เลขที่ BQ":g.bq, "วันที่โอน":g.dateKey, "อ้างอิง iShip":g.ref, "บัญชี":g.acctNo,
+    "จำนวนพัสดุ":g.parcels.length, "ยอด COD รวม":g.sumCod, "ค่าธรรมเนียม":g.fee, "เข้าบัญชีสุทธิ":g.net, "ตรงยอด":(g.grossOk&&g.netOk)?"✓":"⚠ ตรวจ" }));
+  const s2=[];
+  for(const g of groups) for(const p of g.parcels) s2.push({ "เลขที่ BQ":g.bq, "วันที่โอน":g.dateKey, "เลขพัสดุ":p.tracking, "ขนส่ง":p.carrier,
+    "ผู้รับ":p.recipient, "เบอร์โทร":p.phone, "COD":p.cod, "ค่าธรรมเนียมพัสดุ":p.fee, "โอนสุทธิ":p.net });
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(s1), "สรุปการโอน");
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(s2), "รายพัสดุ");
+  XLSX.writeFile(wb, `COD_${(co&&co.code)||state.company}_${new Date().toISOString().slice(0,10).replace(/-/g,"")}.xlsx`);
+}
+function codRenderTab(d){
+  const cod=d.cod||{};
+  if(!cod.parcels && !cod.transfers){
+    return `<div class="brec-empty"><i data-lucide="truck" style="color:#0f766e"></i>
+      <div class="ttl">ยังไม่มีข้อมูล COD ขนส่ง</div>
+      <div>กด <b>นำเข้าข้อมูล → COD ขนส่ง (2 ไฟล์)</b> ที่ toolbar — อัป <b>รายงานเก็บเงินปลายทาง</b> + <b>รายงานเครดิต</b> (iShip)<br>ระบบจะจับว่าเงินเข้าบัญชีแต่ละก้อน = พัสดุ/ออเดอร์ไหนบ้าง</div></div>`;
+  }
+  if(!(cod.parcels && cod.transfers)){
+    return `<div class="brec-empty"><i data-lucide="file-plus" style="color:#0f766e"></i>
+      <div class="ttl">อัปครบ 2 ไฟล์เพื่อจับคู่</div>
+      <div>มีแล้ว: ${cod.parcels?`พัสดุ ${cod.parcels.length}`:''}${cod.transfers?`โอนเข้าบัญชี ${cod.transfers.length}`:''}<br>ยังขาด: <b>${cod.parcels?'รายงานเครดิต':'รายงานเก็บเงินปลายทาง'}</b> — กด "นำเข้าข้อมูล → COD ขนส่ง" อีกครั้ง</div></div>`;
+  }
+  const groups=cod.groups||[], pending=cod.pending||[];
+  cod.expanded=cod.expanded||new Set();
+  const totNet=round2(groups.reduce((s,g)=>s+Number(g.net||0),0));
+  const totFee=round2(groups.reduce((s,g)=>s+Number(g.fee||0),0));
+  const totParcels=groups.reduce((s,g)=>s+g.parcels.length,0);
+  const stmOk=groups.filter(g=>codMatchBank(d,g).found).length;
+  const badN=groups.filter(g=>!(g.grossOk&&g.netOk)).length;
+  const fmtM=(n)=>bmpFmtMoney(n);
+  const cards=groups.slice().sort((a,b)=>String(b.dateKey).localeCompare(String(a.dateKey))).map(g=>{
+    const bm=codMatchBank(d,g);
+    const stmBadge = !bm.hasStmt ? `<span class="bmp-stm none">STM —</span>`
+      : bm.found ? `<span class="bmp-stm ok" title="พบเงินเข้า ${bm.row.txn_date} ${fmtM(bm.row.deposit)}">✓ ตรง STM${bm.exact?'':' (วันต่าง)'}</span>`
+      : `<span class="bmp-stm bad">⚠️ ไม่พบใน STM</span>`;
+    const isEx=cod.expanded.has(g.id);
+    const balOk=g.grossOk&&g.netOk;
+    return `<div class="bmp-card ${balOk?'':'warn'}">
+      <div class="bmp-head" onclick="codToggleExpand('${esc(g.id)}')">
+        <div class="bmp-h1">
+          <span class="bmp-chip">🚚 COD</span>${stmBadge}
+          <span class="bmp-shop">${esc(g.bank||'')} ${esc(g.acctNo||'')}</span>
+          ${balOk?`<span class="bmp-ok">✓ ยอดตรง</span>`:`<span class="bmp-warn">⚠️ ยอดไม่ตรง</span>`}
+        </div>
+        <div class="bmp-h2">
+          <div><span class="lbl">วันที่โอน</span><span class="val">${esc(g.dateKey)}</span></div>
+          <div><span class="lbl">เลขที่ BQ</span><span class="val mono">${esc(g.bq)}</span></div>
+          <div><span class="lbl">อ้างอิง iShip</span><span class="val mono">${esc(g.ref)}</span></div>
+          <div><span class="lbl">พัสดุ</span><span class="val">${g.parcels.length} ชิ้น</span></div>
+        </div>
+        <div class="bmp-recon">
+          <div class="bx"><span class="k">ยอด COD รวม</span><span class="v">${fmtM(g.sumCod)}</span></div>
+          <div class="op">−</div>
+          <div class="bx fee"><span class="k">ค่าธรรมเนียมขนส่ง</span><span class="v">${fmtM(g.fee)}</span></div>
+          <div class="op">=</div>
+          <div class="bx res"><span class="k">เข้าบัญชีสุทธิ</span><span class="v">${fmtM(g.net)}</span></div>
+        </div>
+        <div class="bmp-toggle"><i data-lucide="${isEx?'chevron-up':'chevron-down'}"></i> ${isEx?'ซ่อน':'ดู'}พัสดุ (${g.parcels.length})</div>
+      </div>
+      ${isEx?`<div class="bmp-body"><table class="bmp-tbl">
+        <thead><tr><th>#</th><th>เลขพัสดุ</th><th>ขนส่ง</th><th>ผู้รับ</th><th>เบอร์โทร</th><th class="r">COD</th><th class="r">ค่าส่ง</th><th class="r">โอนสุทธิ</th></tr></thead>
+        <tbody>${g.parcels.map((p,i)=>`<tr>
+          <td>${i+1}</td><td class="mono" style="font-size:11px">${esc(p.tracking)}</td><td style="font-size:11px">${esc(p.carrier)}</td>
+          <td>${esc(p.recipient)}</td><td class="mono" style="font-size:11px">${esc(p.phone)}</td>
+          <td class="r money">${fmtM(p.cod)}</td><td class="r money">${fmtM(p.fee)}</td><td class="r money">${fmtM(p.net)}</td></tr>`).join("")}</tbody>
+      </table></div>`:''}
+    </div>`;
+  }).join("");
+  const pendHtml = pending.length ? `<div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:11px 14px;margin-bottom:12px;font-size:12.5px;color:#1e40af">
+    ℹ️ มีพัสดุ ${pending.reduce((s,p)=>s+p.parcels.length,0)} ชิ้น (${pending.length} วัน · รวม COD ${fmtM(pending.reduce((s,p)=>s+p.sumCod,0))}) ที่ "โอนแล้ว" แต่ <b>ยังไม่มีในรายงานเครดิต</b> — อัปรายงานเครดิตให้ครอบวันล่าสุด หรือรอขนส่งโอน</div>` : '';
+  return `
+    <div class="bmp-sum">
+      <div class="bmp-sc"><div class="l">รายการโอนเข้าบัญชี</div><div class="v">${groups.length}</div></div>
+      <div class="bmp-sc"><div class="l">พัสดุรวม</div><div class="v">${totParcels}</div></div>
+      <div class="bmp-sc"><div class="l">เข้าบัญชีสุทธิรวม</div><div class="v">${fmtM(totNet)}</div></div>
+      <div class="bmp-sc ${badN?'warn':'ok'}"><div class="l">${badN?'⚠️ ยอดไม่ตรง':'✓ ยอดตรงครบ'}</div><div class="v">${badN||'0'}</div></div>
+      <div class="bmp-sc ${(groups.length-stmOk)?'warn':'ok'}"><div class="l">ตรงกับ STM</div><div class="v">${stmOk}/${groups.length}</div></div>
+    </div>
+    ${pendHtml}
+    <div style="display:flex;gap:8px;margin:0 0 12px;flex-wrap:wrap;align-items:center">
+      <div style="font-size:12.5px;color:var(--ink-2,#475569)">1 การโอน = พัสดุที่ 'วันที่โอนเงิน' ตรงกัน · แต่ละพัสดุมีเลขติดตาม (TH…) + ผู้รับ → รู้ว่าเงินก้อนนี้มาจากออเดอร์ไหน</div>
+      <div style="flex:1"></div>
+      <button class="brec-btn primary" onclick="codExportXlsx()"><i data-lucide="file-spreadsheet"></i> ⬇ Export (สรุป + รายพัสดุ)</button>
+      <button class="brec-btn warn" onclick="codClear()"><i data-lucide="trash-2"></i> ล้าง</button>
+    </div>
+    <div class="bmp-cards">${cards}</div>`;
+}
 /* ------- DELETE a withdrawal (soft) ------- */
 async function bmpDeleteWithdrawal(id){
   if(!confirm("ลบ withdrawal นี้?")) return;

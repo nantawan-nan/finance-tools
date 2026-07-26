@@ -7975,9 +7975,8 @@ async function homeLoadStats(){
     const saleSum = active.reduce((s,o)=>s+Number(o.order_total||0),0);
     const cancelledSum = cancelledOrders.reduce((s,o)=>s+Number(o.order_total||0),0);
     const maxOrderDate = orders.reduce((mx,o)=> (o.order_date && o.order_date>mx)?o.order_date:mx, "");
-    // ★ ค้างคีย์ IV (ทุกเดือน · active) — เตือน "ไม่คีย์มากี่วัน"
-    const activeAll = orders.filter(o=>o.status!=="cancelled");
-    const unkeyedAll = activeAll.filter(o=>!o.iv_no);
+    // ★ ค้างคีย์ IV — เฉพาะเดือนปัจจุบัน (ตามภาพรวมการทำงานเดือนนี้) · เตือน "ไม่คีย์มากี่วัน"
+    const unkeyedAll = active.filter(o=>!o.iv_no);
     const unkeyedCount = unkeyedAll.length;
     const oldestUnkeyed = unkeyedAll.reduce((mn,o)=> (o.order_date && (!mn||o.order_date<mn))?o.order_date:mn, "");
     // ★ reminders data

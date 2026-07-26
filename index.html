@@ -25064,6 +25064,7 @@ function ordParseSalesFile(rows){
   const findHdr = (test)=>{ for(let i=0;i<headers.length;i++){ if(test(headers[i])) return i; } return -1; };
   ci.track     = findHdr(h=> /แทรคกิ้ง|tracking|ติดตาม/i.test(h));
   ci.recipient = findHdr(h=> /^(ผู้รับ|ชื่อผู้รับ)$/.test(String(h||"").trim()) || /ชื่อผู้รับ|ผู้รับสินค้า/.test(h));
+  ci.phone     = findHdr(h=> /เบอร์โทร|โทรศัพท์|phone|มือถือ|tel\b/i.test(h));   // ★ เบอร์โทร = key แม่นสุดสำหรับลิงก์ COD
   // fallback (ชื่อคอลัมน์ไม่ตรง): หาคอลัมน์ที่ค่าส่วนใหญ่ขึ้นต้น TH+เลข = เลขแทรคกิ้งขนส่ง
   if(ci.track<0){
     const N=Math.min(rows.length,40); const score=new Array(headers.length).fill(0);
@@ -25075,7 +25076,7 @@ function ordParseSalesFile(rows){
   for(let r=1;r<rows.length;r++){
     const row = rows[r]; if(!row) continue;
     const oid = String(row[ci.order]||"").trim(); if(!oid) continue;
-    if(!groups.has(oid)) groups.set(oid, { order_id:oid, status:"", date:null, products:new Set(), skus:new Set(), itemMap:new Map(), qty:0, ret:0, gross:0, net:0, ship:0, disc:0, voucher:0, refund:0, platform:"", shop:"", cancelTime:"", tracking:"", recipient:"" });
+    if(!groups.has(oid)) groups.set(oid, { order_id:oid, status:"", date:null, products:new Set(), skus:new Set(), itemMap:new Map(), qty:0, ret:0, gross:0, net:0, ship:0, disc:0, voucher:0, refund:0, platform:"", shop:"", cancelTime:"", tracking:"", recipient:"", phone:"" });
     const g = groups.get(oid);
     if(ci.status>=0 && !g.status) g.status = String(row[ci.status]||"").trim();
     if(ci.date>=0 && !g.date) g.date = ordISO(row[ci.date]);
@@ -25118,6 +25119,7 @@ function ordParseSalesFile(rows){
     if(ci.cancel>=0 && !g.cancelTime) g.cancelTime = String(row[ci.cancel]||"").trim();
     if(ci.track>=0 && !g.tracking){ const t=String(row[ci.track]||"").trim(); if(t) g.tracking=t; }
     if(ci.recipient>=0 && !g.recipient){ const rc=String(row[ci.recipient]||"").trim(); if(rc) g.recipient=rc; }
+    if(ci.phone>=0 && !g.phone){ const ph=String(row[ci.phone]||"").trim(); if(ph) g.phone=ph; }
   }
   const cancelRe = new RegExp(cfg.cancelKw, "i");
   // ★ source_cols — เก็บตัวอักษร Excel ของคอลัมน์ที่ใช้คำนวณ (gross/ship/disc/voucher) ต่อไฟล์
@@ -25161,6 +25163,7 @@ function ordParseSalesFile(rows){
       is_returned: returned,
       tracking_no: g.tracking || null,
       recipient: g.recipient || null,
+      phone: g.phone || null,
       source_cols: sourceCols
     };
   });
@@ -25332,7 +25335,7 @@ async function ordFetchAllRows(co, cols, applyFilters){
 async function ordIngestChannelOrders(co, parsed, srcLabel){
   const orders = parsed.orders || [];
   if(!orders.length) return { added:0, updated:0, total:0 };
-  const existing = await ordFetchAllRows(co, "id,order_id,status,order_date,order_total,channel_group,items,seller_discount,shipping_fee,seller_voucher,gross_total,source_cols,tracking_no,recipient");
+  const existing = await ordFetchAllRows(co, "id,order_id,status,order_date,order_total,channel_group,items,seller_discount,shipping_fee,seller_voucher,gross_total,source_cols,tracking_no,recipient,phone");
   const byOid = new Map((existing||[]).filter(o=>o.order_id).map(o=>[o.order_id, o]));
   const inserts = [], updates = [];
   const seen = new Set();
@@ -25349,7 +25352,7 @@ async function ordIngestChannelOrders(co, parsed, srcLabel){
       seller_voucher: o.seller_voucher, gross_total: o.gross_total,
       source_cols: o.source_cols || null,
       returned_qty: o.returned_qty, is_returned: o.is_returned,
-      tracking_no: o.tracking_no || null, recipient: o.recipient || null,
+      tracking_no: o.tracking_no || null, recipient: o.recipient || null, phone: o.phone || null,
       order_src: srcLabel, order_ingested_at: now
     };
     if(!ex){ inserts.push(rec); continue; }
@@ -25369,7 +25372,8 @@ async function ordIngestChannelOrders(co, parsed, srcLabel){
     // ★ เลขพัสดุ/ผู้รับ (COD link) — backfill ถ้าเดิมว่างแล้วไฟล์มี
     const trackFill = (!ex.tracking_no && o.tracking_no) ? o.tracking_no : null;
     const recvFill  = (!ex.recipient && o.recipient) ? o.recipient : null;
-    const changed = ex.status!==o.status || Number(ex.order_total||0)!==Number(o.order_total||0) || (!ex.order_date && o.order_date) || fillGroup || fillItems || discChanged || shipChanged || itemsChanged || vchChanged || grossChanged || colsChanged || trackFill || recvFill;
+    const phoneFill = (!ex.phone && o.phone) ? o.phone : null;
+    const changed = ex.status!==o.status || Number(ex.order_total||0)!==Number(o.order_total||0) || (!ex.order_date && o.order_date) || fillGroup || fillItems || discChanged || shipChanged || itemsChanged || vchChanged || grossChanged || colsChanged || trackFill || recvFill || phoneFill;
     if(changed){
       const upd = { status:o.status, sale_status_raw:o.sale_status_raw, is_returned:o.is_returned, returned_qty:o.returned_qty, order_total:o.order_total, order_date:fillDate };
       if(fillGroup){ upd.channel_group=o.channel_group; upd.channel=o.channel; }
@@ -25381,6 +25385,7 @@ async function ordIngestChannelOrders(co, parsed, srcLabel){
       if(colsChanged)  upd.source_cols    = o.source_cols;
       if(trackFill)    upd.tracking_no    = trackFill;
       if(recvFill)     upd.recipient      = recvFill;
+      if(phoneFill)    upd.phone          = phoneFill;
       updates.push({ id: ex.id, upd });
     }
   }
@@ -29960,7 +29965,7 @@ async function codLoadOrders(d){
     const all=[]; const PAGE=1000;
     for(let from=0; ; from+=PAGE){
       const { data, error } = await sb.from("order_ledger")
-        .select("order_id,tracking_no,recipient,order_total,sale_amount,order_date,iv_no,re_no,channel_group,status,products")
+        .select("order_id,tracking_no,recipient,phone,order_total,sale_amount,order_date,iv_no,re_no,channel_group,status,products")
         .eq("company_id", co).is("deleted_at", null).range(from, from+PAGE-1);
       if(error){ console.warn("codLoadOrders", error); break; }
       all.push(...(data||[]));
@@ -29970,40 +29975,51 @@ async function codLoadOrders(d){
   }catch(e){ console.warn("codLoadOrders", e); d.cod=d.cod||{}; d.cod.orders=[]; }
 }
 /* ลิงก์พัสดุ → ออเดอร์: (1) เลขพัสดุตรง (แม่น 100%) · (2) fallback ยอด COD = ยอดออเดอร์ (candidate) */
+function codPhoneKey(p){ const d=String(p||"").replace(/\D/g,""); return d.length>9 ? d.slice(-9) : d; }   // ★ 9 หลักท้าย (กัน 0/+66 นำหน้าต่างกัน)
 function codLinkParcels(d){
   const orders=(d.cod&&d.cod.orders)||[];
   const normTrack=(t)=>String(t||"").replace(/\s/g,"").toUpperCase();
   const normName=(s)=>String(s||"").toLowerCase().replace(/คุณ|k\.?|ค\.?|\s|\./g,"").trim();
   const centsOf=(v)=>Math.round(Number(v||0)*100);
-  const byTrack=new Map(), byNameAmt=new Map(), byAmt=new Map();
-  const push=(m,k,o)=>{ if(!m.has(k)) m.set(k,[]); m.get(k).push(o); };
+  const byTrack=new Map(), byPhone=new Map(), byNameAmt=new Map(), byAmt=new Map();
+  const push=(m,k,o)=>{ if(!k&&k!=="0") { if(!k) return; } if(!m.has(k)) m.set(k,[]); m.get(k).push(o); };
   for(const o of orders){
     if(o.tracking_no) byTrack.set(normTrack(o.tracking_no), o);
     if(o.status==='cancelled') continue;
     const amt=centsOf(o.order_total);
+    const pk=codPhoneKey(o.phone); if(pk) push(byPhone, pk, o);
     if(o.recipient && normName(o.recipient)) push(byNameAmt, normName(o.recipient)+"|"+amt, o);
     if(amt) push(byAmt, amt, o);
     if(o.sale_amount!=null && centsOf(o.sale_amount)!==amt && centsOf(o.sale_amount)) push(byAmt, centsOf(o.sale_amount), o);
   }
-  let nTrack=0,nName=0,nAmt=0,nMulti=0,nNone=0;
+  let nPhone=0,nTrack=0,nName=0,nAmt=0,nMulti=0,nNone=0;
   for(const g of ((d.cod&&d.cod.groups)||[])){
     for(const p of g.parcels){
       const codC=centsOf(p.cod);
-      // (1) เลขพัสดุตรง [ปกติไม่ตรง — iShip/BigSeller คนละระบบเลขพัสดุ · เก็บไว้เผื่อบางเคสตรง]
+      // (1) ★ เบอร์โทรตรง (แม่นสุด) — ถ้าลูกค้ามีหลายออเดอร์ → เลือกใบที่ยอด COD ตรงด้วย
+      const pk=codPhoneKey(p.phone);
+      const pc = pk ? (byPhone.get(pk)||[]) : [];
+      if(pc.length){
+        if(pc.length===1){ p._link={ order:pc[0], via:'phone' }; nPhone++; continue; }
+        const exact=pc.filter(o=>centsOf(o.order_total)===codC);
+        if(exact.length===1){ p._link={ order:exact[0], via:'phone' }; nPhone++; continue; }
+        p._link={ candidates:exact.length?exact:pc, via:'multi' }; nMulti++; continue;   // ลูกค้าเดียวหลายออเดอร์ยอดซ้ำ → เลือกเอง
+      }
+      // (2) เลขพัสดุตรง [ปกติไม่ตรง — iShip/BigSeller คนละระบบ]
       const oT = p.tracking ? byTrack.get(normTrack(p.tracking)) : null;
       if(oT){ p._link={ order:oT, via:'track' }; nTrack++; continue; }
-      // (2) ชื่อผู้รับ + ยอด COD ตรง (แม่นสุดที่ทำได้ตอนนี้)
+      // (3) ชื่อผู้รับ + ยอด COD ตรง
       const nc = p.recipient ? (byNameAmt.get(normName(p.recipient)+"|"+codC)||[]) : [];
       if(nc.length===1){ p._link={ order:nc[0], via:'name' }; nName++; continue; }
       if(nc.length>1){ p._link={ candidates:nc, via:'multi' }; nMulti++; continue; }
-      // (3) ยอด COD ตรง (candidate · อาจซ้ำ)
+      // (4) ยอด COD ตรง (candidate)
       const ac=byAmt.get(codC)||[];
       if(ac.length===1){ p._link={ order:ac[0], via:'amt' }; nAmt++; }
       else if(ac.length>1){ p._link={ candidates:ac, via:'multi' }; nMulti++; }
       else { p._link=null; nNone++; }
     }
   }
-  d.cod.linkStats={ track:nTrack, name:nName, amt:nAmt, multi:nMulti, none:nNone };
+  d.cod.linkStats={ phone:nPhone, track:nTrack, name:nName, amt:nAmt, multi:nMulti, none:nNone };
 }
 function codMatchBank(d, g){
   const rows=(d.cod&&d.cod.bankRows)||[]; if(!rows.length) return { found:false, hasStmt:false };
@@ -30057,7 +30073,7 @@ function codExportXlsx(){
     s2.push({ "เลขที่ BQ":g.bq, "วันที่โอน":g.dateKey, "เลขพัสดุ":p.tracking, "ขนส่ง":p.carrier,
       "ผู้รับ":p.recipient, "เบอร์โทร":p.phone, "COD":p.cod, "ค่าธรรมเนียมพัสดุ":p.fee, "โอนสุทธิ":p.net,
       "ออเดอร์ในระบบ":o.order_id||"", "เลข IV":o.iv_no||"", "เลข RE":o.re_no||"",
-      "วิธีลิงก์": L? (L.via==='track'?'เลขพัสดุตรง':L.via==='name'?'ชื่อ+ยอดตรง':L.via==='amt'?'ยอดตรง':L.via==='multi'?`${L.candidates.length} ตัวเลือก`:'') : "ไม่พบ" });
+      "วิธีลิงก์": L? (L.via==='phone'?'เบอร์โทรตรง':L.via==='track'?'เลขพัสดุตรง':L.via==='name'?'ชื่อ+ยอดตรง':L.via==='amt'?'ยอดตรง':L.via==='multi'?`${L.candidates.length} ตัวเลือก`:'') : "ไม่พบ" });
   }
   const wb=XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(s1), "สรุปการโอน");
@@ -30070,9 +30086,10 @@ function codLinkCell(p){
   if(!L) return `<span style="color:#dc2626">✕ ไม่พบในทะเบียน</span>`;
   if(L.via==='multi') return `<span style="color:#a16207" title="มีหลายออเดอร์ยอดตรงกัน — ต้องเลือกเอง / ลิงก์ด้วยเลขพัสดุ">⚠ ${L.candidates.length} ตัวเลือก (ยอดตรง)</span>`;
   const o=L.order; const ref=[o.order_id,o.iv_no,o.re_no].filter(Boolean).map(esc).join(" · ");
-  const badge = L.via==='track' ? `<span style="color:#16a34a;font-weight:700">✓ พัสดุตรง</span>`
-    : L.via==='name' ? `<span style="color:#16a34a;font-weight:700" title="ชื่อผู้รับ + ยอด COD ตรงกับออเดอร์">✓ ชื่อ+ยอดตรง</span>`
-    : `<span style="color:#0369a1" title="จับด้วยยอด COD อย่างเดียว (ควรยืนยันด้วยชื่อผู้รับ)">~ ยอดตรง</span>`;
+  const badge = L.via==='phone' ? `<span style="color:#16a34a;font-weight:700" title="เบอร์โทรตรงกับออเดอร์ (แม่นสุด)">✓ เบอร์ตรง</span>`
+    : L.via==='track' ? `<span style="color:#16a34a;font-weight:700">✓ พัสดุตรง</span>`
+    : L.via==='name' ? `<span style="color:#16a34a;font-weight:700" title="ชื่อผู้รับ + ยอด COD ตรง">✓ ชื่อ+ยอดตรง</span>`
+    : `<span style="color:#0369a1" title="จับด้วยยอด COD อย่างเดียว">~ ยอดตรง</span>`;
   return `${badge} <span class="mono" style="color:#475569">${ref||'—'}</span>`;
 }
 function codRenderTab(d){
@@ -30136,10 +30153,10 @@ function codRenderTab(d){
   }).join("");
   const pendHtml = pending.length ? `<div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:11px 14px;margin-bottom:12px;font-size:12.5px;color:#1e40af">
     ℹ️ มีพัสดุ ${pending.reduce((s,p)=>s+p.parcels.length,0)} ชิ้น (${pending.length} วัน · รวม COD ${fmtM(pending.reduce((s,p)=>s+p.sumCod,0))}) ที่ "โอนแล้ว" แต่ <b>ยังไม่มีในรายงานเครดิต</b> — อัปรายงานเครดิตให้ครอบวันล่าสุด หรือรอขนส่งโอน</div>` : '';
-  const ls=cod.linkStats||{track:0,name:0,amt:0,multi:0,none:0}; const linkedN=(ls.track||0)+(ls.name||0)+(ls.amt||0);
+  const ls=cod.linkStats||{phone:0,track:0,name:0,amt:0,multi:0,none:0}; const linkedN=(ls.phone||0)+(ls.track||0)+(ls.name||0)+(ls.amt||0);
   const linkLine = `<div style="background:${linkedN?'#f0fdf4':'#fffbeb'};border:1px solid ${linkedN?'#bbf7d0':'#fde68a'};border-radius:10px;padding:10px 14px;margin-bottom:12px;font-size:12.5px;color:#334155">
-    🔗 <b>ลิงก์ออเดอร์:</b> ${linkedN}/${totParcels} พัสดุ · ชื่อ+ยอดตรง <b style="color:#16a34a">${ls.name||0}</b>${ls.track?` · เลขพัสดุตรง <b style="color:#16a34a">${ls.track}</b>`:''} · ยอดตรง <b style="color:#0369a1">${ls.amt||0}</b> · หลายตัวเลือก <b style="color:#a16207">${ls.multi||0}</b> · ไม่พบ <b style="color:#dc2626">${ls.none||0}</b>
-    <div style="color:#92400e;margin-top:5px">ℹ️ เลขพัสดุ iShip (TH06…) กับ BigSeller (TH01/03…) <b>คนละระบบ ไม่ตรงกัน</b> → ลิงก์ด้วย <b>ชื่อผู้รับ + ยอด COD</b> · ต้อง <b>re-import BigSeller</b> (ครอบวันเดียวกับ COD) ให้ทะเบียนมีชื่อผู้รับ · ออเดอร์ FACE/LINE ที่ยังไม่คีย์ = "ไม่พบ"</div></div>`;
+    🔗 <b>ลิงก์ออเดอร์:</b> ${linkedN}/${totParcels} พัสดุ · <b style="color:#16a34a">เบอร์ตรง ${ls.phone||0}</b> · ชื่อ+ยอดตรง <b style="color:#16a34a">${ls.name||0}</b>${ls.track?` · พัสดุตรง <b style="color:#16a34a">${ls.track}</b>`:''} · ยอดตรง <b style="color:#0369a1">${ls.amt||0}</b> · หลายตัวเลือก <b style="color:#a16207">${ls.multi||0}</b> · ไม่พบ <b style="color:#dc2626">${ls.none||0}</b>
+    <div style="color:#92400e;margin-top:5px">ℹ️ ลิงก์ด้วย <b>เบอร์โทร</b> (แม่นสุด) → ชื่อ+ยอด → ยอด · ต้อง <b>re-import BigSeller</b> (ครอบวันเดียวกับ COD) ให้ทะเบียนมีเบอร์โทร · ออเดอร์ FACE/LINE ที่ยังไม่คีย์ = "ไม่พบ" · เลขพัสดุ iShip≠BigSeller (คนละระบบ)</div></div>`;
   return `
     <div class="bmp-sum">
       <div class="bmp-sc"><div class="l">รายการโอนเข้าบัญชี</div><div class="v">${groups.length}</div></div>

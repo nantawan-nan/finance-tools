@@ -6,6 +6,10 @@ begin
   if exists (select 1 from information_schema.tables where table_schema='public' and table_name='order_ledger') then
     alter table public.order_ledger add column if not exists tracking_no text;
     alter table public.order_ledger add column if not exists recipient   text;
+    alter table public.order_ledger add column if not exists phone       text;   -- ★ เบอร์โทร = key ลิงก์ COD แม่นสุด
+    create index if not exists idx_order_ledger_phone
+      on public.order_ledger (company_id, phone)
+      where phone is not null and deleted_at is null;
     -- index ช่วยค้นเลขพัสดุตอนลิงก์ COD (partial · เฉพาะที่มีค่า)
     create index if not exists idx_order_ledger_tracking
       on public.order_ledger (company_id, tracking_no)

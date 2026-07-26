@@ -30234,7 +30234,7 @@ async function codSaveToDb(d){
     const co = d.companyId || await fopCompanyId(); if(!co) return;
     const { error } = await sb.from("brec_cod_data").upsert(
       { company_id:co, parcels:(d.cod&&d.cod.parcels)||[], transfers:(d.cod&&d.cod.transfers)||[],
-        manual:(d.cod&&d.cod.manual)||{},
+        manual:(d.cod&&d.cod.manual)||{}, done:(d.cod&&d.cod.done)||{},
         updated_at:new Date().toISOString(), updated_by:(AUTH.user&&AUTH.user.id)||null },
       { onConflict:"company_id" });
     if(error) console.warn("codSaveToDb", error);
@@ -30243,10 +30243,10 @@ async function codSaveToDb(d){
 async function codLoadFromDb(d){
   try{
     const co = d.companyId || await fopCompanyId(); if(!co) return;
-    const { data } = await sb.from("brec_cod_data").select("parcels,transfers,manual").eq("company_id", co).maybeSingle();
+    const { data } = await sb.from("brec_cod_data").select("parcels,transfers,manual,done").eq("company_id", co).maybeSingle();
     if(!data || !((data.parcels&&data.parcels.length)||(data.transfers&&data.transfers.length))) return;
     d.cod = d.cod || {};
-    d.cod.parcels = data.parcels||[]; d.cod.transfers = data.transfers||[]; d.cod.manual = data.manual||{};
+    d.cod.parcels = data.parcels||[]; d.cod.transfers = data.transfers||[]; d.cod.manual = data.manual||{}; d.cod.done = data.done||{};
     if(d.cod.parcels.length && d.cod.transfers.length){
       const g = codGroup(d.cod.parcels, d.cod.transfers);
       d.cod.groups = g.groups; d.cod.pending = g.pending;
@@ -30374,6 +30374,42 @@ function codOpenUpload(){
 }
 function codToggleExpand(id){ const d=brecGet(); d.cod.expanded=d.cod.expanded||new Set(); if(d.cod.expanded.has(id)) d.cod.expanded.delete(id); else d.cod.expanded.add(id); renderToolBankRec(); }
 function codClear(){ const d=brecGet(); if(!confirm("ล้างข้อมูล COD (ลบออกจากระบบด้วย)?")) return; d.cod={}; codClearDb(); renderToolBankRec(); }
+/* ★ กรองการโอนตามสถานะ done (todo/done/all) */
+function codFilteredGroups(d){
+  const groups=(d.cod&&d.cod.groups)||[]; const done=(d.cod&&d.cod.done)||{}; const f=(d.cod&&d.cod.doneFilter)||"todo";
+  if(f==="all") return groups;
+  return groups.filter(g=> f==="done" ? !!done[g.ref] : !done[g.ref]);
+}
+function codSetDoneFilter(f){ const d=brecGet(); d.cod=d.cod||{}; d.cod.doneFilter=f; renderToolBankRec(); }
+/* ★ ติ๊ก "ทำแล้ว" ต่อการโอน (คีย์ BQ เสร็จ) — key=อ้างอิง iShip WD */
+function codToggleDone(ref, checked){
+  const d=brecGet(); d.cod=d.cod||{}; d.cod.done=d.cod.done||{};
+  if(checked) d.cod.done[ref]=true; else delete d.cod.done[ref];
+  codSaveToDb(d); renderToolBankRec();
+}
+/* ★ ส่งออก BQ (CSV · format เหมือน ถอน Marketplace) — 1 แถว/พัสดุ · เช็ค = RE ของออเดอร์ */
+function codExportBq(){
+  const d=brecGet(); const co=COMPANIES.find(c=>c.id===state.company);
+  const groups=codFilteredGroups(d).filter(g=> g.grossOk&&g.netOk);
+  if(!groups.length){ alert("ไม่มีการโอนที่พร้อมส่งออก BQ (ตรวจ filter / ยอดตรง)"); return; }
+  const lines=[["No","เลขที่ BQ","วันที่เงินเข้าบัญชี (DD/MM/YY)","รหัสบัญชี","เลขที่เช็ค","มูลค่าเช็ค EXPRESS","เงินที่ออกสุทธิ","ผลต่าง","ค่าธรรมเนียมรวม","คำอธิบายรายการ"]];
+  let no=0;
+  for(const g of groups){
+    const bm=(typeof codMatchBank==='function')?codMatchBank(d,g):{found:false};
+    const dt=bmpFmtThaiShort((bm.found?bm.row.txn_date:g.dateKey));
+    const list=g.parcels||[];
+    list.forEach((p,idx)=>{
+      no++; const isFirst=idx===0; const o=(p._link&&p._link.order)||{};
+      const chq=o.re_no || o.iv_no || p.tracking || "";
+      lines.push([ no, isFirst?g.bq:"", isFirst?dt:"", isFirst?"S1":"", chq,
+        Number(p.cod||0).toFixed(2), Number(p.cod||0).toFixed(2), "0.00",
+        isFirst?Number(g.fee||0).toFixed(2):"", isFirst?("รับเงิน COD ขนส่ง "+(g.ref||"")):"" ]);
+    });
+  }
+  const csv="﻿"+lines.map(r=>r.map(v=>{ const s=String(v==null?"":v); return /[",\n]/.test(s)?`"${s.replace(/"/g,'""')}"`:s; }).join(",")).join("\r\n");
+  const blob=new Blob([csv],{type:"text/csv;charset=utf-8"}); const url=URL.createObjectURL(blob); const a=document.createElement("a");
+  a.href=url; a.download=`BQ_COD_${(co&&co.code)||state.company}_${new Date().toISOString().slice(0,10).replace(/-/g,"")}.csv`; a.click(); URL.revokeObjectURL(url);
+}
 function codExportXlsx(){
   const d=brecGet(); const groups=(d.cod&&d.cod.groups)||[];
   if(!groups.length){ alert("ยังไม่มีข้อมูลจับคู่ — อัปครบ 2 ไฟล์ก่อน"); return; }
@@ -30438,19 +30474,23 @@ function codRenderTab(d){
   const stmOk=groups.filter(g=>codMatchBank(d,g).found).length;
   const badN=groups.filter(g=>!(g.grossOk&&g.netOk)).length;
   const fmtM=(n)=>bmpFmtMoney(n);
-  const cards=groups.slice().sort((a,b)=>String(b.dateKey).localeCompare(String(a.dateKey))).map(g=>{
+  const doneMap=(cod.done||{});
+  const cards=codFilteredGroups(d).slice().sort((a,b)=>String(b.dateKey).localeCompare(String(a.dateKey))).map(g=>{
     const bm=codMatchBank(d,g);
     const stmBadge = !bm.hasStmt ? `<span class="bmp-stm none">STM —</span>`
-      : bm.found ? `<span class="bmp-stm ok" title="พบเงินเข้า ${bm.row.txn_date} ${fmtM(bm.row.deposit)}">✓ ตรง STM${bm.exact?'':' (วันต่าง)'}</span>`
+      : bm.found ? `<span class="bmp-stm ok" title="พบเงินเข้า ${bm.row.txn_date} ${fmtM(bm.row.deposit)}">✓ ตรง STM${bm.exact?'':` · เข้าจริง ${bmpFmtThaiShort(bm.row.txn_date)}`}</span>`
       : `<span class="bmp-stm bad">⚠️ ไม่พบใน STM</span>`;
     const isEx=cod.expanded.has(g.id);
-    const balOk=g.grossOk&&g.netOk;
-    return `<div class="bmp-card ${balOk?'':'warn'}">
+    const balOk=g.grossOk&&g.netOk; const isDone=!!doneMap[g.ref];
+    return `<div class="bmp-card ${balOk?'':'warn'} ${isDone?'done':''}">
       <div class="bmp-head" onclick="codToggleExpand('${esc(g.id)}')">
         <div class="bmp-h1">
           <span class="bmp-chip">🚚 COD</span>${stmBadge}
           <span class="bmp-shop">${esc(g.bank||'')} ${esc(g.acctNo||'')}</span>
           ${balOk?`<span class="bmp-ok">✓ ยอดตรง</span>`:`<span class="bmp-warn">⚠️ ยอดไม่ตรง</span>`}
+          <div style="margin-left:auto;display:flex;gap:8px;align-items:center" onclick="event.stopPropagation()">
+            <label style="display:flex;align-items:center;gap:4px;font-size:11.5px;font-weight:700;cursor:pointer;color:${isDone?'#16a34a':'#94a3b8'}"><input type="checkbox" ${isDone?'checked':''} onchange="codToggleDone('${esc(g.ref)}', this.checked)" style="width:15px;height:15px;accent-color:#16a34a;cursor:pointer"> ทำแล้ว</label>
+          </div>
         </div>
         <div class="bmp-h2">
           <div><span class="lbl">วันที่โอน</span><span class="val">${esc(g.dateKey)}</span></div>
@@ -30494,10 +30534,13 @@ function codRenderTab(d){
     ${pendHtml}
     ${linkLine}
     <div style="display:flex;gap:8px;margin:0 0 12px;flex-wrap:wrap;align-items:center">
-      <div style="font-size:12.5px;color:var(--ink-2,#475569)">1 การโอน = พัสดุที่ 'วันที่โอนเงิน' ตรงกัน · แต่ละพัสดุลิงก์ไปออเดอร์ในระบบ (เลขพัสดุ/ยอด)</div>
+      <div class="bmp-filt"><span class="fl">สถานะ:</span>
+        ${['todo','done','all'].map(f=>`<button class="${((cod.doneFilter||'todo')===f)?'on':''}" onclick="codSetDoneFilter('${f}')">${f==='todo'?'รอดำเนินการ':f==='done'?'ดำเนินการแล้ว':'ทั้งหมด'}</button>`).join('')}
+      </div>
       <div style="flex:1"></div>
       <button class="brec-btn" onclick="incSetCodReGoto()"><i data-lucide="receipt"></i> ไปรับชำระ (ออก RE)</button>
-      <button class="brec-btn primary" onclick="codExportXlsx()"><i data-lucide="file-spreadsheet"></i> ⬇ Export (สรุป + รายพัสดุ)</button>
+      <button class="brec-btn primary" onclick="codExportBq()"><i data-lucide="download"></i> ⬇ ส่งออก BQ (CSV)</button>
+      <button class="brec-btn" onclick="codExportXlsx()"><i data-lucide="file-spreadsheet"></i> Export (สรุป+พัสดุ)</button>
       <button class="brec-btn warn" onclick="codClear()"><i data-lucide="trash-2"></i> ล้าง</button>
     </div>
     <div class="bmp-cards">${cards}</div>`;

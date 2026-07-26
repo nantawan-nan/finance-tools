@@ -191,6 +191,12 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-26 (19) — ★ COD ขนส่ง: ส่งออก BQ (CSV เหมือนแพลตฟอร์ม) + ติ๊กทำแล้ว + filter รอ/เสร็จ
+- **เจ้าของ:** อยากให้ COD มี "ส่งออก BQ" เหมือนหน้า ถอน Marketplace + "ติ๊กว่าทำแล้วหรือยัง"
+- **`codExportBq`** (CSV · 10 คอลัมน์เหมือน `bmpExportCsv`): 1 แถว/พัสดุ · หัวการโอน (BQ/วันเงินเข้า STM/รหัสบัญชี S1/ค่าธรรมเนียมรวม=iShip fee/desc) · เลขที่เช็ค = RE ของออเดอร์ (fallback IV/tracking) · มูลค่าเช็ค=COD · ส่งเฉพาะการโอนที่ยอดตรง + ตาม filter
+- **ติ๊กทำแล้ว:** `brec_cod_data` +`done jsonb` (key=อ้างอิง iShip WD ref) · `codToggleDone`/`codSetDoneFilter` · checkbox บนหัวการ์ด (done = จาง/เขียว) · chip filter **รอดำเนินการ/ดำเนินการแล้ว/ทั้งหมด** (`codFilteredGroups` · default todo) · การ์ด+BQ export กรองตาม filter
+- **STM (วันต่าง) โชว์วันเข้าจริง** ในการ์ด COD ด้วย (`เข้าจริง DD/MM/YY`) · save/load `done` ใน brec_cod_data · syntax OK · **ต้อง push (migration done column)**
+
 ### 2026-07-26 (18d) — ★ รับชำระ COD: บันทึก batch (re_export_batches) → ตรวจกลับด้วย 1.9.1 ได้
 - **เจ้าของ:** คีย์ COD RE เสร็จ → บันทึก batch ไหม · ตรวจกลับได้ไหม (เหมือน RE ปกติ)
 - **แก้:** `incCreateReBatch(company, ready, seedOverride)` +param seed (COD ใช้ `codReSeed` ไม่ใช่ `reSeed`) · `incExportCodRe` เรียกท้าย (fire-and-forget) → insert `re_export_batches` (order_ids=COD order_id · start/end_re จาก codReSeed) · **แท็บ "ตรวจ 1.9.1" เลือก batch นี้ตรวจ coverage ได้เลย** (`incReBatchCoverage` join order_ledger — COD orders อยู่ในทะเบียน) · syntax OK · ไม่ต้อง migration (reuse re_export_batches + verify flow เดิม)

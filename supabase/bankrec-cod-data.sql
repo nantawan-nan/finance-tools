@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS brec_cod_data (
 );
 
 ALTER TABLE brec_cod_data ADD COLUMN IF NOT EXISTS manual jsonb;   -- ★ ผู้ใช้เลือกออเดอร์เอง (key=เลขพัสดุ → order_id)
+ALTER TABLE brec_cod_data ADD COLUMN IF NOT EXISTS done   jsonb;   -- ★ ติ๊กทำแล้ว (key=อ้างอิง iShip WD → true)
 
 GRANT ALL ON brec_cod_data TO authenticated;
 GRANT ALL ON brec_cod_data TO service_role;

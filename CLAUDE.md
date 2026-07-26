@@ -191,6 +191,15 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-26 (24) — ★ AP: ป๊อปอัพเตือนบิลเลยกำหนดชำระ (วันชำระเงินเป็นอดีต · ยังไม่จ่าย) → ติ๊กจ่าย/เปลี่ยนวัน/ใส่ PS(ไม่บังคับ)
+- **เจ้าของ:** การเงินกรอกวันชำระ 23/07 แต่วันนี้ 26/07 แล้วยังไม่จ่าย → พอเข้าหน้า AP ให้เด้งป๊อปอัพเป็นรายการ · ติ๊กว่าจ่ายยัง · เปลี่ยนวันจ่าย · **ใส่เลข PS แบบไม่บังคับ** (ไม่ใส่ก็ย้ายไป "จ่ายแล้ว" ได้ · สิ้นเดือนอัปรายงานจ่าย → ระบบเติม PS ให้ทีหลัง) · เตือนให้ดึงรายงานจ่ายก่อน แต่ติ๊กมือได้
+- **`apoOverdueList`** = enriched ที่ `outstanding>0 · status≠paid · planned_payment_date<today` · **`apoMaybeShowOverduePopup`** เด้งครั้งเดียว/รอบ (`window._apoOvDismiss[co]`) ท้าย `renderToolApOutstanding` · **แบนเนอร์แดง** เหนือ KPI (เปิดป๊อปซ้ำได้)
+- **`apoOpenOverdueModal`:** ตารางต่อบิล — ติ๊กจ่าย · ยอดคงค้าง · เลยกี่วัน · date input (default=วันชำระที่กรอก) · ช่อง PS (placeholder "ไม่ใส่ก็ได้") · master เลือกทั้งหมด · banner แนะนำดึงรายงาน + ปุ่มอัปรายงานจ่าย
+- **`apoOverdueApply`:** insert `ap_payments` (amount=คงค้าง · paid_date=วันในแถว · pv_no=PS||null · remark "จ่ายมือ (รอเลข PS)") → trigger `fn_ap_recompute` → paid → ย้ายไป "จ่ายแล้ว"
+- **★ เติม PS อัตโนมัติทีหลัง:** `apstCommit` เคส `inv.status==="paid"` (จ่ายมือแล้ว) เดิม "ข้าม" → เพิ่ม update `ap_payments` (voucher_id/pv_no/receipt_no/cheque_no) เฉพาะที่ `voucher_id IS NULL` → ผูกเข้ากับ PS ของรายงาน (ไม่จ่ายซ้ำ · ป้องกัน double เพราะ existKeys/skip เดิมยังอยู่)
+- **`apstLoadVouchers`** pseudo-voucher (จ่ายมือ) โชว์ `pv_no` เป็นเลข PS ถ้ากรอกไว้ (fallback invoice_no)
+- **verified:** syntax OK · boot 0 error · reuse ap_payments (pv_no/remark คอลัมน์เดิม) · ไม่ต้อง migration
+
 ### 2026-07-26 (23) — ★★ หน้าหลัก: ข้อมูลจริงทั้งหมด + TO-DO เตือนงาน + ทางลัดใช้บ่อย + ผู้ใช้ล่าสุด
 - **เจ้าของ:** หน้าหลักให้เป็นข้อมูลจริงทั้งหมด · เปลี่ยนกราฟ "ภาพรวมเงินสด" เป็นทางลัดหน้าที่ใช้บ่อย · กรอบผู้ใช้งานล่าสุดจริง · เพิ่ม TO-DO เตือนงาน · STM โชว์ 09/09/69 ผิด (เพี้ยนตอน import) เอาออก
 - **ลบของปลอมทิ้ง:** `activity` array (mock) · SVG กราฟเงินสด + เงินเข้า/ออก/คาดการณ์ hardcode (4.12M/3.815M/3.15M) · การ์ด STM ที่อ่าน `bank_balances` (มี future date เพี้ยน) — ตัด `lastBalDate` ทิ้ง (KPI เงินสดใช้ `fn_balance_as_of(today)` กรอง future อยู่แล้ว)

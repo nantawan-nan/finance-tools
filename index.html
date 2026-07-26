@@ -14818,6 +14818,100 @@ async function apoBulkUnpay(){
   }catch(e){ alert("ยกเลิกไม่สำเร็จ: " + fopErr(e)); }
 }
 
+/* ★ เตือนบิลเลยกำหนด "วันชำระเงิน" ที่ยังไม่จ่าย — ป๊อปอัพให้ติ๊กจ่าย/เปลี่ยนวัน/ใส่ PS(ไม่บังคับ)
+   จ่ายมือก่อน (ไม่ใส่ PS ก็ได้) → ย้ายไป "จ่ายแล้ว" · เลข PS เติมอัตโนมัติเมื่ออัปรายงานจ่ายชำระทีหลัง */
+function apoOverdueList(){
+  const d=apoGet(); const today=new Date().toISOString().slice(0,10);
+  return apoEnrich(d.invoices||[])
+    .filter(r=> Number(r.amount_outstanding)>0 && r.status!=='paid' && r.planned_payment_date && r.planned_payment_date<today)
+    .sort((a,b)=> String(a.planned_payment_date).localeCompare(String(b.planned_payment_date)));
+}
+function apoOverdueDays(iso){ if(!iso) return 0; const t=new Date(); t.setHours(0,0,0,0); const d=new Date(String(iso)+"T00:00:00"); return Math.max(0,Math.floor((t-d)/86400000)); }
+function apoMaybeShowOverduePopup(){
+  if(!fopCanWrite()) return;
+  const co=state.company; window._apoOvDismiss=window._apoOvDismiss||{};
+  if(window._apoOvDismiss[co]) return;                 // เด้งครั้งเดียวต่อรอบ (session) · เปิดซ้ำจากแบนเนอร์ได้
+  const list=apoOverdueList();
+  if(list.length){ window._apoOvDismiss[co]=true; apoOpenOverdueModal(); }
+}
+function apoOpenOverdueModal(){
+  const list=apoOverdueList(); const today=new Date().toISOString().slice(0,10);
+  if(!list.length){ alert("ไม่มีบิลเลยกำหนดชำระที่ค้างจ่าย 🎉"); return; }
+  const total=list.reduce((s,r)=>s+Number(r.amount_outstanding||0),0);
+  const rows=list.map(r=>{ const id=esc(String(r.id)); const dd=apoOverdueDays(r.planned_payment_date);
+    return `<tr>
+      <td style="text-align:center"><input type="checkbox" class="apo-ovchk" data-id="${id}" onchange="apoOvUpdateFoot()"></td>
+      <td>${esc(r._vendor||'—')}<div style="font-size:11px;color:#94a3b8">${esc(r.invoice_no||r._docno||'')}</div></td>
+      <td style="text-align:right;font-weight:700;color:#e11d48">${fopFmt(r.amount_outstanding)}</td>
+      <td style="text-align:center"><span style="font-size:11px;font-weight:700;color:#dc2626;background:#fee2e2;padding:2px 8px;border-radius:999px">เลย ${dd} วัน</span></td>
+      <td><input type="date" class="apo-ovdate" data-id="${id}" value="${esc(r.planned_payment_date||today)}" style="font-size:12px;padding:5px 7px;border:1px solid #cbd5e1;border-radius:7px"></td>
+      <td><input type="text" class="apo-ovps" data-id="${id}" placeholder="ไม่ใส่ก็ได้" style="font-size:12px;padding:5px 8px;border:1px solid #e2e8f0;border-radius:7px;width:118px;font-family:monospace"></td>
+    </tr>`; }).join('');
+  const html=`<div id="apoOvModal" style="position:fixed;inset:0;background:rgba(15,23,42,.5);z-index:100000;display:flex;align-items:center;justify-content:center;padding:20px" onclick="if(event.target===this)apoCloseOverdue()">
+    <div style="background:#fff;border-radius:16px;max-width:920px;width:100%;max-height:88vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.3)" onclick="event.stopPropagation()">
+      <div style="padding:18px 22px;border-bottom:1px solid #eef2f7;display:flex;align-items:center;gap:12px">
+        <span style="width:40px;height:40px;border-radius:11px;background:#fee2e2;color:#dc2626;display:flex;align-items:center;justify-content:center;flex:none"><i data-lucide="alarm-clock" style="width:22px;height:22px"></i></span>
+        <div style="flex:1"><div style="font-size:17px;font-weight:700">บิลเลยกำหนดชำระ ${list.length} ใบ · รวม ${fopFmt(total)} ฿</div><div style="font-size:12.5px;color:#64748b;margin-top:1px">วันชำระเงินที่กรอกไว้เลยวันนี้แล้ว แต่ยังไม่ได้บันทึกจ่าย</div></div>
+        <button onclick="apoCloseOverdue()" style="border:none;background:none;font-size:24px;color:#94a3b8;cursor:pointer;line-height:1">×</button>
+      </div>
+      <div style="padding:11px 22px;background:#fffbeb;border-bottom:1px solid #fde68a;font-size:12.5px;color:#92400e;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <i data-lucide="info" style="width:16px;height:16px;flex:none"></i>
+        <span style="flex:1;min-width:220px">แนะนำ: ดึง <b>รายงานจ่ายชำระหนี้</b> มาวางก่อน ระบบจะเติมเลข PS ให้อัตโนมัติ · หรือยังไม่พร้อม → ติ๊ก "จ่ายแล้ว" ด้วยมือก่อนได้ (เลข PS <b>เว้นว่างได้</b> · เติมทีหลังตอนอัปรายงาน)</span>
+        <button class="btn ghost btn sm" onclick="apoCloseOverdue();var f=document.getElementById('apoPayFile');if(f)f.click()" style="border-color:#f59e0b;color:#b45309;flex:none">⬆ อัปรายงานจ่ายชำระ</button>
+      </div>
+      <div style="overflow:auto;flex:1;padding:6px 22px">
+        <table style="width:100%;border-collapse:collapse;font-size:13px">
+          <thead><tr style="position:sticky;top:0;background:#f8fafc;border-bottom:2px solid #e2e8f0;z-index:1">
+            <th style="padding:8px;width:40px"><input type="checkbox" id="apoOvAll" onchange="apoOvSelectAll(this.checked)" title="เลือกทั้งหมด"></th>
+            <th style="padding:8px;text-align:left">ผู้ขาย / เลขบิล</th>
+            <th style="padding:8px;text-align:right">ยอดคงค้าง</th>
+            <th style="padding:8px;text-align:center">เลยกำหนด</th>
+            <th style="padding:8px;text-align:left">วันที่จ่ายจริง</th>
+            <th style="padding:8px;text-align:left">เลข PS (ไม่บังคับ)</th>
+          </tr></thead><tbody>${rows}</tbody>
+        </table>
+      </div>
+      <div style="padding:14px 22px;border-top:1px solid #eef2f7;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <span style="font-size:12px;color:#94a3b8">ติ๊กรายการที่จ่ายแล้ว → ระบบย้ายไปแท็บ "จ่ายแล้ว"</span>
+        <div style="flex:1"></div>
+        <button class="btn ghost" onclick="apoCloseOverdue()">ปิดไว้ทีหลัง</button>
+        <button class="btn" id="apoOvApplyBtn" onclick="apoOverdueApply()" disabled style="opacity:.5">บันทึกจ่ายที่เลือก (0)</button>
+      </div>
+    </div></div>`;
+  document.getElementById('apoOvModalWrap')?.remove();
+  const wrap=document.createElement('div'); wrap.id='apoOvModalWrap'; wrap.innerHTML=html;
+  document.body.appendChild(wrap);
+  if(window.lucide) lucide.createIcons();
+}
+function apoOvSelectAll(on){ document.querySelectorAll('.apo-ovchk').forEach(c=>{c.checked=on;}); apoOvUpdateFoot(); }
+function apoOvUpdateFoot(){ const n=document.querySelectorAll('.apo-ovchk:checked').length; const b=document.getElementById('apoOvApplyBtn'); if(b){ b.disabled=!n; b.style.opacity=n?'':'.5'; b.textContent=`บันทึกจ่ายที่เลือก (${n})`; } const all=document.getElementById('apoOvAll'); const tot=document.querySelectorAll('.apo-ovchk').length; if(all){ all.checked=n>0&&n===tot; } }
+function apoCloseOverdue(){ document.getElementById('apoOvModalWrap')?.remove(); }
+async function apoOverdueApply(){
+  const checks=[...document.querySelectorAll('.apo-ovchk:checked')];
+  if(!checks.length) return;
+  const enriched=apoEnrich(apoGet().invoices||[]); const byId={}; enriched.forEach(r=>byId[String(r.id)]=r);
+  const today=new Date().toISOString().slice(0,10);
+  const payload=[];
+  for(const c of checks){ const id=c.getAttribute('data-id'); const r=byId[id]; if(!r||Number(r.amount_outstanding)<=0) continue;
+    const dEl=document.querySelector(`.apo-ovdate[data-id="${id}"]`), pEl=document.querySelector(`.apo-ovps[data-id="${id}"]`);
+    const pd=(dEl&&dEl.value)||r.planned_payment_date||today; const ps=((pEl&&pEl.value)||'').trim();
+    payload.push({ ap_invoice_id:r.id, paid_date:pd, amount:Number(r.amount_outstanding), method:'transfer',
+      bank_account_id:r.pay_from_account_id||null, pv_no:ps||null,
+      remark: ps?null:'จ่ายมือ (ป๊อปอัพเตือน · รอเลข PS จากรายงาน)', created_by:AUTH.user?AUTH.user.id:null });
+  }
+  if(!payload.length){ alert('ไม่มีรายการที่เลือก'); return; }
+  const b=document.getElementById('apoOvApplyBtn'); if(b){ b.disabled=true; b.textContent='กำลังบันทึก...'; }
+  try{
+    const cid=await fopCompanyId(); payload.forEach(p=>p.company_id=cid);
+    const { error }=await sb.from('ap_payments').insert(payload); if(error) throw error;
+    apoCloseOverdue();
+    const noPs=payload.filter(p=>!p.pv_no).length;
+    alert(`บันทึกจ่ายสำเร็จ ${payload.length} รายการ → ย้ายไปแท็บ "จ่ายแล้ว"`+(noPs?`\n(${noPs} รายการไม่ใส่ PS — จะเติมเลข PS ให้อัตโนมัติเมื่ออัปรายงานจ่ายชำระ)`:''));
+    state.apo[state.company]=null;
+    renderToolApOutstanding();
+  }catch(e){ if(b){ b.disabled=false; b.textContent='บันทึกจ่ายที่เลือก'; } alert('บันทึกไม่สำเร็จ: '+fopErr(e)); }
+}
+
 /* col-filter dropdown HTML — Excel-style */
 function apoColFilter(colKey, distinctValues, counts, fmt){
   const d = apoGet();
@@ -15018,6 +15112,13 @@ async function renderToolApOutstanding(){
   const inv = apoFilterAndSort(enriched);
   const slicerBase = f.showPaid ? enriched : enriched.filter(r=>r.status!=='paid');  // สไลเซอร์นับเฉพาะคงค้าง
   const kpi = apoKpis(inv);   // KPI แปรตามตัวกรอง/สไลเซอร์
+  // ★ แบนเนอร์เตือนบิลเลยกำหนด "วันชำระเงิน" ที่ยังไม่จ่าย
+  const ovList = enriched.filter(r=> Number(r.amount_outstanding)>0 && r.status!=='paid' && r.planned_payment_date && r.planned_payment_date<today);
+  const overdueBanner = (canWrite && ovList.length) ? `<div style="margin:2px 0 14px;padding:12px 16px;background:linear-gradient(135deg,#fef2f2,#fff);border:1px solid #fecaca;border-left:4px solid #dc2626;border-radius:12px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+      <span style="width:36px;height:36px;border-radius:10px;background:#fee2e2;color:#dc2626;display:flex;align-items:center;justify-content:center;flex:none"><i data-lucide="alarm-clock" style="width:19px;height:19px"></i></span>
+      <div style="flex:1;min-width:200px"><div style="font-weight:700;font-size:14.5px;color:#b91c1c">มีบิลเลยกำหนดชำระ ${ovList.length} ใบ · รวม ${fopFmt(ovList.reduce((s,r)=>s+Number(r.amount_outstanding||0),0))} ฿</div><div style="font-size:12.5px;color:#7f1d1d;margin-top:1px">วันชำระเงินเลยวันนี้แล้วแต่ยังไม่บันทึกจ่าย — ติ๊กจ่าย / เปลี่ยนวัน / ใส่ PS (ไม่บังคับ)</div></div>
+      <button class="btn btn sm" onclick="apoOpenOverdueModal()" style="background:#dc2626;border-color:#dc2626;flex:none">ตรวจ / ติ๊กจ่าย →</button>
+    </div>` : '';
 
   main.innerHTML = `
     <div class="page-head">
@@ -15025,6 +15126,7 @@ async function renderToolApOutstanding(){
       <div class="sub">${esc(t.long)}</div>
     </div>
     ${apstTabBarHtml("outstanding")}
+    ${overdueBanner}
     <div class="apo-kpis">
       <div class="apo-kpi" style="--kc:#e11d48"><div class="apo-kpi-bar"></div><div class="apo-kpi-v"><span id="apoKpiOut">${fopFmt(kpi.totalOut)}</span><i>฿</i></div><div class="apo-kpi-l">คงค้าง (ตามตัวกรอง) · <span id="apoKpiOutN">${inv.length}</span> บิล</div></div>
       <div class="apo-kpi" style="--kc:#d97706"><div class="apo-kpi-bar"></div><div class="apo-kpi-v"><span id="apoKpiOverdue">${fopFmt(kpi.totalOverdue)}</span><i>฿</i></div><div class="apo-kpi-l">ยอดเกินกำหนด</div></div>
@@ -15077,6 +15179,7 @@ async function renderToolApOutstanding(){
   if(window.lucide && window.lucide.createIcons){ try{ window.lucide.createIcons(); }catch(e){} }
   apoUpdateIndeterminate();
   apoUpdateBulkBar();
+  apoMaybeShowOverduePopup();   // ★ เด้งเตือนบิลเลยกำหนด (ครั้งเดียวต่อรอบ)
 }
 
 /* helper: parse ตัวเลขที่มี comma เช่น "500,000.00" → 500000 */
@@ -15606,7 +15709,12 @@ async function apstCommit(){
         const key=`${v.ps_no}|${apstDocKey(d.doc)}`;
         if(imp.existKeys.has(key)) continue;                 // นำเข้าแล้ว → ข้าม (idempotent)
         let inv=apstMatchDoc(d.doc, imp.invMap);
-        if(inv && inv.status==="paid"){ imp.existKeys.add(key); continue; }  // จ่ายอยู่แล้ว → ข้าม
+        if(inv && inv.status==="paid"){
+          // ★ จ่ายอยู่แล้ว (เช่น จ่ายมือจากป๊อปอัพเตือน · ยังไม่มี PS) → ผูกเข้ากับ PS ของรายงาน (เติมเลข PS ให้อัตโนมัติ · ไม่สร้างจ่ายซ้ำ)
+          try{ await sb.from("ap_payments").update({ voucher_id:vou.id, pv_no:v.ps_no, receipt_no:d.doc, cheque_no:v.cheque_no||null })
+            .eq("company_id",cid).eq("ap_invoice_id",inv.id).is("deleted_at",null).is("voucher_id",null); }catch(_){}
+          imp.existKeys.add(key); continue;
+        }
         if(!inv){
           const fields={
             company_id:cid, vendor_id:vendor?vendor.id:null, vendor_name_raw:v.vendor||null,
@@ -15857,7 +15965,8 @@ async function apstLoadVouchers(){
     for(const invId in byInv){
       const pays=byInv[invId]; const inv=(pays[0].ap_invoices)||{}; const pid='manual-'+invId;
       const dates=pays.map(p=>p.paid_date).filter(Boolean).sort();
-      vouchers.push({ id:pid, _manual:true, ps_no:(inv.invoice_no||'จ่ายเอง'),
+      const manualPs=(pays.find(p=>p.pv_no)||{}).pv_no;   // ★ ถ้าจ่ายมือแล้วใส่ PS ไว้ → โชว์เป็นเลข PS
+      vouchers.push({ id:pid, _manual:true, ps_no:(manualPs||inv.invoice_no||'จ่ายเอง'),
         vendor_name: inv.vendor_name_raw||'', pay_date: dates[dates.length-1]||null,
         net_amount: pays.reduce((s,p)=>s+Number(p.amount||0),0), discount_amount:0,
         bank_label:'', cheque_no:'', cheque_status:'', _cat: inv.category||'' });

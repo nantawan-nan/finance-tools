@@ -4530,13 +4530,14 @@ function incCodReCandidates(){
       const brand = incBrandOf(o);
       const outstanding = Number(o.sale_amount)||Number(o.order_total)||Number(p.cod)||0;
       const codAmt = Number(p.cod)||0;
+      const ivDate = o.iv_date || o.order_date || paidISO;   // ★ วัน IV ไม่มี → ใช้วันสั่ง/วันเงินเข้าแทน (ไม่บล็อกการส่งออก)
       out.push({
-        arDate:o.iv_date||null, arIv:o.iv_no||null, actualBrand:brand,
+        arDate:ivDate, arIv:o.iv_no||null, actualBrand:brand,
         arOutstanding:outstanding, orderNo:o.order_id, channel:'',
         paymentDate:paidISO, paidISO, netAmount:outstanding, diff:0,   // โอนตรง/COD: เงินเข้าเต็ม ไม่มีค่าธรรมเนียม
         arCustCode:cust, bankCode:bankCodeOf('', brand), re_no:o.re_no||null,
         _bq:g.bq, _stm:bm.found, _cod:codAmt, _tracking:p.tracking, _recipient:p.recipient, _linkVia:L.via,
-        warning: !o.iv_no ? "ยังไม่คีย์ IV" : (!o.iv_date ? "ไม่มีวันที่ IV" : (o.re_no ? "ออก RE แล้ว" : (!bm.found ? "ยังไม่พบเงินเข้าใน STM" : (Math.abs(codAmt-outstanding)>0.5?`COD ${codAmt}≠IV ${outstanding}`:""))))
+        warning: !o.iv_no ? "ยังไม่คีย์ IV" : (o.re_no ? "ออก RE แล้ว" : (!bm.found ? "ยังไม่พบเงินเข้าใน STM" : (Math.abs(codAmt-outstanding)>0.5?`COD ${codAmt}≠IV ${outstanding}`:"")))
       });
     }
   }
@@ -30242,7 +30243,7 @@ async function codLoadOrders(d){
     const all=[]; const PAGE=1000;
     for(let from=0; ; from+=PAGE){
       const { data, error } = await sb.from("order_ledger")
-        .select("order_id,tracking_no,recipient,phone,payment_method,order_total,sale_amount,order_date,iv_no,re_no,channel_group,status,products")
+        .select("order_id,tracking_no,recipient,phone,payment_method,order_total,sale_amount,order_date,iv_no,iv_date,re_no,channel_group,status,products")
         .eq("company_id", co).is("deleted_at", null).range(from, from+PAGE-1);
       if(error){ console.warn("codLoadOrders", error); break; }
       all.push(...(data||[]));

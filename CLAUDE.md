@@ -191,6 +191,11 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-26 (18b) — ★ fix รับชำระ COD: "ไม่มีวันที่ IV" ทุกแถว (codLoadOrders ลืม select iv_date)
+- **เจ้าของ:** อัป BigSeller แล้ว COD RE ทุกแถวขึ้น "ไม่มีวันที่ IV" · พร้อมออก RE = 0 · ส่งออกไม่ได้ (ทั้งที่มี IV + STM ✓)
+- **ต้นเหตุ:** `codLoadOrders` select ไม่มี `iv_date` → `o.iv_date` undefined → `incCodReReady` (ต้องมี arDate) fail หมด
+- **แก้:** เพิ่ม `iv_date` ใน select · `incCodReCandidates` arDate = `iv_date || order_date || paidISO` (fallback ไม่บล็อก) · ตัด warning "ไม่มีวันที่ IV" · syntax OK · ไม่ต้อง migration (แค่ select + fallback)
+
 ### 2026-07-26 (18) — ★ รับชำระ เฟส B: เก็บ "วิธีชำระ (COD/Prepaid)" + โชว์ COD BigSeller ที่รอเก็บเงินปลายทาง
 - **เจ้าของขอ (เฟส B):** col BM "วิธีการชำระเงิน"=COD → เช็คว่ารับเงินหรือยัง (จาก COD ขนส่ง) · แยกจาก Prepaid (โอนตรง = เฟส C)
 - **parser BigSeller เก็บ `payment_method`** (col [64] "วิธีการชำระเงิน" · fuzzy `วิธีการชำระเงิน|payment method`) → `order_ledger.payment_method` (migration `orders_cod_tracking.sql` +column) · ingest insert+backfill · `codLoadOrders` select · **verified (ไฟล์จริง):** ค่า COD 963/Prepaid 2183 · Manual = COD 147 + Prepaid 71

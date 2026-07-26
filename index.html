@@ -24579,6 +24579,16 @@ function bmpParseChequeReport(text){
    - buffer orders + adjustments until เจอ "การถอนเงิน"
    - close group, create withdrawal
    ============================================================ */
+/* ★ หา subset ของออเดอร์ (index ใน assigned) ที่ net รวม = targetCents (สตางค์ · ±1) — เดี่ยว→คู่→สาม
+   posIdx เรียงใหม่สุดก่อน → prefer ย้ายออเดอร์ใหม่สุด · คืน array ของ index หรือ null (หาเป๊ะไม่ได้) */
+function bmpSubsetForCarry(posIdx, assigned, targetCents){
+  const arr = posIdx.map(k => ({ k, c: Math.round(Number(assigned[k].amount||0)*100) }));
+  const n = arr.length;
+  for(let i=0;i<n;i++) if(Math.abs(arr[i].c - targetCents) <= 1) return [arr[i].k];
+  for(let i=0;i<n;i++) for(let j=i+1;j<n;j++) if(Math.abs(arr[i].c + arr[j].c - targetCents) <= 1) return [arr[i].k, arr[j].k];
+  for(let i=0;i<n;i++) for(let j=i+1;j<n;j++) for(let l=j+1;l<n;l++) if(Math.abs(arr[i].c + arr[j].c + arr[l].c - targetCents) <= 1) return [arr[i].k, arr[j].k, arr[l].k];
+  return null;
+}
 function bmpGroupWithdrawals(parsed, arData, chqData, salesData, shopName, sharedSeqByDay, ledgerByOrder){
   const txns = parsed.txns;
 
@@ -24653,22 +24663,38 @@ function bmpGroupWithdrawals(parsed, arData, chqData, salesData, shopName, share
           acc = +(acc - dayNet).toFixed(2);
         } else break;
       }
-      // ★ เศษที่คร่อมกลางวัน → ดัน "รายออเดอร์" (เช็ค) ใหม่สุดไปงวดหน้า (ไม่ใช่ยกเป็นเงินสด)
-      //   เดิม: เช็คของออเดอร์ยกไปยังค้างในงวดนี้ → ใบฝากเช็คงวดนี้เกิน STM (เจ้าของแจ้ง: "ต้องเลือกเช็คใบไหนออก งง")
-      //   ตอนนี้: ย้ายทั้งออเดอร์ (เช็ค) ไปงวดหน้า → ใบฝากงวดนี้ = ตรง STM · เช็คยกไปอยู่ในใบฝากงวดถัดไปจริง
-      //   ดันเฉพาะออเดอร์บวก (net>0 = มีเช็ค) · ค่าใช้จ่าย (ยกเลิก/โฆษณา net≤0) คงอยู่งวดนี้ · หยุดถ้าดันแล้วงวดนี้จะขาด
-      while((acc - wdAmount) > 0.01){
-        let j = assigned.length - 1;
-        while(j >= 0 && !(assigned[j].type === "รายรับจากคำสั่งซื้อ" && assigned[j].amount > 0.01)) j--;
-        if(j < 0) break;                                  // ไม่มีออเดอร์บวกให้ดันแล้ว
-        const t = assigned[j];
-        if((acc - t.amount) < (wdAmount - 0.01)) break;   // ดันออกแล้วงวดนี้ขาดยอดถอน → หยุด (เหลือเศษเล็กน้อยยกเป็นเงินสด)
-        assigned.splice(j, 1);
-        queue.unshift(t);                                 // ไปงวดหน้า (ก่อน "ทั้งวัน" ที่ดันไปแล้ว = เรียงเวลาถูก)
-        acc = +(acc - t.amount).toFixed(2);
+      // ★ เศษที่คร่อมกลางวัน → "หาออเดอร์ที่ net รวม = เศษพอดี" แล้วย้ายไปงวดหน้า → ยอดยกไป = 0
+      //   เจ้าของ: ถอนคร่อมวันต้อง "หาเจอว่าออเดอร์ไหน" เอาออเดอร์นั้นไปงวดถัดไป (ไม่ยกเป็นเงินสด)
+      //   วิธี: หา subset ของออเดอร์บวก (เดี่ยว→คู่→สาม · เลือกใหม่สุดก่อน) ที่ net รวม = เศษ (ปัดสตางค์) แล้วย้ายทั้งชุด
+      //   เช็คของออเดอร์ที่ย้าย → ไปอยู่ในใบฝากงวดถัดไปจริง · ใบฝากงวดนี้ = ตรง STM เป๊ะ
+      let carryOut = Math.max(0, +(acc - wdAmount).toFixed(2));
+      if(carryOut > 0.01){
+        const posIdx = [];
+        for(let k = assigned.length-1; k >= 0; k--){   // ★ ไล่จากท้าย (ใหม่สุด) ก่อน — prefer ย้ายออเดอร์ใหม่สุด
+          const t = assigned[k];
+          if(t.type === "รายรับจากคำสั่งซื้อ" && t.amount > 0.01) posIdx.push(k);
+        }
+        const pick = bmpSubsetForCarry(posIdx, assigned, Math.round(carryOut*100));
+        if(pick){
+          const moved = pick.map(k => assigned[k]);
+          pick.slice().sort((a,b)=> b-a).forEach(k => assigned.splice(k,1));   // ลบจากท้าย กัน index เลื่อน
+          moved.sort((a,b)=> String(a.datetime||"").localeCompare(String(b.datetime||"")));
+          for(let m = moved.length-1; m >= 0; m--) queue.unshift(moved[m]);     // ไปงวดหน้า เรียงเวลา
+          acc = +(acc - carryOut).toFixed(2);
+          carryOut = 0;
+        } else {
+          // หา subset เป๊ะไม่ได้ (ถอนคร่อม "กลางออเดอร์" จริง — เช็คแบ่งครึ่งไม่ได้) → ดันออเดอร์ใหม่สุดแบบไม่ให้ขาด · เหลือเศษเงินสดเล็กน้อย
+          while((acc - wdAmount) > 0.01){
+            let j = assigned.length - 1;
+            while(j >= 0 && !(assigned[j].type === "รายรับจากคำสั่งซื้อ" && assigned[j].amount > 0.01)) j--;
+            if(j < 0) break;
+            const t = assigned[j];
+            if((acc - t.amount) < (wdAmount - 0.01)) break;
+            assigned.splice(j, 1); queue.unshift(t); acc = +(acc - t.amount).toFixed(2);
+          }
+          carryOut = Math.max(0, +(acc - wdAmount).toFixed(2));
+        }
       }
-      // เศษที่เหลือ (ออเดอร์เดียวคร่อมยอดถอนพอดี · ดันไม่ได้เพราะจะขาด) → ยกเป็นเงินสดเล็กน้อย
-      const carryOut = Math.max(0, +(acc - wdAmount).toFixed(2));
       carryCash = carryOut;
       const orders = assigned.filter(t => t.type === "รายรับจากคำสั่งซื้อ");
       const adjustments = assigned.filter(t => t.type === "รายการปรับปรุง");

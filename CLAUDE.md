@@ -191,6 +191,13 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-26 (11) — ★ COD เฟส 2 (แก้): เลขพัสดุ iShip≠BigSeller คนละระบบ → ลิงก์ด้วยชื่อผู้รับ+ยอด COD
+- **เจ้าของส่งไฟล์ BigSeller ตัวอย่าง (18/07):** เจอความจริง — BigSeller มี **2 คอลัมน์พัสดุ**: [1] "หมายเลขพัสดุ" = เลขภายใน `BS…` · [58] **"หมายเลขแทรคกิ้ง" = เลขขนส่งจริง `TH…`** · fuzzy เดิมจับผิด (ไป [1] · พลาด [58] เพราะ "แทรคกิ้ง" เป็นไทย)
+- **แก้ detection:** `ci.track` = regex `/แทรคกิ้ง|tracking|ติดตาม/i` (จับ [58]) + fallback สแกนคอลัมน์ที่ค่าขึ้นต้น `TH\d` · `ci.recipient` = [16] "ชื่อผู้รับ" · **verified:** detect → [58]/[16] ถูก
+- **★★ แต่ cross-check ไฟล์จริง: เลขพัสดุ iShip (TH06…) ไม่ตรง BigSeller (TH01/03/47…) เลย 0/98** — เป็น **คนละระบบเลขพัสดุ** (iShip ≠ carrier tracking ใน BigSeller) แม้ออเดอร์ชื่อผู้รับตรงกัน → **ลิงก์ด้วยเลขพัสดุไม่ได้**
+- **`codLinkParcels` เปลี่ยนกลยุทธ์:** (1) เลขพัสดุตรง [เก็บไว้เผื่อ · ปกติไม่ตรง] · (2) **ชื่อผู้รับ (normalize ตัด คุณ/K./ช่องว่าง) + ยอด COD ตรง** = หลัก · (3) ยอด COD อย่างเดียว (candidate) · badge "✓ ชื่อ+ยอดตรง"/"~ ยอดตรง"/"⚠ N ตัวเลือก"/"✕ ไม่พบ" · แถบสรุปอธิบายว่าเลขพัสดุคนละระบบ
+- **ยังต้อง:** re-import BigSeller **ครอบวันเดียวกับ COD** (ตัวอย่าง 18/07 ไม่ครอบพัสดุ 22-25/07 → แมพได้น้อย) · order_ledger.recipient มีจาก parser ใหม่ · syntax OK · **เฟส 3:** ออเดอร์ FACE/LINE COD ที่ไม่อยู่ใน BigSeller = orphan (ต้องคีย์/สร้าง RE จาก COD โดยตรง)
+
 ### 2026-07-26 (10) — ★ COD ขนส่ง เฟส 2: ลิงก์พัสดุ → ออเดอร์ในระบบ (เก็บเลขพัสดุ+ผู้รับ จาก BigSeller)
 - **เจ้าของ:** ทำเฟส 2 — จากเลขพัสดุ (TH…) แมพว่าเป็นออเดอร์ไหนในระบบ · blocker: `order_ledger` ไม่เก็บเลขพัสดุ/ชื่อผู้รับ (parser BigSeller ไม่จับ)
 - **Migration `orders_cod_tracking.sql`** (idempotent): `order_ledger` +`tracking_no`/`recipient` + index `(company_id,tracking_no)` partial · NOTIFY pgrst

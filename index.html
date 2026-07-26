@@ -25059,10 +25059,18 @@ function ordParseSalesFile(rows){
     sku:idx(cfg.sku), qty:idx(cfg.qty), ret:idx(cfg.ret), gross:idx(cfg.gross), net:idx(cfg.net),
     ship:idx(cfg.ship), disc:idx(cfg.disc), voucher:idx(cfg.voucher), refund:idx(cfg.refund), platform:idx(cfg.platform),
     shop:idx(cfg.shop), cancel:idx(cfg.cancel) };
-  // ★ เลขพัสดุ + ชื่อผู้รับ (ใช้ลิงก์ COD ขนส่ง) — fuzzy detect · ไม่มีในไฟล์ = ข้าม (ไม่กระทบ)
+  // ★ เลขแทรคกิ้ง (ขนส่ง · TH…) + ชื่อผู้รับ (ใช้ลิงก์ COD ขนส่ง) — fuzzy detect · ไม่มีในไฟล์ = ข้าม (ไม่กระทบ)
+  //   ★ ต้องเป็น "หมายเลขแทรคกิ้ง" (เลขขนส่งจริง TH…) ไม่ใช่ "หมายเลขพัสดุ" (เลขภายใน BigSeller BS…)
   const findHdr = (test)=>{ for(let i=0;i<headers.length;i++){ if(test(headers[i])) return i; } return -1; };
-  ci.track     = findHdr(h=> /(พัสดุ|tracking)/i.test(h) && /(เลข|หมายเลข|ติดตาม|tracking|no\.?|number)/i.test(h));
-  ci.recipient = findHdr(h=> /^(ผู้รับ|ชื่อผู้รับ)$/.test(String(h||"").trim()) || /ชื่อผู้รับ|ผู้รับสินค้า|ผู้ซื้อ/.test(h));
+  ci.track     = findHdr(h=> /แทรคกิ้ง|tracking|ติดตาม/i.test(h));
+  ci.recipient = findHdr(h=> /^(ผู้รับ|ชื่อผู้รับ)$/.test(String(h||"").trim()) || /ชื่อผู้รับ|ผู้รับสินค้า/.test(h));
+  // fallback (ชื่อคอลัมน์ไม่ตรง): หาคอลัมน์ที่ค่าส่วนใหญ่ขึ้นต้น TH+เลข = เลขแทรคกิ้งขนส่ง
+  if(ci.track<0){
+    const N=Math.min(rows.length,40); const score=new Array(headers.length).fill(0);
+    for(let r=1;r<N;r++){ const row=rows[r]||[]; for(let c=0;c<headers.length;c++){ if(/^TH\d/i.test(String(row[c]||"").trim())) score[c]++; } }
+    let best=-1, bs=2; for(let c=0;c<score.length;c++){ if(score[c]>bs){ bs=score[c]; best=c; } }
+    ci.track=best;
+  }
   const groups = new Map();
   for(let r=1;r<rows.length;r++){
     const row = rows[r]; if(!row) continue;
@@ -29964,24 +29972,38 @@ async function codLoadOrders(d){
 /* ลิงก์พัสดุ → ออเดอร์: (1) เลขพัสดุตรง (แม่น 100%) · (2) fallback ยอด COD = ยอดออเดอร์ (candidate) */
 function codLinkParcels(d){
   const orders=(d.cod&&d.cod.orders)||[];
-  const norm=(t)=>String(t||"").replace(/\s/g,"").toUpperCase();
-  const byTrack=new Map();
-  for(const o of orders){ if(o.tracking_no) byTrack.set(norm(o.tracking_no), o); }
-  const amtIndex=new Map();
-  const addAmt=(amt,o)=>{ const k=Math.round(Number(amt||0)*100); if(!k) return; if(!amtIndex.has(k)) amtIndex.set(k,[]); amtIndex.get(k).push(o); };
-  for(const o of orders){ if(o.status==='cancelled') continue; addAmt(o.order_total,o); if(o.sale_amount!=null && Math.round(Number(o.sale_amount)*100)!==Math.round(Number(o.order_total)*100)) addAmt(o.sale_amount,o); }
-  let nTrack=0,nAmt=0,nMulti=0,nNone=0;
+  const normTrack=(t)=>String(t||"").replace(/\s/g,"").toUpperCase();
+  const normName=(s)=>String(s||"").toLowerCase().replace(/คุณ|k\.?|ค\.?|\s|\./g,"").trim();
+  const centsOf=(v)=>Math.round(Number(v||0)*100);
+  const byTrack=new Map(), byNameAmt=new Map(), byAmt=new Map();
+  const push=(m,k,o)=>{ if(!m.has(k)) m.set(k,[]); m.get(k).push(o); };
+  for(const o of orders){
+    if(o.tracking_no) byTrack.set(normTrack(o.tracking_no), o);
+    if(o.status==='cancelled') continue;
+    const amt=centsOf(o.order_total);
+    if(o.recipient && normName(o.recipient)) push(byNameAmt, normName(o.recipient)+"|"+amt, o);
+    if(amt) push(byAmt, amt, o);
+    if(o.sale_amount!=null && centsOf(o.sale_amount)!==amt && centsOf(o.sale_amount)) push(byAmt, centsOf(o.sale_amount), o);
+  }
+  let nTrack=0,nName=0,nAmt=0,nMulti=0,nNone=0;
   for(const g of ((d.cod&&d.cod.groups)||[])){
     for(const p of g.parcels){
-      const oT = p.tracking ? byTrack.get(norm(p.tracking)) : null;
+      const codC=centsOf(p.cod);
+      // (1) เลขพัสดุตรง [ปกติไม่ตรง — iShip/BigSeller คนละระบบเลขพัสดุ · เก็บไว้เผื่อบางเคสตรง]
+      const oT = p.tracking ? byTrack.get(normTrack(p.tracking)) : null;
       if(oT){ p._link={ order:oT, via:'track' }; nTrack++; continue; }
-      const cands=(amtIndex.get(Math.round(Number(p.cod||0)*100))||[]);
-      if(cands.length===1){ p._link={ order:cands[0], via:'amt' }; nAmt++; }
-      else if(cands.length>1){ p._link={ candidates:cands, via:'multi' }; nMulti++; }
+      // (2) ชื่อผู้รับ + ยอด COD ตรง (แม่นสุดที่ทำได้ตอนนี้)
+      const nc = p.recipient ? (byNameAmt.get(normName(p.recipient)+"|"+codC)||[]) : [];
+      if(nc.length===1){ p._link={ order:nc[0], via:'name' }; nName++; continue; }
+      if(nc.length>1){ p._link={ candidates:nc, via:'multi' }; nMulti++; continue; }
+      // (3) ยอด COD ตรง (candidate · อาจซ้ำ)
+      const ac=byAmt.get(codC)||[];
+      if(ac.length===1){ p._link={ order:ac[0], via:'amt' }; nAmt++; }
+      else if(ac.length>1){ p._link={ candidates:ac, via:'multi' }; nMulti++; }
       else { p._link=null; nNone++; }
     }
   }
-  d.cod.linkStats={ track:nTrack, amt:nAmt, multi:nMulti, none:nNone };
+  d.cod.linkStats={ track:nTrack, name:nName, amt:nAmt, multi:nMulti, none:nNone };
 }
 function codMatchBank(d, g){
   const rows=(d.cod&&d.cod.bankRows)||[]; if(!rows.length) return { found:false, hasStmt:false };
@@ -30035,7 +30057,7 @@ function codExportXlsx(){
     s2.push({ "เลขที่ BQ":g.bq, "วันที่โอน":g.dateKey, "เลขพัสดุ":p.tracking, "ขนส่ง":p.carrier,
       "ผู้รับ":p.recipient, "เบอร์โทร":p.phone, "COD":p.cod, "ค่าธรรมเนียมพัสดุ":p.fee, "โอนสุทธิ":p.net,
       "ออเดอร์ในระบบ":o.order_id||"", "เลข IV":o.iv_no||"", "เลข RE":o.re_no||"",
-      "วิธีลิงก์": L? (L.via==='track'?'เลขพัสดุตรง':L.via==='amt'?'ยอดตรง':L.via==='multi'?`${L.candidates.length} ตัวเลือก`:'') : "ไม่พบ" });
+      "วิธีลิงก์": L? (L.via==='track'?'เลขพัสดุตรง':L.via==='name'?'ชื่อ+ยอดตรง':L.via==='amt'?'ยอดตรง':L.via==='multi'?`${L.candidates.length} ตัวเลือก`:'') : "ไม่พบ" });
   }
   const wb=XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(s1), "สรุปการโอน");
@@ -30048,7 +30070,9 @@ function codLinkCell(p){
   if(!L) return `<span style="color:#dc2626">✕ ไม่พบในทะเบียน</span>`;
   if(L.via==='multi') return `<span style="color:#a16207" title="มีหลายออเดอร์ยอดตรงกัน — ต้องเลือกเอง / ลิงก์ด้วยเลขพัสดุ">⚠ ${L.candidates.length} ตัวเลือก (ยอดตรง)</span>`;
   const o=L.order; const ref=[o.order_id,o.iv_no,o.re_no].filter(Boolean).map(esc).join(" · ");
-  const badge = L.via==='track' ? `<span style="color:#16a34a;font-weight:700">✓ พัสดุตรง</span>` : `<span style="color:#0369a1" title="จับด้วยยอด COD = ยอดออเดอร์ (ยืนยันด้วยเลขพัสดุแม่นกว่า)">~ ยอดตรง</span>`;
+  const badge = L.via==='track' ? `<span style="color:#16a34a;font-weight:700">✓ พัสดุตรง</span>`
+    : L.via==='name' ? `<span style="color:#16a34a;font-weight:700" title="ชื่อผู้รับ + ยอด COD ตรงกับออเดอร์">✓ ชื่อ+ยอดตรง</span>`
+    : `<span style="color:#0369a1" title="จับด้วยยอด COD อย่างเดียว (ควรยืนยันด้วยชื่อผู้รับ)">~ ยอดตรง</span>`;
   return `${badge} <span class="mono" style="color:#475569">${ref||'—'}</span>`;
 }
 function codRenderTab(d){
@@ -30112,10 +30136,10 @@ function codRenderTab(d){
   }).join("");
   const pendHtml = pending.length ? `<div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:11px 14px;margin-bottom:12px;font-size:12.5px;color:#1e40af">
     ℹ️ มีพัสดุ ${pending.reduce((s,p)=>s+p.parcels.length,0)} ชิ้น (${pending.length} วัน · รวม COD ${fmtM(pending.reduce((s,p)=>s+p.sumCod,0))}) ที่ "โอนแล้ว" แต่ <b>ยังไม่มีในรายงานเครดิต</b> — อัปรายงานเครดิตให้ครอบวันล่าสุด หรือรอขนส่งโอน</div>` : '';
-  const ls=cod.linkStats||{track:0,amt:0,multi:0,none:0}; const linkedN=ls.track+ls.amt;
-  const linkLine = `<div style="background:${ls.track?'#f0fdf4':'#fffbeb'};border:1px solid ${ls.track?'#bbf7d0':'#fde68a'};border-radius:10px;padding:10px 14px;margin-bottom:12px;font-size:12.5px;color:#334155">
-    🔗 <b>ลิงก์ออเดอร์:</b> ${linkedN}/${totParcels} พัสดุ · เลขพัสดุตรง <b style="color:#16a34a">${ls.track}</b> · ยอดตรง <b style="color:#0369a1">${ls.amt}</b> · หลายตัวเลือก <b style="color:#a16207">${ls.multi}</b> · ไม่พบ <b style="color:#dc2626">${ls.none}</b>
-    ${ls.track===0?`<div style="color:#92400e;margin-top:5px">⚠️ ทะเบียนยังไม่มี "เลขพัสดุ" — <b>re-import BigSeller</b> (หลัง migration รัน) ที่มีคอลัมน์เลขพัสดุ เพื่อลิงก์แม่น 100% ด้วยเลขพัสดุ (ตอนนี้จับด้วยยอด COD เป็นตัวช่วยชั่วคราว)</div>`:''}</div>`;
+  const ls=cod.linkStats||{track:0,name:0,amt:0,multi:0,none:0}; const linkedN=(ls.track||0)+(ls.name||0)+(ls.amt||0);
+  const linkLine = `<div style="background:${linkedN?'#f0fdf4':'#fffbeb'};border:1px solid ${linkedN?'#bbf7d0':'#fde68a'};border-radius:10px;padding:10px 14px;margin-bottom:12px;font-size:12.5px;color:#334155">
+    🔗 <b>ลิงก์ออเดอร์:</b> ${linkedN}/${totParcels} พัสดุ · ชื่อ+ยอดตรง <b style="color:#16a34a">${ls.name||0}</b>${ls.track?` · เลขพัสดุตรง <b style="color:#16a34a">${ls.track}</b>`:''} · ยอดตรง <b style="color:#0369a1">${ls.amt||0}</b> · หลายตัวเลือก <b style="color:#a16207">${ls.multi||0}</b> · ไม่พบ <b style="color:#dc2626">${ls.none||0}</b>
+    <div style="color:#92400e;margin-top:5px">ℹ️ เลขพัสดุ iShip (TH06…) กับ BigSeller (TH01/03…) <b>คนละระบบ ไม่ตรงกัน</b> → ลิงก์ด้วย <b>ชื่อผู้รับ + ยอด COD</b> · ต้อง <b>re-import BigSeller</b> (ครอบวันเดียวกับ COD) ให้ทะเบียนมีชื่อผู้รับ · ออเดอร์ FACE/LINE ที่ยังไม่คีย์ = "ไม่พบ"</div></div>`;
   return `
     <div class="bmp-sum">
       <div class="bmp-sc"><div class="l">รายการโอนเข้าบัญชี</div><div class="v">${groups.length}</div></div>

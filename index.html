@@ -18555,16 +18555,16 @@ function cffPlannedInPeriod(d, dt){
   if(d.staffMode==="range" && (d.staffFrom||d.staffTo)){ const from=d.staffFrom||"0000-01-01", to=d.staffTo||"9999-12-31"; return all.filter(p=>p.plan_date>=from && p.plan_date<=to); }
   const eom=cffStaffEOM(dt); return all.filter(p=> !p.plan_date || p.plan_date<=eom);   // default → ถึงสิ้นเดือนนี้
 }
-/* aggregate ต่อบัญชี: inBank/outBank (รวม transfer) · totalIn/totalOut (เฉพาะ inflow/outflow · transfer สุทธิ = 0 ในยอดรวมบริษัท) */
+/* aggregate ต่อบัญชี — แยก 3 แถว: รับคาดการณ์ (inflowBank+) · โอนระหว่างบัญชี (xferBank ต้นทาง−/ปลายทาง+ · สุทธิบริษัท 0) · จ่ายคาดการณ์ (outflowBank−) */
 function cffPlannedAgg(items, balances){
   const ids=new Set((balances||[]).map(b=>b.bank_account_id));
-  const inBank={}, outBank={}; let totalIn=0, totalOut=0;
+  const inflowBank={}, outflowBank={}, xferBank={}; let totalIn=0, totalOut=0, hasXfer=false;
   for(const p of (items||[])){ const amt=Number(p.amount||0); if(amt<=0) continue;
-    if(p.kind==='inflow'){ if(ids.has(p.to_account_id)) inBank[p.to_account_id]=(inBank[p.to_account_id]||0)+amt; totalIn+=amt; }
-    else if(p.kind==='outflow'){ if(ids.has(p.from_account_id)) outBank[p.from_account_id]=(outBank[p.from_account_id]||0)+amt; totalOut+=amt; }
-    else if(p.kind==='transfer'){ if(ids.has(p.to_account_id)) inBank[p.to_account_id]=(inBank[p.to_account_id]||0)+amt; if(ids.has(p.from_account_id)) outBank[p.from_account_id]=(outBank[p.from_account_id]||0)+amt; }
+    if(p.kind==='inflow'){ if(ids.has(p.to_account_id)) inflowBank[p.to_account_id]=(inflowBank[p.to_account_id]||0)+amt; totalIn+=amt; }
+    else if(p.kind==='outflow'){ if(ids.has(p.from_account_id)) outflowBank[p.from_account_id]=(outflowBank[p.from_account_id]||0)+amt; totalOut+=amt; }
+    else if(p.kind==='transfer'){ hasXfer=true; if(ids.has(p.to_account_id)) xferBank[p.to_account_id]=(xferBank[p.to_account_id]||0)+amt; if(ids.has(p.from_account_id)) xferBank[p.from_account_id]=(xferBank[p.from_account_id]||0)-amt; }
   }
-  return { inBank, outBank, totalIn, totalOut };
+  return { inflowBank, outflowBank, xferBank, totalIn, totalOut, hasXfer };
 }
 /* บันทึกรายการวางแผน */
 async function cffPlannedSave(rec){
@@ -18580,6 +18580,8 @@ async function cffPlannedDelete(id){
   const d=cffGet(); d._uiOnly=false; try{ await cffLoad(); }catch(e){} renderToolCashflowStaff();
 }
 function cffTogglePlan(){ const d=cffGet(); d.planOpen=!d.planOpen; cffRerender(); }
+/* ปุ่มลูกตา: ซ่อน/แสดง รายการวางแผนในรายงาน (ซ่อน = เห็นตามเงินจริง) */
+function cffToggleStaffPlan(){ const d=cffGet(); d.staffPlanShow = !(d.staffPlanShow !== false); cffRerender(); }
 /* เพิ่มรายการวางแผนจากฟอร์ม (อ่านค่าจาก DOM ตอนกด — ไม่ re-render ระหว่างพิมพ์) */
 async function cffPlanAdd(){
   const g=id=>document.getElementById(id);
@@ -20632,7 +20634,7 @@ function cffStaffComputeReport(d, dt){
                     : d.staffMode === "range" ? `${d.staffFrom?fmtDate(d.staffFrom):'?'}–${d.staffTo?fmtDate(d.staffTo):'?'}`
                     : "ทั้งหมด";
   return { payments, filtered, totalDue, openingCash, netCash, cats, bankDue, bankCat, periodLabel,
-           plannedItems, planIn:plan.inBank, planOut:plan.outBank, totalPlanIn:plan.totalIn, totalPlanOut:plan.totalOut };
+           plannedItems, inflowBank:plan.inflowBank, outflowBank:plan.outflowBank, xferBank:plan.xferBank, hasXfer:plan.hasXfer, totalPlanIn:plan.totalIn, totalPlanOut:plan.totalOut };
 }
 
 /* ★ HTML รายงานสะอาด (เลย์เอาต์เดียวกับ snapshot ที่ส่งให้ LINE) — ใช้ทั้งบนจอ + export
@@ -20647,10 +20649,14 @@ function cffStaffReportInner(co, dt, R, opts){
   const isOpen = (cat) => !interactive ? true : (catOpen[cat] !== false);   // ประเภท default = ขยาย
   const isVenOpen = (cat,ven) => !interactive ? true : (venOpen[cat+"|"+ven] === true);  // เวนเดอร์ default = ย่อ
   const { cats, bankDue, bankCat, openingCash, totalDue, netCash, periodLabel } = R;
-  const planIn = R.planIn||{}, planOut = R.planOut||{};
-  const sumPlanIn = Object.values(planIn).reduce((s,v)=>s+v,0);
-  const sumPlanOut = Object.values(planOut).reduce((s,v)=>s+v,0);
-  const hasPlanIn = sumPlanIn > 0.005, hasPlanOut = sumPlanOut > 0.005;
+  const inflowBank = R.inflowBank||{}, outflowBank = R.outflowBank||{}, xferBank = R.xferBank||{};
+  const sumInflow = Object.values(inflowBank).reduce((s,v)=>s+v,0);
+  const sumOutflow = Object.values(outflowBank).reduce((s,v)=>s+v,0);
+  const hasInflow = sumInflow>0.005, hasOutflow = sumOutflow>0.005, hasXfer = !!R.hasXfer;
+  const hasAnyPlan = hasInflow||hasOutflow||hasXfer;
+  const showPlan = R.showPlan !== false;      // ปุ่มลูกตา: ซ่อน = เห็นตามเงินจริง
+  const usePlan = showPlan && hasAnyPlan;
+  const netTotal = usePlan ? netCash : (openingCash - totalDue);
   const todayStr = new Date().toLocaleDateString("th-TH",{day:"2-digit",month:"long",year:"numeric"});
   const fmtDate = (iso) => iso ? new Date(iso).toLocaleDateString("th-TH",{day:"2-digit",month:"short"}) : "";
   const nf = (n) => Number(n||0).toLocaleString("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2});
@@ -20664,6 +20670,7 @@ function cffStaffReportInner(co, dt, R, opts){
         <div style="font-size:19px;font-weight:800;letter-spacing:-.3px;margin-top:2px">ประมาณการรายรับ-รายจ่าย</div>
         <div style="font-size:12.5px;opacity:.9;margin-top:2px">${esc(co.fullName||co.name)}</div>
       </div>
+      ${(interactive && hasAnyPlan) ? `<button onclick="cffToggleStaffPlan()" title="${showPlan?'ซ่อนรายการวางแผน — ดูตามเงินจริง':'แสดงรายการวางแผน (คาดการณ์)'}" style="background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.4);color:#fff;border-radius:9px;padding:7px 13px;cursor:pointer;font-family:inherit;font-size:12px;font-weight:700;display:inline-flex;align-items:center;gap:7px;white-space:nowrap"><i data-lucide="${showPlan?'eye':'eye-off'}" style="width:15px;height:15px"></i>${showPlan?'ตามแผน':'ตามเงินจริง'}</button>` : ''}
       <div style="text-align:right">
         <div style="font-size:10.5px;opacity:.8;letter-spacing:.4px">รอบจ่าย</div>
         <div style="font-size:15px;font-weight:800;margin-top:1px">${esc(periodLabel)}</div>
@@ -20687,11 +20694,6 @@ function cffStaffReportInner(co, dt, R, opts){
             ${dt.balances.map(b => { const v=Number(b.amount||0)-Number(b.hold||0); const cls=interactive?` class="cffx-clk"`:''; const oc=interactive?` onclick="cffStaffDrillPivot('opening','${b.bank_account_id}')"`:''; return `<td${cls}${oc} style="padding:8px 12px;text-align:right;font-weight:700">${nf(v)}</td>`; }).join("")}
             <td${interactive?' class="cffx-clk" onclick="cffStaffDrillPivot(\'opening\',\'\')"':''} style="padding:8px 12px;text-align:right;font-weight:800;background:rgba(var(--brand-rgb),.08)">${nf(openingCash)}</td>
           </tr>
-          ${hasPlanIn ? `<tr style="background:rgba(16,185,129,.09)">
-            <td style="padding:8px 12px;font-weight:700;color:#047857">＋ รับ / โอนเข้า (วางแผน)</td>
-            ${dt.balances.map(b => { const v = planIn[b.bank_account_id]||0; return `<td style="padding:8px 12px;text-align:right;color:#047857;font-weight:700">${v>0?'+'+nf(v):'-'}</td>`; }).join("")}
-            <td style="padding:8px 12px;text-align:right;font-weight:800;color:#047857;background:rgba(16,185,129,.10)">+${nf(sumPlanIn)}</td>
-          </tr>` : ''}
           <tr style="background:rgba(245,158,11,.10)">
             <td style="padding:8px 12px;font-weight:700">ค่าใช้จ่ายถึงกำหนดชำระ</td>
             ${dt.balances.map(b => { const v = bankDue[b.bank_account_id]||0; const cls=(interactive&&v>0)?' class="cffx-clk"':''; const oc=(interactive&&v>0)?` onclick="cffStaffDrillPivot('due','${b.bank_account_id}')"`:''; return `<td${cls}${oc} style="padding:8px 12px;text-align:right">${v>0?nf(v):'-'}</td>`; }).join("")}
@@ -20702,19 +20704,32 @@ function cffStaffReportInner(co, dt, R, opts){
             ${dt.balances.map(b => { const v = (bankCat[b.bank_account_id]||{})[cat]||0; const cls=(interactive&&v>0)?' class="cffx-clk"':''; const oc=(interactive&&v>0)?` onclick="cffStaffDrillPivot('cat','${b.bank_account_id}',${JSON.stringify(cat).replace(/"/g,'&quot;')})"`:''; return `<td${cls}${oc} style="padding:7px 12px;text-align:right;color:var(--ink-2);font-size:12.5px">${v>0?nf(v):'-'}</td>`; }).join("")}
             <td${interactive?` class="cffx-clk" onclick="cffStaffDrillPivot('cat','',${JSON.stringify(cat).replace(/"/g,'&quot;')})"`:''} style="padding:7px 12px;text-align:right;color:var(--out-ink);font-weight:700">${nf(info.total)}</td>
           </tr>`).join("")}
-          ${hasPlanOut ? `<tr style="background:rgba(244,114,182,.08)">
-            <td style="padding:8px 12px;font-weight:700;color:var(--out-ink)">－ จ่าย / โอนออก (วางแผน)</td>
-            ${dt.balances.map(b => { const v = planOut[b.bank_account_id]||0; return `<td style="padding:8px 12px;text-align:right;color:var(--out-ink);font-weight:700">${v>0?nf(v):'-'}</td>`; }).join("")}
-            <td style="padding:8px 12px;text-align:right;font-weight:800;color:var(--out-ink);background:rgba(var(--brand-rgb),.08)">${nf(sumPlanOut)}</td>
+          ${usePlan ? `
+          ${hasInflow ? `<tr style="background:rgba(16,185,129,.09)">
+            <td style="padding:8px 12px;font-weight:700;color:#047857">＋ รับคาดการณ์ (วางแผน)</td>
+            ${dt.balances.map(b => { const v = inflowBank[b.bank_account_id]||0; return `<td style="padding:8px 12px;text-align:right;color:#047857;font-weight:700">${v>0?'+'+nf(v):'-'}</td>`; }).join("")}
+            <td style="padding:8px 12px;text-align:right;font-weight:800;color:#047857;background:rgba(16,185,129,.10)">+${nf(sumInflow)}</td>
           </tr>` : ''}
+          ${hasXfer ? `<tr style="background:rgba(109,40,217,.07)">
+            <td style="padding:8px 12px;font-weight:700;color:#6d28d9">🔄 โอนระหว่างบัญชี (วางแผน)</td>
+            ${dt.balances.map(b => { const v = xferBank[b.bank_account_id]||0; const disp = Math.abs(v)<0.005?'-':(v>0?'+'+nf(v):'('+nf(Math.abs(v))+')'); return `<td style="padding:8px 12px;text-align:right;font-weight:700;color:${v<-0.005?'var(--out-ink)':(v>0.005?'#047857':'#94a3b8')}">${disp}</td>`; }).join("")}
+            <td style="padding:8px 12px;text-align:right;font-weight:700;color:#94a3b8;background:rgba(var(--brand-rgb),.06)">0.00 <span style="font-size:10px;font-weight:500">(ย้ายที่)</span></td>
+          </tr>` : ''}
+          ${hasOutflow ? `<tr style="background:rgba(244,114,182,.08)">
+            <td style="padding:8px 12px;font-weight:700;color:var(--out-ink)">－ จ่ายคาดการณ์ (วางแผน)</td>
+            ${dt.balances.map(b => { const v = outflowBank[b.bank_account_id]||0; return `<td style="padding:8px 12px;text-align:right;color:var(--out-ink);font-weight:700">${v>0?nf(v):'-'}</td>`; }).join("")}
+            <td style="padding:8px 12px;text-align:right;font-weight:800;color:var(--out-ink);background:rgba(var(--brand-rgb),.08)">${nf(sumOutflow)}</td>
+          </tr>` : ''}
+          ` : ''}
           <tr style="background:rgba(var(--brand-rgb),.10);border-top:2px solid var(--brand)">
-            <td style="padding:10px 12px;font-weight:800;color:var(--brand-dark)">เงินคงเหลือสุทธิ${(hasPlanIn||hasPlanOut)?' (คาดการณ์)':''}</td>
+            <td style="padding:10px 12px;font-weight:800;color:var(--brand-dark)">เงินคงเหลือสุทธิ${usePlan?' (คาดการณ์)':''}</td>
             ${dt.balances.map(b => {
-              const v = (Number(b.amount||0)-Number(b.hold||0)) + (planIn[b.bank_account_id]||0) - (bankDue[b.bank_account_id]||0) - (planOut[b.bank_account_id]||0);
+              const avail = Number(b.amount||0)-Number(b.hold||0);
+              const v = usePlan ? (avail + (inflowBank[b.bank_account_id]||0) + (xferBank[b.bank_account_id]||0) - (bankDue[b.bank_account_id]||0) - (outflowBank[b.bank_account_id]||0)) : (avail - (bankDue[b.bank_account_id]||0));
               const cls=interactive?' class="cffx-clk"':''; const oc=interactive?` onclick="cffStaffDrillPivot('net','${b.bank_account_id}')"`:'';
               return `<td${cls}${oc} style="padding:10px 12px;text-align:right;font-weight:800;color:${v<0?'var(--out-ink)':'var(--brand-dark)'}">${paren(v)}</td>`;
             }).join("")}
-            <td${interactive?' class="cffx-clk" onclick="cffStaffDrillPivot(\'net\',\'\')"':''} style="padding:10px 12px;text-align:right;font-weight:800;color:${netCash<0?'var(--out-ink)':'var(--brand-dark)'};background:rgba(var(--brand-rgb),.15)">${paren(netCash)}</td>
+            <td${interactive?' class="cffx-clk" onclick="cffStaffDrillPivot(\'net\',\'\')"':''} style="padding:10px 12px;text-align:right;font-weight:800;color:${netTotal<0?'var(--out-ink)':'var(--brand-dark)'};background:rgba(var(--brand-rgb),.15)">${paren(netTotal)}</td>
           </tr>
         </tbody>
       </table>
@@ -21135,7 +21150,7 @@ async function renderToolCashflowStaff(){
 
     <!-- ★ รายงานสะอาด (เลย์เอาต์เดียวกับ snapshot) — เต็มความกว้างหน้า -->
     <div id="cffStaffReportSheet" style="background:#fff;border-radius:14px;box-shadow:0 6px 28px rgba(15,23,42,.08);border:1px solid var(--glass-border);overflow:hidden;margin:4px 0 0;font-family:'IBM Plex Sans Thai','IBM Plex Sans',sans-serif;color:#0f172a">
-      ${cffStaffReportInner(co, dt, { cats, bankDue, bankCat, openingCash, totalDue, netCash, periodLabel: reportPeriodLabel, planIn:plan.inBank, planOut:plan.outBank, totalPlanIn:plan.totalIn, totalPlanOut:plan.totalOut, plannedItems }, { interactive:true, canEdit:canWrite, catOpen:d.catOpen||{}, venOpen:d.venOpen||{}, groupLevel:(d.staffGroupLevel||"vendor") })}
+      ${cffStaffReportInner(co, dt, { cats, bankDue, bankCat, openingCash, totalDue, netCash, periodLabel: reportPeriodLabel, inflowBank:plan.inflowBank, outflowBank:plan.outflowBank, xferBank:plan.xferBank, hasXfer:plan.hasXfer, totalPlanIn:plan.totalIn, totalPlanOut:plan.totalOut, plannedItems, showPlan:(d.staffPlanShow!==false) }, { interactive:true, canEdit:canWrite, catOpen:d.catOpen||{}, venOpen:d.venOpen||{}, groupLevel:(d.staffGroupLevel||"vendor") })}
     </div>
 
     ${(canWrite && dt.recSkips && dt.recSkips.length) ? `
@@ -28188,10 +28203,27 @@ async function ordReconUpload(){
 /* บันทึกผลตรวจ — ★ สะสมต่อ order_no (อัปช่อง/วันใหม่ ไม่ลบของช่อง/วันอื่น) → Reconciliation Log จริง */
 async function ordReconSave(rec){
   const company=state.company;
-  const orderNos=(rec.results||[]).map(r=>r.order_no).filter(Boolean);
-  // อัปเดตเฉพาะ order ที่อยู่ในรอบนี้ — ลบของเก่าเฉพาะเลขเหล่านี้ แล้วใส่ใหม่ (ของช่อง/วันอื่นคงไว้)
-  for(let i=0;i<orderNos.length;i+=150){ try{ await sb.from("order_recon").delete().eq("company",company).in("order_no",orderNos.slice(i,i+150)); }catch(e){ console.warn("recon del",e); } }
-  const rows=(rec.results||[]).map(r=>({ company, sale_date:r.date||null, channel:r.channel||null, order_no:r.order_no, status:r.status, diff_detail:r.diffs||null, bs_raw:r.bs||null, be_raw:r.be||null }));
+  const results=(rec.results||[]).filter(r=>r.order_no);
+  // ★ แยก: fromFile = มาจากไฟล์หลังบ้านที่อัป (มี be) · onlyBs = BigSeller มี · ไฟล์นี้ไม่มี (be ว่าง)
+  const hasBe = r => r.be != null;
+  const fromFile = results.filter(hasBe);
+  const onlyBs   = results.filter(r=>!hasBe(r));
+  // 1) fromFile = authoritative → ลบ+ใส่ใหม่ตาม order_no
+  const fileNos = fromFile.map(r=>r.order_no);
+  for(let i=0;i<fileNos.length;i+=150){ try{ await sb.from("order_recon").delete().eq("company",company).in("order_no",fileNos.slice(i,i+150)); }catch(e){ console.warn("recon del file",e); } }
+  // 2) onlyBs — ★ อย่าทับของที่ "matched" อยู่แล้วจากการอัปช็อปอื่น (เช่น QI CARE ทับ BETRA ที่ channel=shopee เหมือนกัน)
+  //    เก็บเฉพาะ order ที่ยังไม่มี recon ฝั่งหลังบ้าน (be_raw ว่าง / ไม่มีแถว) → refresh only_bs · ที่ matched แล้วคงไว้
+  const bsNos = onlyBs.map(r=>r.order_no);
+  const keepMatched = new Set();
+  for(let i=0;i<bsNos.length;i+=200){
+    try{ const { data } = await sb.from("order_recon").select("order_no,be_raw").eq("company",company).is("deleted_at",null).in("order_no",bsNos.slice(i,i+200));
+      (data||[]).forEach(x=>{ if(x.be_raw!=null) keepMatched.add(x.order_no); }); }catch(e){ console.warn("recon check bs",e); }
+  }
+  const bsWrite = onlyBs.filter(r=>!keepMatched.has(r.order_no));
+  const bsWriteNos = bsWrite.map(r=>r.order_no);
+  for(let i=0;i<bsWriteNos.length;i+=150){ try{ await sb.from("order_recon").delete().eq("company",company).in("order_no",bsWriteNos.slice(i,i+150)); }catch(e){ console.warn("recon del bs",e); } }
+  // 3) insert fromFile + bsWrite
+  const rows=[...fromFile, ...bsWrite].map(r=>({ company, sale_date:r.date||null, channel:r.channel||null, order_no:r.order_no, status:r.status, diff_detail:r.diffs||null, bs_raw:r.bs||null, be_raw:r.be||null }));
   for(let i=0;i<rows.length;i+=200){ const {error}=await sb.from("order_recon").insert(rows.slice(i,i+200)); if(error){ console.warn("recon insert", error); break; } }
 }
 /* โหลดผลตรวจทั้งหมดของบริษัท (สะสมทุกรอบ) → d.recon */

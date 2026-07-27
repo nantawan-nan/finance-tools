@@ -6161,6 +6161,14 @@ function ivrRenderExport(d){
     return !isMp && ordChannelDetail(o)==='csr';
   }).length;
   const sumEligible = eligible.reduce((s,x)=>s+Number(x.o.order_total||0),0);
+  // ★ ตรวจ "SKU ใหม่" — บัญชีอาจยังไม่มีรหัสสินค้า (เคสฝ่ายขายเพิ่มสินค้าใหม่ไม่บอกบัญชี → AutoKey error)
+  //   known = SKU ที่เคยอยู่ในออเดอร์ที่มี iv_no แล้ว (บัญชีคีย์สำเร็จ · iv_no tag จาก 141.RWT verify)
+  const _skuItems = (o)=>{ let its=o.items; if(typeof its==='string'){ try{its=JSON.parse(its);}catch(_){its=[];} } return Array.isArray(its)?its:[]; };
+  const knownSku = new Set();
+  (d.rows||[]).forEach(o=>{ if(o.iv_no){ _skuItems(o).forEach(it=>{ const s=String(it.sku||'').trim().toUpperCase(); if(s) knownSku.add(s); }); } });
+  const newSkuMap = {};
+  for(const x of eligible){ _skuItems(x.o).forEach(it=>{ const raw=String(it.sku||'').trim(); const s=raw.toUpperCase(); if(s && !knownSku.has(s)){ (newSkuMap[raw]=newSkuMap[raw]||{n:0}).n++; } }); }
+  const newSkus = Object.keys(newSkuMap).sort();
   // auto-suggest start IV (last batch end + 1)
   const lastBatch = (d.ivrec.batches||[])[0];
   const suggested = (lastBatch && lastBatch.end_iv) ? ivrNextIv(lastBatch.end_iv) : '';
@@ -6276,6 +6284,12 @@ function ivrRenderExport(d){
         <div class="ivr-iv-hint">
           ℹ <b>เลขที่ส่งออกนี้จะไม่ถูกบันทึกในระบบเว็บ</b> — บัญชีอาจแก้มือในระบบบัญชี ระบบจะจำเลข IV ลงออเดอร์ก็ต่อเมื่ออัป <b>รายงาน 141.RWT</b> มา verify หลังคีย์แล้วเท่านั้น (ดูแท็บ "ตรวจการคีย์")
         </div>
+        ${newSkus.length ? `<div style="margin:10px 0;padding:11px 14px;border-radius:10px;background:#fffbeb;border:1px solid #fde68a;border-left:4px solid #f59e0b">
+          <div style="font:700 13px/1.4 inherit;color:#92400e;display:flex;align-items:center;gap:7px"><i data-lucide="alert-triangle" style="width:16px;height:16px"></i> พบ SKU ใหม่ ${newSkus.length} รายการ — บัญชีอาจยังไม่มีรหัสสินค้านี้</div>
+          <div style="font:500 12px/1.6 inherit;color:#b45309;margin-top:5px">SKU ต่อไปนี้<b>ยังไม่เคยคีย์สำเร็จในรายงาน 141.RWT</b> (ระบบไม่เคยเห็นในออเดอร์ที่มีเลข IV แล้ว) → <b>แจ้งบัญชีให้สร้างรหัสสินค้าก่อนคีย์ AutoKey</b> กัน error เพราะรหัสยังไม่มีในระบบบัญชี</div>
+          <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:9px">${newSkus.map(s=>`<span style="display:inline-flex;align-items:center;gap:5px;background:#fff;border:1px solid #fcd34d;border-radius:7px;padding:3px 9px;font:700 12px/1 'JetBrains Mono',monospace;color:#92400e">${esc(s)} <span style="font-weight:500;color:#d97706">×${newSkuMap[s].n}</span></span>`).join('')}</div>
+          <div style="font:500 11px/1.5 inherit;color:#a16207;margin-top:8px">* เตือนเฉยๆ ไม่บล็อกการส่งออก · ถ้าบัญชีมีรหัสแล้วก็คีย์ได้ตามปกติ · พอคีย์ + อัป 141.RWT สำเร็จ SKU นี้จะหายจากคำเตือนอัตโนมัติ</div>
+        </div>` : ''}
         <div class="ivr-actions">
           <button class="ord-btn primary" style="font-size:14px;padding:11px 20px" ${(!canExport || !eligible.length || e.busy) ? 'disabled' : ''} onclick="ivrDoExport('csv')" title="AutoKey รองรับ CSV โดยตรง — แนะนำใช้แบบนี้">
             <i data-lucide="file-text"></i> ${e.busy?'กำลังส่งออก...':`ส่งออก CSV (${eligible.length.toLocaleString('th-TH')} ออเดอร์)`}
@@ -6339,6 +6353,7 @@ function ivrRenderExport(d){
       const missVat = body.filter(r=> String(r[1]||'').trim() && !String(r[VAT_COL]||'').trim()).length;
       const numCols = new Set([0,7,8,9,10,13]);                          // คอลัมน์ตัวเลข → ชิดขวา
       const hlCols = new Set([CUST_COL, VAT_COL]);                       // คอลัมน์ที่ไฮไลต์ให้ตรวจ
+      const SKU_COL = 6; const newSkuUp = new Set(newSkus.map(s=>s.toUpperCase()));   // ★ SKU ใหม่ (ไฮไลต์เหลือง)
       const th = header.map((h,ci)=>`<th class="${numCols.has(ci)?'right':''}" style="${hlCols.has(ci)?'background:rgba(13,148,136,.14);color:var(--brand,#0d9488)':''};white-space:nowrap">${esc(String(h))}</th>`).join('');
       const rowsHtml = body.slice(0,ROWCAP).map(r=>{
         const tds = r.map((c,ci)=>{
@@ -6349,14 +6364,16 @@ function ivrRenderExport(d){
           // ★ Vat ว่าง = ผิดเฉพาะบรรทัดแรกของออเดอร์ (r[1] = เลข IV) · บรรทัดสินค้าถัดไปเว้นว่างเป็นปกติ
           const isVat = ci===VAT_COL && String(r[1]||'').trim();
           const cellEmpty = (isCust || isVat) && !String(c||'').trim();
+          const isNewSku = ci===SKU_COL && String(c||'').trim() && newSkuUp.has(String(c).trim().toUpperCase());
           const style = [
             numCols.has(ci)?'text-align:right':'',
             (ci===1||ci===2||ci===6)?'font-family:monospace':'',
             (isCust||isVat)?`font-weight:700;background:${cellEmpty?'rgba(220,38,38,.10)':'rgba(13,148,136,.08)'}`:'',
+            isNewSku?'font-weight:700;background:rgba(245,158,11,.18);color:#92400e':'',
             isVat?'text-align:center':'',
             ci===NOTE_COL && c ? 'color:#b45309' : ''
           ].filter(Boolean).join(';');
-          return `<td style="${style};white-space:nowrap">${cellEmpty?'<span style="color:#dc2626">— ว่าง —</span>':esc(v)}</td>`;
+          return `<td style="${style};white-space:nowrap" ${isNewSku?'title="SKU ใหม่ — บัญชีอาจยังไม่มีรหัสนี้"':''}>${cellEmpty?'<span style="color:#dc2626">— ว่าง —</span>':esc(v)}${isNewSku?' <span style="color:#f59e0b">●</span>':''}</td>`;
         }).join('');
         return `<tr>${tds}</tr>`;
       }).join('');

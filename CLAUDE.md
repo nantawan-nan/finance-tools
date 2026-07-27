@@ -191,6 +191,14 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-26 (28) — ★ ส่งออก IV: เลข IV เริ่มต้นแยกเดือน (เคสส่งออกคร่อม 2 เดือน)
+- **เจ้าของ:** บางรอบส่งออกคีย์ 2 เดือนพร้อมกัน (ดูจากวันขาย เช่น 24/06 + 24/07) — IV ต้องรันแยกเดือน (มิ.ย. 2606xxx · ก.ค. 2607xxx) · อยากมี 2 ช่องกรอกเลข IV เริ่มต้น
+- **`ivrBuildExportAoA` +param `seedByMonth`** (optional · ท้ายสุด · backward-compat): มี → รันเลข IV แยก running counter ต่อเดือน (`ivrOrderMonth`=order_date YYYY-MM) · ไม่มี → รันต่อเนื่องจาก startIv เดิม (path `ivMap` rekey ไม่กระทบ)
+- **helpers:** `ivrExportMonths`/`ivrMonthLabel`(ไทย+พ.ศ.)/`ivrSeedByMonth`(เดือนแรก=`e.startIv` · ที่เหลือ=`e.startIvByMonth[m]`)/`ivrAssignIvs`(เลข IV รายใบตามลำดับ eligible) · setter `ivrSetStartIvMonth` (targeted DOM · [[feedback_input_no_rerender]])
+- **UI Step 3:** ≥2 เดือน → โชว์ช่องกรอก IV เริ่มต้น **แยกทุกเดือน** (label เดือนไทย + จำนวนใบ + "→ ถึง endIv") + แบนเนอร์เตือนคร่อมเดือน · 1 เดือน = ช่องเดียวเหมือนเดิม · `canExport` = multi ต้องครบทุกเดือน / single = startValid
+- **`ivrDoExport` + พรีวิว + snapshot batch (`export_rows`) ใช้ `ivrAssignIvs`** (เลข IV รายใบตรงกัน) · confirm โชว์ IV แยกเดือน · batch start_iv/end_iv = ivList[0]/[last]
+- **verified:** unit test (มิ.ย. 3 ใบ 2606001269-71 · ก.ค. 2 ใบ 2607000001-02) · syntax OK · boot 0 error · ไม่ต้อง migration (reuse iv_export_batches)
+
 ### 2026-07-26 (27) — ★ AP จ่ายแล้ว: เลือก PS หลายใบ → "เปลี่ยนเป็นยังไม่จ่าย" (เคสตัด PS ล่วงหน้า เงินยังไม่ออก)
 - **เจ้าของ:** เผลออัปรายงานจ่ายชำระ 1-31/07 · การเงินตัด PS ล่วงหน้า (วันจ่าย 27-31/07) แต่เงินยังไม่ออกจริง → อยากกดเปลี่ยนเป็น "ยังไม่จ่าย" ทีละหลายรายการ (เดิมมีแค่ "ล้างการนำเข้า" = ล้างหมด · กว้างไป)
 - **checkbox column ในตาราง "จ่ายแล้ว"** (`apstPaidTableHtml` · gate `fopCanWrite`) + master `apstPaidSelectAll` (ตามตัวกรอง · indeterminate) · row checkbox `event.stopPropagation` (กันชนคลิกกางดีเทล) · state `d._paidSel` (Set · reset ทุก `apstRenderPaid`)

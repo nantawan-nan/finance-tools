@@ -6081,23 +6081,32 @@ function ivrOrderExportMeta(o){
     : '';
   return { isMbark, channel, platLabel, directCust, brand, vat, cust, custNote };
 }
-function ivrBuildExportAoA(orders, startIv, ivMap){
+// ★ เลข IV ต่อเดือน (เคสส่งออกคร่อม 2 เดือน — IV รันแยกเดือนตามวันขาย)
+const IVR_TH_MON=['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
+function ivrOrderMonth(o){ return String(o.order_date||'').slice(0,7) || '_'; }
+function ivrMonthLabel(ym){ if(!ym||ym==='_') return 'ไม่มีวันที่'; const [y,m]=ym.split('-'); const mi=parseInt(m,10)-1; const be=(parseInt(y,10)+543)%100; return `${IVR_TH_MON[mi]||m} ${String(be).padStart(2,'0')}`; }
+function ivrExportMonths(orders){ const set=new Set(); (orders||[]).forEach(o=>set.add(ivrOrderMonth(o))); return [...set].sort(); }
+function ivrSeedByMonth(e, months){ const map={}; (months||[]).forEach((m,i)=>{ let s=(e.startIvByMonth&&e.startIvByMonth[m])||''; if(!s && i===0) s=e.startIv||''; map[m]=s; }); return map; }
+function ivrAssignIvs(orders, seedMap){ const run={}; return (orders||[]).map(o=>{ const mo=ivrOrderMonth(o); if(run[mo]===undefined) run[mo]=BigInt(String(seedMap[mo]||'').replace(/\D/g,'')||'0'); const s=run[mo].toString().padStart(10,'0'); run[mo]+=1n; return s; }); }
+function ivrBuildExportAoA(orders, startIv, ivMap, seedByMonth){
   const isMbark = state.company === 'mbark';
   const shipSkuCode = BS_SHIP_SKU[state.company] || '';
   // ★ 'ประเภท Vat' ต่อท้ายคอลัมน์ AutoKey เดิม (C014) — ไม่เลื่อน mapping ที่สูตรเดิมใช้อยู่
   const aoa = [BS_HEAD.concat(['ประเภท Vat','ร้าน','หมายเหตุ'])];
   let seq = 0;
   let runningN = BigInt(String(startIv||'').replace(/\D/g,'') || '0');
+  const runByMonth = {};   // ★ นับแยกเดือน (เมื่อส่ง seedByMonth)
   for(const o of (orders||[])){
     let its = o.items;
     if(typeof its === 'string'){ try{ its = JSON.parse(its); }catch(_){ its = []; } }
     if(!Array.isArray(its) || !its.length){
       its = [{ sku:'', qty:1, price:Number(o.order_total||0), ship:0, discount:0 }];
     }
-    // ★ ivMap (order_id → เลข IV เดิม) = โหมดคีย์ใหม่ (ใช้เลขเดิม) · ไม่มี = รันเลขต่อ (ปกติ)
+    // ★ ivMap (order_id → เลข IV เดิม) = โหมดคีย์ใหม่ (ใช้เลขเดิม) · seedByMonth = รันแยกเดือน · ไม่มี = รันต่อเนื่อง
     let ivNo;
     const _ovr = ivMap && ivMap.get(o.order_id);
     if(_ovr){ ivNo = String(_ovr).replace(/\D/g,'').padStart(10,'0'); }
+    else if(seedByMonth){ const mo=ivrOrderMonth(o); if(runByMonth[mo]===undefined) runByMonth[mo]=BigInt(String(seedByMonth[mo]||'').replace(/\D/g,'')||'0'); ivNo=runByMonth[mo].toString().padStart(10,'0'); runByMonth[mo]+=1n; }
     else { ivNo = runningN.toString().padStart(10,'0'); runningN += 1n; }
     // ★ รหัสลูกค้า/แบรนด์/Vat — helper กลาง (Benya marketplace = ช่องทาง×แบรนด์ · M Bark = ช่องทาง · ขายตรง FACE/LINE/Dealer/CSR)
     const meta = ivrOrderExportMeta(o);
@@ -6158,6 +6167,13 @@ function ivrRenderExport(d){
   if(!e.startIvDirty && suggested && !e.startIv) e.startIv = suggested;
   const startValid = /^\d{10}$/.test(e.startIv);
   const endIv = startValid && eligible.length ? ivrPredictEnd(e.startIv, eligible.length) : '';
+  // ★ เลข IV เริ่มต้นแยกเดือน (เคสส่งออกคร่อม 2 เดือน — ดูจากวันขาย)
+  const months = ivrExportMonths(eligible.map(x=>x.o));
+  const multiMonth = months.length >= 2;
+  const seedMap = ivrSeedByMonth(e, months);
+  const monthCounts = {}; eligible.forEach(x=>{ const m=ivrOrderMonth(x.o); monthCounts[m]=(monthCounts[m]||0)+1; });
+  const allSeedsValid = months.length>0 && months.every(m=>/^\d{10}$/.test(seedMap[m]));
+  const canExport = multiMonth ? allSeedsValid : startValid;
 
   const ranges = [['today','วันนี้'],['yesterday','เมื่อวาน'],['7d','7 วัน'],['month','เดือนนี้'],['all','ทั้งหมด'],['custom','ระบุช่วง']];
   const chanChips = [['shopee','Shopee','#ee4d2d'],['tiktok','TikTok','#000'],['lazada','Lazada','#0F146D'],['offline','ออฟไลน์','#64748b'],['other','อื่นๆ','#475569']];
@@ -6235,6 +6251,20 @@ function ivrRenderExport(d){
     <div class="ivr-step">
       <div class="ivr-step-head"><span class="ivr-step-no">3</span> กำหนดเลข IV เริ่มต้นและส่งออก</div>
       <div class="ivr-step-body">
+        ${multiMonth ? `
+        <div style="margin-bottom:6px;font:600 12.5px/1.5 inherit;color:#92400e;background:#fffbeb;border:1px solid #fde68a;border-radius:9px;padding:8px 12px">
+          ⚠ ออเดอร์รอบนี้คร่อม <b>${months.length} เดือน</b> (ดูจากวันขาย) — กรอกเลข IV เริ่มต้น <b>แยกแต่ละเดือน</b> · IV จะรันแยกกันตามเดือน
+        </div>
+        <div style="display:flex;flex-direction:column;gap:9px">
+          ${months.map(m=>{ const seed=seedMap[m]; const valid=/^\d{10}$/.test(seed); const cnt=monthCounts[m]||0; const end=valid&&cnt?ivrPredictEnd(seed,cnt):'';
+            return `<div class="ivr-iv-input" style="margin:0">
+              <span class="ivr-label" style="min-width:150px">เลข IV · <b style="color:#0f172a">${ivrMonthLabel(m)}</b> <span style="color:#94a3b8;font-weight:500">(${cnt} ใบ)</span> <span style="color:#dc2626">*</span></span>
+              <input class="ivr-ivm" data-mo="${m}" type="text" value="${esc(seed)}" placeholder="เช่น ${m==='_'?'2606000007':m.replace('-','').slice(2)+'000001'}" maxlength="10"
+                     oninput="ivrSetStartIvMonth('${m}', this.value)"
+                     style="font-family:'JetBrains Mono',monospace;font-size:15px;font-weight:700;padding:9px 13px;border:2px solid ${valid?'#10b981':'#dc2626'};border-radius:10px;width:190px;letter-spacing:.06em;background:#fff">
+              ${valid&&cnt ? `<span style="font:500 12.5px/1 inherit;color:#475569">→ ถึง <b style="color:#0f172a;font-family:'JetBrains Mono',monospace;letter-spacing:.04em">${end}</b></span>` : `<span style="font:500 12px/1 inherit;color:#dc2626">⚠ ตัวเลข 10 หลัก</span>`}
+            </div>`; }).join('')}
+        </div>` : `
         <div class="ivr-iv-input">
           <span class="ivr-label">เลข IV เริ่มต้น <span style="color:#dc2626">*</span></span>
           <input type="text" value="${esc(e.startIv)}" placeholder="เช่น 2606000007" maxlength="10"
@@ -6242,15 +6272,15 @@ function ivrRenderExport(d){
                  style="font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;padding:10px 14px;border:2px solid ${startValid?'#10b981':'#dc2626'};border-radius:10px;width:200px;letter-spacing:.06em;background:#fff">
           ${startValid && eligible.length ? `<span style="font:500 13px/1 inherit;color:#475569">→ จะรันถึง <b style="color:#0f172a;font-family:'JetBrains Mono',monospace;letter-spacing:.04em">${endIv}</b> (${eligible.length} ใบ)</span>` : !startValid ? `<span style="font:500 12.5px/1 inherit;color:#dc2626">⚠ ต้องเป็นตัวเลข 10 หลัก เช่น 2606000007</span>` : ''}
           ${suggested && e.startIv!==suggested ? `<button class="ord-btn btn-sm" onclick="ivrSetStartIv('${suggested}')" style="padding:5px 10px;font-size:11.5px"><i data-lucide="rotate-cw"></i> ใช้ที่แนะนำ ${suggested}</button>` : ''}
-        </div>
+        </div>`}
         <div class="ivr-iv-hint">
           ℹ <b>เลขที่ส่งออกนี้จะไม่ถูกบันทึกในระบบเว็บ</b> — บัญชีอาจแก้มือในระบบบัญชี ระบบจะจำเลข IV ลงออเดอร์ก็ต่อเมื่ออัป <b>รายงาน 141.RWT</b> มา verify หลังคีย์แล้วเท่านั้น (ดูแท็บ "ตรวจการคีย์")
         </div>
         <div class="ivr-actions">
-          <button class="ord-btn primary" style="font-size:14px;padding:11px 20px" ${(!startValid || !eligible.length || e.busy) ? 'disabled' : ''} onclick="ivrDoExport('csv')" title="AutoKey รองรับ CSV โดยตรง — แนะนำใช้แบบนี้">
+          <button class="ord-btn primary" style="font-size:14px;padding:11px 20px" ${(!canExport || !eligible.length || e.busy) ? 'disabled' : ''} onclick="ivrDoExport('csv')" title="AutoKey รองรับ CSV โดยตรง — แนะนำใช้แบบนี้">
             <i data-lucide="file-text"></i> ${e.busy?'กำลังส่งออก...':`ส่งออก CSV (${eligible.length.toLocaleString('th-TH')} ออเดอร์)`}
           </button>
-          <button class="ord-btn" style="font-size:14px;padding:11px 20px;border-color:#10b981;color:#047857" ${(!startValid || !eligible.length || e.busy) ? 'disabled' : ''} onclick="ivrDoExport('xlsx')" title="ไฟล์ Excel (.xlsx) — เปิดดู/แก้ใน Excel ได้ก่อนคีย์">
+          <button class="ord-btn" style="font-size:14px;padding:11px 20px;border-color:#10b981;color:#047857" ${(!canExport || !eligible.length || e.busy) ? 'disabled' : ''} onclick="ivrDoExport('xlsx')" title="ไฟล์ Excel (.xlsx) — เปิดดู/แก้ใน Excel ได้ก่อนคีย์">
             <i data-lucide="file-spreadsheet"></i> ${e.busy?'กำลังส่งออก...':'ส่งออก Excel'}
           </button>
           <button class="ord-btn" onclick="ivrToggleHistory()">
@@ -6298,7 +6328,9 @@ function ivrRenderExport(d){
       const ROWCAP = 150;
       if(!eligible.length) return `<div class="ivr-prev"><div class="ivr-prev-head"><span>👁 ตัวอย่างไฟล์ที่จะส่งออก (CSV จริง)</span></div>
         <div style="padding:30px;text-align:center;color:#94a3b8">— ไม่มีออเดอร์พร้อมส่งออกในช่วงที่เลือก —</div></div>`;
-      const aoa = ivrBuildExportAoA(eligible.map(x=>x.o), startValid ? e.startIv : '0000000000');
+      // ★ พรีวิว: multi-month ใช้ seed แยกเดือน (เว้นว่าง = 0000000000 ให้ preview ได้) · single ใช้ e.startIv ต่อเนื่อง
+      const previewSeed = multiMonth ? (()=>{ const s={}; months.forEach(m=>{ s[m]=/^\d{10}$/.test(seedMap[m])?seedMap[m]:'0000000000'; }); return s; })() : null;
+      const aoa = ivrBuildExportAoA(eligible.map(x=>x.o), startValid ? e.startIv : '0000000000', null, previewSeed);
       const header = aoa[0]; const body = aoa.slice(1);
       const CUST_COL = 5, VAT_COL = 14, NOTE_COL = 16;   // คอลัมน์ รหัสลูกค้า / ประเภท Vat / หมายเหตุ
       const noteN = body.filter(r=> r[NOTE_COL]).length;                 // แถวที่เดาแบรนด์ไม่ออก
@@ -6311,7 +6343,7 @@ function ivrRenderExport(d){
       const rowsHtml = body.slice(0,ROWCAP).map(r=>{
         const tds = r.map((c,ci)=>{
           let v = (c===0||c==='') ? (c===0?'0':'') : String(c);
-          if(ci===1 && !startValid) v = '(รอเลข IV)';       // ยังไม่กรอกเลข IV
+          if(ci===1 && !canExport) v = '(รอเลข IV)';       // ยังไม่กรอกเลข IV (multi-month = ต้องครบทุกเดือน)
           if(numCols.has(ci) && (c===0||c==='0'||c==='')) v = (ci===0? String(c) : '0');
           const isCust = ci===CUST_COL;
           // ★ Vat ว่าง = ผิดเฉพาะบรรทัดแรกของออเดอร์ (r[1] = เลข IV) · บรรทัดสินค้าถัดไปเว้นว่างเป็นปกติ
@@ -6527,6 +6559,13 @@ function ivrSetStartIv(v){
   ivrRerender();
   if(focus){ setTimeout(()=>{ const ne=document.querySelector('.ivr-iv-input input[type="text"]'); if(ne){ ne.focus(); ne.setSelectionRange(clean.length,clean.length); } },0); }
 }
+function ivrSetStartIvMonth(month, v){
+  const d=ordGet(); const e=d.ivrec.exp; const clean=String(v||'').replace(/\D/g,'').slice(0,10);
+  e.startIvByMonth = e.startIvByMonth||{}; e.startIvByMonth[month]=clean; e.startIvDirty=true;
+  const sel=`.ivr-ivm[data-mo="${month}"]`; const el=document.querySelector(sel); const focus=el&&document.activeElement===el;
+  ivrRerender();
+  if(focus){ setTimeout(()=>{ const ne=document.querySelector(sel); if(ne){ ne.focus(); ne.setSelectionRange(clean.length,clean.length); } },0); }
+}
 function ivrToggleBlocked(){ const d=ordGet(); d.ivrec.exp.blockedOpen=!d.ivrec.exp.blockedOpen; ivrRerender(); }
 function ivrToggleHistory(){ const d=ordGet(); d.ivrec.exp.historyOpen=!d.ivrec.exp.historyOpen; if(d.ivrec.exp.historyOpen) ivrLoadBatches().then(()=>ivrRerender()); else ivrRerender(); }
 
@@ -6534,7 +6573,6 @@ async function ivrDoExport(format){
   if(!brecCanWrite()){ alert('ไม่มีสิทธิ์ส่งออก'); return; }
   const fmt = (format==='xlsx') ? 'xlsx' : 'csv';   // default = csv
   const d = ordGet(); const e = d.ivrec.exp;
-  if(!/^\d{10}$/.test(e.startIv)){ alert('กรอกเลข IV เริ่มต้น 10 หลักก่อน'); return; }
   const rmap = ordReconMap(d);
   const today = ivrISO(new Date());
   const [dFrom, dTo] = ivrRangeBounds(e, today);
@@ -6550,22 +6588,36 @@ async function ivrDoExport(format){
   }).sort((a,b)=>{ const da=a.order_date||'', db=b.order_date||''; if(da!==db) return da<db?-1:1; return String(a.order_id||'').localeCompare(String(b.order_id||'')); });
   const eligible = candidates.filter(o => ivrCanExport(o, rmap, e.includeKeyed, e.includeCsr).ok);
   if(!eligible.length){ alert('ไม่มีออเดอร์พร้อมส่งออก'); return; }
-  const endIv = ivrPredictEnd(e.startIv, eligible.length);
+  // ★ เลข IV แยกเดือน (เคสคร่อม 2 เดือน)
+  const months = ivrExportMonths(eligible);
+  const multiMonth = months.length >= 2;
+  const seedMap = ivrSeedByMonth(e, months);
+  if(multiMonth){
+    const bad = months.filter(m=>!/^\d{10}$/.test(seedMap[m]));
+    if(bad.length){ alert('กรอกเลข IV เริ่มต้น 10 หลัก ให้ครบทุกเดือน:\n'+bad.map(m=>'• '+ivrMonthLabel(m)).join('\n')); return; }
+  } else if(!/^\d{10}$/.test(e.startIv)){ alert('กรอกเลข IV เริ่มต้น 10 หลักก่อน'); return; }
+  const seedArg = multiMonth ? seedMap : null;   // ส่งเข้า AoA/exportRows
+  const ivList = ivrAssignIvs(eligible, multiMonth ? seedMap : { [months[0]||'_']: e.startIv });   // เลข IV รายใบ (ตามลำดับ eligible)
+  const endIv = ivList[ivList.length-1] || e.startIv;
+  const startIvShown = ivList[0] || e.startIv;
   const fmtLabel = fmt==='xlsx' ? 'Excel (.xlsx)' : 'CSV';
   const csrN = eligible.filter(o=>{
     const ch=String(o.channel_group||'').toLowerCase();
     return !(ch==='shopee'||ch==='tiktok'||ch==='lazada') && ordChannelDetail(o)==='csr';
   }).length;
-  if(!confirm(`ส่งออก ${eligible.length} ออเดอร์ → AutoKey ${fmtLabel}\n\n• เลข IV: ${e.startIv} → ${endIv}\n• ช่วงวัน: ${dFrom||'ไม่จำกัด'} → ${dTo||'ไม่จำกัด'}\n• ช่องทาง: ${[...channels].join(', ')}${csrN?`\n• รวม CSR (ยอด 0): ${csrN} ใบ`:''}\n\nดำเนินการ?`)) return;
+  const ivLine = multiMonth
+    ? months.map(m=>{ const c=eligible.filter(o=>ivrOrderMonth(o)===m).length; return `   ${ivrMonthLabel(m)}: ${seedMap[m]} (${c} ใบ)`; }).join('\n')
+    : `${e.startIv} → ${endIv}`;
+  if(!confirm(`ส่งออก ${eligible.length} ออเดอร์ → AutoKey ${fmtLabel}\n\n• เลข IV${multiMonth?' (แยกเดือน):\n':': '}${ivLine}\n• ช่วงวัน: ${dFrom||'ไม่จำกัด'} → ${dTo||'ไม่จำกัด'}\n• ช่องทาง: ${[...channels].join(', ')}${csrN?`\n• รวม CSR (ยอด 0): ${csrN} ใบ`:''}\n\nดำเนินการ?`)) return;
   e.busy = true; ivrRerender();
   try{
-    // 1) build AoA — ใช้ helper ตัวเดียวกับพรีวิว (เนื้อไฟล์ตรงกันเป๊ะ)
+    // 1) build AoA — ใช้ helper ตัวเดียวกับพรีวิว (เนื้อไฟล์ตรงกันเป๊ะ · multi-month = seed แยกเดือน)
     const co = COMPANIES.find(c=>c.id===state.company);
-    const aoa = ivrBuildExportAoA(eligible, e.startIv);
+    const aoa = ivrBuildExportAoA(eligible, e.startIv, null, seedArg);
     // 2) save batch + download
     const stampStr = (function(){ const dt=new Date(); return `${dt.getFullYear()}${String(dt.getMonth()+1).padStart(2,'0')}${String(dt.getDate()).padStart(2,'0')}_${String(dt.getHours()).padStart(2,'0')}${String(dt.getMinutes()).padStart(2,'0')}`; })();
     const ext = fmt==='xlsx' ? 'xlsx' : 'csv';
-    const fileName = `IV_AutoKey_${co.code||co.name}_${e.startIv}_${stampStr}.${ext}`;
+    const fileName = `IV_AutoKey_${co.code||co.name}_${startIvShown}_${stampStr}.${ext}`;
     const companyId = await fopCompanyId();
     if(companyId){
       // batch_no: IV-{co}-YYYYMMDD-NNN
@@ -6579,18 +6631,17 @@ async function ivrDoExport(format){
         seqNo = (used.length ? Math.max(...used) : 0) + 1;
       }catch(_){}
       const batchNo = `${prefix}-${String(seqNo).padStart(3,'0')}`;
-      // ★ snapshot รหัสลูกค้าที่ส่งออกจริงรายใบ (เลข IV = start_iv + index · ใช้ helper เดียวกับ AoA)
-      let ivStartN = BigInt(String(e.startIv).replace(/\D/g,'')||'0');
+      // ★ snapshot รหัสลูกค้าที่ส่งออกจริงรายใบ (เลข IV = ivList รายใบ · multi-month แยกเดือน)
       const exportRows = eligible.map((o,i)=>{
         const meta = ivrOrderExportMeta(o);
-        return { iv:(ivStartN+BigInt(i)).toString().padStart(10,'0'), order_id:o.order_id||o.id,
+        return { iv: ivList[i], order_id:o.order_id||o.id,
                  channel:meta.platLabel, shop:o.shop||'', brand:meta.brand, cust:meta.cust, vat:meta.vat };
       });
       try{
         await sb.from('iv_export_batches').insert({
           company_id: companyId, batch_no: batchNo,
           date_from: dFrom||null, date_to: dTo||null,
-          channels: [...channels], start_iv: e.startIv, end_iv: endIv,
+          channels: [...channels], start_iv: startIvShown, end_iv: endIv,
           order_count: eligible.length, order_ids: eligible.map(o=>o.order_id||o.id),
           export_rows: exportRows,
           file_name: fileName, exported_email: AUTH.email || null

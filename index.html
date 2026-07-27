@@ -30369,11 +30369,14 @@ async function bmpRunUpload(){
         updated_at: new Date().toISOString()
       }, { onConflict:"company_id" });
     } else {
-      // ใช้ Express จาก cache
+      // ใช้ Express จาก cache · ถ้าไม่มี (เช่น เบญญายังไม่เคยอัป 3 ไฟล์) → resolve จากทะเบียน (order_ledger) ล้วน
       const cached = await bmpLoadExpressFromCache(co);
-      if(!cached) throw new Error("ไม่พบ Express cache — อัป Express 3 ไฟล์ครั้งแรกก่อน");
-      salesData = cached.salesData; arData = cached.arData; chqData = cached.chqData;
-      expressFromCache = true;
+      if(cached){ salesData = cached.salesData; arData = cached.arData; chqData = cached.chqData; expressFromCache = true; }
+      else {
+        // ★ Express เป็นตัวเลือก — IV/RE มาจากทะเบียนที่คีย์แล้ว · เลขเช็ค = prefix+RE (ยังไม่มีเลขเช็คจริงจากรายงาน 191)
+        salesData = { ivs:[] }; arData = { cheques:[], ivToCheque:new Map() }; chqData = { deposits:[] };
+        expressFromCache = false; window._bmpNoExpress = true;
+      }
     }
 
     // ★ Phase A: จับ IV ใส่ออเดอร์ จากรายงานขาย 723-5
@@ -30554,6 +30557,7 @@ async function bmpRunUpload(){
     d.mp.parsing = false;   // ★ reset flag ก่อนปิด modal กัน state ค้าง
     bmpCloseUpload();
     let msg = `อัปสำเร็จ\n${perShopSummary.join("\n")}\n\nรวม: ${grandTotalWd} withdrawal · ${grandTotalOrd} order · ไม่ตรง ${grandTotalMis}`;
+    if(window._bmpNoExpress){ msg += `\n\nℹ IV/RE ดึงจากทะเบียนคำสั่งซื้อ (order_ledger) — ยังไม่ได้อัปรายงาน Express (723-5 / รับชำระ 191 / เช็ครับ)\n   เลขเช็คเป็นค่าคาดการณ์ (prefix+RE) · อัป Express 3 ไฟล์ครั้งเดียวเพื่อได้เลขเช็คจริง + ระบบจะจำไว้ดึงออโต้ครั้งต่อไป`; window._bmpNoExpress=false; }
     if(grandTotalSkip) msg += `\n\n⏭ ข้าม ${grandTotalSkip} withdrawal ที่มีอยู่ใน DB แล้ว (ดูจาก datetime+ยอด+บัญชี)`;
     if(skipped.length) msg += `\n\nข้าม: ${skipped.join(", ")}`;
     msg += `\n\n📒 ทะเบียนคำสั่งซื้อ — จับ IV: ${ordResult.tagged} · แท็กรับชำระ: ${ordTagRe} · แท็กเงินเข้าแบงค์: ${ordTagBank}`;

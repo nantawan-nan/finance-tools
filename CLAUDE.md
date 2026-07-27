@@ -191,6 +191,13 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-26 (29) — ★ ถอน Marketplace: Express (723-5/191/เช็ครับ) เป็นตัวเลือก (เบญญาอัปแค่กระเป๋าเงินก็ได้)
+- **เจ้าถาม "ทำไมเบญญาไม่ดึงออโต้เหมือน M Bark":** รายงาน Express 3 ตัว cache แยกบริษัท (`brec_mp_express_cache` · key company_id) — M Bark เคยอัปไว้ → มี cache ดึงออโต้ · เบญญายังไม่เคยอัป → **โค้ดเดิม throw "ไม่พบ Express cache"** บังคับต้องอัป
+- **แก้ `bmpRunUpload` (else branch):** ไม่มี cache → **ไม่ throw** · ใช้ `salesData/arData/chqData` ว่าง → resolve IV/RE จาก **ทะเบียน (order_ledger)** ล้วน (แนนคีย์ IV/RE ไว้แล้ว) · เลขเช็ค = prefix+RE (คาดการณ์ · ยังไม่มีเลขเช็คจริงจาก 191)
+- **แจ้งเตือนใน alert สรุป** (flag `window._bmpNoExpress`): บอกว่า IV/RE ดึงจากทะเบียน · เลขเช็คคาดการณ์ · อัป Express 3 ไฟล์ครั้งเดียวเพื่อได้เลขเช็คจริง + cache ดึงออโต้ครั้งต่อไป
+- **verified:** syntax OK · boot 0 error · bmpGroupWithdrawals handle empty arData/salesData อยู่แล้ว (`||[]`) · ไม่ต้อง migration
+- **หมายเหตุ:** อยากได้เลขเช็คจริง (prefix เบญญา) → อัปรายงาน Express 3 ไฟล์ของเบญญา 1 ครั้ง (ระบบเรียน prefix จาก 191 + cache)
+
 ### 2026-07-26 (28) — ★ ส่งออก IV: เลข IV เริ่มต้นแยกเดือน (เคสส่งออกคร่อม 2 เดือน)
 - **เจ้าของ:** บางรอบส่งออกคีย์ 2 เดือนพร้อมกัน (ดูจากวันขาย เช่น 24/06 + 24/07) — IV ต้องรันแยกเดือน (มิ.ย. 2606xxx · ก.ค. 2607xxx) · อยากมี 2 ช่องกรอกเลข IV เริ่มต้น
 - **`ivrBuildExportAoA` +param `seedByMonth`** (optional · ท้ายสุด · backward-compat): มี → รันเลข IV แยก running counter ต่อเดือน (`ivrOrderMonth`=order_date YYYY-MM) · ไม่มี → รันต่อเนื่องจาก startIv เดิม (path `ivMap` rekey ไม่กระทบ)

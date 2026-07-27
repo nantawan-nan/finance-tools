@@ -4389,8 +4389,15 @@ function incReCandidates(d){
     let net = Number(r.net_received)||0;
     if(isDirect && outstanding>0 && !(net>0)) net = outstanding;   // โอนตรงไม่มี income (net=0) → เงินเข้าเต็มยอด
     const inReport191 = (ord.iv_no && keyedIv.has(ord.iv_no)) || keyedOrder.has(r.order_id);
+    // ★ เตือน: แบรนด์ที่บัญชี "คีย์ IV จริง" (จาก 141.RWT) ≠ แบรนด์ที่ RE จะใช้ (ตาม SKU) → RE อาจไม่ตรง IV
+    const skuBr = incBrandOf(ord);
+    let custWarn = "";
+    if(state.company!=="mbark" && ivCustMap[ord.iv_no]){
+      const keyedBr = ordIvKeyedBrand(ivCustMap[ord.iv_no]);
+      if(keyedBr && skuBr && keyedBr!==skuBr){ const nm=b=>b==='BT'?'BE':'QI'; custWarn = `⚠ IV คีย์เป็น ${nm(keyedBr)} · RE จะออกเป็น ${nm(skuBr)} — ต่างกัน (แก้ IV ให้ตรง SKU ก่อนคีย์ RE)`; }
+    }
     out.push({
-      arDate: ord.iv_date||null, arIv: ord.iv_no, actualBrand: incBrandOf(ord),
+      arDate: ord.iv_date||null, arIv: ord.iv_no, actualBrand: skuBr, custWarn,
       arOutstanding: outstanding, orderNo: r.order_id, channel, channelGroup: r.channel_group||"",
       paymentDate: r.paid_date||null, paidISO: parseDate(r.paid_date||""), netAmount: net, diff: round2(outstanding-net),
       // ★ รหัสลูกค้า: ใช้สูตรเดียวกับส่งออก IV (ivrOrderExportMeta) ให้ IV↔RE ตรงกัน
@@ -4911,8 +4918,8 @@ function incRenderExport(d){
       const a = incReRow(r, sel ? reIdx : 0, company);
       const reNo = sel ? a.doc_no : '';
       if(sel) reIdx++;
-      const note = r._prob || a.warning;
-      const rowBg = r.arStatus==='settled' ? '#fef2f2' : (note?'#fffbeb':'');
+      const note = [r.custWarn, r._prob || a.warning].filter(Boolean).join(' · ');
+      const rowBg = r.arStatus==='settled' ? '#fef2f2' : (r.custWarn ? '#fff7ed' : (note?'#fffbeb':''));
       return `<tr class="${note?'warning-row':''}" style="border-bottom:1px solid #f1f5f9${rowBg?`;background:${rowBg}`:''}${sel?'':';opacity:.55'}">
         <td style="padding:6px 8px;text-align:center"><input type="checkbox" ${sel?'checked':''} onchange="incReToggleRow('${esc(r.orderNo)}')" style="width:16px;height:16px;cursor:pointer;accent-color:var(--brand)"></td>
         <td style="padding:6px 8px;font-family:monospace;color:${reNo?'#475569':'#cbd5e1'}">${reNo?esc(reNo):'—'}</td>
@@ -4929,7 +4936,11 @@ function incRenderExport(d){
         <td style="padding:6px 8px;font-size:11px;color:#b45309">${esc(note)}${arBadge(r.arStatus)}</td>
       </tr>`;
     }).join("");
-    body = `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
+    const custWarnN = view.filter(r=>r.custWarn).length;
+    const custWarnBanner = custWarnN ? `<div style="margin-bottom:10px;padding:10px 14px;border-radius:10px;background:#fff7ed;border:1px solid #fed7aa;border-left:4px solid #ea580c;font:600 12.5px/1.6 inherit;color:#9a3412">
+      <i data-lucide="alert-triangle" style="width:15px;height:15px;vertical-align:-2px"></i> พบ ${custWarnN} ใบที่ <b>แบรนด์ที่บัญชีคีย์ IV ต่างจากแบรนด์ที่ RE จะออก</b> (ตาม SKU) — RE จะไม่ตรงกับ IV ในระบบบัญชี<br><span style="font-weight:500;color:#b45309">แก้ IV ให้ตรง SKU ก่อน (แท็บ "ตรวจการคีย์ IV" → ส่งออกคีย์ใหม่เลข IV เดิม) แล้วค่อยคีย์ RE · ดูแถวพื้นส้มด้านล่าง</span>
+    </div>` : '';
+    body = custWarnBanner + `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
         <button class="ord-chip" onclick="incReSelectAll(true)"><i data-lucide="check-square"></i> เลือกทั้งหมด</button>
         <button class="ord-chip" onclick="incReSelectAll(false)"><i data-lucide="square"></i> ไม่เลือกเลย</button>
         ${Object.keys(d.reSel||{}).length?`<button class="ord-chip" onclick="incReResetSel()">↺ คืนค่าติ๊กอัตโนมัติ</button>`:''}

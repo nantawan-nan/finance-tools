@@ -191,6 +191,13 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-27 (10) — ★ ส่งออก RE: เตือนแบรนด์ที่ "คีย์ IV จริง" ≠ แบรนด์ที่ RE จะออก (RE↔IV ไม่ตรง)
+- **เจ้าถาม:** ตอนส่งออก RE ตรวจรหัสลูกค้าจากที่บัญชีคีย์ IV ไหม (เช่น IV คีย์ SHOPEE BE → RE ต้อง SHOPEE BE เหมือนกัน)
+- **ตอบ (โค้ดเดิม `incReCandidates` ล.4399):** Benya RE คำนวณรหัสจาก **แบรนด์ SKU** (`custCodeBenya(channel, incBrandOf(ord))`) → SHOPEE BE/QI ตาม SKU · **ไม่อ่านตรงจาก IV ที่คีย์** (141.RWT ใช้แค่ fallback เมื่อเดา SKU ไม่ออก) → ปกติตรง · แต่ถ้าบัญชีคีย์ IV ผิดแบรนด์ RE จะไม่ตรง IV และ**ไม่เตือน**
+- **แก้ (เพิ่มการตรวจ):** `incReCandidates` เทียบ `ordIvKeyedBrand(ivCustMap[iv_no])` (แบรนด์ที่คีย์จริงจาก 141.RWT) vs `incBrandOf(ord)` (แบรนด์ SKU ที่ RE ใช้) → ต่าง = `custWarn` "⚠ IV คีย์เป็น BE · RE จะออกเป็น QI — ต่างกัน"
+- **UI:** แถวพื้นส้ม + note ในตารางส่งออก RE · แบนเนอร์ส้มด้านบนนับจำนวน + แนะให้แก้ IV (แท็บตรวจการคีย์ → ส่งออกคีย์ใหม่เลข IV เดิม) ก่อนคีย์ RE · **ไม่บล็อกส่งออก** (SKU-authoritative · IV คือฝั่งที่ควรแก้)
+- **verified:** syntax OK · boot 0 error · เฉพาะ Benya + ต้องอัป 141.RWT ก่อนถึงเทียบได้ · display-only · ไม่ต้อง migration
+
 ### 2026-07-27 (9) — ★ ส่งออก IV: gate บล็อก "ยังไม่ตรวจกระทบยอด" ทั้งที่ทะเบียน matched แล้ว (recon ไม่สด)
 - **เจ้าของ:** gate ขึ้น 2 shopee "ยังไม่ตรวจกระทบยอด" แต่ค้นในทะเบียนออเดอร์นั้น matched แล้ว (ป้าย "รอคีย์ IV" = ต้อง matched ก่อน) → ขัดกัน
 - **ต้นเหตุ:** `d.recon.results` โหลดครั้งเดียว (guard `d.reconLoaded`) · อัปหลังบ้านที่หน้า "ทะเบียน" ทีหลัง → recon อัปเดต · แต่หน้า "ส่งออก IV" (`ivrRenderExport`) ที่เปิดค้างไว้ยังใช้ snapshot เก่า → `ivrCanExport` เห็น rc=null → "ยังไม่ตรวจ"

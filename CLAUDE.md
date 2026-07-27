@@ -191,6 +191,13 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-26 (26) — ★ ถอน Marketplace: ปุ่ม "อัปเดต IV/RE จากทะเบียน" (แก้สถานะค้าง "ยังไม่คีย์ IV" หลังคีย์แล้ว)
+- **เจ้าถาม "หน้าแบงค์อัปเดตไหม · ส่งออกไปคีย์ IV/RE แล้ว":** ออเดอร์ที่คีย์ IV/RE ครบแล้ว (เห็นในทะเบียน/timeline) แต่หน้าถอน Marketplace ยังขึ้น "ยังไม่คีย์ IV (ไม่พบในทะเบียน/รายงาน)" + เลขเช็ค `UNKNOWN-...`
+- **ต้นเหตุ:** `bmpGroupWithdrawals` resolve IV/RE/เลขเช็ค/mismatch **ตอน upload** แล้ว freeze ลง `brec_mp_orders` · `bmpLoadFromDb` อ่าน snapshot เดิม **ไม่ re-resolve** → คีย์ IV/RE ทีหลังไม่อัปเดตเอง (เดิมต้อง re-upload ไฟล์กระเป๋าเงิน)
+- **`bmpRefreshFromRegistry()` (ใหม่):** โหลด `order_ledger` (order_id→iv_no/re_no/sale_amount/cheque_no · แบ่งหน้า) → re-resolve ต่อ `brec_mp_orders` (txn_type=order · mirror logic upload: chequeNo = cheque จริง / `bmpChequePrefix+RE digits` / PENDING / UNKNOWN · mismatch = ไม่มี IV / ไม่มี RE) → update เฉพาะแถวที่เปลี่ยน (chunk 20 parallel) → `bmpLoadFromDb`+re-render
+- **ปุ่ม "🔄 อัปเดต IV/RE จากทะเบียน"** ใน toolbar แท็บถอน Marketplace (ข้าง Export CSV) · confirm ก่อน · ไม่แตะยอด/การจับกลุ่ม (registry-only · 723-5/191 = secondary ถ้าต้องการแม่นเป๊ะค่อย re-upload)
+- **verified:** syntax OK · boot 0 error · ไม่ต้อง migration (reuse brec_mp_orders + order_ledger)
+
 ### 2026-07-26 (25) — ★ ล้างเมนู: ลบ AP ซ้ำ (soon) + ย้าย AP Outstanding เข้าหมวด "เจ้าหนี้ (AP)" + ซ่อน withdraw
 - **เจ้าถาม "หน้าไหนไม่ได้ใช้จริง/วางผิดลำดับ":** เจอ AP Outstanding โผล่ 2 อันในเมนู — `ap` (stage "เจ้าหนี้ (AP)" · status soon · placeholder ตาย) + `ap_outstanding` (ของจริง · live · แต่อยู่หมวด "กระแสเงินสด")
 - **แก้:** ลบ `ap` (soon) ทิ้ง · ย้าย entry `ap_outstanding` ไปไว้ตำแหน่งหมวด "เจ้าหนี้ (AP)" (เปลี่ยน `stage` + ย้ายบล็อกให้ stage ต่อเนื่องใน sidebar · ไม่งั้นกลุ่มกระแสเงินสดจะขาดครึ่ง) · id เดิม (`ap_outstanding`) ทุก nav link/KPI/TO-DO ยังชี้ถูก

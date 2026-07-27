@@ -30985,6 +30985,61 @@ function bmpFilteredWds(d){
     return true;
   });
 }
+/* ★ อัปเดต IV/RE/เลขเช็ค จากทะเบียนคำสั่งซื้อ (order_ledger) โดยไม่ต้อง re-upload ไฟล์กระเป๋าเงิน
+   — brec_mp_orders freeze IV/RE ตอน upload · คีย์ IV/RE ทีหลังต้องกดปุ่มนี้ให้ re-resolve จาก registry ปัจจุบัน */
+async function bmpRefreshFromRegistry(){
+  if(!brecCanWrite()){ alert("ไม่มีสิทธิ์"); return; }
+  const d = brecGet(); const co = d.companyId || await fopCompanyId(); if(!co) return;
+  if(!confirm("อัปเดตสถานะ IV/RE ของออเดอร์ในหน้านี้ ให้ตรงกับทะเบียนคำสั่งซื้อล่าสุด?\n\nใช้เมื่อ 'ส่งออกไปคีย์ IV/RE แล้ว' — ระบบจะดึงเลข IV/RE/เลขเช็ค ล่าสุดจากทะเบียนมาเติมให้\n(ไม่ต้อง re-upload ไฟล์กระเป๋าเงิน · ไม่แตะยอด/การจับกลุ่ม)")) return;
+  try{
+    // โหลดทะเบียน (order_ledger) ทั้งบริษัท — แบ่งหน้า
+    const ledger = new Map(); let from=0; const sz=1000;
+    while(true){
+      const { data, error } = await sb.from("order_ledger").select("order_id,iv_no,re_no,sale_amount,cheque_no")
+        .eq("company_id",co).is("deleted_at",null).range(from,from+sz-1);
+      if(error){ throw error; }
+      if(!data || !data.length) break;
+      data.forEach(r=>{ if(r.order_id) ledger.set(String(r.order_id), r); });
+      if(data.length<sz) break; from+=sz;
+    }
+    const orders = (d.mp.orders||[]).filter(o=>o.txn_type==="order");
+    const updates=[];
+    for(const o of orders){
+      const led = ledger.get(String(o.order_id)); if(!led) continue;   // ยังไม่อยู่ในทะเบียน → ข้าม (orphan แยกจัดการ)
+      const ivNo = led.iv_no || null;
+      const reDigits = led.re_no ? String(led.re_no).replace(/\D/g,"") : "";
+      const pfx = bmpChequePrefix(o.channel);
+      const chequeNo = (led.cheque_no && !/^RE/i.test(led.cheque_no)) ? led.cheque_no
+                     : (reDigits ? (pfx+reDigits)
+                     : (ivNo ? ("PENDING-"+ivNo) : ("UNKNOWN-"+o.order_id)));
+      const hasRe = !!(led.re_no || led.cheque_no);
+      let mismatch=false, reason="";
+      if(!ivNo){ mismatch=true; reason="ยังไม่คีย์ IV (ไม่พบในทะเบียน/รายงาน)"; }
+      else if(!hasRe){ mismatch=true; reason="ยังไม่ออกใบเสร็จ RE (ตรวจในทะเบียน/รับชำระ)"; }
+      const gross = (o.express_gross && Number(o.express_gross)>0) ? Number(o.express_gross)
+                  : (led.sale_amount!=null ? Number(led.sale_amount) : Number(o.express_gross||0));
+      const receiptNo = led.re_no || ivNo || null;
+      // เปลี่ยนแปลงจริงไหม (กัน update เปล่า)
+      const changed = (o.cheque_no||"")!==chequeNo || !!o.mismatch_flag!==mismatch
+        || (o.mismatch_reason||"")!==reason || !!o.has_receipt!==!!ivNo
+        || Number(o.express_gross||0)!==gross || (o.receipt_no||null)!==receiptNo;
+      if(changed){ updates.push({ id:o.id, cheque_no:chequeNo, receipt_no:receiptNo,
+        has_receipt:!!ivNo, express_gross:gross, fee_diff: gross? +(gross-Number(o.shopee_net||0)).toFixed(2):0,
+        mismatch_flag:mismatch, mismatch_reason:reason }); }
+    }
+    if(!updates.length){ alert("ไม่มีอะไรต้องอัปเดต — สถานะตรงกับทะเบียนแล้ว ✓"); return; }
+    // อัปเดตเป็นชุด (chunk ละ 20 · parallel)
+    let done=0;
+    for(let i=0;i<updates.length;i+=20){
+      const chunk=updates.slice(i,i+20);
+      await Promise.all(chunk.map(u=>{ const {id,...f}=u; return sb.from("brec_mp_orders").update(f).eq("id",id); }));
+      done+=chunk.length;
+    }
+    await bmpLoadFromDb();
+    renderToolBankRec();
+    alert(`อัปเดต ${updates.length} ออเดอร์จากทะเบียนแล้ว ✓\nออเดอร์ที่คีย์ IV/RE ครบจะเปลี่ยนเป็น "ตรงครบ"`);
+  }catch(e){ alert("อัปเดตไม่สำเร็จ: "+fopErr(e)); }
+}
 /* ★ ติ๊ก "ดำเนินการแล้ว" (คีย์ BQ เสร็จ) → ย้ายไปแท็บดำเนินการแล้ว */
 async function bmpToggleDone(id, checked){
   if(!brecCanWrite()){ alert("ไม่มีสิทธิ์"); return; }
@@ -31470,6 +31525,7 @@ function bmpRenderTab(d){
       </label>
       <span style="font-size:12.5px;color:var(--ink-2,#475569)">เลือก ${selCount}/${filtered.length}</span>
       <div style="flex:1"></div>
+      <button class="brec-btn" onclick="bmpRefreshFromRegistry()" title="ดึงสถานะ IV/RE/เลขเช็ค ล่าสุดจากทะเบียนคำสั่งซื้อ (ใช้เมื่อคีย์ IV/RE เพิ่มแล้ว · ไม่ต้อง re-upload ไฟล์กระเป๋าเงิน)"><i data-lucide="refresh-cw"></i> อัปเดต IV/RE จากทะเบียน</button>
       <button class="brec-btn primary" onclick="bmpExportCsv()"><i data-lucide="download"></i> ⬇ Export CSV ${selCount?`(${selCount} ที่เลือก)`:'(ทั้งหมด)'}</button>
       <button class="brec-btn" onclick="bmpExportMismatchXlsx()" ${totalMismatch?'':'disabled'}><i data-lucide="file-warning"></i> ⬇ รายงานไม่ตรง (Excel)</button>
     </div>

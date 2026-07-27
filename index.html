@@ -823,25 +823,22 @@ const TOOLS = [
     name:"Bank Reconciliation", desc:"กระทบ Express ↔ Statement",
     long:"อัป Express XML + Statement (SCB XLSX / BBL XLS) → จับคู่อัตโนมัติด้วย ref + วันที่ + ยอด (วันต้องตรงเป๊ะ) · แยกรอยืนยัน / รอกระทบ / กระทบแล้ว",
     multiInput:true, status:"live" },
+  // ★ ซ่อน 2026-07-26 — หน้านี้ไม่มี render จริง (เจอหน้าอัปโหลดเปล่า) · ฟังก์ชันถอนเงินอยู่ใน Bank Reconciliation → แท็บ "🛒 ถอน Marketplace" แล้ว
   { id:"withdraw", stage:"ธนาคาร", ic:"↙", icon:"arrow-down-left",
     name:"กระทบยอดถอนเงิน", desc:"แพลตฟอร์ม → แบงค์",
     long:"อัปรายงานถอนเงินจากแพลตฟอร์ม → จับว่ายอดเข้าบัญชีบริษัทมีออเดอร์ไหนบ้าง + สร้างรายการผ่านเช็ค",
-    sheetHints:{ contains:["withdraw","ถอน","payout","transfer"], exclude:["สรุป","summary"] }, status:"live" },
+    sheetHints:{ contains:["withdraw","ถอน","payout","transfer"], exclude:["สรุป","summary"] }, status:"live", hidden:true },
 
   // ───── 5. เจ้าหนี้ ─────
-  { id:"ap", stage:"เจ้าหนี้ (AP)", ic:"◁", icon:"file-warning",
-    name:"AP Outstanding", desc:"เจ้าหนี้ค้างจ่าย",
-    long:"เจ้าหนี้คงค้าง · วันครบกำหนด · ใกล้ครบกำหนด · ประวัติการจ่าย",
-    multiInput:true, status:"soon" },
+  { id:"ap_outstanding", stage:"เจ้าหนี้ (AP)", ic:"!", icon:"file-warning",
+    name:"AP Outstanding", desc:"เจ้าหนี้คงค้าง · upload CSV",
+    long:"นำเข้าเจ้าหนี้คงค้างจาก CSV ระบบบัญชี · แสดงครบกำหนด · บันทึกการจ่าย · นำเข้ารายงานจ่ายชำระ",
+    multiInput:true, status:"live" },
 
   // ───── 6. กระแสเงินสด ─────
   { id:"bank_balance", stage:"กระแสเงินสด", ic:"$", icon:"landmark",
     name:"ยอดเงินคงเหลือธนาคาร", desc:"บันทึกยอดรายวัน · history",
     long:"กรอกยอดเงินคงเหลือแต่ละบัญชีทุกวัน · เก็บประวัติย้อนหลังครบ · ไม่ทับข้อมูลเดิม (append-only)",
-    multiInput:true, status:"live" },
-  { id:"ap_outstanding", stage:"กระแสเงินสด", ic:"!", icon:"file-warning",
-    name:"AP Outstanding", desc:"เจ้าหนี้คงค้าง · upload CSV",
-    long:"นำเข้าเจ้าหนี้คงค้างจาก CSV ระบบบัญชี · แสดงครบกำหนด · บันทึกการจ่าย",
     multiInput:true, status:"live" },
   { id:"recurring", stage:"กระแสเงินสด", ic:"@", icon:"repeat",
     name:"ค่าใช้จ่ายประจำ", desc:"ทะเบียนคุม · ประมาณการ",

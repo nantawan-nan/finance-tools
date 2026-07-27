@@ -191,6 +191,13 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-26 (25) — ★ ล้างเมนู: ลบ AP ซ้ำ (soon) + ย้าย AP Outstanding เข้าหมวด "เจ้าหนี้ (AP)" + ซ่อน withdraw
+- **เจ้าถาม "หน้าไหนไม่ได้ใช้จริง/วางผิดลำดับ":** เจอ AP Outstanding โผล่ 2 อันในเมนู — `ap` (stage "เจ้าหนี้ (AP)" · status soon · placeholder ตาย) + `ap_outstanding` (ของจริง · live · แต่อยู่หมวด "กระแสเงินสด")
+- **แก้:** ลบ `ap` (soon) ทิ้ง · ย้าย entry `ap_outstanding` ไปไว้ตำแหน่งหมวด "เจ้าหนี้ (AP)" (เปลี่ยน `stage` + ย้ายบล็อกให้ stage ต่อเนื่องใน sidebar · ไม่งั้นกลุ่มกระแสเงินสดจะขาดครึ่ง) · id เดิม (`ap_outstanding`) ทุก nav link/KPI/TO-DO ยังชี้ถูก
+- **ซ่อน `withdraw`** (`hidden:true`) — "กระทบยอดถอนเงิน" ไม่มี render จริง (ตกไปหน้าอัปโหลด generic) · ฟังก์ชันจริงอยู่ใน Bank Reconciliation → แท็บ "🛒 ถอน Marketplace" แล้ว · function/entry ยังอยู่ (เปิดคืนได้)
+- **คงไว้:** `sales_recon` (4. กระทบยอด · soon · มีแผน) · `ar`/`armap`/`settle` (hidden เดิม) · `loans` (optIn)
+- **verified:** syntax OK · boot 0 error · `id:"ap_outstanding"` เหลือ 1 entry · display/nav-only · ไม่ต้อง migration
+
 ### 2026-07-26 (24) — ★ AP: ป๊อปอัพเตือนบิลเลยกำหนดชำระ (วันชำระเงินเป็นอดีต · ยังไม่จ่าย) → ติ๊กจ่าย/เปลี่ยนวัน/ใส่ PS(ไม่บังคับ)
 - **เจ้าของ:** การเงินกรอกวันชำระ 23/07 แต่วันนี้ 26/07 แล้วยังไม่จ่าย → พอเข้าหน้า AP ให้เด้งป๊อปอัพเป็นรายการ · ติ๊กว่าจ่ายยัง · เปลี่ยนวันจ่าย · **ใส่เลข PS แบบไม่บังคับ** (ไม่ใส่ก็ย้ายไป "จ่ายแล้ว" ได้ · สิ้นเดือนอัปรายงานจ่าย → ระบบเติม PS ให้ทีหลัง) · เตือนให้ดึงรายงานจ่ายก่อน แต่ติ๊กมือได้
 - **`apoOverdueList`** = enriched ที่ `outstanding>0 · status≠paid · planned_payment_date<today` · **`apoMaybeShowOverduePopup`** เด้งครั้งเดียว/รอบ (`window._apoOvDismiss[co]`) ท้าย `renderToolApOutstanding` · **แบนเนอร์แดง** เหนือ KPI (เปิดป๊อปซ้ำได้)

@@ -6232,7 +6232,7 @@ function ivrRenderExport(d){
 
     <!-- Step 2 -->
     <div class="ivr-step">
-      <div class="ivr-step-head"><span class="ivr-step-no">2</span> ตรวจสอบสิทธิ์ส่งออก (gate)</div>
+      <div class="ivr-step-head" style="display:flex;align-items:center;gap:10px"><span class="ivr-step-no">2</span> <span style="flex:1">ตรวจสอบสิทธิ์ส่งออก (gate)</span><button class="ord-btn btn-sm" onclick="ivrRefreshRecon(this)" title="ดึงสถานะกระทบยอดล่าสุดจาก DB (ใช้เมื่อเพิ่งอัปไฟล์หลังบ้านที่หน้าอื่น แต่ gate ยังบล็อกอยู่)" style="padding:5px 11px;font-size:12px;font-weight:600"><i data-lucide="refresh-cw" style="width:13px;height:13px"></i> ตรวจสถานะล่าสุด</button></div>
       <div class="ivr-step-body">
         <div class="ivr-checks">
           <div class="ivr-check ok">
@@ -6583,7 +6583,12 @@ function ivrSetStartIvMonth(month, v){
   ivrRerender();
   if(focus){ setTimeout(()=>{ const ne=document.querySelector(sel); if(ne){ ne.focus(); ne.setSelectionRange(clean.length,clean.length); } },0); }
 }
-function ivrToggleBlocked(){ const d=ordGet(); d.ivrec.exp.blockedOpen=!d.ivrec.exp.blockedOpen; ivrRerender(); }
+function ivrToggleBlocked(){ const d=ordGet(); const opening=!d.ivrec.exp.blockedOpen; d.ivrec.exp.blockedOpen=opening;
+  // ★ เปิดดูเหตุผล → ดึงสถานะกระทบยอดล่าสุดจาก DB ก่อน (กันเห็นสถานะเก่า · เช่นเพิ่งอัปหลังบ้านที่หน้าอื่น)
+  if(opening){ ordReconLoad().then(()=>ivrRerender()).catch(()=>ivrRerender()); } else { ivrRerender(); }
+}
+/* รีเฟรชสถานะกระทบยอดจาก DB แล้ว re-render (ปุ่มในหน้าส่งออก) */
+function ivrRefreshRecon(btn){ if(btn){ btn.disabled=true; btn.textContent='กำลังตรวจ...'; } ordReconLoad().then(()=>ivrRerender()).catch(()=>ivrRerender()); }
 function ivrToggleHistory(){ const d=ordGet(); d.ivrec.exp.historyOpen=!d.ivrec.exp.historyOpen; if(d.ivrec.exp.historyOpen) ivrLoadBatches().then(()=>ivrRerender()); else ivrRerender(); }
 
 async function ivrDoExport(format){

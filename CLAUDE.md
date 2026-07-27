@@ -191,6 +191,13 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-27 (9) — ★ ส่งออก IV: gate บล็อก "ยังไม่ตรวจกระทบยอด" ทั้งที่ทะเบียน matched แล้ว (recon ไม่สด)
+- **เจ้าของ:** gate ขึ้น 2 shopee "ยังไม่ตรวจกระทบยอด" แต่ค้นในทะเบียนออเดอร์นั้น matched แล้ว (ป้าย "รอคีย์ IV" = ต้อง matched ก่อน) → ขัดกัน
+- **ต้นเหตุ:** `d.recon.results` โหลดครั้งเดียว (guard `d.reconLoaded`) · อัปหลังบ้านที่หน้า "ทะเบียน" ทีหลัง → recon อัปเดต · แต่หน้า "ส่งออก IV" (`ivrRenderExport`) ที่เปิดค้างไว้ยังใช้ snapshot เก่า → `ivrCanExport` เห็น rc=null → "ยังไม่ตรวจ"
+- **แก้:** `ivrToggleBlocked` (เปิดดูเหตุผล gate) → `ordReconLoad()` ดึงสถานะล่าสุดก่อน re-render · ปุ่ม **"🔄 ตรวจสถานะล่าสุด"** ในหัว Step 2 (`ivrRefreshRecon`) กดดึง recon ใหม่จาก DB
+- **verified:** syntax OK · boot 0 error · reuse ordReconLoad · ไม่ต้อง migration
+- **หมายเหตุ:** ออเดอร์ matched จริง (ทะเบียนยืนยัน) · แค่หน้าส่งออกต้องดึง recon ใหม่ → กดปุ่มตรวจสถานะล่าสุด หรือ Hard refresh
+
 ### 2026-07-27 (8) — ★ ส่งออก IV: เตือน "SKU ใหม่" ที่บัญชีอาจยังไม่มีรหัส (กัน AutoKey error)
 - **เจ้าถาม:** เวลาส่งออกไปคีย์ ระบบเช็คไหมว่า SKU นี้เคยอยู่ใน 141 / เคยส่งออกมาก่อนไหม — กังวลฝ่ายขายเพิ่มสินค้าใหม่ไม่บอกบัญชี → AutoKey error เพราะรหัสสินค้ายังไม่มีในระบบบัญชี
 - **เดิม:** gate เช็คแค่ยอด/กระทบยอด matched + รหัสลูกค้า/Vat · **ไม่เช็ค SKU** → เพิ่มการตรวจ

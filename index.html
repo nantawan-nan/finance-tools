@@ -30467,11 +30467,13 @@ async function bmpRunUpload(){
     const fnameJoin = arr => arr.map(x=>x.name).join("; ");
 
     // ★ load existing withdrawals → dedup โดย (withdraw_datetime + bank_account_id)
-    // กัน user upload ซ้ำสร้าง withdrawal เดียวกัน BQ ซ้ำหลายครั้ง
+    // กัน user upload ซ้ำสร้าง withdrawal เดียวกัน (re-upload) → dedup key = วันที่ + บัญชี + ยอด
+    // ★ normalize: เดิมใช้ withdraw_datetime ดิบ → DB อ่านกลับเป็น ISO ('T') + amount numeric precision ต่าง → เทียบ string พลาด → ซ้ำ
+    const bmpDkey = (date, acct, amt) => `${String(date||'').slice(0,10)}|${acct}|${Number(amt||0).toFixed(2)}`;
     const { data:existingWds2 } = await sb.from("brec_mp_withdrawals")
-      .select("withdraw_datetime,bank_account_id,bq_number,withdraw_amount")
+      .select("withdraw_date,bank_account_id,withdraw_amount")
       .eq("company_id", co).is("deleted_at", null);
-    const existingKey = new Set((existingWds2||[]).map(w => `${w.withdraw_datetime}|${w.bank_account_id}|${w.withdraw_amount}`));
+    const existingKey = new Set((existingWds2||[]).map(w => bmpDkey(w.withdraw_date, w.bank_account_id, w.withdraw_amount)));
 
     // process ทุก shop ในรอบเดียว (BQ counter shared)
     const perShopSummary = [];
@@ -30488,7 +30490,7 @@ async function bmpRunUpload(){
       const withdrawals = [];
       let shopSkipped = 0;
       for(const wd of allWithdrawals){
-        const k = `${wd.withdraw_datetime}|${acctId}|${wd.withdraw_amount}`;
+        const k = bmpDkey(wd.withdraw_date, acctId, wd.withdraw_amount);
         if(existingKey.has(k)){ shopSkipped++; continue; }
         existingKey.add(k);
         withdrawals.push(wd);
@@ -31033,6 +31035,33 @@ async function bmpDeleteWithdrawal(id){
   await sb.from("brec_mp_withdrawals").update({ deleted_at: ts }).eq("id", id);
   await sb.from("brec_mp_orders").update({ deleted_at: ts }).eq("withdrawal_id", id);
   await bmpLoadFromDb(); renderToolBankRec();
+}
+/* ★ ล้างรายการถอนซ้ำ (จาก re-upload เดิมที่ dedup พลาด) — เก็บใบที่มีออเดอร์มากสุด/ยอดผ่านเช็คมากสุด · ที่เหลือ soft-delete */
+async function bmpDedupExisting(){
+  if(!brecCanWrite()){ alert("ไม่มีสิทธิ์"); return; }
+  const d = brecGet(); const co = d.companyId || await fopCompanyId(); if(!co) return;
+  if(!confirm("ล้างรายการถอนซ้ำ (วันเดียวกัน + บัญชีเดียวกัน + ยอดถอนเท่ากัน)?\n\n• เก็บใบที่มีออเดอร์/ยอดผ่านเช็คมากสุด\n• ใบซ้ำ (เช่น ยอดผ่านเช็ค 0 · ออเดอร์ 0) จะถูกลบ (soft-delete)\n\nใช้แก้เคส re-upload แล้วเกิดใบซ้ำ")) return;
+  try{
+    const { data:wds } = await sb.from("brec_mp_withdrawals")
+      .select("id,withdraw_date,bank_account_id,withdraw_amount,order_count,sum_net")
+      .eq("company_id", co).is("deleted_at", null);
+    const groups = {};
+    (wds||[]).forEach(w=>{ const k=`${String(w.withdraw_date||'').slice(0,10)}|${w.bank_account_id}|${Number(w.withdraw_amount||0).toFixed(2)}`; (groups[k]=groups[k]||[]).push(w); });
+    const toDelete = [];
+    Object.values(groups).forEach(g=>{ if(g.length<=1) return;
+      // เก็บใบที่ดีสุด: ออเดอร์มากสุด → ยอด net มากสุด
+      g.sort((a,b)=> (b.order_count||0)-(a.order_count||0) || (Number(b.sum_net||0)-Number(a.sum_net||0)) );
+      toDelete.push(...g.slice(1).map(w=>w.id));
+    });
+    if(!toDelete.length){ alert("ไม่พบรายการถอนซ้ำ ✓"); return; }
+    const ts = new Date().toISOString();
+    for(let i=0;i<toDelete.length;i+=100){ const chunk=toDelete.slice(i,i+100);
+      await sb.from("brec_mp_orders").update({ deleted_at: ts }).in("withdrawal_id", chunk);
+      await sb.from("brec_mp_withdrawals").update({ deleted_at: ts }).in("id", chunk);
+    }
+    await bmpLoadFromDb(); renderToolBankRec();
+    alert(`ล้างรายการถอนซ้ำแล้ว ${toDelete.length} รายการ ✓`);
+  }catch(e){ alert("ไม่สำเร็จ: "+fopErr(e)); }
 }
 
 /* ------- DELETE all MP data in period (soft) — สำหรับ clean slate ------- */
@@ -31630,6 +31659,7 @@ function bmpRenderTab(d){
       <span style="font-size:12.5px;color:var(--ink-2,#475569)">เลือก ${selCount}/${filtered.length}</span>
       <div style="flex:1"></div>
       <button class="brec-btn" onclick="bmpRefreshFromRegistry()" title="ดึงสถานะ IV/RE/เลขเช็ค ล่าสุดจากทะเบียนคำสั่งซื้อ (ใช้เมื่อคีย์ IV/RE เพิ่มแล้ว · ไม่ต้อง re-upload ไฟล์กระเป๋าเงิน)"><i data-lucide="refresh-cw"></i> อัปเดต IV/RE จากทะเบียน</button>
+      <button class="brec-btn" onclick="bmpDedupExisting()" title="ล้างรายการถอนซ้ำ (วันเดียวกัน+บัญชี+ยอดเท่ากัน) — เก็บใบที่มีออเดอร์มากสุด" style="border-color:#fca5a5;color:#b91c1c"><i data-lucide="eraser"></i> ล้างรายการซ้ำ</button>
       <button class="brec-btn primary" onclick="bmpExportCsv()"><i data-lucide="download"></i> ⬇ Export CSV ${selCount?`(${selCount} ที่เลือก)`:'(ทั้งหมด)'}</button>
       <button class="brec-btn" onclick="bmpExportMismatchXlsx()" ${totalMismatch?'':'disabled'}><i data-lucide="file-warning"></i> ⬇ รายงานไม่ตรง (Excel)</button>
     </div>

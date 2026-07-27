@@ -191,6 +191,14 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-27 — ★ ถอน Marketplace: fix re-upload สร้างใบซ้ำ (dedup key รูปแบบไม่ตรง) + ปุ่ม "ล้างรายการซ้ำ"
+- **เจ้าของ:** re-upload รายการถอน 1-27 มาวางใหม่ → ระบบไม่ skip แค่ยอดใหม่ แต่ **จับทุกยอด → ใบซ้ำ** · บางใบ "ยอดผ่านเช็ค 0 · ออเดอร์ 0" (งงๆ)
+- **ต้นเหตุ:** dedup key = `withdraw_datetime|acct|amount` (ดิบ) — DB อ่านกลับเป็น **ISO ('T')** + amount **numeric precision ต่าง** จากตอน insert (space + number) → เทียบ string พลาด → ไม่ skip → insert ซ้ำ
+- **แก้ `bmpRunUpload`:** dedup key ใหม่ = `bmpDkey(withdraw_date, acct, amount)` = `วันที่(10)|บัญชี|ยอด(toFixed 2)` — ใช้ `withdraw_date` (date-only · format ตรงทั้ง insert/read) + normalize amount · robust ต่อรูปแบบ
+- **`bmpDedupExisting()` (ใหม่) + ปุ่ม "🧹 ล้างรายการซ้ำ"** (toolbar ถอน Marketplace · ข้างอัปเดต IV/RE): group ตาม `วันที่+บัญชี+ยอด` → เก็บใบที่ **ออเดอร์มากสุด → net มากสุด** · ที่เหลือ soft-delete (orders+withdrawal) → แก้ใบซ้ำที่ค้างอยู่แล้ว
+- **verified:** syntax OK · boot 0 error · reuse soft-delete (deleted_at) · ไม่ต้อง migration
+- **วิธีแก้ให้เจ้าของ:** กด "ล้างรายการซ้ำ" 1 ครั้ง (เคลียร์ใบซ้ำที่มีอยู่) · ต่อไป re-upload จะ skip อัตโนมัติ
+
 ### 2026-07-26 (29) — ★ ถอน Marketplace: Express (723-5/191/เช็ครับ) เป็นตัวเลือก (เบญญาอัปแค่กระเป๋าเงินก็ได้)
 - **เจ้าถาม "ทำไมเบญญาไม่ดึงออโต้เหมือน M Bark":** รายงาน Express 3 ตัว cache แยกบริษัท (`brec_mp_express_cache` · key company_id) — M Bark เคยอัปไว้ → มี cache ดึงออโต้ · เบญญายังไม่เคยอัป → **โค้ดเดิม throw "ไม่พบ Express cache"** บังคับต้องอัป
 - **แก้ `bmpRunUpload` (else branch):** ไม่มี cache → **ไม่ throw** · ใช้ `salesData/arData/chqData` ว่าง → resolve IV/RE จาก **ทะเบียน (order_ledger)** ล้วน (แนนคีย์ IV/RE ไว้แล้ว) · เลขเช็ค = prefix+RE (คาดการณ์ · ยังไม่มีเลขเช็คจริงจาก 191)

@@ -26062,14 +26062,14 @@ async function ordFetchAllRows(co, cols, applyFilters){
   return rows;
 }
 /* upsert ออเดอร์จากช่องทาง (dedup by order_id) → คืน {added, updated, total} */
-async function ordIngestChannelOrders(co, parsed, srcLabel){
+async function ordIngestChannelOrders(co, parsed, srcLabel, batchAt){
   const orders = parsed.orders || [];
   if(!orders.length) return { added:0, updated:0, total:0 };
   const existing = await ordFetchAllRows(co, "id,order_id,status,order_date,order_total,channel_group,items,seller_discount,shipping_fee,seller_voucher,gross_total,source_cols,tracking_no,recipient,phone,payment_method");
   const byOid = new Map((existing||[]).filter(o=>o.order_id).map(o=>[o.order_id, o]));
   const inserts = [], updates = [];
   const seen = new Set();
-  const now = new Date().toISOString();
+  const now = batchAt || new Date().toISOString();   // ★ order_ingested_at เดียวกันทั้งการอัปครั้งนี้ (ใช้ undo เฉพาะครั้งนี้)
   for(const o of orders){
     if(seen.has(o.order_id)) continue; seen.add(o.order_id);
     const ex = byOid.get(o.order_id);
@@ -26245,6 +26245,7 @@ async function ordUploadFiles(){
   const files = await new Promise(res=>{ const i=document.createElement("input"); i.type="file"; i.accept=".xlsx,.xls,.csv"; i.multiple=true; i.onchange=()=>res([...i.files]); i.click(); });
   if(!files||!files.length) return;
   const d = ordGet(); d.busy=true; d.unknownShops=[]; renderToolOrders();
+  const batchAt = new Date().toISOString();   // ★ 1 ค่าต่อการอัปครั้งนี้ → ใช้ "ล้างเฉพาะการนำเข้าครั้งนี้"
   try{
     let totAdd=0, totUpd=0, perCh={}, failTotal=0, firstErrMsg=null;
     let totalParsed=0, mineTotal=0, labelTotal=0; const otherByCompanyAll=new Map(), unknownShopsAll=new Map();
@@ -26269,7 +26270,7 @@ async function ordUploadFiles(){
         sp.unknownShops.forEach((u,s)=>{ if(!unknownShopsAll.has(s)) unknownShopsAll.set(s,{n:0,ids:[],orders:[]}); const a=unknownShopsAll.get(s); a.n+=u.n; u.ids.forEach(id=>a.ids.push(id)); u.orders.forEach(o=>a.orders.push(o)); });
       }
       mineTotal += (parsed.orders||[]).length;
-      const r = await ordIngestChannelOrders(co, parsed, file.name);
+      const r = await ordIngestChannelOrders(co, parsed, file.name, batchAt);
       totAdd+=r.added; totUpd+=r.updated; failTotal+=(r.failN||0); if(r.errMsg && !firstErrMsg) firstErrMsg=r.errMsg;
       perCh[parsed.channel]=(perCh[parsed.channel]||0)+r.total;
     }
@@ -26332,6 +26333,63 @@ async function ordResetLedger(){
     }
   }catch(e){ alert("ล้างไม่สำเร็จ: "+(e.message||e)); }
   d.busy=false; renderToolOrders();
+}
+/* ★ ล้างเฉพาะ "การนำเข้าครั้งนี้" (ไม่ล้างทั้งทะเบียน) — เช่น อัปผิดบริษัท · ลบเฉพาะออเดอร์ที่ insert ใหม่ในครั้งนั้น
+   ระบุครั้งด้วย order_ingested_at (update ไม่แตะ field นี้ → มีเฉพาะออเดอร์ที่ "เพิ่มใหม่" ในการอัปครั้งนั้น) */
+async function ordUndoImportModal(){
+  if(!brecCanWrite()){ alert("ไม่มีสิทธิ์"); return; }
+  const co = await fopCompanyId(); if(!co){ alert("หา company_id ไม่เจอ"); return; }
+  const { data } = await sb.from("order_ledger").select("order_ingested_at,channel_group,order_src")
+    .eq("company_id",co).is("deleted_at",null).not("order_ingested_at","is",null)
+    .order("order_ingested_at",{ascending:false}).limit(4000);
+  const groups = new Map();
+  (data||[]).forEach(r=>{ const k=r.order_ingested_at; if(!k) return; if(!groups.has(k)) groups.set(k,{n:0,ch:new Set(),src:new Set()}); const g=groups.get(k); g.n++; if(r.channel_group)g.ch.add(r.channel_group); if(r.order_src)g.src.add(r.order_src); });
+  const batches=[...groups.entries()].slice(0,15);
+  if(!batches.length){ alert("ไม่พบประวัติการนำเข้าที่ล้างแยกได้\n(ออเดอร์เก่าอาจนำเข้าก่อนมีระบบติดตามครั้งนำเข้า — ใช้ 'ล้างทะเบียน' แทน)"); return; }
+  const rowsHtml = batches.map(([at,g])=>{
+    const dt=new Date(at); const timeLbl=isNaN(dt.getTime())?String(at):dt.toLocaleString("th-TH",{day:"numeric",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"});
+    const chLbl=[...g.ch].join(", ")||"—"; const srcArr=[...g.src]; const srcLbl=srcArr.slice(0,2).join(", ")+(srcArr.length>2?` +${srcArr.length-2}`:"");
+    return `<tr style="border-bottom:1px solid #f1f5f9">
+      <td style="padding:9px 10px;white-space:nowrap;font-size:12.5px">${esc(timeLbl)}</td>
+      <td style="padding:9px 10px"><b style="text-transform:uppercase">${esc(chLbl)}</b><div style="font-size:11px;color:#94a3b8;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(srcLbl||'')}</div></td>
+      <td style="padding:9px 10px;text-align:right;font-weight:700">${g.n}</td>
+      <td style="padding:9px 10px;text-align:right"><button class="ord-btn danger" style="padding:5px 11px;font-size:12px" onclick="ordUndoImportBatch('${esc(String(at))}')">↩ ล้างครั้งนี้</button></td>
+    </tr>`;
+  }).join("");
+  const html=`<div id="ordUndoModal" style="position:fixed;inset:0;background:rgba(15,23,42,.5);z-index:100000;display:flex;align-items:center;justify-content:center;padding:20px" onclick="if(event.target===this)this.remove()">
+    <div style="background:#fff;border-radius:16px;max-width:720px;width:100%;max-height:86vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.3)" onclick="event.stopPropagation()">
+      <div style="padding:16px 20px;border-bottom:1px solid #eef2f7;display:flex;align-items:center;gap:11px">
+        <span style="width:38px;height:38px;border-radius:10px;background:#fef2f2;color:#dc2626;display:flex;align-items:center;justify-content:center;flex:none"><i data-lucide="rotate-ccw"></i></span>
+        <div style="flex:1"><div style="font-size:16px;font-weight:700">ล้างเฉพาะการนำเข้า (ไม่ล้างทั้งทะเบียน)</div><div style="font-size:12px;color:#64748b;margin-top:1px">เลือกครั้งที่อัปผิด (เช่น Lazada ผิดบริษัท) → ลบเฉพาะออเดอร์ที่เพิ่มใหม่ในครั้งนั้น</div></div>
+        <button onclick="document.getElementById('ordUndoModal').remove()" style="border:none;background:none;font-size:24px;color:#94a3b8;cursor:pointer;line-height:1">×</button>
+      </div>
+      <div style="overflow:auto;padding:6px 20px 16px">
+        <table style="width:100%;border-collapse:collapse;font-size:13px">
+          <thead><tr style="color:#64748b;border-bottom:2px solid #e2e8f0"><th style="text-align:left;padding:8px 10px">เวลานำเข้า</th><th style="text-align:left;padding:8px 10px">ช่องทาง / ไฟล์</th><th style="text-align:right;padding:8px 10px">ออเดอร์ใหม่</th><th></th></tr></thead>
+          <tbody>${rowsHtml}</tbody>
+        </table>
+        <div style="font-size:11.5px;color:#94a3b8;margin-top:10px">* ล้างเฉพาะออเดอร์ที่ "เพิ่มใหม่" ในครั้งนั้น (ออเดอร์เดิมที่แค่อัปเดตข้อมูลจะไม่ถูกลบ) · ทะเบียนที่เหลือไม่กระทบ</div>
+      </div>
+    </div></div>`;
+  document.getElementById("ordUndoModal")?.remove();
+  const w=document.createElement("div"); w.innerHTML=html; document.body.appendChild(w.firstElementChild);
+  if(window.lucide) lucide.createIcons();
+}
+async function ordUndoImportBatch(batchAt){
+  const co = await fopCompanyId(); if(!co) return;
+  const { data:rows } = await sb.from("order_ledger").select("id,channel_group")
+    .eq("company_id",co).is("deleted_at",null).eq("order_ingested_at",batchAt);
+  const ids=(rows||[]).map(r=>r.id);
+  if(!ids.length){ alert("ไม่พบออเดอร์ของการนำเข้านี้ (อาจถูกลบไปแล้ว)"); return; }
+  const chs=[...new Set((rows||[]).map(r=>r.channel_group).filter(Boolean))].join(", ");
+  if(!confirm(`ล้างเฉพาะการนำเข้านี้?\n\n• ${ids.length} ออเดอร์ (${chs||'—'})\n• เฉพาะออเดอร์ที่เพิ่มใหม่ในครั้งนี้ · ทะเบียนที่เหลือไม่กระทบ\n\nดำเนินการ?`)) return;
+  try{
+    for(let i=0;i<ids.length;i+=200){ const chunk=ids.slice(i,i+200);
+      const { error }=await sb.from("order_ledger").delete().in("id",chunk); if(error) throw error; }
+    document.getElementById("ordUndoModal")?.remove();
+    await ordLoad(); renderToolOrders();
+    alert(`ล้างการนำเข้าครั้งนี้แล้ว ${ids.length} ออเดอร์ ✓`);
+  }catch(e){ alert("ไม่สำเร็จ: "+(e.message||e)); }
 }
 async function ordLoad(){
   const d = ordGet(); const co = await fopCompanyId(); if(!co) return;
@@ -30244,6 +30302,12 @@ async function renderToolOrders(){
             <button onclick="ordMenu('');ordReconGenReports()" style="display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:9px 10px;border-radius:10px;border:0;background:transparent;cursor:pointer;font-family:inherit" onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background='transparent'">
               <span style="width:34px;height:34px;border-radius:9px;background:#fefce8;display:flex;align-items:center;justify-content:center;flex-shrink:0"><i data-lucide="file-check-2" style="width:17px;height:17px;color:#ca8a04"></i></span>
               <span style="flex:1"><span style="display:block;font:700 13px/1.3 inherit;color:#1f2937">สร้างใบกระทบยอด</span><span style="display:block;font:400 11px/1.4 inherit;color:#94a3b8">Snapshot PDF/Excel เพื่อเก็บหลักฐาน</span></span>
+            </button>
+            <div style="margin:8px 4px;border-top:1px solid #f1f5f9"></div>
+            <div style="font:700 10.5px/1.2 inherit;color:#94a3b8;padding:4px 8px 7px;letter-spacing:.6px;text-transform:uppercase">จัดการข้อมูล</div>
+            <button onclick="ordMenu('');ordUndoImportModal()" style="display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:9px 10px;border-radius:10px;border:0;background:transparent;cursor:pointer;font-family:inherit" onmouseover="this.style.background='#fef2f2'" onmouseout="this.style.background='transparent'">
+              <span style="width:34px;height:34px;border-radius:9px;background:#fef2f2;display:flex;align-items:center;justify-content:center;flex-shrink:0"><i data-lucide="rotate-ccw" style="width:17px;height:17px;color:#dc2626"></i></span>
+              <span style="flex:1"><span style="display:block;font:700 13px/1.3 inherit;color:#1f2937">ล้างเฉพาะการนำเข้าครั้งนี้</span><span style="display:block;font:400 11px/1.4 inherit;color:#94a3b8">ไม่ล้างทั้งทะเบียน — เช่น อัปผิดบริษัท</span></span>
             </button>
           </div>`:''}
         </div>

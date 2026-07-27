@@ -191,6 +191,13 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-27 (3) — ★ ทะเบียนคำสั่งซื้อ: "ล้างเฉพาะการนำเข้าครั้งนี้" (ไม่ล้างทั้งทะเบียน · เคสอัปผิดบริษัท)
+- **เจ้าของ:** อัป Lazada ผิดบริษัท → อยากล้างเฉพาะการนำเข้าครั้งนั้น ไม่ใช่ล้างทะเบียนทั้งหมด
+- **ระบุครั้งนำเข้าด้วย `order_ingested_at`:** `ordUploadFiles` gen `batchAt` เดียวต่อการอัป → ส่งเข้า `ordIngestChannelOrders(co,parsed,src,batchAt)` → insert stamp `order_ingested_at=batchAt` · **update ไม่แตะ field นี้** → `order_ingested_at` = เฉพาะออเดอร์ที่ "เพิ่มใหม่" ในครั้งนั้น (ออเดอร์เดิมที่แค่อัปเดตไม่โดนลบ)
+- **`ordUndoImportModal`:** group `order_ledger` ตาม `order_ingested_at` (15 ครั้งล่าสุด) → ตาราง เวลา/ช่องทาง+ไฟล์(`order_src`)/จำนวนออเดอร์ใหม่ + ปุ่ม "↩ ล้างครั้งนี้" · `ordUndoImportBatch(batchAt)` = confirm → hard-delete `order_ledger` ที่ `order_ingested_at=batchAt` (chunk 200) → reload
+- **เมนู:** เพิ่มหมวด "จัดการข้อมูล" ใน dropdown นำเข้า/ส่งออก → "ล้างเฉพาะการนำเข้าครั้งนี้" (คู่กับปุ่ม "ล้างทะเบียน" เดิมที่ล้างหมด)
+- **verified:** syntax OK · boot 0 error · reuse order_ingested_at/order_src (มีอยู่แล้ว) · ไม่ต้อง migration
+
 ### 2026-07-27 (2) — ★ ถอน Marketplace: fix การ์ดโชว์ "ค่าใช้จ่ายติดลบ" (487 − 60,392) เมื่อออเดอร์ไม่ครบยอดถอน
 - **เจ้าของ:** การ์ด shopee ถอน 60,879 มีออเดอร์ 1 ใบ (net 487) → โชว์ "หัก ค่าใช้จ่ายในกระเป๋า **−60,392**" + "✓ ตรงครบ" · เจ้าว่า "ไม่น่าใช่ 487−60,392"
 - **ต้นเหตุ:** `walletExpense = carryIn + sumCheque − withdraw − carryOut` = 487 − 60,879 = −60,392 (ติดลบมาก = ออเดอร์ในไฟล์ไม่ครบยอดถอน) แต่โชว์เป็น "ค่าใช้จ่ายติดลบ" (double-negative งง) + `carry_shortfall` ที่ persist ไว้ = false → ไม่ขึ้น shortfall + ขึ้น "ตรงครบ" หลอก

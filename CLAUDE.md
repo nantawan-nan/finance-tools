@@ -191,6 +191,15 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-27 (6) — ★★ Cash Flow Forecast: รายการวางแผนล่วงหน้า (โอนระหว่างบัญชี · รับ/จ่ายคาดการณ์)
+- **เจ้าของ (Benya 3 บัญชี):** แพลนสิ้นเดือนต้องบวกมือข้างนอก — จะโอน 1640→4889 · เงินกู้ 1 ล้านจะเข้า · เดิมต้องปลอมยอดจริงวันนี้ (ยอดในบัญชีเพี้ยน) · อยากเห็น forecast ครอบคลุมอนาคตโดยยอดจริงยังสะอาด
+- **แนวคิด:** แยก "ชั้นวางแผน" (`cff_planned`) จากยอดจริง (`bank_balances`) — 3 แบบ: `transfer` (โอนระหว่างบัญชี · ต้นทางลด/ปลายทางเพิ่ม · สุทธิบริษัท 0) · `inflow` (รับคาดการณ์ เช่นเงินกู้ · +บริษัท) · `outflow` (จ่ายคาดการณ์นอก AP · −บริษัท) · มี `plan_date`
+- **Migration `cff-planned.sql`** (idempotent · RLS เหมือน exec_cashflow) · `cffLoad` +โหลด `planned` (best-effort · ตารางอาจยังไม่ deploy)
+- **helper:** `cffPlannedInPeriod` (กรอง plan_date ตามช่วงที่เลือก · เหมือนค่าใช้จ่าย) · `cffPlannedAgg` (inBank/outBank ต่อบัญชี รวม transfer · totalIn/totalOut เฉพาะ inflow/outflow) · `cffPlannedSave`/`cffPlannedDelete`/`cffPlanAdd` (อ่านฟอร์มจาก DOM ตอนกด · ไม่ re-render ระหว่างพิมพ์ · [[feedback_input_no_rerender]])
+- **forecast:** `netCash = opening + totalIn − due − totalOut` · ตารางต่อบัญชีเพิ่มแถว "＋ รับ/โอนเข้า (วางแผน)" (เขียว) + "－ จ่าย/โอนออก (วางแผน)" (ชมพู) · เงินคงเหลือสุทธิต่อบัญชี = avail + planIn − due − planOut · Σ ต่อบัญชี = netCash (transfer หักกันลงตัว)
+- **UI:** `cffPlannedPanelHtml` การ์ดพับได้เหนือรายงาน (`cffTogglePlan` · `d.planOpen`) — ฟอร์มเพิ่ม (ประเภท/บัญชีต้นทาง/ปลายทาง/จำนวน/วันที่/หมายเหตุ) + ตารางรายการ + ลบ · gate `canWrite`
+- **verified:** syntax OK · boot 0 error · **ต้อง push ให้ migration รันก่อนใช้** · reuse cffStaffComputeReport (export snapshot ได้ planned ด้วย)
+
 ### 2026-07-27 (5) — ★★ กระทบยอดหลังบ้าน: อัปทีละช่องแล้วช่องอื่นหายจากจอ (in-memory ถูกแทนที่)
 - **เจ้าของ (Benya · หลายร้าน Shopee QI/Betra + TikTok/Lazada):** อัปหลังบ้าน 1-15 ครบแล้ว · วันนี้อัป Shopee เพิ่ม → TikTok หาย · อัป TikTok → Shopee หาย · "อัปไม่พร้อมกันแล้วหาย"
 - **ต้นเหตุ (จอ ไม่ใช่ DB):** `ordReconUpload` ทำ `Object.assign(d.recon, rec)` โดย `rec.results` = ผลของไฟล์ที่เพิ่งอัป**เท่านั้น** → แทนที่ผลสะสมทั้งหมดในหน่วยความจำ · **DB ถูกต้อง** (`ordReconSave` ลบ+ใส่เฉพาะ order_no ของช่องที่อัป · ช่องอื่นคงไว้) → refresh หน้าช่องอื่นกลับมา

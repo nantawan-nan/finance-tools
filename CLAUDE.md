@@ -191,6 +191,12 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-27 (5) — ★★ กระทบยอดหลังบ้าน: อัปทีละช่องแล้วช่องอื่นหายจากจอ (in-memory ถูกแทนที่)
+- **เจ้าของ (Benya · หลายร้าน Shopee QI/Betra + TikTok/Lazada):** อัปหลังบ้าน 1-15 ครบแล้ว · วันนี้อัป Shopee เพิ่ม → TikTok หาย · อัป TikTok → Shopee หาย · "อัปไม่พร้อมกันแล้วหาย"
+- **ต้นเหตุ (จอ ไม่ใช่ DB):** `ordReconUpload` ทำ `Object.assign(d.recon, rec)` โดย `rec.results` = ผลของไฟล์ที่เพิ่งอัป**เท่านั้น** → แทนที่ผลสะสมทั้งหมดในหน่วยความจำ · **DB ถูกต้อง** (`ordReconSave` ลบ+ใส่เฉพาะ order_no ของช่องที่อัป · ช่องอื่นคงไว้) → refresh หน้าช่องอื่นกลับมา
+- **แก้:** หลัง `ordReconSave` → เรียก `ordReconLoad()` โหลดผลสะสม**ทุกช่อง**จาก DB กลับเข้า `d.recon.results` (แทน Object.assign rec เฉพาะ upload ล่าสุด) · set `reconLoaded=true` กันโหลดซ้ำ · fallback `Object.assign(d.recon,rec)` ถ้า reload พลาด
+- **verified:** syntax OK · boot 0 error · reuse ordReconLoad · ไม่ต้อง migration · **ข้อมูลเดิมไม่หาย** (อยู่ใน DB ครบ · แค่จอไม่โชว์)
+
 ### 2026-07-27 (4) — ★ ทะเบียนคำสั่งซื้อ: เพิ่มล้าง "กระทบยอดหลังบ้าน แยกช่องทาง" (เคสอัปรายงานหลังบ้าน Lazada ผิดบริษัท)
 - **เจ้าของ:** อัป Lazada ผิดบริษัท (M Bark) แต่เป็น **รายงานหลังบ้าน (order_recon)** ไม่ใช่ BigSeller (order_ledger) → ปุ่ม (3) ล้างไม่ได้ (คนละตาราง · 32 "หลังบ้านมี · ขายไม่คีย์" = only_be ใน order_recon)
 - **`ordUndoImportModal` +section ②:** query `order_recon` group by channel (ของบริษัทปัจจุบัน) → ตารางช่องทาง+จำนวน + ปุ่ม "↩ ล้างช่องนี้"

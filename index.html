@@ -28051,8 +28051,11 @@ async function ordReconUpload(){
     }
     if(!backend.length){ alert("ไม่พบออเดอร์หลังบ้าน — ต้องเป็นไฟล์ Shopee / TikTok / Lazada"); d.recon.busy=false; renderToolOrders(); return; }
     const rec=ordRunRecon(backend);
-    Object.assign(d.recon, rec, {busy:false, expanded:new Set()});
     try{ await ordReconSave(rec); }catch(e){ console.warn("recon save", e); }
+    // ★ โหลดผลสะสม "ทุกช่อง" จาก DB กลับมา — ไม่งั้น d.recon.results = เฉพาะไฟล์ที่เพิ่งอัป → ช่องอื่นหายจากจอ
+    //   (การบันทึกลง DB additive ต่อ order_no อยู่แล้ว · ปัญหาคือ in-memory ถูกแทนที่)
+    try{ await ordReconLoad(); d.reconLoaded=true; }catch(e){ console.warn("recon reload", e); Object.assign(d.recon, rec); }
+    d.recon.busy=false; if(!d.recon.expanded) d.recon.expanded=new Set();
   }catch(e){ alert("ตรวจไม่สำเร็จ: "+(e.message||e)); d.recon.busy=false; }
   renderToolOrders();
 }

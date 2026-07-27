@@ -16053,6 +16053,7 @@ async function apstRenderPaid(){
   const data=await apstLoadVouchers();
   data.vouchers.forEach(v=>{ v._cat=apstVoucherCat(v, data.byVoucher); });
   apoGet()._paidData=data;
+  apoGet()._paidSel=new Set();   // โหลดใหม่ → ล้างการเลือก (id อาจเปลี่ยน)
   apstPaidRender();
 }
 const APST_CAT_COLOR={
@@ -16090,6 +16091,8 @@ function apstPaidToggleRow(id){
 }
 function apstPaidTableHtml(list, data){
   const d=apoGet(); const s=d.paidSort||{key:"pay_date",desc:true};
+  const sel=d._paidSel||new Set();
+  const canW=fopCanWrite();
   const ar=k=>s.key===k?(s.desc?" ▼":" ▲"):"";
   const th=(k,l,al,so)=>`<th style="${al?"text-align:"+al+";":""}white-space:nowrap;${so?"cursor:pointer":""}" ${so?`onclick="apstPaidSetSort('${k}')"`:""}>${esc(l)}<span style="color:#0d7c74">${so?ar(k):""}</span></th>`;
   const rows=list.map((v,idx)=>{
@@ -16097,6 +16100,7 @@ function apstPaidTableHtml(list, data){
     const docs=pays.map(p=>p.receipt_no).filter(Boolean);
     const docCell=docs.length?(esc(docs[0])+(docs.length>1?` <span style="color:#93aca6">+${docs.length-1}</span>`:"")):"—";
     return `<tr class="apst-prow" style="background:${idx%2?"#fafcfb":"#fff"};cursor:pointer" onclick="apstPaidToggleRow('${v.id}')">
+      ${canW?`<td style="text-align:center" onclick="event.stopPropagation()"><input type="checkbox" class="apst-psel" ${sel.has(String(v.id))?'checked':''} onclick="apstPaidToggleSel('${esc(String(v.id))}')"></td>`:''}
       <td style="font-weight:700;color:#0f2e2b">${v._manual?`<span style="font-size:10px;font-weight:700;color:#0369a1;background:#e4f0f8;padding:1px 6px;border-radius:5px;margin-right:5px">จ่ายเอง</span>`:''}${esc(v.ps_no)}</td>
       <td style="overflow:hidden;text-overflow:ellipsis" title="${esc(v.vendor_name||"")}">${esc(v.vendor_name||"—")}</td>
       <td style="text-align:center"><span style="font-size:11px;font-weight:700;padding:1px 8px;border-radius:999px;color:${cnt>1?"#7c3aed":"#5c807a"};background:${cnt>1?"#f0eafb":"#eef4f2"}">${cnt} ใบ</span></td>
@@ -16108,7 +16112,7 @@ function apstPaidTableHtml(list, data){
       <td style="color:#93aca6;white-space:nowrap">${v.cheque_status&&/จ่าย/.test(v.cheque_status)?esc(v.cheque_status):"—"}</td>
       <td style="text-align:right;font-weight:700;color:#059669;white-space:nowrap">${fopFmt(v.net_amount)}${Number(v.discount_amount)?`<br><span style="font-size:10px;color:#b45309;font-weight:400">หัก ${fopFmt(v.discount_amount)}</span>`:""}</td>
     </tr>
-    <tr class="apst-pdetail" data-vd="${v.id}" style="display:none"><td colspan="10" style="background:#f6fbfa;padding:0 0 0 24px">
+    <tr class="apst-pdetail" data-vd="${v.id}" style="display:none"><td colspan="${canW?11:10}" style="background:#f6fbfa;padding:0 0 0 24px">
       <table style="width:100%;font-size:12px;border-collapse:collapse">
         <thead><tr style="color:#7a9993"><th style="text-align:left;padding:5px 10px">ใบรับ</th><th style="text-align:left">เลขบิล</th><th style="text-align:left">รายละเอียด</th><th style="text-align:right;padding-right:14px">ยอด</th></tr></thead>
         <tbody>${pays.map(p=>`<tr><td style="padding:3px 10px"><code>${esc(p.receipt_no||"—")}</code></td><td>${esc((p.ap_invoices&&p.ap_invoices.invoice_no)||"")}</td><td style="color:#5c807a">${esc(p.remark||"")}</td><td style="text-align:right;padding-right:14px;font-variant-numeric:tabular-nums">${fopFmt(p.amount)}</td></tr>`).join("")||`<tr><td colspan="4" style="padding:6px 10px;color:#93aca6">— ไม่มีใบรับผูกกับ PS นี้ —</td></tr>`}</tbody>
@@ -16116,13 +16120,14 @@ function apstPaidTableHtml(list, data){
   }).join("");
   return `<table class="apst-ptbl">
     <thead><tr>
+      ${canW?`<th style="width:34px;text-align:center"><input type="checkbox" id="apstPaidAll" onclick="apstPaidSelectAll(this.checked)" title="เลือกทั้งหมด (ตามตัวกรอง)"></th>`:''}
       ${th("ps","เลขที่ PS","",true)}${th("payee","ผู้รับเงิน","",true)}${th("count","ใบ","center",true)}
       <th style="white-space:nowrap">เลขเอกสาร</th><th style="white-space:nowrap">ประเภทค่าใช้จ่าย</th>
       ${th("date","วันที่จ่าย","",true)}<th style="white-space:nowrap">บัญชีที่จ่าย</th>
       <th style="white-space:nowrap">เลขอ้างอิง</th><th style="white-space:nowrap">สถานะเช็ค</th>
       ${th("net","จ่ายสุทธิ","right",true)}
     </tr></thead>
-    <tbody>${rows||`<tr><td colspan="10" class="empty" style="padding:30px">ยังไม่มีข้อมูลจ่าย — อัปรายงานจ่ายชำระหนี้ที่แท็บ "เจ้าหนี้คงค้าง"</td></tr>`}</tbody>
+    <tbody>${rows||`<tr><td colspan="${canW?11:10}" class="empty" style="padding:30px">ยังไม่มีข้อมูลจ่าย — อัปรายงานจ่ายชำระหนี้ที่แท็บ "เจ้าหนี้คงค้าง"</td></tr>`}</tbody>
   </table>`;
 }
 function apstPaidFootHtml(list){
@@ -16153,9 +16158,52 @@ function apstPaidRender(){
       ${fopCanWrite()?`<button class="btn ghost btn sm" onclick="apstUndoImport()" title="ลบการนำเข้ารายงานจ่ายทั้งหมด แล้วเริ่มใหม่" style="border-color:var(--out);color:var(--out-ink)">↩ ล้างการนำเข้า</button>`:""}
       <div id="apstPaidCount" style="margin-left:auto;font-size:12.5px;color:#77948e;white-space:nowrap"><b style="color:#0f2e2b">${list.length}</b> จาก ${data.vouchers.length} PS</div>
     </div>
+    <div id="apstPaidBulk"></div>
     <div id="apstPaidTableWrap" style="overflow-x:auto;max-width:100%">${apstPaidTableHtml(list,data)}</div>
     <div id="apstPaidFoot">${apstPaidFootHtml(list)}</div>
     <div id="apstPaidDrawerWrap">${apstPaidDrawerHtml(data.vouchers)}</div>`;
+  apstUpdatePaidBulk(); apstUpdatePaidAllChk();
+}
+/* ★ เลือก PS หลายใบ → เปลี่ยนเป็น "ยังไม่จ่าย" (เคสตัด PS ล่วงหน้าไว้แต่เงินยังไม่ออกจริง) */
+function apstPaidToggleSel(id){ const d=apoGet(); d._paidSel=d._paidSel||new Set(); id=String(id); if(d._paidSel.has(id)) d._paidSel.delete(id); else d._paidSel.add(id); apstUpdatePaidBulk(); apstUpdatePaidAllChk(); }
+function apstPaidSelectAll(on){ const d=apoGet(); const data=d._paidData; d._paidSel=d._paidSel||new Set(); if(!data) return; const list=apstPaidList(data); list.forEach(v=>{ if(on) d._paidSel.add(String(v.id)); else d._paidSel.delete(String(v.id)); }); apstPaidApplyChanges(); }
+function apstPaidClearSel(){ apoGet()._paidSel=new Set(); apstPaidApplyChanges(); }
+function apstUpdatePaidAllChk(){ const d=apoGet(); const data=d._paidData; const all=document.getElementById("apstPaidAll"); if(!all||!data) return; const list=apstPaidList(data); const sel=d._paidSel||new Set(); const n=list.filter(v=>sel.has(String(v.id))).length; all.checked=n>0&&n===list.length; all.indeterminate=n>0&&n<list.length; }
+function apstUpdatePaidBulk(){
+  const d=apoGet(); const sel=d._paidSel||new Set(); const data=d._paidData;
+  const el=document.getElementById("apstPaidBulk"); if(!el) return;
+  if(!sel.size||!data){ el.innerHTML=""; return; }
+  const vouchers=data.vouchers.filter(v=>sel.has(String(v.id)));
+  const net=vouchers.reduce((s,v)=>s+Number(v.net_amount||0),0);
+  el.innerHTML=`<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;background:#fff7ed;border:1px solid #fed7aa;border-radius:11px;padding:10px 14px;margin-bottom:10px">
+    <span style="font-weight:700;color:#9a3412">เลือก ${sel.size} PS · รวม ${fopFmt(net)} ฿</span>
+    <span style="flex:1"></span>
+    <button class="btn ghost btn sm" onclick="apstPaidClearSel()">ยกเลิกการเลือก</button>
+    <button class="btn btn sm" style="background:#ea580c;border-color:#ea580c;color:#fff" onclick="apstUnpaySelected()">↩ เปลี่ยนเป็นยังไม่จ่าย</button>
+  </div>`;
+}
+async function apstUnpaySelected(){
+  const d=apoGet(); const data=d._paidData; const sel=d._paidSel||new Set();
+  if(!data||!sel.size) return;
+  const vouchers=data.vouchers.filter(v=>sel.has(String(v.id)));
+  if(!vouchers.length) return;
+  const net=vouchers.reduce((s,v)=>s+Number(v.net_amount||0),0);
+  const payIds=[]; vouchers.forEach(v=>{ (data.byVoucher[v.id]||[]).forEach(p=>{ if(p.id) payIds.push(p.id); }); });
+  if(!confirm(`เปลี่ยน ${vouchers.length} PS (รวม ${fopFmt(net)} ฿) เป็น "ยังไม่จ่าย"?\n\n• บิลที่ผูกกับ PS เหล่านี้จะกลับไป "ค้างจ่าย"\n• ใบสำคัญจ่าย (PS) จะถูกยกเลิก (audit เก็บไว้)\n\nใช้เมื่อ "ตัด PS ล่วงหน้าไว้ แต่เงินยังไม่ออกจริง"`)) return;
+  try{
+    const uid=AUTH.user?AUTH.user.id:null; const now=new Date().toISOString();
+    // 1) soft-delete รายการจ่าย (ap_payments) → trigger fn_ap_recompute คืนบิลเป็น "ค้างจ่าย"
+    for(let i=0;i<payIds.length;i+=100){ const chunk=payIds.slice(i,i+100);
+      const { error }=await sb.from("ap_payments").update({deleted_at:now, deleted_by:uid}).in("id",chunk); if(error) throw error; }
+    // 2) soft-delete ใบสำคัญจ่าย (PS) จริง — manual (pseudo) ไม่มี row จริง ข้าม
+    const realVids=vouchers.filter(v=>!v._manual).map(v=>v.id);
+    for(let i=0;i<realVids.length;i+=100){ const chunk=realVids.slice(i,i+100);
+      await sb.from("ap_payment_vouchers").update({deleted_at:now, deleted_by:uid}).in("id",chunk); }
+    d._paidSel=new Set();
+    alert(`เปลี่ยนเป็นยังไม่จ่ายสำเร็จ ${vouchers.length} PS\nบิลกลับไปที่แท็บ "เจ้าหนี้คงค้าง" แล้ว`);
+    state.apo[state.company]=null;
+    await apstRenderPaid();
+  }catch(e){ alert("ไม่สำเร็จ: "+fopErr(e)); }
 }
 function apstPaidApplyChanges(){
   const d=apoGet(); const data=d._paidData; if(!data) return;
@@ -16170,6 +16218,7 @@ function apstPaidApplyChanges(){
   const fb=document.getElementById("apstPaidFilterBtn");
   if(fb){ const n=apstPaidActive(data.vouchers).length; fb.classList.toggle("on",n>0);
     fb.innerHTML=`<span style="font-size:14px">⛭</span> ตัวกรอง${n?`<span class="apo-fd-badge">${n}</span>`:''}`; }
+  apstUpdatePaidBulk(); apstUpdatePaidAllChk();
 }
 
 /* ============ แท็บ "ตั้งโอน" — จัดกลุ่มตาม PS + เลขบัญชีจากทะเบียน ============ */

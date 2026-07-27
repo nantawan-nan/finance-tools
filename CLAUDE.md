@@ -191,6 +191,13 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-26 (27) — ★ AP จ่ายแล้ว: เลือก PS หลายใบ → "เปลี่ยนเป็นยังไม่จ่าย" (เคสตัด PS ล่วงหน้า เงินยังไม่ออก)
+- **เจ้าของ:** เผลออัปรายงานจ่ายชำระ 1-31/07 · การเงินตัด PS ล่วงหน้า (วันจ่าย 27-31/07) แต่เงินยังไม่ออกจริง → อยากกดเปลี่ยนเป็น "ยังไม่จ่าย" ทีละหลายรายการ (เดิมมีแค่ "ล้างการนำเข้า" = ล้างหมด · กว้างไป)
+- **checkbox column ในตาราง "จ่ายแล้ว"** (`apstPaidTableHtml` · gate `fopCanWrite`) + master `apstPaidSelectAll` (ตามตัวกรอง · indeterminate) · row checkbox `event.stopPropagation` (กันชนคลิกกางดีเทล) · state `d._paidSel` (Set · reset ทุก `apstRenderPaid`)
+- **แถบ bulk `#apstPaidBulk`** (ส้ม · โผล่เมื่อเลือก) โชว์ N PS + ยอดรวม + ปุ่ม "↩ เปลี่ยนเป็นยังไม่จ่าย" · `apstUpdatePaidBulk`/`apstUpdatePaidAllChk` เรียกท้าย render + applyChanges
+- **`apstUnpaySelected`:** confirm → soft-delete `ap_payments` ของ PS ที่เลือก (จาก `byVoucher` · chunk 100) → trigger `fn_ap_recompute` คืนบิลเป็น "ค้างจ่าย" → soft-delete `ap_payment_vouchers` (เฉพาะ PS จริง · manual/pseudo ข้าม) → reload · บิลกลับไปแท็บเจ้าหนี้คงค้าง
+- **verified:** syntax OK · boot 0 error · reuse soft-delete + trigger เดิม (เหมือน apoBulkUnpay) · re-import ได้ (existKeys สร้างจาก payment active) · ไม่ต้อง migration
+
 ### 2026-07-26 (26) — ★ ถอน Marketplace: ปุ่ม "อัปเดต IV/RE จากทะเบียน" (แก้สถานะค้าง "ยังไม่คีย์ IV" หลังคีย์แล้ว)
 - **เจ้าถาม "หน้าแบงค์อัปเดตไหม · ส่งออกไปคีย์ IV/RE แล้ว":** ออเดอร์ที่คีย์ IV/RE ครบแล้ว (เห็นในทะเบียน/timeline) แต่หน้าถอน Marketplace ยังขึ้น "ยังไม่คีย์ IV (ไม่พบในทะเบียน/รายงาน)" + เลขเช็ค `UNKNOWN-...`
 - **ต้นเหตุ:** `bmpGroupWithdrawals` resolve IV/RE/เลขเช็ค/mismatch **ตอน upload** แล้ว freeze ลง `brec_mp_orders` · `bmpLoadFromDb` อ่าน snapshot เดิม **ไม่ re-resolve** → คีย์ IV/RE ทีหลังไม่อัปเดตเอง (เดิมต้อง re-upload ไฟล์กระเป๋าเงิน)

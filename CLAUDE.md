@@ -191,6 +191,13 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-27 (4) — ★ ทะเบียนคำสั่งซื้อ: เพิ่มล้าง "กระทบยอดหลังบ้าน แยกช่องทาง" (เคสอัปรายงานหลังบ้าน Lazada ผิดบริษัท)
+- **เจ้าของ:** อัป Lazada ผิดบริษัท (M Bark) แต่เป็น **รายงานหลังบ้าน (order_recon)** ไม่ใช่ BigSeller (order_ledger) → ปุ่ม (3) ล้างไม่ได้ (คนละตาราง · 32 "หลังบ้านมี · ขายไม่คีย์" = only_be ใน order_recon)
+- **`ordUndoImportModal` +section ②:** query `order_recon` group by channel (ของบริษัทปัจจุบัน) → ตารางช่องทาง+จำนวน + ปุ่ม "↩ ล้างช่องนี้"
+- **`ordUndoReconChannel(channel)`:** confirm → `order_recon.delete().eq(company).eq(channel)` (หรือ `.is(channel,null)`) → reset d.recon + `ordReconLoad` + re-render · ออเดอร์ทะเบียน + ช่องอื่นไม่กระทบ
+- **หมายเหตุ (สำคัญ):** ผู้ช่วยลบ DB จริงให้ไม่ได้ (ต้องผ่านแอปที่ user login) — สร้างปุ่มให้กดเอง · เมนู "จัดการข้อมูล" → "ล้างเฉพาะการนำเข้าครั้งนี้" → section ② เลือก Lazada
+- **verified:** syntax OK · boot 0 error · reuse ordReconLoad · ไม่ต้อง migration
+
 ### 2026-07-27 (3) — ★ ทะเบียนคำสั่งซื้อ: "ล้างเฉพาะการนำเข้าครั้งนี้" (ไม่ล้างทั้งทะเบียน · เคสอัปผิดบริษัท)
 - **เจ้าของ:** อัป Lazada ผิดบริษัท → อยากล้างเฉพาะการนำเข้าครั้งนั้น ไม่ใช่ล้างทะเบียนทั้งหมด
 - **ระบุครั้งนำเข้าด้วย `order_ingested_at`:** `ordUploadFiles` gen `batchAt` เดียวต่อการอัป → ส่งเข้า `ordIngestChannelOrders(co,parsed,src,batchAt)` → insert stamp `order_ingested_at=batchAt` · **update ไม่แตะ field นี้** → `order_ingested_at` = เฉพาะออเดอร์ที่ "เพิ่มใหม่" ในครั้งนั้น (ออเดอร์เดิมที่แค่อัปเดตไม่โดนลบ)

@@ -26345,7 +26345,16 @@ async function ordUndoImportModal(){
   const groups = new Map();
   (data||[]).forEach(r=>{ const k=r.order_ingested_at; if(!k) return; if(!groups.has(k)) groups.set(k,{n:0,ch:new Set(),src:new Set()}); const g=groups.get(k); g.n++; if(r.channel_group)g.ch.add(r.channel_group); if(r.order_src)g.src.add(r.order_src); });
   const batches=[...groups.entries()].slice(0,15);
-  if(!batches.length){ alert("ไม่พบประวัติการนำเข้าที่ล้างแยกได้\n(ออเดอร์เก่าอาจนำเข้าก่อนมีระบบติดตามครั้งนำเข้า — ใช้ 'ล้างทะเบียน' แทน)"); return; }
+  // ★ กระทบยอดหลังบ้าน (order_recon) — แยกช่องทาง (เคสอัปรายงานหลังบ้านผิดบริษัท เช่น Lazada)
+  const reconByCh = new Map();
+  try{
+    let rf=0; const rs=1000;
+    while(true){ const { data:rr } = await sb.from("order_recon").select("channel").eq("company",state.company).is("deleted_at",null).range(rf,rf+rs-1);
+      if(!rr||!rr.length) break; rr.forEach(x=>{ const c=x.channel||'(ไม่ระบุ)'; reconByCh.set(c,(reconByCh.get(c)||0)+1); }); if(rr.length<rs) break; rf+=rs; }
+  }catch(e){ console.warn("recon channels", e); }
+  const reconChans=[...reconByCh.entries()].sort((a,b)=>b[1]-a[1]);
+  if(!batches.length && !reconChans.length){ alert("ไม่พบประวัติการนำเข้าที่ล้างแยกได้\n(ออเดอร์เก่าอาจนำเข้าก่อนมีระบบติดตาม — ใช้ 'ล้างทะเบียน' แทน)"); return; }
+  const chNameMap={shopee:"Shopee",tiktok:"TikTok",lazada:"Lazada",face:"FACE",line:"LINE",dealer:"Dealer",csr:"CSR"};
   const rowsHtml = batches.map(([at,g])=>{
     const dt=new Date(at); const timeLbl=isNaN(dt.getTime())?String(at):dt.toLocaleString("th-TH",{day:"numeric",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"});
     const chLbl=[...g.ch].join(", ")||"—"; const srcArr=[...g.src]; const srcLbl=srcArr.slice(0,2).join(", ")+(srcArr.length>2?` +${srcArr.length-2}`:"");
@@ -26356,19 +26365,34 @@ async function ordUndoImportModal(){
       <td style="padding:9px 10px;text-align:right"><button class="ord-btn danger" style="padding:5px 11px;font-size:12px" onclick="ordUndoImportBatch('${esc(String(at))}')">↩ ล้างครั้งนี้</button></td>
     </tr>`;
   }).join("");
+  const reconHtml = reconChans.map(([ch,n])=>`<tr style="border-bottom:1px solid #f1f5f9">
+      <td style="padding:9px 10px"><b>${esc(chNameMap[ch]||ch)}</b></td>
+      <td style="padding:9px 10px;text-align:right;font-weight:700">${n}</td>
+      <td style="padding:9px 10px;text-align:right"><button class="ord-btn danger" style="padding:5px 11px;font-size:12px" onclick="ordUndoReconChannel('${esc(String(ch))}')">↩ ล้างช่องนี้</button></td>
+    </tr>`).join("");
+  const ledgerSection = batches.length ? `
+        <div style="font:700 11px/1.2 inherit;color:#64748b;letter-spacing:.4px;text-transform:uppercase;margin:4px 0 6px">① นำเข้า BigSeller (ทะเบียน)</div>
+        <table style="width:100%;border-collapse:collapse;font-size:13px">
+          <thead><tr style="color:#64748b;border-bottom:2px solid #e2e8f0"><th style="text-align:left;padding:8px 10px">เวลานำเข้า</th><th style="text-align:left;padding:8px 10px">ช่องทาง / ไฟล์</th><th style="text-align:right;padding:8px 10px">ออเดอร์ใหม่</th><th></th></tr></thead>
+          <tbody>${rowsHtml}</tbody>
+        </table>` : '';
+  const reconSection = reconChans.length ? `
+        <div style="font:700 11px/1.2 inherit;color:#64748b;letter-spacing:.4px;text-transform:uppercase;margin:${batches.length?'16px':'4px'} 0 6px">② กระทบยอดหลังบ้าน (order_recon) — แยกช่องทาง</div>
+        <div style="font-size:11.5px;color:#b45309;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:7px 11px;margin-bottom:8px">เคสอัป "รายงานหลังบ้าน" ผิดบริษัท (เช่น Lazada) → ล้างเฉพาะช่องทางนั้นของ ${esc((COMPANIES.find(c=>c.id===state.company)||{}).name||state.company)}</div>
+        <table style="width:100%;border-collapse:collapse;font-size:13px">
+          <thead><tr style="color:#64748b;border-bottom:2px solid #e2e8f0"><th style="text-align:left;padding:8px 10px">ช่องทาง</th><th style="text-align:right;padding:8px 10px">รายการกระทบยอด</th><th></th></tr></thead>
+          <tbody>${reconHtml}</tbody>
+        </table>` : '';
   const html=`<div id="ordUndoModal" style="position:fixed;inset:0;background:rgba(15,23,42,.5);z-index:100000;display:flex;align-items:center;justify-content:center;padding:20px" onclick="if(event.target===this)this.remove()">
     <div style="background:#fff;border-radius:16px;max-width:720px;width:100%;max-height:86vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.3)" onclick="event.stopPropagation()">
       <div style="padding:16px 20px;border-bottom:1px solid #eef2f7;display:flex;align-items:center;gap:11px">
         <span style="width:38px;height:38px;border-radius:10px;background:#fef2f2;color:#dc2626;display:flex;align-items:center;justify-content:center;flex:none"><i data-lucide="rotate-ccw"></i></span>
-        <div style="flex:1"><div style="font-size:16px;font-weight:700">ล้างเฉพาะการนำเข้า (ไม่ล้างทั้งทะเบียน)</div><div style="font-size:12px;color:#64748b;margin-top:1px">เลือกครั้งที่อัปผิด (เช่น Lazada ผิดบริษัท) → ลบเฉพาะออเดอร์ที่เพิ่มใหม่ในครั้งนั้น</div></div>
+        <div style="flex:1"><div style="font-size:16px;font-weight:700">ล้างเฉพาะการนำเข้า (ไม่ล้างทั้งทะเบียน)</div><div style="font-size:12px;color:#64748b;margin-top:1px">เลือกครั้ง/ช่องทางที่อัปผิด → ลบเฉพาะส่วนนั้น · ที่เหลือไม่กระทบ</div></div>
         <button onclick="document.getElementById('ordUndoModal').remove()" style="border:none;background:none;font-size:24px;color:#94a3b8;cursor:pointer;line-height:1">×</button>
       </div>
-      <div style="overflow:auto;padding:6px 20px 16px">
-        <table style="width:100%;border-collapse:collapse;font-size:13px">
-          <thead><tr style="color:#64748b;border-bottom:2px solid #e2e8f0"><th style="text-align:left;padding:8px 10px">เวลานำเข้า</th><th style="text-align:left;padding:8px 10px">ช่องทาง / ไฟล์</th><th style="text-align:right;padding:8px 10px">ออเดอร์ใหม่</th><th></th></tr></thead>
-          <tbody>${rowsHtml}</tbody>
-        </table>
-        <div style="font-size:11.5px;color:#94a3b8;margin-top:10px">* ล้างเฉพาะออเดอร์ที่ "เพิ่มใหม่" ในครั้งนั้น (ออเดอร์เดิมที่แค่อัปเดตข้อมูลจะไม่ถูกลบ) · ทะเบียนที่เหลือไม่กระทบ</div>
+      <div style="overflow:auto;padding:10px 20px 16px">
+        ${ledgerSection}${reconSection}
+        <div style="font-size:11.5px;color:#94a3b8;margin-top:10px">* ①ล้างเฉพาะออเดอร์ที่เพิ่มใหม่ในครั้งนั้น · ②ล้างผลกระทบยอดหลังบ้านของช่องทางนั้นทั้งหมด (ของบริษัทนี้)</div>
       </div>
     </div></div>`;
   document.getElementById("ordUndoModal")?.remove();
@@ -26389,6 +26413,23 @@ async function ordUndoImportBatch(batchAt){
     document.getElementById("ordUndoModal")?.remove();
     await ordLoad(); renderToolOrders();
     alert(`ล้างการนำเข้าครั้งนี้แล้ว ${ids.length} ออเดอร์ ✓`);
+  }catch(e){ alert("ไม่สำเร็จ: "+(e.message||e)); }
+}
+/* ★ ล้างกระทบยอดหลังบ้าน (order_recon) เฉพาะช่องทาง — เคสอัปรายงานหลังบ้านผิดบริษัท */
+async function ordUndoReconChannel(channel){
+  const company=state.company;
+  const chName={shopee:"Shopee",tiktok:"TikTok",lazada:"Lazada",face:"FACE",line:"LINE",dealer:"Dealer",csr:"CSR"}[channel]||channel;
+  const coName=(COMPANIES.find(c=>c.id===company)||{}).name||company;
+  if(!confirm(`ล้างผลกระทบยอด "${chName}" ของ ${coName} ทั้งหมด?\n\n• ลบเฉพาะกระทบยอดหลังบ้านช่องทางนี้ (order_recon)\n• ออเดอร์ในทะเบียน + ช่องทางอื่นไม่กระทบ\n\nใช้เมื่ออัปรายงานหลังบ้านผิดบริษัท · ดำเนินการ?`)) return;
+  try{
+    const q = sb.from("order_recon").delete().eq("company",company);
+    const { error } = channel==='(ไม่ระบุ)' ? await q.is("channel",null) : await q.eq("channel",channel);
+    if(error) throw error;
+    document.getElementById("ordUndoModal")?.remove();
+    const d=ordGet(); d.reconLoaded=false; d.recon={ results:[], channels:[], expanded:new Set() };
+    try{ await ordReconLoad(); }catch(e){}
+    renderToolOrders();
+    alert(`ล้างกระทบยอด ${chName} ของ ${coName} แล้ว ✓`);
   }catch(e){ alert("ไม่สำเร็จ: "+(e.message||e)); }
 }
 async function ordLoad(){

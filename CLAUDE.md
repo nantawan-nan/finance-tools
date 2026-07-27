@@ -191,6 +191,13 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-27 (2) — ★ ถอน Marketplace: fix การ์ดโชว์ "ค่าใช้จ่ายติดลบ" (487 − 60,392) เมื่อออเดอร์ไม่ครบยอดถอน
+- **เจ้าของ:** การ์ด shopee ถอน 60,879 มีออเดอร์ 1 ใบ (net 487) → โชว์ "หัก ค่าใช้จ่ายในกระเป๋า **−60,392**" + "✓ ตรงครบ" · เจ้าว่า "ไม่น่าใช่ 487−60,392"
+- **ต้นเหตุ:** `walletExpense = carryIn + sumCheque − withdraw − carryOut` = 487 − 60,879 = −60,392 (ติดลบมาก = ออเดอร์ในไฟล์ไม่ครบยอดถอน) แต่โชว์เป็น "ค่าใช้จ่ายติดลบ" (double-negative งง) + `carry_shortfall` ที่ persist ไว้ = false → ไม่ขึ้น shortfall + ขึ้น "ตรงครบ" หลอก
+- **แก้ (display-only):** `feeNeg = walletExpense < -1` → (1) กล่องกลางเปลี่ยนเป็น **"+ ยอดยกมา / ออเดอร์ก่อนงวด (ไม่มีในไฟล์)"** (บวก · พื้นเหลือง) แทน "− ค่าใช้จ่ายติดลบ" (2) `isShortfall` รวม `feeNeg` (live · ไม่เชื่อ persisted stale) → ขึ้นชิป "⚠️ ยอดยกมาจากก่อนงวด" + warnline (3) ไม่ขึ้น "✓ ตรงครบ" เมื่อ shortfall
+- **verified:** syntax OK · boot 0 error · display-only · ไม่ต้อง migration
+- **หมายเหตุ:** เคสนี้มักมาจากใบซ้ำ re-upload (ออเดอร์ไปเกาะใบจริง) — กด "ล้างรายการซ้ำ" + re-upload · หรือถ้าเป็นงวดแรกจริง (ยอดยกมาก่อนไฟล์) = อัปไฟล์กระเป๋าเงินย้อนหลังเพิ่ม
+
 ### 2026-07-27 — ★ ถอน Marketplace: fix re-upload สร้างใบซ้ำ (dedup key รูปแบบไม่ตรง) + ปุ่ม "ล้างรายการซ้ำ"
 - **เจ้าของ:** re-upload รายการถอน 1-27 มาวางใหม่ → ระบบไม่ skip แค่ยอดใหม่ แต่ **จับทุกยอด → ใบซ้ำ** · บางใบ "ยอดผ่านเช็ค 0 · ออเดอร์ 0" (งงๆ)
 - **ต้นเหตุ:** dedup key = `withdraw_datetime|acct|amount` (ดิบ) — DB อ่านกลับเป็น **ISO ('T')** + amount **numeric precision ต่าง** จากตอน insert (space + number) → เทียบ string พลาด → ไม่ skip → insert ซ้ำ

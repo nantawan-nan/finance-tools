@@ -31508,9 +31508,11 @@ function bmpRenderTab(d){
     const walletExpense = +(carryIn + sumCheque - withdrawAmt - carryOut).toFixed(2);
     const sumCancelled = +cancelledRows.reduce((s,o)=> s + Number(o.shopee_net||0), 0).toFixed(2); // ≤0
     const liveAdj = adjRows.reduce((s,o)=> s + Number(o.shopee_net||0), 0);
-    // shortfall: ออเดอร์ในไฟล์ไม่ครบยอดถอน (มียอดยกมาจากก่อนช่วงไฟล์) — persisted flag ก่อน, fallback คำนวณสด
-    const isShortfall = wd.carry_shortfall != null ? !!wd.carry_shortfall
-      : (carryIn + sumCheque + sumCancelled + liveAdj) < (withdrawAmt - 1);
+    // ★ ค่าใช้จ่ายติดลบมาก = ออเดอร์ในไฟล์ไม่ครบยอดถอน → เป็น "ยอดยกมา" ไม่ใช่ค่าใช้จ่ายติดลบ (โชว์ผิด)
+    const feeNeg = walletExpense < -1;
+    // shortfall: ออเดอร์ในไฟล์ไม่ครบยอดถอน (มียอดยกมาจากก่อนช่วงไฟล์) — live (ค่าใช้จ่ายติดลบ) ก่อน · persisted · fallback คำนวณสด
+    const isShortfall = feeNeg || (wd.carry_shortfall != null ? !!wd.carry_shortfall
+      : (carryIn + sumCheque + sumCancelled + liveAdj) < (withdrawAmt - 1));
 
     const isSel = d.mp.selected.has(wd.id);
     const bm = bmpMatchBank(d, wd);
@@ -31528,7 +31530,7 @@ function bmpRenderTab(d){
           ${stmBadge}
           <span class="bmp-shop">${esc(wd.shop_name||"")}</span>
           ${isShortfall ? `<span class="bmp-warn" style="background:#fef3c7;color:#92400e">⚠️ ยอดยกมาจากก่อนงวด</span>` : ''}
-          ${hasMismatch ? `<span class="bmp-warn">⚠️ ไม่ตรง ${effMis}</span>` : `<span class="bmp-ok">✓ ตรงครบ${(wd.mismatch_count||0)>0?' (แก้แล้ว)':''}</span>`}
+          ${hasMismatch ? `<span class="bmp-warn">⚠️ ไม่ตรง ${effMis}</span>` : (isShortfall ? '' : `<span class="bmp-ok">✓ ตรงครบ${(wd.mismatch_count||0)>0?' (แก้แล้ว)':''}</span>`)}
           <div style="margin-left:auto;display:flex;gap:8px;align-items:center" onclick="event.stopPropagation()">
             <label style="display:flex;align-items:center;gap:4px;font-size:11.5px;font-weight:700;cursor:pointer;color:${wd.done?'#16a34a':'#94a3b8'}"><input type="checkbox" ${wd.done?'checked':''} onchange="bmpToggleDone('${wd.id}', this.checked)" style="width:15px;height:15px;accent-color:#16a34a;cursor:pointer"> ทำแล้ว</label>
             <button onclick="bmpDeleteWithdrawal('${wd.id}')" title="ลบงวดถอนนี้ (เช่น รายการซ้ำ)" style="border:none;background:none;cursor:pointer;color:#dc2626;padding:2px;display:flex"><i data-lucide="trash-2" style="width:15px;height:15px"></i></button>
@@ -31547,8 +31549,9 @@ function bmpRenderTab(d){
           return `<div class="bmp-recon">
             ${carryIn>0.005?`<div class="bx"><span class="k">ยอดยกมา <small>(เศษเงินสดจากงวดก่อน)</small></span><span class="v">${bmpFmtMoney(carryIn)}</span></div><div class="op">+</div>`:''}
             <div class="bx"><span class="k">รวมยอดที่ต้องผ่านเช็ค <small>(เช็ครับ = net เข้ากระเป๋า)</small></span><span class="v">${bmpFmtMoney(sumCheque)}</span></div>
-            <div class="op">−</div>
-            <div class="bx fee"><span class="k">หัก ค่าใช้จ่ายในกระเป๋าเงิน <small>(ยอด − : ยกเลิก+โฆษณา)</small></span><span class="v">${bmpFmtMoney(walletExpense)}</span></div>
+            ${feeNeg
+              ? `<div class="op">+</div><div class="bx" style="background:#fef3c7;border-color:#fde68a"><span class="k">ยอดยกมา / ออเดอร์ก่อนงวด <small>(ไม่มีในไฟล์)</small></span><span class="v">${bmpFmtMoney(Math.abs(walletExpense))}</span></div>`
+              : `<div class="op">−</div><div class="bx fee"><span class="k">หัก ค่าใช้จ่ายในกระเป๋าเงิน <small>(ยอด − : ยกเลิก+โฆษณา)</small></span><span class="v">${bmpFmtMoney(walletExpense)}</span></div>`}
             ${carryOut>0.005?`<div class="op">−</div><div class="bx"><span class="k">ยอดยกไป <small>(เศษออเดอร์คร่อมยอดถอน · เช็คไปงวดหน้า)</small></span><span class="v">${bmpFmtMoney(carryOut)}</span></div>`:''}
             <div class="op">=</div>
             <div class="bx res"><span class="k">คงเหลือเข้าแบงค์</span><span class="v">${bmpFmtMoney(remain)}</span></div>

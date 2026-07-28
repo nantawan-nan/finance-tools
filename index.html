@@ -14867,7 +14867,8 @@ function apoUpdateBulkBar(){
 /* บันทึกจ่ายเต็มยอดคงค้างให้ทุกรายการที่เลือก ณ วันที่จ่ายจริง */
 async function apoBulkPay(){
   const d = apoGet();
-  const today = new Date().toISOString().slice(0,10);
+  if(d._paying) return;   // ★ กันคลิกซ้ำ → จ่ายซ้ำ → outstanding ติดลบ
+  const today = cffISO(new Date());   // ★ local date (ICT) — เดิม toISOString เป็น UTC เพี้ยน -1 ช่วงเช้า
   const dateStr = (document.getElementById("apoBulkDate") && document.getElementById("apoBulkDate").value) || d.payActualDate || today;
   if(!dateStr){ alert("กรุณาระบุวันที่จ่ายจริง"); return; }
   const enriched = apoEnrich(d.invoices || []);
@@ -14875,6 +14876,7 @@ async function apoBulkPay(){
   if(!rows.length){ alert("ไม่มีรายการที่เลือก (หรือจ่ายครบแล้วทั้งหมด)"); return; }
   const total = rows.reduce((s,r)=>s+Number(r.amount_outstanding||0),0);
   if(!confirm(`บันทึกจ่ายชำระ ${rows.length} รายการ (รวม ${fopFmt(total)} บาท)\nวันที่จ่ายจริง ${fopDate(dateStr)}?\n\nแต่ละบิลจะถูกบันทึกจ่ายเต็มยอดคงค้าง → สถานะเปลี่ยนเป็น "จ่ายแล้ว"`)) return;
+  d._paying = true;
   try{
     const cid = await fopCompanyId();
     const payload = rows.map(r => ({
@@ -14890,16 +14892,18 @@ async function apoBulkPay(){
     d.selected.clear(); d.payActualDate = "";
     state.apo[state.company] = null;
     renderToolApOutstanding();
-  }catch(e){ alert("บันทึกไม่สำเร็จ: " + fopErr(e)); }
+  }catch(e){ alert("บันทึกไม่สำเร็จ: " + fopErr(e)); d._paying=false; }
 }
 /* ยกเลิกการจ่าย (bulk) — soft-delete ap_payments ของรายการที่จ่ายแล้วที่เลือก → trigger คืนสถานะเป็นค้างจ่าย */
 async function apoBulkUnpay(){
   const d = apoGet();
+  if(d._paying) return;   // ★ กันคลิกซ้ำ
   const enriched = apoEnrich(d.invoices || []);
   const rows = enriched.filter(r => d.selected.has(String(r.id)) && r.status === "paid");
   if(!rows.length){ alert("ไม่มีรายการที่จ่ายแล้วถูกเลือก"); return; }
   const total = rows.reduce((s,r)=>s+Number(r.amount_total||0),0);
-  if(!confirm(`ยกเลิกการจ่าย ${rows.length} รายการ (รวม ${fopFmt(total)} บาท)?\n\nยอดคงค้างจะกลับเป็นยอดเต็ม · สถานะกลับเป็น "ค้างจ่าย" (audit log เก็บไว้)`)) return;
+  if(!confirm(`ยกเลิกการจ่าย ${rows.length} รายการ (รวม ${fopFmt(total)} บาท)?\n\nยอดคงค้างจะกลับเป็นยอดเต็ม · สถานะกลับเป็น "ค้างจ่าย" (audit log เก็บไว้)\n\n⚠️ บิลที่จ่ายหลายงวด/หลาย PS จะถูกยกเลิก 'ทุกงวด' ของบิลนั้น`)) return;
+  d._paying = true;
   try{
     const ids = rows.map(r => r.id);
     const { error } = await sb.from("ap_payments")
@@ -14910,7 +14914,7 @@ async function apoBulkUnpay(){
     d.selected.clear();
     state.apo[state.company] = null;
     renderToolApOutstanding();
-  }catch(e){ alert("ยกเลิกไม่สำเร็จ: " + fopErr(e)); }
+  }catch(e){ alert("ยกเลิกไม่สำเร็จ: " + fopErr(e)); d._paying=false; }
 }
 
 /* ★ เตือนบิลเลยกำหนด "วันชำระเงิน" ที่ยังไม่จ่าย — ป๊อปอัพให้ติ๊กจ่าย/เปลี่ยนวัน/ใส่ PS(ไม่บังคับ)
@@ -18114,12 +18118,14 @@ function apoSplitUpdateRemain(){
 }
 /* ★ ติ๊กงวดว่าจ่ายแล้ว/ยกเลิก — บันทึกจ่ายจริงลง ap_payments ตามจำนวน+วันที่ของงวด */
 async function cffToggleSplitPaid(apId, i){
+  if(window._apoSplitBusy) return;   // ★ กันคลิกซ้ำ → จ่ายงวดซ้ำ
   const splits = window._apoPayCardSplits || [];
   const sp = splits[i];
   if(!sp) return;
   const amt = Number(sp.amount||0);
   if(!sp.date || !(amt>0)){ alert('งวดนี้ต้องมีวันที่และจำนวนเงินก่อน จึงจะบันทึกจ่ายได้'); apoSplitRender(); return; }
   const fmtB = n => Number(n||0).toLocaleString('th-TH',{minimumFractionDigits:2,maximumFractionDigits:2});
+  window._apoSplitBusy = true;
   try{
     const cid = await fopCompanyId();
     if(!sp.paid){
@@ -18155,6 +18161,7 @@ async function cffToggleSplitPaid(apId, i){
     else renderToolCashflowForecast();
     cffOpenPayCard(apId);
   }catch(e){ alert('ไม่สำเร็จ: '+fopErr(e)); apoSplitRender(); }
+  finally{ window._apoSplitBusy = false; }
 }
 async function cffSaveSplits(apId){
   const splits = (window._apoPayCardSplits||[]).filter(sp=>sp.date&&Number(sp.amount||0)>0);

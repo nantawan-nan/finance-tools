@@ -30828,13 +30828,15 @@ async function bmpRunUpload(){
     const { data:existingWds2 } = await sb.from("brec_mp_withdrawals")
       .select("id,withdraw_date,bank_account_id,withdraw_amount,order_count")
       .eq("company_id", co).is("deleted_at", null);
-    // ★ map key → รายการที่มีอยู่ (เก็บใบที่ order มากสุดต่อ key) — ใช้ auto-heal: อัปใหม่ที่ออเดอร์มากกว่า → ทับใบเก่า (0 ออเดอร์) ที่ค้างจากโค้ดเก่า
-    const existingMap = new Map();
+    // ★ H6: group DB rows ต่อ key เป็น "อาร์เรย์" (นับจำนวน) — รองรับใบถอนที่ 2 วันเดียวกันยอดเท่ากัน (เดิม best-per-key ทำใบที่ 2 หาย)
+    //   เรียงจำนวนออเดอร์มากสุดก่อน → จับคู่ best-to-best กับไฟล์ (auto-heal ใบเก่า 0 ออเดอร์)
+    const dbByKey = new Map();
     for(const w of (existingWds2||[])){
       const k = bmpDkey(w.withdraw_date, w.bank_account_id, w.withdraw_amount);
-      const cur = existingMap.get(k);
-      if(!cur || (Number(w.order_count)||0) > (Number(cur.order_count)||0)) existingMap.set(k, w);
+      if(!dbByKey.has(k)) dbByKey.set(k, []);
+      dbByKey.get(k).push(w);
     }
+    for(const arr of dbByKey.values()) arr.sort((a,b)=>(Number(b.order_count)||0)-(Number(a.order_count)||0));
     const staleToPurge = [];   // id ของ withdrawal เก่าที่จะถูกแทน (auto-heal)
 
     // process ทุก shop ในรอบเดียว (BQ counter shared)
@@ -30848,20 +30850,29 @@ async function bmpRunUpload(){
         continue;
       }
       const allWithdrawals = bmpGroupWithdrawals(shopData, arData, chqData, salesData, shopName, sharedSeq, ledgerByOrder);
-      // ★ dedup: ข้าม withdrawal ที่ DB มีอยู่แล้ว (key = datetime + bank_account_id + amount)
+      // ★ H6: dedup แบบ "นับจำนวนต่อ key" — ไฟล์มี N ใบ/key · DB มี M ใบ → จับคู่ min(N,M) (auto-heal ตัวที่ดีกว่า) · เพิ่มส่วนเกิน (ใบถอนที่ 2 วันเดียวกันยอดเท่ากัน = ใบใหม่จริง ไม่ทิ้ง)
       const withdrawals = [];
       let shopSkipped = 0;
+      const fileByKey = new Map();
       for(const wd of allWithdrawals){
         const k = bmpDkey(wd.withdraw_date, acctId, wd.withdraw_amount);
-        const ex = existingMap.get(k);
-        if(ex){
-          const newN = (wd.orders||[]).length, oldN = Number(ex.order_count)||0;
-          // ★ auto-heal: อัปใหม่มีออเดอร์มากกว่าใบเก่า → ทับ (ลบใบเก่าที่ 0/น้อยกว่า ค้างจากโค้ดเก่า)
-          if(newN > oldN){ staleToPurge.push(ex.id); existingMap.delete(k); withdrawals.push(wd); continue; }
-          shopSkipped++; continue;
+        if(!fileByKey.has(k)) fileByKey.set(k, []);
+        fileByKey.get(k).push(wd);
+      }
+      for(const [k, fileWds] of fileByKey){
+        const dbRows = dbByKey.get(k) || [];
+        fileWds.sort((a,b)=>((b.orders||[]).length)-((a.orders||[]).length));   // ออเดอร์มากสุดก่อน (จับคู่ best-to-best)
+        for(let i=0;i<fileWds.length;i++){
+          const wd = fileWds[i]; const newN = (wd.orders||[]).length;
+          if(i < dbRows.length){
+            const ex = dbRows[i];
+            if(newN > (Number(ex.order_count)||0)){ staleToPurge.push(ex.id); withdrawals.push(wd); }  // auto-heal: อัปใหม่ออเดอร์มากกว่า → ทับ
+            else shopSkipped++;                                                                        // เท่า/น้อยกว่า = มีอยู่แล้ว ข้าม
+          } else {
+            withdrawals.push(wd);   // เกินจำนวนใน DB → ใบถอนใหม่จริง (เช่นใบที่ 2 วันเดียวกัน)
+          }
         }
-        existingMap.set(k, { order_count:(wd.orders||[]).length });   // จองกัน dup ในรอบเดียวกัน
-        withdrawals.push(wd);
+        dbByKey.set(k, dbRows.slice(Math.min(fileWds.length, dbRows.length)));   // เหลือเฉพาะ DB row ที่ยังไม่จับคู่ (กัน shop อื่น key เดียวกันมาแทนซ้ำ)
       }
       grandTotalSkip += shopSkipped;
       // ★ ลบใบเก่าที่จะถูกแทน (soft-delete withdrawal + orders) ก่อน insert ใบใหม่

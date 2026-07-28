@@ -191,6 +191,13 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-28 (8) — ★★ Pre-production audit Phase 0 (release blockers) — เริ่มแก้
+- **ที่มา:** เจ้าของขอ audit ทั้งระบบเสมือน Senior Eng + Architect + Security (แตกทีมตรวจ 4 ด้านขนาน) · รายงานเต็มที่ `.claude/plans/shiny-beaming-metcalfe.md` · Verdict: ยังไม่ควรเปิด production จนแก้ Critical
+- **C4 (แก้แล้ว · commit 00b1c66):** guard กันคลิกซ้ำปุ่มจ่ายเงิน (`apoBulkPay`/`apoBulkUnpay`/`cffToggleSplitPaid` เพิ่ม `_paying`/`_apoSplitBusy`) — เดิมคลิกซ้ำระหว่าง insert วิ่ง = จ่ายซ้ำ → `amount_outstanding` ติดลบ · `apoBulkPay` เปลี่ยน today เป็น `cffISO` (local ICT)
+- **C3 + H5 (migration `zzz-audit-phase0-indexes.sql`):** (C3) **unique index `uq_order_ledger_co_order` (company_id,order_id) partial** กันออเดอร์ซ้ำเชิงโครงสร้าง (เดิม index ธรรมดา + dedup-map ฝั่ง client = พลาสเตอร์ · zz-orders-dedup-cleanup รันทุก push) · dedup ก่อนสร้าง index (idempotent) · client insert ข้าม row error อยู่แล้ว → reject ตัวซ้ำได้ไม่พังอัป · (H5) index `ap_payments(ap_invoice_id)` (trigger fn_ap_recompute เดิม seq-scan ทุกจ่าย) + `(voucher_id)` · เพิ่ม `order_ledger(company_id,order_date desc)`/`(re_no)`/`(iv_no)` + `sales_income_rows(order_id)`/`(paid_date)` · zzz- รันหลังสุด · EXCEPTION-wrapped
+- **ยังไม่ทำ (Phase 0 ที่เหลือ · ต้องระวัง+เจ้าของร่วม):** C1 เปิด RLS ~20 ตาราง (เสี่ยงล็อกผู้ใช้ถ้า policy ไม่ครบ) · C2 ลบ present password + rotate ใน Supabase (กระทบโหมดพรีเซนต์นิสา)
+- **verified:** C4 syntax OK + boot 0 error · migration idempotent · ต้อง push ให้ db-migrate รัน
+
 ### 2026-07-28 (7) — ★ ถอน Marketplace: ฟิลเตอร์ "ตรงครบ · พร้อมออกใบผ่านเช็ค" / "ไม่ตรง/ยกมา"
 - **เจ้าของ:** อยากกรองว่าใบถอนไหน "ตรงครบ" พร้อมส่งออกใบผ่านเช็ค
 - **`bmpWdState(d, w, obwMap)` (ใหม่ · helper กลาง):** คืน `{effMis, hasMismatch, isShortfall, ready}` — ตรรกะเดียวกับที่การ์ดคำนวณเป๊ะ (hasMismatch = `bmpEffMismatch>0` · isShortfall = feeNeg/carry_shortfall/สด) · `ready = ตรงครบ` (ไม่ mismatch + ไม่ shortfall)

@@ -4727,14 +4727,21 @@ function incDirectCandidates(d){
   const centsOf=(v)=>Math.round(Number(v||0)*100);
   const byId=new Map(deposits.map(x=>[String(x.id),x]));
   const usedDep=new Set(Object.values(matches).map(String));   // deposit ถูกจับกับออเดอร์อื่นแล้ว
+  // ★ ขยายช่วงวัน ±INC_DIRECT_WINDOW วัน (ลูกค้าโอนเย็น พนักงานคีย์วันถัดไป) · เขียว=วันเดียวกัน · ส้ม=คนละวันยอดตรง
+  const dayDiff=(a,b)=>{ if(!a||!b) return 999; const da=new Date(String(a).slice(0,10)+"T00:00:00"), db=new Date(String(b).slice(0,10)+"T00:00:00"); return Math.round((da-db)/86400000); };
   return orders.map(o=>{
     const amtC=centsOf(o.order_total); const mid=matches[o.order_id];
-    if(mid && byId.has(String(mid))) return { o, dep:byId.get(String(mid)), via:'manual' };
+    if(mid && byId.has(String(mid))){ const dep=byId.get(String(mid)); return { o, dep, via:'manual', depDd: dayDiff(dep.txn_date, o.order_date) }; }
     const od=o.order_date||"";
-    const cands=deposits.filter(dp=> centsOf(dp.deposit)===amtC && (!od || dp.txn_date>=od) && !usedDep.has(String(dp.id)));
-    return { o, dep:null, candidates:cands, via: cands.length?'candidates':'none' };
+    const cands=deposits
+      .filter(dp=> centsOf(dp.deposit)===amtC && !usedDep.has(String(dp.id)) && Math.abs(dayDiff(dp.txn_date, od))<=INC_DIRECT_WINDOW)
+      .map(dp=>({ dep:dp, dd: dayDiff(dp.txn_date, od) }))
+      .sort((a,b)=> Math.abs(a.dd)-Math.abs(b.dd) || String(a.dep.txn_date).localeCompare(String(b.dep.txn_date)));
+    const sameDay = cands.some(c=>c.dd===0);
+    return { o, dep:null, candidates:cands, sameDay, via: cands.length?'candidates':'none' };
   });
 }
+const INC_DIRECT_WINDOW = 5;   // ±วัน สำหรับจับ STM โอนตรง (โอนเย็น/คีย์วันถัดไป)
 function incDirectReady(cands){ return cands.filter(x=> x.dep && x.o.iv_no); }   // จับ STM แล้ว + คีย์ IV
 // ★ ติ๊กเลือกส่งออก (default = เลือกทุกใบที่พร้อม · override เก็บใน d.directSel[order_id])
 function incDirectIsSelected(d, orderId){ const ov=(d.directSel||{})[orderId]; return ov===undefined ? true : !!ov; }
@@ -4785,10 +4792,15 @@ function incRenderDirect(d){
     <button id="incDirBtnC" class="ord-btn" ${canExport?'':'disabled'} style="${canExport?'':'opacity:.5'}" onclick="incExportDirectRe('csv')"><i data-lucide="download"></i> CSV</button>
   </div>`;
   const rows=list.slice(0,500).map(x=>{ const o=x.o; const isReady=!!(x.dep&&o.iv_no); const sel=isReady&&incDirectIsSelected(d,o.order_id);
+    const ddTxt=(dd)=> dd===0?'วันเดียวกัน':(dd<0?`โอนก่อน ${-dd} วัน`:`โอนหลัง ${dd} วัน`);
     let stmCell;
-    if(x.dep){ stmCell=`<span style="color:#16a34a;font-weight:600">✓ ${esc(incDirectDepLabel(x.dep))}</span> <a onclick="incDirectPick('${esc(o.order_id)}','')" style="cursor:pointer;color:#94a3b8;font-size:10px" title="ยกเลิก">✕</a>`; }
-    else if(x.candidates && x.candidates.length){ const opts=x.candidates.slice(0,30).map(dp=>`<option value="${esc(dp.id)}">${esc(incDirectDepLabel(dp))}</option>`).join("");
-      stmCell=`<span style="color:#a16207">⚠ ${x.candidates.length} เงินเข้ายอดตรง</span> <select onchange="incDirectPick('${esc(o.order_id)}', this.value)" style="font-size:11px;padding:2px 5px;border:1px solid #fde68a;border-radius:6px;max-width:260px;background:#fffbeb"><option value="">— เลือกเงินเข้า —</option>${opts}</select>`; }
+    if(x.dep){ const dd=x.depDd||0; const cross=dd!==0;
+      stmCell=cross
+        ? `<span style="color:#ea580c;font-weight:600">⚠ ${esc(incDirectDepLabel(x.dep))} · คนละวัน (${ddTxt(dd)}) — ตรวจสลิป</span> <a onclick="incDirectPick('${esc(o.order_id)}','')" style="cursor:pointer;color:#94a3b8;font-size:10px" title="ยกเลิก">✕</a>`
+        : `<span style="color:#16a34a;font-weight:600">✓ ${esc(incDirectDepLabel(x.dep))}</span> <a onclick="incDirectPick('${esc(o.order_id)}','')" style="cursor:pointer;color:#94a3b8;font-size:10px" title="ยกเลิก">✕</a>`; }
+    else if(x.candidates && x.candidates.length){ const opts=x.candidates.slice(0,30).map(c=>`<option value="${esc(c.dep.id)}">${c.dd===0?'✓ ':'⚠ '}${esc(incDirectDepLabel(c.dep))}${c.dd!==0?' · '+ddTxt(c.dd):''}</option>`).join("");
+      const only=!x.sameDay; const lblClr=only?'#ea580c':'#a16207'; const lblTxt=only?`⚠ ${x.candidates.length} ยอดตรง · คนละวัน (ตรวจสลิป)`:`⚠ ${x.candidates.length} เงินเข้ายอดตรง`;
+      stmCell=`<span style="color:${lblClr};font-weight:${only?'600':'400'}">${lblTxt}</span> <select onchange="incDirectPick('${esc(o.order_id)}', this.value)" style="font-size:11px;padding:2px 5px;border:1px solid ${only?'#fdba74':'#fde68a'};border-radius:6px;max-width:280px;background:${only?'#fff7ed':'#fffbeb'}"><option value="">— เลือกเงินเข้า —</option>${opts}</select>`; }
     else stmCell=`<span style="color:#dc2626">✕ ไม่พบเงินเข้ายอดตรง</span>`;
     const chkCell=isReady?`<input type="checkbox" ${sel?'checked':''} onchange="incDirectToggleRow('${esc(o.order_id)}')" style="cursor:pointer">`:`<span style="color:#cbd5e1">—</span>`;
     return `<tr style="border-bottom:1px solid #f1f5f9${x.dep?(sel?';background:#f0fdf4':''):';background:#fffbeb'}"${x.dep?` data-src-bkid="${esc(String(x.dep.id))}" data-src-amt="${Number(o.order_total)||0}"`:''}>

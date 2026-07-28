@@ -191,6 +191,13 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-28 — ★ รับชำระ โอนตรง (Prepaid): ขยายจับ STM ±5 วัน · เขียว=วันเดียวกัน · ส้ม=คนละวันยอดตรง (ตรวจสลิป)
+- **เจ้าของ:** ลูกค้าโอนวันที่ 21 (ตอนเย็น) แต่พนักงานคีย์ขายเช้าวันที่ 22 → `incDirectCandidates` เดิมกรอง `dp.txn_date >= order_date` → เงินเข้าวันที่ 21 (ก่อนวันคีย์) ถูกตัด จับ STM ไม่เจอ · ขอขยายช่วงวัน · **เขียว=วันเดียวกันเป๊ะ · ส้ม=คนละวันแต่ยอดเดียวกัน (แจ้งเตือนให้การเงินไปดูสลิปที่ BigSeller อีกครั้ง)**
+- **แก้ `incDirectCandidates`:** helper `dayDiff(dep,order)` (= dep − order วัน · ลบ=โอนก่อนคีย์) · filter ใหม่ = ยอดตรงเป๊ะ + `Math.abs(dayDiff) <= INC_DIRECT_WINDOW` (=**5 วัน** · แทน `>=od`) · candidates เปลี่ยนเป็น `{dep, dd}` เรียง **วันใกล้สุดก่อน** · `sameDay` flag · manual pick แนบ `depDd`
+- **UI `incRenderDirect`:** จับแล้ว dd===0 → เขียว "✓" · dd≠0 → **ส้ม "⚠ … · คนละวัน (โอนก่อน/หลัง N วัน) — ตรวจสลิป"** · dropdown แต่ละ option นำหน้า `✓`/`⚠` + "โอนก่อน/หลัง N วัน" · ป้ายซ้าย: มี same-day = อำพันเดิม · มีแต่คนละวัน = **ส้มเข้ม "⚠ N ยอดตรง · คนละวัน (ตรวจสลิป)"**
+- **★ คง manual-pick เท่านั้น (ห้าม auto-confirm · [[project_direct_transfer_cod]]):** ทุกเคสยังต้องเลือกเองจาก dropdown · เขียว/ส้ม = ตัวช่วยมองเฉยๆ · เลือกผิด = ลูกหนี้ผิด
+- **verified:** syntax OK · boot 0 error · display/logic-only · ไม่ต้อง migration (reuse brec_direct_match + brec_bank_rows)
+
 ### 2026-07-27 (12) — ★ ถอน Marketplace (เบญญา): Express ไม่บังคับจริง — อัปแค่กระเป๋าเงินก็กดวิเคราะห์ได้
 - **เจ้าของ:** เคยคุยว่าเบญญาให้ดึง IV/RE จากทะเบียน อัปแค่ "รายงานกระเป๋าเงิน" พอ · แต่ modal ยัง**บังคับอัป Express ครบ 3** + อัปแล้วกดวิเคราะห์ไม่ได้
 - **ต้นเหตุ (2 จุด · fix 2026-07-26(29) ไม่ทำงานเพราะโดนบล็อกก่อน):** (1) `ready` (ปุ่ม) = `wallet && (Express ครบ3 || cache)` → เบญญาไม่มี cache → ปุ่ม disabled จนอัป Express ครบ (2) guard `if(!hasExpressFiles && !d.mp.expressCache) return` บล็อกก่อนถึง else branch (registry fallback)

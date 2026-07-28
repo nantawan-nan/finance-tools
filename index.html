@@ -24855,7 +24855,9 @@ const BMP_SHOP_ROUTING = {
   "tiktok qi care":  { companyId:"benya", bankCode:"SCB", accountNo:"4170771640", depositCode:"01", channel:"tiktok", channelLabel:"TikTok Qi care", descSuffix:"TikTok Qi care" },
   "tiktok betra":    { companyId:"benya", bankCode:"BBL", accountNo:"8650980405", depositCode:"02", channel:"tiktok", channelLabel:"TikTok Betra",   descSuffix:"TikTok Betra" },
   // ★ Lazada — ชื่อร้านจาก seller code (prefix รอบบิล) ดู BMP_LZ_SELLER
-  "lazada mommam":   { companyId:"mbark", bankCode:"SCB", accountNo:"1362709281", depositCode:"S1", channel:"lazada", channelLabel:"Lazada mommam", descSuffix:"Lazada mommam" }
+  "lazada mommam":   { companyId:"mbark", bankCode:"SCB", accountNo:"1362709281", depositCode:"S1", channel:"lazada", channelLabel:"Lazada mommam", descSuffix:"Lazada mommam" },
+  "lazada qi care":  { companyId:"benya", bankCode:"SCB", accountNo:"4170771640", depositCode:"01", channel:"lazada", channelLabel:"Lazada Qi care", descSuffix:"Lazada Qi care" },
+  "lazada betra":    { companyId:"benya", bankCode:"BBL", accountNo:"8650980405", depositCode:"02", channel:"lazada", channelLabel:"Lazada Betra",  descSuffix:"Lazada Betra" }
 };
 
 function bmpRouting(shopName){
@@ -25101,7 +25103,9 @@ function bmpParseTiktokWallet(workbook){
      Balance.Deposit อ้าง "Statement No. XXX" = Income.รหัสรอบบิล → แตกเป็นออเดอร์ · Withdrawal = การถอนเงิน
    ============================================================ */
 const BMP_LZ_SELLER = {   // seller code (prefix ของ Statement/Bank Ref) → ชื่อร้าน (key ของ BMP_SHOP_ROUTING)
-  "TH1JWZ3V46": "lazada mommam"   // M Bark (เจ้าของยืนยัน)
+  "TH1JWZ3V46": "lazada mommam",   // M Bark (เจ้าของยืนยัน)
+  "TH1JI1DH1I": "lazada qi care",  // Benya Qi care (SKU QHD201 · SCB 417-077164-0)
+  "TH1K1ZG55F": "lazada betra"     // Benya Betra  (SKU BTR101 · BBL 865-0-98040-5)
 };
 function bmpLzMonth(m){ return {jan:1,feb:2,mar:3,apr:4,may:5,jun:6,jul:7,aug:8,sep:9,oct:10,nov:11,dec:12}[String(m||"").slice(0,3).toLowerCase()]||0; }
 function bmpLzDateTime(s){

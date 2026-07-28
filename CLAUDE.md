@@ -191,6 +191,12 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-28 (5) — ★ ถอน Marketplace: routing Lazada เบญญา 2 ร้าน (Qi care + Betra)
+- **เจ้าของ:** อัป Lazada เบญญามี 2 ช่อง (QI + BETRA) เหมือน Shopee/TikTok — ต้อง map ไม่ให้พลาด
+- **แกะไฟล์จริง (4 ไฟล์ · income+balance/ร้าน):** seller code (prefix รอบบิล/Bank Ref) → **QI = `TH1JI1DH1I`** (SKU QHD201) · **BETRA = `TH1K1ZG55F`** (SKU BTR101)
+- **เพิ่ม `BMP_LZ_SELLER`:** TH1JI1DH1I→"lazada qi care" · TH1K1ZG55F→"lazada betra" · **`BMP_SHOP_ROUTING`:** lazada qi care→Benya SCB 4170771640 (01) · lazada betra→Benya BBL 8650980405 (02) — บัญชีเดียวกับ Shopee/TikTok ของแบรนด์นั้น
+- **verified (node + ไฟล์จริง):** QI→lazada qi care (ถอน 27 · 85,051.20 · settlement=Σincome ตรง 148/150) · BETRA→lazada betra (ถอน 11 · 3,516.36 · ตรง 15/15) · syntax OK · boot 0 error · ไม่ต้อง migration (reuse bmpParseLazadaWallet เดิม · แค่เพิ่ม map)
+
 ### 2026-07-28 (4) — ★★ ถอน Marketplace: auto-heal ใบถอนเก่า "ออเดอร์ 0" ค้าง DB (dedup ข้าม ทำให้ re-upload ไม่ทับ)
 - **เจ้าของ (เบญญา TikTok qi care):** ทุกใบถอนขึ้น "ออเดอร์ 0 · ยอดยกมา = ยอดถอนทั้งก้อน" · ไม่มีเลขเช็ค · แม้ใบสุดท้าย 27/07 ก็มียอดยกมา (ควรไม่มีถ้ารายงานครบ)
 - **วินิจฉัย (แกะไฟล์จริง + รัน SheetJS/parser ใน node):** ไฟล์ qi care สมบูรณ์ (413 ออเดอร์ · Withdrawal 14 · Earnings 56 · GMV 85) · `bmpParseTiktokWallet` + grouping **จับออเดอร์เข้าใบถอนได้ครบ** (sim: 14–50 ออเดอร์/ใบ) → **ไฟล์/parser ไม่ใช่ปัญหา** · "ออเดอร์ 0" = **ข้อมูลเก่าค้าง DB** จากอัปครั้งก่อน (โค้ดเวอร์ชั่นเก่า) · re-upload **ถูก dedup ข้าม** (key = วัน+บัญชี+ยอด) → ไม่เคยทับของเก่า

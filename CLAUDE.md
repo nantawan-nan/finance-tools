@@ -191,6 +191,13 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-27 (12) — ★ ถอน Marketplace (เบญญา): Express ไม่บังคับจริง — อัปแค่กระเป๋าเงินก็กดวิเคราะห์ได้
+- **เจ้าของ:** เคยคุยว่าเบญญาให้ดึง IV/RE จากทะเบียน อัปแค่ "รายงานกระเป๋าเงิน" พอ · แต่ modal ยัง**บังคับอัป Express ครบ 3** + อัปแล้วกดวิเคราะห์ไม่ได้
+- **ต้นเหตุ (2 จุด · fix 2026-07-26(29) ไม่ทำงานเพราะโดนบล็อกก่อน):** (1) `ready` (ปุ่ม) = `wallet && (Express ครบ3 || cache)` → เบญญาไม่มี cache → ปุ่ม disabled จนอัป Express ครบ (2) guard `if(!hasExpressFiles && !d.mp.expressCache) return` บล็อกก่อนถึง else branch (registry fallback)
+- **แก้:** (1) `ready = f.shopee.length && !expressPartial` (อัปแค่กระเป๋าเงินพอ · Express อัปบางส่วน=ต้องครบ3) (2) ลบ guard 30578 → ตกลง else branch → `bmpLoadExpressFromCache` ไม่มี → registry fallback (salesData/arData ว่าง · IV/RE จาก order_ledger)
+- **UX modal:** แบนเนอร์ฟ้า "อัปแค่รายงานกระเป๋าเงินพอ · Express 3 ไฟล์ไม่บังคับ (ถ้าอัปต้องครบ 3)" · label Express +"(ไม่บังคับ)"
+- **verified:** syntax OK · boot 0 error · reuse else branch เดิม · ไม่ต้อง migration
+
 ### 2026-07-27 (11) — ★ ตรวจการคีย์ RE (batch): parser 1.9.1 หยิบ "พนักงานขาย" มาเป็นเลข IV → ฟ้อง RE↔IV ผิดใบหลอก
 - **เจ้าของ:** batch ตรวจ RE ฟ้อง "RE ตัด IV ผิดใบ" 1 ใบ (RE2607000678) · "IV ที่คีย์จริง (ในไฟล์)" ขึ้น **"พนักงานขาย"** (ชื่อคอลัมน์ · ไม่ใช่เลข IV) · แต่ใน Express ตัดถูก (IV2607000720)
 - **ต้นเหตุ:** `salIncomeParseReceiptReport191` ระบุแถว IV จาก "ช่อง 5 มีค่า" → ถ้าบล็อกมี**แถวหัวคอลัมน์ซ้ำ** (ช่อง 5 = "พนักงานขาย") หยิบมาเป็น `iv_no` → เทียบ expIv (IV จริง) ไม่ตรง → ฟ้อง mismatch + "ยังไม่พบใน 1.9.1" หลอก

@@ -25799,9 +25799,9 @@ function bmpRenderUploadModal(){
   const f = d.mp.files;
   const cache = d.mp.expressCache;
   const hasCache = !!cache;
-  // มี Express ครบ (อัปใหม่ครบ 3) หรือ มี cache อยู่แล้ว
-  const expressOk = (f.sales.length && f.receipt.length && f.cheque.length) || hasCache;
-  const ready = !!(f.shopee.length && expressOk);
+  // ★ Express = ตัวเลือก (ถ้าไม่อัป จะดึง IV/RE จากทะเบียน) → ปุ่มเปิดใช้แค่มีไฟล์กระเป๋าเงินก็พอ
+  const expressPartial = (f.sales.length || f.receipt.length || f.cheque.length) && !(f.sales.length && f.receipt.length && f.cheque.length);
+  const ready = !!(f.shopee.length && !expressPartial);   // อัป Express บางส่วน = ต้องครบ 3 (หรือไม่อัปเลย)
   const cacheNote = (key, label) => {
     if((d.mp.files[key]||[]).length) return ""; // มีไฟล์ใหม่แล้ว ไม่ต้องโชว์ cache
     if(!hasCache) return "";
@@ -25809,7 +25809,7 @@ function bmpRenderUploadModal(){
   };
   const cacheBanner = hasCache
     ? `<div style="font-size:12px;color:#1e40af;background:#dbeafe;border-radius:8px;padding:8px 12px;margin-bottom:12px">💾 มี Express เก็บไว้แล้ว (อัปเมื่อ ${new Date(cache.updated_at).toLocaleString("th-TH")}) — <b>ครั้งนี้อัปแค่รายงานกระเป๋าเงินพอ</b> · อัป Express ใหม่เฉพาะตอนมี IV/รับชำระเพิ่ม</div>`
-    : "";
+    : `<div style="font-size:12px;color:#1e40af;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:8px 12px;margin-bottom:12px">💡 <b>อัปแค่ "รายงานกระเป๋าเงิน" พอ</b> — IV/RE ระบบดึงจากทะเบียนคำสั่งซื้อให้เอง · <b>Express 3 ไฟล์ (ด้านล่าง) ไม่บังคับ</b> · อัปเฉพาะถ้าต้องการเลขเช็คจริงจากรายงาน 191 (ถ้าอัป Express ต้องครบทั้ง 3)</div>`;
   const html = `
     <div id="bmpUploadModal" style="position:fixed;inset:0;background:rgba(15,23,42,.5);display:flex;align-items:center;justify-content:center;z-index:9999;backdrop-filter:blur(4px)">
       <div style="background:#fff;width:680px;max-width:90vw;max-height:90vh;overflow-y:auto;border-radius:16px;padding:22px;box-shadow:0 20px 60px rgba(0,0,0,.3)">
@@ -25818,9 +25818,9 @@ function bmpRenderUploadModal(){
         ${cacheBanner}
         <div style="display:flex;flex-direction:column;gap:10px">
           ${bmpFileBox('shopee', 'รายงานกระเป๋าเงิน — Shopee Balance / TikTok รายการรับเงิน / Lazada (ยอดของฉัน + รายงานรับของฉัน 2 ไฟล์)', '.xlsx', f.shopee)}
-          ${bmpFileBox('sales', 'Express รายงานขาย 723-5'+(hasCache?' (มีเก็บไว้แล้ว)':''), '.csv', f.sales)}${cacheNote('sales')}
-          ${bmpFileBox('receipt', 'Express รายงานการรับชำระหนี้'+(hasCache?' (มีเก็บไว้แล้ว)':''), '.csv', f.receipt)}${cacheNote('receipt')}
-          ${bmpFileBox('cheque', 'Express รายงานเช็ครับ'+(hasCache?' (มีเก็บไว้แล้ว)':''), '.csv', f.cheque)}${cacheNote('cheque')}
+          ${bmpFileBox('sales', 'Express รายงานขาย 723-5'+(hasCache?' (มีเก็บไว้แล้ว)':' (ไม่บังคับ)'), '.csv', f.sales)}${cacheNote('sales')}
+          ${bmpFileBox('receipt', 'Express รายงานการรับชำระหนี้'+(hasCache?' (มีเก็บไว้แล้ว)':' (ไม่บังคับ)'), '.csv', f.receipt)}${cacheNote('receipt')}
+          ${bmpFileBox('cheque', 'Express รายงานเช็ครับ'+(hasCache?' (มีเก็บไว้แล้ว)':' (ไม่บังคับ)'), '.csv', f.cheque)}${cacheNote('cheque')}
         </div>
         <div style="display:flex;gap:8px;margin-top:18px">
           <button class="brec-btn" onclick="bmpCloseUpload()" style="flex:1" ${d.mp.parsing?'disabled':''}>ยกเลิก</button>
@@ -30574,8 +30574,7 @@ async function bmpRunUpload(){
   if(!f.shopee.length){ alert("เลือกไฟล์รายงานกระเป๋าเงินก่อน (Shopee Balance หรือ TikTok รายการรับเงิน)"); return; }
   const co = d.companyId || await fopCompanyId();
   if(!co){ alert("หา company_id ไม่เจอ"); return; }
-  // ถ้าไม่อัป Express ใหม่ → ต้องมี cache เดิม
-  if(!hasExpressFiles && !d.mp.expressCache){ alert("ยังไม่มี Express เก็บไว้ — อัป Express 3 ไฟล์ครั้งแรกก่อน"); return; }
+  // ★ ไม่บังคับ Express — ถ้าไม่อัป + ไม่มี cache จะดึง IV/RE จากทะเบียน (order_ledger) เอง (จัดการใน else branch ด้านล่าง)
   d.companyId = co; d.mp.parsing = true; bmpRenderUploadModal();
   try{
     // ----- parse Shopee files แยกตาม shop_name (รองรับหลาย shop ในรอบเดียว) -----

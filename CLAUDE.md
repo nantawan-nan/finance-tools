@@ -191,6 +191,11 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-28 (10) — ★ Audit H2 (XSS) + H8 (write error ไม่เงียบ)
+- **H2:** `esc()` เพิ่มกัน `" '` → ปลอดภัยใน HTML attribute ทั้งแอป · `ordBoardPrintPdf` escape customer/products (จากไฟล์อัป)+note(ผู้ใช้)+order_no ใน `document.write` (petty cash/recon report print escape อยู่แล้ว)
+- **H8:** `ordParallelUpdate` เดิม fail เงียบ (console.warn) → นับ fail สะสม `window._ordWrFail` · `bmpRunUpload` (reset ต้น + เตือนท้าย alert) + wallet tag-bank flow (5711) เตือน "แท็ก IV/RE/เงินเข้าแบงค์ ลงทะเบียนไม่สำเร็จ N" (เดิม tag หายเงียบ = recon โชว์เสร็จแต่ DB ไม่อัป) · broader H8 (120 write) = ทยอยทำ
+- **verified:** syntax OK · boot 0 error
+
 ### 2026-07-28 (9) — ★★ Audit C1 (เปิด RLS) + M9 (search debounce) + cache-busting
 - **C1 (migration `zzz-audit-c1-rls.sql`):** เปิด RLS + policy read/write/update/delete scope `company_id` บน **12 ตารางการเงิน** (order_ledger/order_events/sales_income_rows/re_export_batches/ap_payment_vouchers/petty_cash(_rounds)/advances/sku_master/catbot_rules/iv_export_batches/documents) — กันข้อมูลข้ามบริษัท (แพทเทิร์น finops-phase1 · EXCEPTION-wrapped ต่อตาราง) · **write scope ด้วยบริษัท ไม่ล็อก role** (กันเวิร์กโฟลว์ role พัง · role-gate = Phase 2) · **ตาราง company text (recon) + user_presence/users_profile เลื่อน** (code 'MBARC' ≠ ค่าเก็บ 'mbark' ต้อง map ก่อน) · db-migrate เขียว · **ต้องให้เจ้าของทดสอบ login เห็นข้อมูลปกติ** · rollback: `_ROLLBACK-c1-rls.sql.txt`
 - **M9 (search debounce):** `ordSet('q')` + `incSetIncSearch` เดิม render ทั้งหน้าทุก keystroke (~1,400 ออเดอร์) = หน่วง+caret เด้ง → debounce 180ms + คง caret

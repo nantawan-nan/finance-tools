@@ -5708,10 +5708,13 @@ async function walTagBank(){
   if(!confirm(`บันทึกเข้าแบงค์ให้ ${d.groups.length} กลุ่มถอน (${totOrders} ออเดอร์)\n→ เขียนเลข BQ + วันเงินเข้าแบงค์ กลับเข้าทะเบียนคำสั่งซื้อ (timeline ออเดอร์จะติดด่าน "เงินเข้าแบงค์")\nดำเนินการต่อ?`)) return;
   const wds=d.groups.map(g=>({ orders:g.orders, bq_number:g.bq, withdraw_date:g.date, bank_account_no:null }));
   d.busy=true; renderToolSalesWallet();
+  window._ordWrFail = 0;   // ★ H8: reset ตัวนับ write fail
   let n=0; try{ n=await ordTagBankFromWithdrawals(state.company, wds); }catch(e){ d.busy=false; alert("บันทึกไม่สำเร็จ: "+(e.message||e)); return; }
   try{ await ordLoad(); }catch(e){}
   d.busy=false; renderToolSalesWallet();
-  alert(`✓ บันทึกเข้าแบงค์แล้ว ${n} ออเดอร์ — เปิดหน้าค้นหาออเดอร์จะเห็น timeline ติดด่าน "เงินเข้าแบงค์"`);
+  const wf = window._ordWrFail||0; window._ordWrFail=0;
+  alert(`✓ บันทึกเข้าแบงค์แล้ว ${n} ออเดอร์ — เปิดหน้าค้นหาออเดอร์จะเห็น timeline ติดด่าน "เงินเข้าแบงค์"`
+    + (wf?`\n\n⚠️ บันทึกกลับทะเบียนไม่สำเร็จ ${wf} รายการ (เช็คสิทธิ์/เน็ต แล้วลองใหม่)`:""));
 }
 async function walUpload(){
   const files=await new Promise(res=>{ const i=document.createElement("input"); i.type="file"; i.accept=".xlsx,.xls"; i.multiple=true; i.onchange=()=>res([...i.files]); i.click(); });
@@ -26264,14 +26267,19 @@ async function ordFetchAllRows(co, cols, applyFilters){
   return rows;
 }
 /* ★ อัปเดต order_ledger หลายแถวแบบขนาน (chunk) — เร็วกว่า await ทีละแถว (sequential)
-   items = [{id, patch}] · ผลเหมือน loop update เดิมทุกประการ แค่รันพร้อมกันเป็นชุด */
+   items = [{id, patch}] · ผลเหมือน loop update เดิมทุกประการ แค่รันพร้อมกันเป็นชุด
+   ★ H8: นับ fail + สะสมใน window._ordWrFail (เดิม fail เงียบ → tag IV/RE/แบงค์ หายโดยไม่รู้) */
 async function ordParallelUpdate(items, chunk=25){
+  let failed=0, lastErr=null;
   for(let i=0;i<items.length;i+=chunk){
     await Promise.all(items.slice(i,i+chunk).map(it=>
       sb.from("order_ledger").update(it.patch).eq("id", it.id)
-        .then(r=>{ if(r.error) console.warn("ordParallelUpdate", r.error); })
+        .then(r=>{ if(r.error){ failed++; lastErr=r.error; console.warn("ordParallelUpdate", r.error); } })
+        .catch(e=>{ failed++; lastErr=e; console.warn("ordParallelUpdate", e); })
     ));
   }
+  if(failed) window._ordWrFail = (window._ordWrFail||0) + failed;
+  return { failed, lastErr };
 }
 /* upsert ออเดอร์จากช่องทาง (dedup by order_id) → คืน {added, updated, total} */
 async function ordIngestChannelOrders(co, parsed, srcLabel, batchAt){
@@ -30619,6 +30627,7 @@ async function bmpRunUpload(){
   if(!co){ alert("หา company_id ไม่เจอ"); return; }
   // ★ ไม่บังคับ Express — ถ้าไม่อัป + ไม่มี cache จะดึง IV/RE จากทะเบียน (order_ledger) เอง (จัดการใน else branch ด้านล่าง)
   d.companyId = co; d.mp.parsing = true; bmpRenderUploadModal();
+  window._ordWrFail = 0;   // ★ H8: reset ตัวนับ write fail ก่อนเริ่ม (แท็ก IV/RE/แบงค์)
   try{
     // ----- parse Shopee files แยกตาม shop_name (รองรับหลาย shop ในรอบเดียว) -----
     const shopeeByName = new Map(); // shopName → { shopName, txns, periodFrom, periodTo, files:[] }
@@ -30928,6 +30937,7 @@ async function bmpRunUpload(){
     if(grandTotalSkip) msg += `\n\n⏭ ข้าม ${grandTotalSkip} withdrawal ที่มีอยู่ใน DB แล้ว (ดูจาก datetime+ยอด+บัญชี)`;
     if(skipped.length) msg += `\n\nข้าม: ${skipped.join(", ")}`;
     msg += `\n\n📒 ทะเบียนคำสั่งซื้อ — จับ IV: ${ordResult.tagged} · แท็กรับชำระ: ${ordTagRe} · แท็กเงินเข้าแบงค์: ${ordTagBank}`;
+    if(window._ordWrFail){ msg += `\n\n⚠️ แท็ก IV/RE/เงินเข้าแบงค์ ลงทะเบียนไม่สำเร็จ ${window._ordWrFail} รายการ (เช็คสิทธิ์/เน็ต แล้วกด "อัปเดต IV/RE จากทะเบียน" ใหม่)`; window._ordWrFail=0; }
     alert(msg);
   } catch(e){
     alert("อัปไม่สำเร็จ: " + (e.message||e));

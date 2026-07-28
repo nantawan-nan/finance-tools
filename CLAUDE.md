@@ -191,6 +191,13 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-28 (11) — ★ Audit H7 (migrate 2 รอบ) + H6 (dedup ถอน) + H3/H4 (paginate แทน limit)
+- **H7:** `migrate.yml` รัน 2 รอบ (best-effort → strict) → fresh clone จบ push เดียว CI ไม่แดงหลอก · ★ ไม่ reorder ไฟล์ (กัน users_profile RLS flip + auth trigger พัง)
+- **H6:** dedup ถอน Marketplace เปลี่ยนจาก best-per-key → **นับจำนวนต่อ key** (ไฟล์ N ใบ · DB M ใบ → จับคู่ min + เพิ่มส่วนเกิน) → ใบถอนที่ 2 วันเดียวกันยอดเท่ากัน (TikTok/Lazada) ไม่หาย + คง auto-heal
+- **H3/H4:** `.limit(500/3000/100000)` **PostgREST ตัดจริงที่ 1000** → รายงานการเงินขาดหายเงียบตอน >1000 แถว · เพิ่ม helper `sbPaginate(makeQuery)` (loop `.range()`) · แทนที่: `apoLoad` (AP บิลค้าง) · apst import (จับคู่ PS/existKeys) · `brecLoadRows` (recon view) · brecComputeStats · statement dedup · walLoadBank — ทุกจุดโหลดครบไม่ตัด
+- **หมายเหตุ H3 (เต็ม):** `ordLoad`/`ordFetchAllRows` `select *` ทั้งตารางเข้า browser ยังไม่แตะ (ต้องดัน date filter เข้า query · เสี่ยงกระทบฟีเจอร์ที่พึ่งข้อมูลครบ) = follow-up
+- **verified:** syntax OK · boot 0 error · ไม่มี dangling ref
+
 ### 2026-07-28 (10) — ★ Audit H2 (XSS) + H8 (write error ไม่เงียบ)
 - **H2:** `esc()` เพิ่มกัน `" '` → ปลอดภัยใน HTML attribute ทั้งแอป · `ordBoardPrintPdf` escape customer/products (จากไฟล์อัป)+note(ผู้ใช้)+order_no ใน `document.write` (petty cash/recon report print escape อยู่แล้ว)
 - **H8:** `ordParallelUpdate` เดิม fail เงียบ (console.warn) → นับ fail สะสม `window._ordWrFail` · `bmpRunUpload` (reset ต้น + เตือนท้าย alert) + wallet tag-bank flow (5711) เตือน "แท็ก IV/RE/เงินเข้าแบงค์ ลงทะเบียนไม่สำเร็จ N" (เดิม tag หายเงียบ = recon โชว์เสร็จแต่ DB ไม่อัป) · broader H8 (120 write) = ทยอยทำ

@@ -26249,6 +26249,16 @@ async function ordFetchAllRows(co, cols, applyFilters){
   }
   return rows;
 }
+/* ★ อัปเดต order_ledger หลายแถวแบบขนาน (chunk) — เร็วกว่า await ทีละแถว (sequential)
+   items = [{id, patch}] · ผลเหมือน loop update เดิมทุกประการ แค่รันพร้อมกันเป็นชุด */
+async function ordParallelUpdate(items, chunk=25){
+  for(let i=0;i<items.length;i+=chunk){
+    await Promise.all(items.slice(i,i+chunk).map(it=>
+      sb.from("order_ledger").update(it.patch).eq("id", it.id)
+        .then(r=>{ if(r.error) console.warn("ordParallelUpdate", r.error); })
+    ));
+  }
+}
 /* upsert ออเดอร์จากช่องทาง (dedup by order_id) → คืน {added, updated, total} */
 async function ordIngestChannelOrders(co, parsed, srcLabel, batchAt){
   const orders = parsed.orders || [];
@@ -26366,7 +26376,7 @@ async function ordIngestFromSales(co, salesData, srcLabel){
   }
   const CH=400;
   for(let i=0;i<inserts.length;i+=CH){ const {error}=await sb.from("order_ledger").insert(inserts.slice(i,i+CH)); if(error){console.warn("ord ins",error);break;} }
-  for(const u of ivUpd){ await sb.from("order_ledger").update({ iv_no:u.iv_no, iv_date:u.iv_date, sale_amount:u.sale_amount, status:u.status, sale_keyed_at:u.sale_keyed_at, sale_src:u.sale_src }).eq("id", u.id); }
+  await ordParallelUpdate(ivUpd.map(u=>({ id:u.id, patch:{ iv_no:u.iv_no, iv_date:u.iv_date, sale_amount:u.sale_amount, status:u.status, sale_keyed_at:u.sale_keyed_at, sale_src:u.sale_src } })));
   return { tagged: ivUpd.length, created: inserts.length, total: ivs.length };
 }
 
@@ -26374,19 +26384,19 @@ async function ordIngestFromSales(co, salesData, srcLabel){
 async function ordTagReceipts(co, arData){
   const m = arData && arData.ivToCheque;
   if(!m || !m.size) return 0;
-  const orders = await ordFetchAllRows(co, "id,iv_no,re_no", q=>q.not("iv_no","is",null));
-  let n=0; const now=new Date().toISOString();
+  const orders = await ordFetchAllRows(co, "id,iv_no,re_no,sale_amount", q=>q.not("iv_no","is",null));
+  const now=new Date().toISOString(); const ups=[];
   for(const o of (orders||[])){
     const chq = m.get(o.iv_no);
     if(chq && (!o.re_no || o.re_no!==chq.receipt_no)){
       const fee = (Number(o.sale_amount)||0) ? +(Number(o.sale_amount) - Number(chq.amount)).toFixed(2) : null;
-      await sb.from("order_ledger").update({ re_no:chq.receipt_no, cheque_no:chq.cheque_no,
+      ups.push({ id:o.id, patch:{ re_no:chq.receipt_no, cheque_no:chq.cheque_no,
         receipt_net:Number(chq.amount)||0, receipt_gross:Number(o.sale_amount)||null,
-        receipt_fee:fee, received_at:now }).eq("id", o.id);
-      n++;
+        receipt_fee:fee, received_at:now } });
     }
   }
-  return n;
+  await ordParallelUpdate(ups);
+  return ups.length;
 }
 /* ===== Phase C: แท็กฝากเช็ค (BQ) + เงินเข้าแบงค์ จาก withdrawal ผ่าน order_id ===== */
 async function ordTagBankFromWithdrawals(co, withdrawals){
@@ -26396,16 +26406,15 @@ async function ordTagBankFromWithdrawals(co, withdrawals){
   }
   if(!byOid.size) return 0;
   const orders = await ordFetchAllRows(co, "id,order_id,bq_no", q=>q.not("order_id","is",null));
-  let n=0;
+  const ups=[];
   for(const o of (orders||[])){
     const info = byOid.get(o.order_id);
     if(info && !o.bq_no){
-      await sb.from("order_ledger").update({ bq_no:info.bq, deposit_date:info.date,
-        bank_in_date:info.date, bank_matched:true }).eq("id", o.id);
-      n++;
+      ups.push({ id:o.id, patch:{ bq_no:info.bq, deposit_date:info.date, bank_in_date:info.date, bank_matched:true } });
     }
   }
-  return n;
+  await ordParallelUpdate(ups);
+  return ups.length;
 }
 
 /* ============================================================

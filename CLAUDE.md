@@ -191,6 +191,13 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-28 (2) — ★ ถอน Marketplace: อัปแล้วช้า — แท็ก order_ledger ทีละแถว (sequential) → เปลี่ยนเป็นขนาน (chunk)
+- **เจ้าของ:** อัปกระเป๋าเงิน (เบญญา · ไม่มี Express) แล้ว "กำลังประมวลผล…" นานมาก
+- **ต้นเหตุ:** `bmpRunUpload` → Phase A/B/C แท็ก IV/RE/เงินเข้าแบงค์ ลง `order_ledger` ด้วย `for(...){ await update }` **ทีละแถวรอทีละครั้ง** · เบญญาทะเบียนใหญ่ + ต้อง full-scan order_ledger เพื่อ resolve IV/RE (ไม่มี Express) → ยิ่งช้าทวีคูณ (N round trips เรียงกัน)
+- **แก้:** helper ใหม่ `ordParallelUpdate(items, chunk=25)` = `Promise.all` ทีละชุด 25 แถว · เปลี่ยน 3 loop: `ordTagBankFromWithdrawals` (รันในเคสนี้) · `ordTagReceipts` · `ordIngestFromSales` (ivUpd) · ผลเหมือนเดิมทุกประการ (update ชุดเดิม แค่รันพร้อมกัน)
+- **★ พลอยแก้บั๊ก:** `ordTagReceipts` select เดิมขาด `sale_amount` → `o.sale_amount` undefined → `receipt_fee`/`receipt_gross` เป็น null เสมอ · เพิ่ม `sale_amount` ใน select → คำนวณค่าธรรมเนียมถูก
+- **verified:** syntax OK · boot 0 error · behavior-preserving (นอกจาก fee ที่แก้ให้ถูก) · ไม่ต้อง migration
+
 ### 2026-07-28 — ★ รับชำระ โอนตรง (Prepaid): ขยายจับ STM ±5 วัน · เขียว=วันเดียวกัน · ส้ม=คนละวันยอดตรง (ตรวจสลิป)
 - **เจ้าของ:** ลูกค้าโอนวันที่ 21 (ตอนเย็น) แต่พนักงานคีย์ขายเช้าวันที่ 22 → `incDirectCandidates` เดิมกรอง `dp.txn_date >= order_date` → เงินเข้าวันที่ 21 (ก่อนวันคีย์) ถูกตัด จับ STM ไม่เจอ · ขอขยายช่วงวัน · **เขียว=วันเดียวกันเป๊ะ · ส้ม=คนละวันแต่ยอดเดียวกัน (แจ้งเตือนให้การเงินไปดูสลิปที่ BigSeller อีกครั้ง)**
 - **แก้ `incDirectCandidates`:** helper `dayDiff(dep,order)` (= dep − order วัน · ลบ=โอนก่อนคีย์) · filter ใหม่ = ยอดตรงเป๊ะ + `Math.abs(dayDiff) <= INC_DIRECT_WINDOW` (=**5 วัน** · แทน `>=od`) · candidates เปลี่ยนเป็น `{dep, dd}` เรียง **วันใกล้สุดก่อน** · `sameDay` flag · manual pick แนบ `depDd`

@@ -191,6 +191,13 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-28 (7) — ★ ถอน Marketplace: ฟิลเตอร์ "ตรงครบ · พร้อมออกใบผ่านเช็ค" / "ไม่ตรง/ยกมา"
+- **เจ้าของ:** อยากกรองว่าใบถอนไหน "ตรงครบ" พร้อมส่งออกใบผ่านเช็ค
+- **`bmpWdState(d, w, obwMap)` (ใหม่ · helper กลาง):** คืน `{effMis, hasMismatch, isShortfall, ready}` — ตรรกะเดียวกับที่การ์ดคำนวณเป๊ะ (hasMismatch = `bmpEffMismatch>0` · isShortfall = feeNeg/carry_shortfall/สด) · `ready = ตรงครบ` (ไม่ mismatch + ไม่ shortfall)
+- **`bmpFilteredWds` + `filterMatch`** (all | ready | issue) · `bmpSetFilter('match',...)` · ชิปแถวใหม่ "การตรวจ: ทั้งหมด / ✓ ตรงครบ · พร้อมออกใบผ่านเช็ค N / ⚠️ ไม่ตรง/ยกมา N" (นับจาก d.mp.withdrawals)
+- **Export:** ปุ่มเปลี่ยนชื่อ "⬇ ส่งออกใบผ่านเช็ค (CSV)" · `bmpExportCsv` ใช้ `bmpFilteredWds` อยู่แล้ว → เลือกฟิลเตอร์ "ตรงครบ" แล้ว export = เฉพาะใบผ่านเช็คที่ตรง (ข้าม mismatch อยู่แล้วในตัว)
+- **verified:** syntax OK · boot 0 error · reuse ตรรกะการ์ด (behavior-preserving) · ไม่ต้อง migration
+
 ### 2026-07-28 (6) — ★ ถอน Marketplace: ปุ่ม "ลบข้อมูลถอน (เลือกช่องทาง/ร้าน)" + ยืนยัน TikTok grouping ปัจจุบันถูก
 - **เจ้าของ:** อัป TikTok ใหม่แล้ว "ออเดอร์ 0" ยังไม่หาย · Shopee มีออเดอร์แล้ว (11/25) · ขอปุ่มลบข้อมูลถอนเลือกช่องทาง/ร้านได้
 - **วินิจฉัย (รัน `bmpGroupWithdrawals` ตัวจริง extract จาก index.html กับไฟล์ qi care):** โค้ดปัจจุบัน**จับออเดอร์เข้าใบถอนถูกครบ** (07/01→5 · 07/06→19 · 07/13→18 · 07/15→23 · 07/22→33) → "ออเดอร์ 0" = ข้อมูลเก่าค้างจากตอน TikTok grouping ยังพัง · re-upload โดน dedup ข้าม (Shopee ไม่เคยพัง = มีออเดอร์ · TikTok พัง = ค้าง 0) · auto-heal (5) จะแก้ได้ถ้า hard-refresh ก่อน แต่ผู้ใช้ขอปุ่มลบตรงๆ

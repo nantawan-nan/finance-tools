@@ -23804,7 +23804,7 @@ function brecTraceSource(id){
   d._traceTarget={ bkid:String(id), amt, date, kind, kindLabel: kind==='cod'?'COD ขนส่ง':'ถอน Marketplace' };
   // เปิด filter เป็น "ทั้งหมด" กันการ์ดที่ติ๊ก "ทำแล้ว" ถูกซ่อน → trace หาไม่เจอ
   if(kind==='cod'){ d.cod=d.cod||{}; d.cod.doneFilter='all'; }
-  else { d.mp=d.mp||{}; d.mp.filterDone='all'; d.mp.filterChannel='all'; d.mp.filterAccount='all'; }
+  else { d.mp=d.mp||{}; d.mp.filterDone='all'; d.mp.filterChannel='all'; d.mp.filterAccount='all'; d.mp.filterMatch='all'; }
   brecSetTab(kind==='cod'?'cod':'mp');   // → renderToolBankRec → brecApplyTraceScroll ท้าย render
 }
 function brecFlashEl(el){
@@ -31517,6 +31517,7 @@ function bmpSetFilter(kind, val){
   if(kind==="channel") d.mp.filterChannel = val;
   else if(kind==="account") d.mp.filterAccount = val;
   else if(kind==="done") d.mp.filterDone = val;
+  else if(kind==="match") d.mp.filterMatch = val;
   renderToolBankRec();
 }
 /* ออก withdrawal ที่ผ่าน filter ปัจจุบัน */
@@ -31524,11 +31525,15 @@ function bmpFilteredWds(d){
   const fc = d.mp.filterChannel || "all";
   const fa = d.mp.filterAccount || "all";
   const fd = d.mp.filterDone || "todo";   // todo | done | all
+  const fm = d.mp.filterMatch || "all";   // all | ready (ตรงครบ) | issue (ไม่ตรง/ยกมา)
+  let obw = null;
+  if(fm !== "all"){ obw = new Map(); for(const o of (d.mp.orders||[])){ if(!obw.has(o.withdrawal_id)) obw.set(o.withdrawal_id, []); obw.get(o.withdrawal_id).push(o); } }
   return (d.mp.withdrawals||[]).filter(w => {
     if(fc !== "all" && (w.channel||"") !== fc) return false;
     if(fa !== "all" && (w.bank_account_id||"") !== fa) return false;
     if(fd === "todo" && w.done) return false;
     if(fd === "done" && !w.done) return false;
+    if(fm !== "all"){ const st = bmpWdState(d, w, obw); if(fm==="ready" && !st.ready) return false; if(fm==="issue" && st.ready) return false; }
     return true;
   });
 }
@@ -31634,6 +31639,26 @@ function bmpRealCheque(o, channel){
 /* ------- effective mismatch (mismatch ที่ยังไม่ถูก resolved) — ★ ไม่นับออเดอร์ยกเลิก (ทำใบลดหนี้ ไม่ใช่ mismatch) ------- */
 function bmpEffMismatch(orders){
   return (orders||[]).filter(o => o.mismatch_flag && !o.resolved && !bmpIsCancelledOrder(o)).length;
+}
+/* ------- สถานะใบถอน 1 ใบ (ใช้ร่วม filter + การ์ด) — ready = ตรงครบ พร้อมส่งออกใบผ่านเช็ค -------
+   ★ ตรรกะเดียวกับที่การ์ดคำนวณ hasMismatch/isShortfall (bmpRenderTab) — ต้องตรงกันเป๊ะ */
+function bmpWdState(d, w, obwMap){
+  const ords = (obwMap ? obwMap.get(w.id) : (d.mp.orders||[]).filter(o=>o.withdrawal_id===w.id)) || [];
+  const effMis = bmpEffMismatch(ords);
+  const hasMismatch = effMis > 0;
+  const orderRows = ords.filter(o => o.txn_type==="order" && !bmpIsCancelledOrder(o));
+  const cancelledRows = ords.filter(o => o.txn_type==="order" && bmpIsCancelledOrder(o));
+  const adjRows = ords.filter(o => o.txn_type==="adjustment");
+  const sumCheque = +orderRows.reduce((s,o)=> s + Number(o.shopee_net||0), 0).toFixed(2);
+  const withdrawAmt = Number(w.withdraw_amount||0);
+  const carryIn = Number(w.carry_in||0), carryOut = Number(w.carry_out||0);
+  const walletExpense = +(carryIn + sumCheque - withdrawAmt - carryOut).toFixed(2);
+  const sumCancelled = +cancelledRows.reduce((s,o)=> s + Number(o.shopee_net||0), 0).toFixed(2);
+  const liveAdj = adjRows.reduce((s,o)=> s + Number(o.shopee_net||0), 0);
+  const feeNeg = walletExpense < -1;
+  const isShortfall = feeNeg || (w.carry_shortfall != null ? !!w.carry_shortfall
+    : (carryIn + sumCheque + sumCancelled + liveAdj) < (withdrawAmt - 1));
+  return { effMis, hasMismatch, isShortfall, ready: !hasMismatch && !isShortfall };
 }
 
 /* ------- ติ๊ก "แก้แล้ว" ต่อ order ------- */
@@ -32068,6 +32093,15 @@ function bmpRenderTab(d){
         <button class="${fd==='done'?'on':''}" onclick="bmpSetFilter('done','done')">✓ ดำเนินการแล้ว ${doneN}</button>
         <button class="${fd==='all'?'on':''}" onclick="bmpSetFilter('done','all')">ทั้งหมด ${wds.length}</button>
       </div>`; })()}
+    ${(()=>{ const fm=d.mp.filterMatch||"all"; const wds=d.mp.withdrawals||[];
+      const obw=new Map(); for(const o of (d.mp.orders||[])){ if(!obw.has(o.withdrawal_id)) obw.set(o.withdrawal_id,[]); obw.get(o.withdrawal_id).push(o); }
+      const readyN=wds.filter(w=>bmpWdState(d,w,obw).ready).length; const issueN=wds.length-readyN;
+      return `<div class="bmp-filt" style="margin-bottom:10px">
+        <span class="fl">การตรวจ:</span>
+        <button class="${fm==='all'?'on':''}" onclick="bmpSetFilter('match','all')">ทั้งหมด ${wds.length}</button>
+        <button class="${fm==='ready'?'on':''}" onclick="bmpSetFilter('match','ready')" style="${fm==='ready'?'':'border-color:#86efac;color:#166534'}">✓ ตรงครบ · พร้อมออกใบผ่านเช็ค ${readyN}</button>
+        <button class="${fm==='issue'?'on':''}" onclick="bmpSetFilter('match','issue')" style="${fm==='issue'?'':'border-color:#fca5a5;color:#b91c1c'}">⚠️ ไม่ตรง/ยกมา ${issueN}</button>
+      </div>`; })()}
     ${(chanChips||acctChips)?`<div style="display:flex;flex-wrap:wrap;gap:14px;margin-bottom:10px">${chanChips}${acctChips}</div>`:''}
     <div style="display:flex;gap:8px;margin:0 0 12px;flex-wrap:wrap;align-items:center">
       <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;cursor:pointer">
@@ -32078,7 +32112,7 @@ function bmpRenderTab(d){
       <button class="brec-btn" onclick="bmpRefreshFromRegistry()" title="ดึงสถานะ IV/RE/เลขเช็ค ล่าสุดจากทะเบียนคำสั่งซื้อ (ใช้เมื่อคีย์ IV/RE เพิ่มแล้ว · ไม่ต้อง re-upload ไฟล์กระเป๋าเงิน)"><i data-lucide="refresh-cw"></i> อัปเดต IV/RE จากทะเบียน</button>
       <button class="brec-btn" onclick="bmpDedupExisting()" title="ล้างรายการถอนซ้ำ (วันเดียวกัน+บัญชี+ยอดเท่ากัน) — เก็บใบที่มีออเดอร์มากสุด" style="border-color:#fca5a5;color:#b91c1c"><i data-lucide="eraser"></i> ล้างรายการซ้ำ</button>
       <button class="brec-btn" onclick="bmpClearModal()" title="ลบข้อมูลรายงานถอน เลือกช่องทาง/ร้านได้ — ล้างเฉพาะร้านที่เลือกแล้วอัปใหม่" style="border-color:#fca5a5;color:#b91c1c"><i data-lucide="trash-2"></i> ลบข้อมูลถอน</button>
-      <button class="brec-btn primary" onclick="bmpExportCsv()"><i data-lucide="download"></i> ⬇ Export CSV ${selCount?`(${selCount} ที่เลือก)`:'(ทั้งหมด)'}</button>
+      <button class="brec-btn primary" onclick="bmpExportCsv()" title="ส่งออกใบผ่านเช็ค (CSV) — เฉพาะใบถอนที่ตรงครบ · ข้ามใบที่ยังไม่ตรง"><i data-lucide="download"></i> ⬇ ส่งออกใบผ่านเช็ค (CSV) ${selCount?`· ${selCount} ที่เลือก`:((d.mp.filterMatch||'all')==='ready'?'· ตรงครบ':'· ทั้งหมด')}</button>
       <button class="brec-btn" onclick="bmpExportMismatchXlsx()" ${totalMismatch?'':'disabled'}><i data-lucide="file-warning"></i> ⬇ รายงานไม่ตรง (Excel)</button>
     </div>
     <div class="bmp-cards">${cards}</div>

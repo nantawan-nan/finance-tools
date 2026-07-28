@@ -1,0 +1,20 @@
+-- ========================================================================
+-- ROLLBACK C1 RLS  — ไฟล์นี้ตั้งใจตั้งนามสกุล .txt เพื่อ "ไม่ให้ migrate รันอัตโนมัติ"
+-- ใช้เมื่อ: เปิด RLS แล้วผู้ใช้เห็นข้อมูลว่าง/ล็อกออก
+--
+-- วิธีใช้ (เลือกทางใดทางหนึ่ง):
+--  (ก) แนนเปิด Supabase → SQL Editor → วางบล็อกล่าง → Run  (ถอยทันที ไม่ต้องรอ migrate)
+--  (ข) บอกผม → ผมจะ rename เป็น zzz-rollback-c1.sql แล้ว push (rollback ผ่าน CI ~1 นาที)
+-- ========================================================================
+DO $$
+DECLARE t text;
+  tbls text[] := ARRAY['order_ledger','order_events','sales_income_rows','re_export_batches',
+    'ap_payment_vouchers','petty_cash','petty_cash_rounds','advances','sku_master',
+    'catbot_rules','iv_export_batches','documents'];
+BEGIN
+  FOREACH t IN ARRAY tbls LOOP
+    BEGIN EXECUTE format('ALTER TABLE public.%I DISABLE ROW LEVEL SECURITY', t);
+    EXCEPTION WHEN OTHERS THEN NULL; END;
+  END LOOP;
+END $$;
+NOTIFY pgrst, 'reload schema';

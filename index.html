@@ -3589,8 +3589,11 @@ function incGet(){
 }
 function incSetSubtab(t){ incGet().subtab = t; renderToolSalesIncome(); }
 function incSetIncFilter(f){ const d=incGet(); d.incFilter=f; renderToolSalesIncome(); }
-function incSetIncSearch(v){ const d=incGet(); d.incSearch=(v||""); renderToolSalesIncome();
-  setTimeout(()=>{ const e=document.getElementById("incSearchBox"); if(e){ e.focus(); try{ e.setSelectionRange(e.value.length,e.value.length); }catch(_){} } },0); }
+function incSetIncSearch(v){ const d=incGet(); d.incSearch=(v||"");
+  clearTimeout(d._incSearchT);   // ★ M9: debounce — กัน render ทั้งหน้าทุกตัวอักษร
+  d._incSearchT=setTimeout(()=>{ renderToolSalesIncome();
+    requestAnimationFrame(()=>{ const e=document.getElementById("incSearchBox"); if(e){ e.focus(); try{ e.setSelectionRange(e.value.length,e.value.length); }catch(_){} } });
+  }, 180); }
 function incToggleFeeRow(oid){ const d=incGet(); d.incExpandedOrder=(d.incExpandedOrder===oid?null:oid); renderToolSalesIncome(); }
 
 /* ★ กรองตามวันรับเงิน — เดือน (incMonth) หรือช่วงวันที่ (incFrom/incTo · override เดือน) · ISO YYYY-MM-DD */
@@ -26656,7 +26659,15 @@ async function ordLoad(){
   d.rows = rows; d.loaded=true;
 }
 function ordSet(k,v){ const d=ordGet(); d[k]=v;
-  if(k==="q"){ const c=(document.getElementById("ordQ")||{}).selectionStart; renderToolOrders(); requestAnimationFrame(()=>{const n=document.getElementById("ordQ"); if(n){n.focus(); if(c!=null)try{n.setSelectionRange(c,c);}catch(e){}}}); }
+  if(k==="q"){
+    // ★ M9: debounce — เดิม render ทั้งหน้าทุกตัวอักษร (~1,400 ออเดอร์) = หน่วง+caret เด้ง
+    clearTimeout(d._qT);
+    d._qT=setTimeout(()=>{
+      const c=(document.getElementById("ordQ")||{}).selectionStart;
+      renderToolOrders();
+      requestAnimationFrame(()=>{const n=document.getElementById("ordQ"); if(n){n.focus(); if(c!=null)try{n.setSelectionRange(c,c);}catch(e){}}});
+    }, 180);
+  }
   else renderToolOrders();
 }
 function ordFiltered(d){
@@ -32227,6 +32238,30 @@ brecLoad = async function(){
 /* ---------- init ---------- */
 renderApp();
 sb.auth.onAuthStateChange((evt)=>{ if(evt==="SIGNED_IN" || evt==="SIGNED_OUT") renderApp(); });
+
+/* ---------- ★ ตรวจเวอร์ชันใหม่อัตโนมัติ (เลิกต้อง Hard refresh ทุกครั้ง) ----------
+   เช็ค Last-Modified ของหน้าเว็บ — ถ้ามี deploy ใหม่ → เด้งแบนเนอร์ให้กดโหลด (zero-maintenance ไม่ต้องบั๊มเวอร์ชัน) */
+let _appBootLM = null;
+async function appCheckUpdate(){
+  try{
+    const r = await fetch(location.pathname + "?_v=" + Date.now(), { method:"HEAD", cache:"no-store" });
+    const lm = r.headers.get("last-modified"); if(!lm) return;
+    if(_appBootLM === null){ _appBootLM = lm; return; }        // baseline ครั้งแรก
+    if(lm !== _appBootLM && !document.getElementById("appUpdBanner")) appShowUpdateBanner();
+  }catch(e){}
+}
+function appShowUpdateBanner(){
+  const b = document.createElement("div");
+  b.id = "appUpdBanner";
+  b.style.cssText = "position:fixed;left:50%;bottom:20px;transform:translateX(-50%);z-index:2147483647;background:#0d9488;color:#fff;padding:12px 18px;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.3);display:flex;gap:14px;align-items:center;font-size:14px;font-weight:600";
+  b.innerHTML = '🔄 มีเวอร์ชันใหม่ของระบบ' +
+    '<button onclick="location.reload()" style="background:#fff;color:#0d9488;border:none;border-radius:8px;padding:7px 14px;font-weight:800;cursor:pointer">โหลดใหม่</button>' +
+    '<button onclick="this.parentNode.remove()" style="background:transparent;color:#fff;border:none;cursor:pointer;font-size:18px;line-height:1">×</button>';
+  document.body.appendChild(b);
+}
+appCheckUpdate();
+setInterval(appCheckUpdate, 180000);                            // ทุก 3 นาที
+window.addEventListener("focus", appCheckUpdate);               // + ตอนกลับมาที่แท็บ
 </script>
 </body>
 </html>

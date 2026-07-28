@@ -191,6 +191,12 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-28 (9) — ★★ Audit C1 (เปิด RLS) + M9 (search debounce) + cache-busting
+- **C1 (migration `zzz-audit-c1-rls.sql`):** เปิด RLS + policy read/write/update/delete scope `company_id` บน **12 ตารางการเงิน** (order_ledger/order_events/sales_income_rows/re_export_batches/ap_payment_vouchers/petty_cash(_rounds)/advances/sku_master/catbot_rules/iv_export_batches/documents) — กันข้อมูลข้ามบริษัท (แพทเทิร์น finops-phase1 · EXCEPTION-wrapped ต่อตาราง) · **write scope ด้วยบริษัท ไม่ล็อก role** (กันเวิร์กโฟลว์ role พัง · role-gate = Phase 2) · **ตาราง company text (recon) + user_presence/users_profile เลื่อน** (code 'MBARC' ≠ ค่าเก็บ 'mbark' ต้อง map ก่อน) · db-migrate เขียว · **ต้องให้เจ้าของทดสอบ login เห็นข้อมูลปกติ** · rollback: `_ROLLBACK-c1-rls.sql.txt`
+- **M9 (search debounce):** `ordSet('q')` + `incSetIncSearch` เดิม render ทั้งหน้าทุก keystroke (~1,400 ออเดอร์) = หน่วง+caret เด้ง → debounce 180ms + คง caret
+- **cache-busting:** boot เช็ค `Last-Modified` (HEAD no-store) ทุก 3 นาที + ตอน focus → มี deploy ใหม่เด้งแบนเนอร์ "🔄 มีเวอร์ชันใหม่ · โหลดใหม่" (zero-maintenance ไม่ต้องบั๊มเวอร์ชัน · เลิกต้อง Hard refresh ทุกครั้ง)
+- **verified:** syntax OK · boot 0 error · C1 migration เขียว
+
 ### 2026-07-28 (8) — ★★ Pre-production audit Phase 0 (release blockers) — เริ่มแก้
 - **ที่มา:** เจ้าของขอ audit ทั้งระบบเสมือน Senior Eng + Architect + Security (แตกทีมตรวจ 4 ด้านขนาน) · รายงานเต็มที่ `.claude/plans/shiny-beaming-metcalfe.md` · Verdict: ยังไม่ควรเปิด production จนแก้ Critical
 - **C4 (แก้แล้ว · commit 00b1c66):** guard กันคลิกซ้ำปุ่มจ่ายเงิน (`apoBulkPay`/`apoBulkUnpay`/`cffToggleSplitPaid` เพิ่ม `_paying`/`_apoSplitBusy`) — เดิมคลิกซ้ำระหว่าง insert วิ่ง = จ่ายซ้ำ → `amount_outstanding` ติดลบ · `apoBulkPay` เปลี่ยน today เป็น `cffISO` (local ICT)

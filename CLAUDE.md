@@ -191,6 +191,13 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-28 (6) — ★ ถอน Marketplace: ปุ่ม "ลบข้อมูลถอน (เลือกช่องทาง/ร้าน)" + ยืนยัน TikTok grouping ปัจจุบันถูก
+- **เจ้าของ:** อัป TikTok ใหม่แล้ว "ออเดอร์ 0" ยังไม่หาย · Shopee มีออเดอร์แล้ว (11/25) · ขอปุ่มลบข้อมูลถอนเลือกช่องทาง/ร้านได้
+- **วินิจฉัย (รัน `bmpGroupWithdrawals` ตัวจริง extract จาก index.html กับไฟล์ qi care):** โค้ดปัจจุบัน**จับออเดอร์เข้าใบถอนถูกครบ** (07/01→5 · 07/06→19 · 07/13→18 · 07/15→23 · 07/22→33) → "ออเดอร์ 0" = ข้อมูลเก่าค้างจากตอน TikTok grouping ยังพัง · re-upload โดน dedup ข้าม (Shopee ไม่เคยพัง = มีออเดอร์ · TikTok พัง = ค้าง 0) · auto-heal (5) จะแก้ได้ถ้า hard-refresh ก่อน แต่ผู้ใช้ขอปุ่มลบตรงๆ
+- **`bmpClearModal`/`bmpClearChannelShop`/`bmpClearClose` (ใหม่):** modal ตารางกลุ่มตาม **ช่องทาง×ร้าน** (จาก brec_mp_withdrawals ทั้งบริษัท · ใบถอน/ออเดอร์/ยอดรวม · ออเดอร์=0 ไฮไลต์แดง) + ปุ่ม "ลบร้านนี้" → soft-delete withdrawals+orders เฉพาะร้านนั้น (ช่องอื่นไม่กระทบ) → reload · ปุ่ม "🗑 ลบข้อมูลถอน" ใน toolbar ข้าง "ล้างรายการซ้ำ"
+- **verified:** syntax OK · boot 0 error · reuse soft-delete pattern เดิม · ไม่ต้อง migration
+- **วิธีแก้ให้เจ้าของ:** hard refresh → กด "ลบข้อมูลถอน" → ลบ tiktok qi care + tiktok betra → อัปไฟล์กระเป๋าเงิน TikTok ใหม่ → ออเดอร์ขึ้นครบ
+
 ### 2026-07-28 (5) — ★ ถอน Marketplace: routing Lazada เบญญา 2 ร้าน (Qi care + Betra)
 - **เจ้าของ:** อัป Lazada เบญญามี 2 ช่อง (QI + BETRA) เหมือน Shopee/TikTok — ต้อง map ไม่ให้พลาด
 - **แกะไฟล์จริง (4 ไฟล์ · income+balance/ร้าน):** seller code (prefix รอบบิล/Bank Ref) → **QI = `TH1JI1DH1I`** (SKU QHD201) · **BETRA = `TH1K1ZG55F`** (SKU BTR101)

@@ -31425,6 +31425,73 @@ async function bmpPurgePeriod(){
   alert(`ลบสำเร็จ ${wds.length} withdrawal`);
 }
 
+/* ★ ลบข้อมูลรายงานถอน "เลือกช่องทาง/ร้านได้" — ล้างเฉพาะร้านที่เลือก (ทั้งบริษัท ไม่ผูกงวด) แล้วอัปใหม่ */
+async function bmpClearModal(){
+  if(!brecCanWrite()){ alert("ไม่มีสิทธิ์"); return; }
+  const d = brecGet(); const co = d.companyId || await fopCompanyId(); if(!co) return;
+  let rows=[], from=0;
+  while(true){
+    const { data, error } = await sb.from("brec_mp_withdrawals")
+      .select("id,channel,shop_name,withdraw_amount,order_count")
+      .eq("company_id",co).is("deleted_at",null).range(from,from+999);
+    if(error){ alert("โหลดไม่สำเร็จ: "+fopErr(error)); return; }
+    rows=rows.concat(data||[]); if(!data||data.length<1000) break; from+=1000;
+  }
+  if(!rows.length){ alert("ไม่มีข้อมูลรายงานถอนในระบบ (บริษัทนี้)"); return; }
+  const groups={};
+  rows.forEach(w=>{ const ch=w.channel||"?", sh=w.shop_name||"(ไม่ระบุร้าน)"; const k=ch+"|"+sh;
+    const g=groups[k]||(groups[k]={channel:ch,shop:sh,n:0,amt:0,ord:0}); g.n++; g.amt+=Number(w.withdraw_amount||0); g.ord+=Number(w.order_count||0); });
+  const list=Object.values(groups).sort((a,b)=> String(a.channel).localeCompare(String(b.channel))||String(a.shop).localeCompare(String(b.shop)));
+  window._bmpClearGroups=list;
+  const rowsHtml=list.map((g,i)=>`<tr style="border-bottom:1px solid #f1f5f9">
+    <td style="padding:8px 10px">🛒 ${esc(g.channel)}</td>
+    <td style="padding:8px 10px;font-weight:600">${esc(g.shop)}</td>
+    <td style="padding:8px 10px;text-align:right">${g.n}</td>
+    <td style="padding:8px 10px;text-align:right;${g.ord===0?'color:#dc2626;font-weight:700':''}">${g.ord}</td>
+    <td style="padding:8px 10px;text-align:right">${fopFmt(g.amt)}</td>
+    <td style="padding:8px 10px;text-align:center"><button class="brec-btn" style="border-color:#fca5a5;color:#b91c1c" onclick="bmpClearChannelShop(${i})"><i data-lucide="trash-2"></i> ลบร้านนี้</button></td>
+  </tr>`).join("");
+  const html=`<div id="bmpClearOverlay" style="position:fixed;inset:0;background:rgba(15,23,42,.5);z-index:100000;display:flex;align-items:center;justify-content:center" onclick="if(event.target===this)bmpClearClose()">
+    <div style="background:#fff;border-radius:16px;max-width:760px;width:93%;max-height:86vh;overflow:auto;padding:22px;box-shadow:0 20px 60px rgba(0,0,0,.3)">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <div style="font-size:18px;font-weight:800">🗑 ลบข้อมูลรายงานถอน (เลือกช่องทาง/ร้าน)</div>
+        <button class="brec-btn" onclick="bmpClearClose()">✕ ปิด</button>
+      </div>
+      <div style="font-size:12.5px;color:#64748b;margin-bottom:14px">ลบเฉพาะร้านที่เลือก แล้วอัปไฟล์กระเป๋าเงินของร้านนั้นใหม่เพื่อสร้างข้อมูลสด · <b style="color:#dc2626">ออเดอร์ = 0 (แดง)</b> = ข้อมูลเก่าผิด ควรลบแล้วอัปใหม่ · ช่องอื่นไม่กระทบ</div>
+      <table style="width:100%;border-collapse:collapse;font-size:13px">
+        <thead><tr style="background:#f8fafc;text-align:left;color:#475569">
+          <th style="padding:8px 10px">ช่องทาง</th><th style="padding:8px 10px">ร้าน</th>
+          <th style="padding:8px 10px;text-align:right">ใบถอน</th><th style="padding:8px 10px;text-align:right">ออเดอร์</th>
+          <th style="padding:8px 10px;text-align:right">ยอดถอนรวม</th><th style="padding:8px 10px;text-align:center">จัดการ</th>
+        </tr></thead><tbody>${rowsHtml}</tbody>
+      </table>
+    </div></div>`;
+  const ex=document.getElementById("bmpClearOverlay"); if(ex) ex.remove();
+  document.body.insertAdjacentHTML("beforeend", html);
+  if(window.lucide) lucide.createIcons();
+}
+function bmpClearClose(){ const el=document.getElementById("bmpClearOverlay"); if(el) el.remove(); }
+async function bmpClearChannelShop(idx){
+  const g=(window._bmpClearGroups||[])[idx]; if(!g) return;
+  if(!confirm(`ลบข้อมูลถอนของร้าน "${g.shop}" (${g.channel}) ทั้งหมด?\n\n• ${g.n} ใบถอน + ออเดอร์ของร้านนี้จะถูกลบ (soft-delete)\n• ช่องทาง/ร้านอื่นไม่กระทบ\n\nจากนั้นอัปไฟล์กระเป๋าเงินของร้านนี้ใหม่เพื่อสร้างข้อมูลสด`)) return;
+  const d=brecGet(); const co=d.companyId||await fopCompanyId(); if(!co) return;
+  try{
+    let q=sb.from("brec_mp_withdrawals").select("id").eq("company_id",co).is("deleted_at",null);
+    if(g.channel && g.channel!=="?") q=q.eq("channel",g.channel);
+    q = g.shop==="(ไม่ระบุร้าน)" ? q.is("shop_name",null) : q.eq("shop_name",g.shop);
+    const { data, error }=await q; if(error) throw error;
+    const ids=(data||[]).map(x=>x.id);
+    if(!ids.length){ alert("ไม่พบข้อมูล (อาจถูกลบไปแล้ว)"); return; }
+    const ts=new Date().toISOString();
+    for(let i=0;i<ids.length;i+=100){ const c=ids.slice(i,i+100);
+      await sb.from("brec_mp_orders").update({deleted_at:ts}).in("withdrawal_id",c);
+      await sb.from("brec_mp_withdrawals").update({deleted_at:ts}).in("id",c);
+    }
+    bmpClearClose(); await bmpLoadFromDb(); renderToolBankRec();
+    alert(`ลบแล้ว ${ids.length} ใบถอน (${g.shop}) ✓\nอัปไฟล์กระเป๋าเงินของร้านนี้ใหม่ได้เลย`);
+  }catch(e){ alert("ไม่สำเร็จ: "+fopErr(e)); }
+}
+
 /* ------- EXPAND / COLLAPSE card ------- */
 function bmpToggleExpand(id){
   const d = brecGet();
@@ -32010,6 +32077,7 @@ function bmpRenderTab(d){
       <div style="flex:1"></div>
       <button class="brec-btn" onclick="bmpRefreshFromRegistry()" title="ดึงสถานะ IV/RE/เลขเช็ค ล่าสุดจากทะเบียนคำสั่งซื้อ (ใช้เมื่อคีย์ IV/RE เพิ่มแล้ว · ไม่ต้อง re-upload ไฟล์กระเป๋าเงิน)"><i data-lucide="refresh-cw"></i> อัปเดต IV/RE จากทะเบียน</button>
       <button class="brec-btn" onclick="bmpDedupExisting()" title="ล้างรายการถอนซ้ำ (วันเดียวกัน+บัญชี+ยอดเท่ากัน) — เก็บใบที่มีออเดอร์มากสุด" style="border-color:#fca5a5;color:#b91c1c"><i data-lucide="eraser"></i> ล้างรายการซ้ำ</button>
+      <button class="brec-btn" onclick="bmpClearModal()" title="ลบข้อมูลรายงานถอน เลือกช่องทาง/ร้านได้ — ล้างเฉพาะร้านที่เลือกแล้วอัปใหม่" style="border-color:#fca5a5;color:#b91c1c"><i data-lucide="trash-2"></i> ลบข้อมูลถอน</button>
       <button class="brec-btn primary" onclick="bmpExportCsv()"><i data-lucide="download"></i> ⬇ Export CSV ${selCount?`(${selCount} ที่เลือก)`:'(ทั้งหมด)'}</button>
       <button class="brec-btn" onclick="bmpExportMismatchXlsx()" ${totalMismatch?'':'disabled'}><i data-lucide="file-warning"></i> ⬇ รายงานไม่ตรง (Excel)</button>
     </div>

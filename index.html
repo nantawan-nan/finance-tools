@@ -30795,9 +30795,16 @@ async function bmpRunUpload(){
     // ★ normalize: เดิมใช้ withdraw_datetime ดิบ → DB อ่านกลับเป็น ISO ('T') + amount numeric precision ต่าง → เทียบ string พลาด → ซ้ำ
     const bmpDkey = (date, acct, amt) => `${String(date||'').slice(0,10)}|${acct}|${Number(amt||0).toFixed(2)}`;
     const { data:existingWds2 } = await sb.from("brec_mp_withdrawals")
-      .select("withdraw_date,bank_account_id,withdraw_amount")
+      .select("id,withdraw_date,bank_account_id,withdraw_amount,order_count")
       .eq("company_id", co).is("deleted_at", null);
-    const existingKey = new Set((existingWds2||[]).map(w => bmpDkey(w.withdraw_date, w.bank_account_id, w.withdraw_amount)));
+    // ★ map key → รายการที่มีอยู่ (เก็บใบที่ order มากสุดต่อ key) — ใช้ auto-heal: อัปใหม่ที่ออเดอร์มากกว่า → ทับใบเก่า (0 ออเดอร์) ที่ค้างจากโค้ดเก่า
+    const existingMap = new Map();
+    for(const w of (existingWds2||[])){
+      const k = bmpDkey(w.withdraw_date, w.bank_account_id, w.withdraw_amount);
+      const cur = existingMap.get(k);
+      if(!cur || (Number(w.order_count)||0) > (Number(cur.order_count)||0)) existingMap.set(k, w);
+    }
+    const staleToPurge = [];   // id ของ withdrawal เก่าที่จะถูกแทน (auto-heal)
 
     // process ทุก shop ในรอบเดียว (BQ counter shared)
     const perShopSummary = [];
@@ -30815,11 +30822,23 @@ async function bmpRunUpload(){
       let shopSkipped = 0;
       for(const wd of allWithdrawals){
         const k = bmpDkey(wd.withdraw_date, acctId, wd.withdraw_amount);
-        if(existingKey.has(k)){ shopSkipped++; continue; }
-        existingKey.add(k);
+        const ex = existingMap.get(k);
+        if(ex){
+          const newN = (wd.orders||[]).length, oldN = Number(ex.order_count)||0;
+          // ★ auto-heal: อัปใหม่มีออเดอร์มากกว่าใบเก่า → ทับ (ลบใบเก่าที่ 0/น้อยกว่า ค้างจากโค้ดเก่า)
+          if(newN > oldN){ staleToPurge.push(ex.id); existingMap.delete(k); withdrawals.push(wd); continue; }
+          shopSkipped++; continue;
+        }
+        existingMap.set(k, { order_count:(wd.orders||[]).length });   // จองกัน dup ในรอบเดียวกัน
         withdrawals.push(wd);
       }
       grandTotalSkip += shopSkipped;
+      // ★ ลบใบเก่าที่จะถูกแทน (soft-delete withdrawal + orders) ก่อน insert ใบใหม่
+      if(staleToPurge.length){
+        await sb.from("brec_mp_withdrawals").update({ deleted_at:new Date().toISOString() }).in("id", staleToPurge);
+        await sb.from("brec_mp_orders").update({ deleted_at:new Date().toISOString() }).in("withdrawal_id", staleToPurge);
+        staleToPurge.length = 0;
+      }
       if(!withdrawals.length){
         perShopSummary.push(`${shopName}: ไม่มี withdrawal ใหม่${shopSkipped?` (มี ${shopSkipped} ที่มีอยู่แล้ว)`:''}`);
         continue;

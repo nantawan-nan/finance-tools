@@ -191,6 +191,14 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-28 (4) — ★★ ถอน Marketplace: auto-heal ใบถอนเก่า "ออเดอร์ 0" ค้าง DB (dedup ข้าม ทำให้ re-upload ไม่ทับ)
+- **เจ้าของ (เบญญา TikTok qi care):** ทุกใบถอนขึ้น "ออเดอร์ 0 · ยอดยกมา = ยอดถอนทั้งก้อน" · ไม่มีเลขเช็ค · แม้ใบสุดท้าย 27/07 ก็มียอดยกมา (ควรไม่มีถ้ารายงานครบ)
+- **วินิจฉัย (แกะไฟล์จริง + รัน SheetJS/parser ใน node):** ไฟล์ qi care สมบูรณ์ (413 ออเดอร์ · Withdrawal 14 · Earnings 56 · GMV 85) · `bmpParseTiktokWallet` + grouping **จับออเดอร์เข้าใบถอนได้ครบ** (sim: 14–50 ออเดอร์/ใบ) → **ไฟล์/parser ไม่ใช่ปัญหา** · "ออเดอร์ 0" = **ข้อมูลเก่าค้าง DB** จากอัปครั้งก่อน (โค้ดเวอร์ชั่นเก่า) · re-upload **ถูก dedup ข้าม** (key = วัน+บัญชี+ยอด) → ไม่เคยทับของเก่า
+- **แก้ `bmpRunUpload` (auto-heal):** เปลี่ยน dedup จาก Set → `existingMap` (key→{id,order_count}) · re-upload ที่ **ออเดอร์มากกว่าใบเก่า** → soft-delete ใบเก่า (withdrawal+orders) แล้ว insert ใบใหม่ · ใบเก่าที่ถูกต้อง (ออเดอร์เท่า/มากกว่า) ยังถูกข้ามปกติ · **ไม่แตะใบ carry-only จริง** (newN>oldN=false → skip)
+- **ผล:** แนน hard refresh + อัป TikTok qi care/betra ใหม่ → ใบเก่า 0-ออเดอร์ถูกแทนด้วยใบที่ออเดอร์ครบ + เลขเช็คขึ้น (พอมี 191)
+- **verified:** SheetJS อ่าน 413/156 แถวครบ (declared !ref ผิด · recompute range ทำงาน) · parser sim จับออเดอร์ครบ · syntax OK · boot 0 error · ไม่ต้อง migration
+- **หมายเหตุ Q เลขเช็ค (SP):** เลขเช็คจริงดึงจาก **191** ต่อออเดอร์ · SP = fallback เพราะ 191 ยังไม่เคยอัปสำเร็จ (crash) · อัป 191 สำเร็จ → เรียน SI/SQ เอง · ★ ยังเรียน prefix **ต่อช่องทาง** ไม่ใช่ต่อร้าน — ถ้า betra/qi prefix ต่างกัน ต้องแก้เรียนแยกร้าน (รอเห็น 191 จริง)
+
 ### 2026-07-28 (3) — ★★ ถอน Marketplace: crash "Cannot read properties of undefined (reading 'push')" — อัป 141.CSV เป็นรายงานขาย
 - **เจ้าของ:** อัปกระเป๋าเงิน + Express (141.CSV/191.CSV/32.CSV) → เด้ง `อัปไม่สำเร็จ: Cannot read properties of undefined (reading 'push')`
 - **ต้นเหตุ:** `bmpDetectCsvType(141.CSV)` คืน `"sales_rwt141"` (141.RWT ขายเงินเชื่อ) แต่ `csvByType = {receipt,cheque,sales,unknown}` **ไม่มีช่อง sales_rwt141** → `csvByType["sales_rwt141"].push()` = undefined.push → crash ทั้งการอัป

@@ -3666,10 +3666,12 @@ function salIncomeParseReceiptReport191(text){
     for(let j=i+1; j<rows.length && !isRE(rows[j]); j++){
       const rj = rows[j] || [];
       const c5 = String(rj[5]||"").trim();
-      if(c5){                                     // IV ref row (เลข IV ช่อง 5)
+      const c14 = String(rj[14]||"").trim();
+      // ★ เลข IV / เลขเช็ค ต้อง "มีตัวเลข" เสมอ — กันแถวหัวคอลัมน์ซ้ำในบล็อก (เช่น ช่อง 5 = "พนักงานขาย") หลุดมาเป็นเลข IV → เทียบผิด
+      if(c5 && /\d/.test(c5)){                     // IV ref row (เลข IV ช่อง 5)
         if(!iv_no){ iv_no=c5; iv_date=salIncomeParseBEDate(String(rj[6]||"").trim()); iv_total=parseFloat(String(rj[7]||"0").replace(/,/g,""))||0; }
-      } else if(String(rj[14]||"").trim()){       // cheque/net row (เลขเช็คช่อง 14 · สุทธิช่อง 17)
-        if(!cheque_no){ cheque_no=String(rj[14]||"").trim(); paid_date=salIncomeParseBEDate(String(rj[15]||"").trim()); bank=String(rj[16]||"").trim(); net_amount=parseFloat(String(rj[17]||"0").replace(/,/g,""))||0; }
+      } else if(c14 && /\d/.test(c14)){            // cheque/net row (เลขเช็คช่อง 14 · สุทธิช่อง 17)
+        if(!cheque_no){ cheque_no=c14; paid_date=salIncomeParseBEDate(String(rj[15]||"").trim()); bank=String(rj[16]||"").trim(); net_amount=parseFloat(String(rj[17]||"0").replace(/,/g,""))||0; }
       }
     }
 

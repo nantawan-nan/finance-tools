@@ -1164,7 +1164,7 @@ function tableHTML(rows){
     <tbody>${body.map(r=>`<tr>${head.map((_,i)=>`<td>${esc(r[i])}</td>`).join("")}</tr>`).join("")}</tbody>
   </table></div>`;
 }
-function esc(v){ return (v==null?"":String(v)).replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c])); }
+function esc(v){ return (v==null?"":String(v)).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }  // ★ H2: กัน " ' ด้วย → ปลอดภัยใน attribute (title="${esc()}" ฯลฯ)
 
 /* ---------- file handling ---------- */
 function wireDrop(){
@@ -26911,17 +26911,17 @@ function ordBoardPrintPdf(){
     const note=(d.boardNotes&&d.boardNotes[r.order_no])||"";
     return `<tr>
       <td style="text-align:center">${i+1}</td>
-      <td>${r.date||"—"}</td>
-      <td>${chLab(r._ch)}</td>
-      <td style="font-family:monospace">${r.order_no||""}</td>
+      <td>${esc(r.date||"—")}</td>
+      <td>${esc(chLab(r._ch))}</td>
+      <td style="font-family:monospace">${esc(r.order_no||"")}</td>
       <td style="text-align:right">${fmt(amt)}</td>
-      <td><b style="color:${typeCol[r._type]||"#64748b"}">${typeLab[r._type]||r._type}</b><div style="font-size:11px;color:#64748b;margin-top:2px">${detail}</div></td>
-      <td>${note}</td>
+      <td><b style="color:${typeCol[r._type]||"#64748b"}">${esc(typeLab[r._type]||r._type)}</b><div style="font-size:11px;color:#64748b;margin-top:2px">${esc(detail)}</div></td>
+      <td>${esc(note)}</td>
     </tr>`;
   }).join("");
   const fCh=d.boardCh||"all", fType=d.boardType||"all";
   const filtLabel=`ช่องทาง: ${fCh==="all"?"ทั้งหมด":chLab(fCh)} · ประเภท: ${fType==="all"?"ทั้งหมด":typeLab[fType]||fType}`;
-  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>รายการผลต่าง — ${co?co.name:""}</title>
+  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>รายการผลต่าง — ${esc(co?co.name:"")}</title>
     <style>
       *{font-family:"IBM Plex Sans Thai","IBM Plex Sans",system-ui,sans-serif;box-sizing:border-box}
       body{margin:18px;color:#0f172a;font-size:12.5px}

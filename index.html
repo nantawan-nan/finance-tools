@@ -30642,25 +30642,28 @@ async function bmpRunUpload(){
     if(hasExpressFiles){
       // ----- รวม CSV ทั้งหมด (sales+receipt+cheque) auto-route ตาม content -----
       const allCsvFiles = [...f.sales, ...f.receipt, ...f.cheque];
-      const csvByType = { receipt:[], cheque:[], sales:[], unknown:[] };
+      // ★ รองรับรายงานขาย 2 แบบ: 723-5 (sales) + 141.RWT (sales_rwt141 · ขายเงินเชื่อ มี line items)
+      const csvByType = { receipt:[], cheque:[], sales:[], sales_rwt141:[], unknown:[] };
       for(const cf of allCsvFiles){
         const text = bmpDecodeCp874(await cf.arrayBuffer());
-        const t = bmpDetectCsvType(text);
+        let t = bmpDetectCsvType(text);
+        if(!csvByType[t]) t = "unknown";   // ★ กัน crash: type ที่ยังไม่มี bucket (เช่นชนิดใหม่) → unknown
         csvByType[t].push({ file: cf, text });
       }
       if(csvByType.unknown.length){
         const names = csvByType.unknown.map(x=>x.file.name).join(", ");
-        throw new Error(`ไฟล์ CSV ไม่รู้จัก: ${names} — ต้องเป็น รับชำระ / เช็ครับ / รายงานขาย 723-5`);
+        throw new Error(`ไฟล์ CSV ไม่รู้จัก: ${names} — ต้องเป็น รับชำระ / เช็ครับ / รายงานขาย 723-5 หรือ 141.RWT`);
       }
       if(!csvByType.cheque.length) throw new Error('ขาดไฟล์ "รายงานเช็ครับ เรียงตามวันที่นำฝาก"');
       if(!csvByType.receipt.length) throw new Error('ขาดไฟล์ "รายงานการรับชำระหนี้"');
-      if(!csvByType.sales.length) throw new Error('ขาดไฟล์ "รายงานขาย 723-5"');
+      if(!csvByType.sales.length && !csvByType.sales_rwt141.length) throw new Error('ขาดไฟล์ "รายงานขาย 723-5" หรือ "รายงานขายเงินเชื่อ 141.RWT"');
 
-      // parse sales
+      // parse sales — 723-5 (bmpParseSalesReport) + 141.RWT (bmpParseExpressRwt141) · shape เข้ากันได้ (doc_no/doc_type/ref_order_id/total/voided)
       let mergedIvs = [];
       for(const item of csvByType.sales){ mergedIvs = mergedIvs.concat(bmpParseSalesReport(item.text).ivs); }
+      for(const item of csvByType.sales_rwt141){ mergedIvs = mergedIvs.concat(bmpParseExpressRwt141(item.text).ivs); }
       const ivSeen = new Set();
-      mergedIvs = mergedIvs.filter(iv => { if(ivSeen.has(iv.doc_no)) return false; ivSeen.add(iv.doc_no); return true; });
+      mergedIvs = mergedIvs.filter(iv => { if(!iv.doc_no || ivSeen.has(iv.doc_no)) return false; ivSeen.add(iv.doc_no); return true; });
       salesData = { ivs: mergedIvs };
       // parse receipt
       let mergedCheques = []; const mergedIvToCheque = new Map();

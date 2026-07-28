@@ -191,6 +191,13 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-28 (3) — ★★ ถอน Marketplace: crash "Cannot read properties of undefined (reading 'push')" — อัป 141.CSV เป็นรายงานขาย
+- **เจ้าของ:** อัปกระเป๋าเงิน + Express (141.CSV/191.CSV/32.CSV) → เด้ง `อัปไม่สำเร็จ: Cannot read properties of undefined (reading 'push')`
+- **ต้นเหตุ:** `bmpDetectCsvType(141.CSV)` คืน `"sales_rwt141"` (141.RWT ขายเงินเชื่อ) แต่ `csvByType = {receipt,cheque,sales,unknown}` **ไม่มีช่อง sales_rwt141** → `csvByType["sales_rwt141"].push()` = undefined.push → crash ทั้งการอัป
+- **แก้ `bmpRunUpload`:** (1) เพิ่ม bucket `sales_rwt141:[]` (2) guard `if(!csvByType[t]) t="unknown"` (กัน crash ทุก type ใหม่ในอนาคต) (3) รับรายงานขาย 2 แบบ: 723-5 (`bmpParseSalesReport`) + **141.RWT (`bmpParseExpressRwt141`)** → merge เข้า `salesData.ivs` (shape เข้ากันได้: doc_no/doc_type/ref_order_id/total/voided) → แนนใช้ 141.RWT เป็นแหล่ง IV/RE ได้เลย · gate "ขาดไฟล์ 723-5" รับ 141 ด้วย · dedup กัน doc_no ว่าง
+- **verified:** syntax OK · boot 0 error · ไม่ต้อง migration
+- **หมายเหตุ (แยกเรื่อง):** เคส "ยอดยกมา/ยกไป · ออเดอร์ 0" ของเบญญา TikTok = ไฟล์กระเป๋าเงินไม่มีออเดอร์ครอบยอดถอน (คนละเรื่องกับ crash นี้ · ดูวิเคราะห์แยก)
+
 ### 2026-07-28 (2) — ★ ถอน Marketplace: อัปแล้วช้า — แท็ก order_ledger ทีละแถว (sequential) → เปลี่ยนเป็นขนาน (chunk)
 - **เจ้าของ:** อัปกระเป๋าเงิน (เบญญา · ไม่มี Express) แล้ว "กำลังประมวลผล…" นานมาก
 - **ต้นเหตุ:** `bmpRunUpload` → Phase A/B/C แท็ก IV/RE/เงินเข้าแบงค์ ลง `order_ledger` ด้วย `for(...){ await update }` **ทีละแถวรอทีละครั้ง** · เบญญาทะเบียนใหญ่ + ต้อง full-scan order_ledger เพื่อ resolve IV/RE (ไม่มี Express) → ยิ่งช้าทวีคูณ (N round trips เรียงกัน)

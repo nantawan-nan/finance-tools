@@ -28,36 +28,42 @@ jobs:
             exit 0
           fi
 
-          ALL_OK=true
-          for FILE in $SQL_FILES; do
-            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-            echo "▶ รัน: $FILE"
+          # ★ H7: รัน 2 รอบ — ไฟล์ทุกตัว idempotent → รอบแรก best-effort (ข้าม error ลำดับ
+          #   dependency บน fresh clone เช่น ar-module/bankrec อ้าง companies/bank_accounts
+          #   ที่ phase0/finops สร้างทีหลังในรอบเดียวกัน) · รอบสอง strict (dependency ครบแล้ว
+          #   ทุกไฟล์ต้องผ่าน + รายงาน error จริง) → clone จบใน push เดียว · CI ไม่แดงหลอก
+          run_pass() {   # $1=label  $2=strict(true→fail+annotate)
+            local ok=true
+            for FILE in $SQL_FILES; do
+              echo "▶ [$1] $FILE"
+              PAYLOAD=$(jq -n --rawfile query "$FILE" '{"query": $query}')
+              RESPONSE=$(curl -s -o /tmp/res.json -w "%{http_code}" \
+                -X POST \
+                -H "Authorization: Bearer $SUPA_ACCESS_TOKEN" \
+                -H "Content-Type: application/json" \
+                -d "$PAYLOAD" \
+                "https://api.supabase.com/v1/projects/$SUPA_PROJECT_REF/database/query")
+              if [ "$RESPONSE" = "200" ] || [ "$RESPONSE" = "201" ]; then
+                echo "✅ $FILE — สำเร็จ"
+              else
+                ERRMSG=$(jq -r '.message // .error // .' /tmp/res.json 2>/dev/null | tr '\n' ' ' | head -c 300)
+                echo "❌ $FILE — ล้มเหลว (HTTP $RESPONSE): $ERRMSG"
+                if [ "$2" = "true" ]; then
+                  echo "::error title=migrate $FILE::HTTP $RESPONSE — $ERRMSG"
+                  ok=false
+                fi
+              fi
+            done
+            [ "$ok" = "true" ]
+          }
 
-            PAYLOAD=$(jq -n --rawfile query "$FILE" '{"query": $query}')
-
-            RESPONSE=$(curl -s -o /tmp/res.json -w "%{http_code}" \
-              -X POST \
-              -H "Authorization: Bearer $SUPA_ACCESS_TOKEN" \
-              -H "Content-Type: application/json" \
-              -d "$PAYLOAD" \
-              "https://api.supabase.com/v1/projects/$SUPA_PROJECT_REF/database/query")
-
-            if [ "$RESPONSE" = "200" ] || [ "$RESPONSE" = "201" ]; then
-              echo "✅ $FILE — สำเร็จ"
-              jq -r 'if type=="array" then last | to_entries[] | "   \(.key): \(.value)" else . end' /tmp/res.json 2>/dev/null || true
-            else
-              ERRMSG=$(jq -r '.message // .error // .' /tmp/res.json 2>/dev/null | tr '\n' ' ' | head -c 300)
-              echo "❌ $FILE — ล้มเหลว (HTTP $RESPONSE)"
-              echo "$ERRMSG"
-              echo "::error title=migrate $FILE::HTTP $RESPONSE — $ERRMSG"
-              ALL_OK=false
-            fi
-          done
-
-          if [ "$ALL_OK" = "true" ]; then
+          echo "═══ รอบที่ 1 (best-effort · ข้าม dependency-order error) ═══"
+          run_pass "pass1" false || true
+          echo "═══ รอบที่ 2 (strict · ทุกไฟล์ต้องผ่าน) ═══"
+          if run_pass "pass2" true; then
             echo "✅ Migration ทั้งหมดสำเร็จ"
           else
-            echo "❌ มีบาง migration ล้มเหลว"
+            echo "❌ มีบาง migration ล้มเหลว (หลังรอบ 2 = error จริง ไม่ใช่แค่ลำดับ)"
             exit 1
           fi
 

@@ -191,6 +191,13 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-29 (3) — ★ ข้อ 5 (COD/โอนตรง RE): ตั้ง "เลือก Bank {Down N}" เองในแอป (map Benya ครบวง)
+- **เจ้าของ:** ต่อ pipeline COD/โอนตรง RE ให้ครบ — gap เดียวคือ **bank routing ของ Benya** (เดิม `incReRow` hardcode เฉพาะ M Bark: โอนตรง={Down 2} · FACE COD={Down 10}) · Benya ตกไป marketplace routing = ช่อง Bank ว่าง · เจ้าของขอ **ทำเป็นช่องกรอกในแอป** (ไม่ต้อง hardcode)
+- **Migration `re-export-config.sql`:** ตาราง `re_export_config` (company_id PK · direct_down · cod_down · RLS read=บริษัท write=admin/finance_mgr/accountant)
+- **Client:** `incLoadReBankCfg`/`incSaveReBank`/`incReBankDown(kind,company)` (config ทับ · fallback M Bark {Down 2}/{Down 10} · Benya ไม่ตั้ง=ว่าง+เตือน) · `incReBankInput` = ช่องกรอก `{Down [N]}` ในแท็บ **รับชำระ COD** + **โอนตรง** (ตั้งครั้งเดียว/บริษัท) · `incReRow` เลิก hardcode → อ่าน `incReBankDown` (ทั้ง _directBank + isDirect COD)
+- **verified:** syntax OK · boot 0 error · **ต้อง push ให้ migration รัน** · query graceful ถ้ายังไม่ deploy
+- **หมายเหตุ:** Benya COD ใช้ cod_down เดียว (ไม่แยกรายลูกค้าเหมือน M Bark mbarkBankDownByCust) — ถ้าต้องแยก FACE/LINE/Dealer คนละบัญชี ค่อยขยาย
+
 ### 2026-07-29 (2) — ★ งานอัปโหลด: มอบหมายงาน (admin ตั้งความถี่/วัน/ผู้รับผิดชอบ · user ดู · เตือนหน้าหลัก)
 - **เจ้าของ:** admin ตั้งได้ว่าแต่ละงานอัปทุกวัน/สัปดาห์(วันไหน)/เดือน(วันที่เท่าไหร่) + มอบหมายให้ user (dropdown) · user ดูอย่างเดียว · เตือนที่หน้าหลักทุกครั้งที่เข้า
 - **Migration `upload-tasks.sql`:** ตาราง `upload_tasks` (company_id/source_key/frequency/weekday/monthday/assignee_id/assignee_name/active · unique co+source · RLS: read=บริษัท · write=admin/finance_mgr)

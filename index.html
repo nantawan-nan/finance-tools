@@ -3605,9 +3605,51 @@ function incGet(){
   const d = state.income[co];
   if(!d.verify) d.verify = { rows:[], busy:false, error:null, applying:false };
   if(!d.incRows) d.incRows = [];
+  if(!d.reBankCfg) d.reBankCfg = null;   // ★ {direct_down, cod_down} — โหลดจาก re_export_config
   return d;
 }
 function incSetSubtab(t){ incGet().subtab = t; renderToolSalesIncome(); }
+/* ★ ตั้งค่า "เลือก Bank {Down N}" ต่อบริษัท (RE โอนตรง/COD) — โหลด/บันทึก re_export_config */
+async function incLoadReBankCfg(){
+  const d=incGet(); const co=await fopCompanyId(); if(!co){ d.reBankCfg={}; return; }
+  try{ const { data } = await sb.from("re_export_config").select("direct_down,cod_down").eq("company_id",co).maybeSingle();
+    d.reBankCfg = data || {};
+  }catch(e){ console.warn("incLoadReBankCfg",e); d.reBankCfg={}; }
+}
+function incReBankDown(kind, company){   // คืน "{Down N}" ตาม config · fallback M Bark เดิม
+  const d=incGet(); const cfg=d.reBankCfg||{};
+  const v = kind==="direct" ? cfg.direct_down : cfg.cod_down;
+  if(v!=null && v!=="") return `{Down ${v}}`;
+  if(company==="mbark") return kind==="direct" ? "{Down 2}" : "{Down 10}";   // ค่าเดิมที่เคย hardcode
+  return "";   // Benya ยังไม่ตั้ง → ว่าง (เตือนใน UI)
+}
+async function incSaveReBank(kind, val){
+  const d=incGet(); const co=await fopCompanyId(); if(!co) return;
+  const n = String(val||"").trim()===""? null : parseInt(val,10);
+  d.reBankCfg = d.reBankCfg || {};
+  d.reBankCfg[kind==="direct"?"direct_down":"cod_down"] = (n==null||isNaN(n))?null:n;   // optimistic
+  try{ const row={ company_id:co, updated_at:new Date().toISOString(), updated_by:AUTH.user?AUTH.user.id:null };
+    row[kind==="direct"?"direct_down":"cod_down"] = (n==null||isNaN(n))?null:n;
+    const { error } = await sb.from("re_export_config").upsert(row, { onConflict:"company_id" });
+    if(error) throw error;
+  }catch(e){ alert("บันทึกไม่สำเร็จ: "+fopErr(e)); }
+  renderToolSalesIncome();   // อัป warn/ค่าที่แสดง
+}
+/* ช่องกรอก "เลือก Bank {Down N}" (ตั้งครั้งเดียว/บริษัท) */
+function incReBankInput(kind, company){
+  const d=incGet(); const cfg=d.reBankCfg||{}; const v = kind==="direct"?cfg.direct_down:cfg.cod_down;
+  const eff = incReBankDown(kind, company); const isMbark = company==="mbark";
+  const label = kind==="direct" ? "โอนตรง (Prepaid)" : "COD (FACE/LINE/Dealer)";
+  const warn = eff ? `<span style="color:#16a34a;font-weight:700">✓ ${esc(eff)}</span>` : `<span style="color:#dc2626;font-weight:700">⚠ ยังไม่ตั้ง — RE จะออกโดยช่อง Bank ว่าง</span>`;
+  return `<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:12.5px;background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px;padding:8px 12px;margin-bottom:10px">
+    <span style="font-weight:700;color:#075985">⚙ เลือก Bank (${label}):</span>
+    <span style="font-family:monospace">{Down</span>
+    <input type="number" min="0" value="${v!=null?v:''}" placeholder="${isMbark?(kind==='direct'?'2':'10'):'?'}" onchange="incSaveReBank('${kind}',this.value)" style="width:58px;text-align:center;padding:4px 6px;border:1px solid #7dd3fc;border-radius:6px;font-family:monospace;font-weight:700">
+    <span style="font-family:monospace">}</span>
+    ${warn}
+    <span style="color:#64748b;font-size:11px">· ตำแหน่งบัญชีใน dropdown "เลือก Bank" ของ Express (ตั้งครั้งเดียว)</span>
+  </div>`;
+}
 function incSetIncFilter(f){ const d=incGet(); d.incFilter=f; renderToolSalesIncome(); }
 function incSetIncSearch(v){ const d=incGet(); d.incSearch=(v||"");
   clearTimeout(d._incSearchT);   // ★ M9: debounce — กัน render ทั้งหน้าทุกตัวอักษร
@@ -3777,6 +3819,12 @@ async function renderToolSalesIncome(){
     if(window.lucide) lucide.createIcons();
     ordLoad().then(()=>{ d._ordLoading=false; renderToolSalesIncome(); }).catch(()=>{ d._ordLoading=false; renderToolSalesIncome(); });
     return;
+  }
+
+  // ★ โหลด config "เลือก Bank {Down N}" (RE โอนตรง/COD) ครั้งแรกเมื่อเข้าแท็บ codre/direct (non-blocking)
+  if((subtab==='codre'||subtab==='direct') && d.reBankCfg===null && !d._reBankLoading){
+    d._reBankLoading=true;
+    incLoadReBankCfg().then(()=>{ d._reBankLoading=false; renderToolSalesIncome(); }).catch(()=>{ d._reBankLoading=false; });
   }
 
   // ★ รับชำระ COD — โหลดข้อมูล COD ขนส่ง (brec_cod_data) ครั้งแรก · guard ด้วย flag กัน loop เมื่อไม่มีข้อมูล
@@ -4554,9 +4602,13 @@ function incReRow(r,i,company,seedOverride){
   let downCmd  = isMbark ? mbarkBankDownByCust(r.arCustCode) : bankDownCmd(r.actualBrand, r.channel);
   let checkCode = isMbark ? mbarkCheckCode(r.arCustCode) : "";
   let bankCode = r.bankCode||"";
-  if(isMbark && isDirect){ lettOther = ""; enterCmd = ""; bankCode = checkCode; }   // FACE/LINE/Dealer COD ไม่มียอดหัก
-  // ★ โอนตรง Prepaid (M Bark) = เงินเข้าแบงค์เลย → เลือก Bank = {Down 2} · ไม่มีรหัสเช็ค/ธนาคาร (ไม่ผ่านช่องทาง FB)
-  if(isMbark && r._directBank){ lettOther = ""; enterCmd = ""; downCmd = "{Down 2}"; checkCode = ""; bankCode = ""; }
+  // ★ ขายตรง COD (FACE/LINE/Dealer) — ไม่มียอดหัก · M Bark ใช้ mbarkBankDownByCust+FB · Benya ใช้ config cod_down
+  if(isDirect){ lettOther = ""; enterCmd = "";
+    if(isMbark){ bankCode = checkCode; }
+    else { downCmd = incReBankDown('cod', company); checkCode = ""; bankCode = ""; }
+  }
+  // ★ โอนตรง Prepaid = เงินเข้าแบงค์ตรง → เลือก Bank ตาม config (re_export_config · M Bark fallback {Down 2}) · ไม่มีเช็ค
+  if(r._directBank){ lettOther = ""; enterCmd = ""; downCmd = incReBankDown('direct', company); checkCode = ""; bankCode = ""; }
   return { ลำดับ:i+1, doc_no:armapRunRE(seed,i), iv_date:fmtDateDDMMYYYY(r.arDate), iv:r.arIv,
     brand:r.actualBrand||"", outstanding:round2(r.arOutstanding), orderNo:r.orderNo, channel:r.channel,
     pay_date_long:fmtDateDDMMYYYY(r.paymentDate), pay_date_short:fmtDateDDMMYY(r.paymentDate),
@@ -4708,7 +4760,7 @@ function incRenderCodRe(d){
     </table></div>`:`<div class="sal-empty" style="padding:44px;text-align:center;background:#fff;border:1px solid #e2e8f0;border-radius:14px">ยังไม่มีพัสดุ COD ที่ลิงก์ออเดอร์ได้ — ไปลิงก์ที่หน้า COD ขนส่งก่อน</div>`;
   return `<div style="padding:16px 0 0">
     <div style="font-size:12.5px;color:#64748b;margin-bottom:10px">💡 ดึงจากหน้า <b>COD ขนส่ง</b> — พัสดุที่ลิงก์ออเดอร์ได้ + คีย์ IV แล้ว + เงินเข้า STM แล้ว = พร้อมออก RE (โอนตรง = เงินเข้าเต็มยอด IV ไม่มีค่าธรรมเนียม)</div>
-    ${kpi}${pendHtml}${seedHtml}${table}
+    ${kpi}${pendHtml}${incReBankInput('cod', state.company)}${seedHtml}${table}
     <div style="color:#94a3b8;font-size:11px;margin-top:8px">แสดง ${Math.min(cands.length,500)}/${cands.length} · แถวเหลือง = ยังไม่พร้อม (ยังไม่คีย์ IV / รอเงินเข้า / COD≠IV)</div>
   </div>`;
 }
@@ -4845,7 +4897,7 @@ function incRenderDirect(d){
       </tr></thead><tbody>${rows}</tbody></table></div>`:`<div class="sal-empty" style="padding:44px;text-align:center;background:#fff;border:1px solid #e2e8f0;border-radius:14px">ยังไม่มีออเดอร์โอนตรง (Prepaid) — ต้อง re-import BigSeller ให้ทะเบียนมี payment_method</div>`;
   return `<div id="incDirectPane" style="padding:16px 0 0">
     <div style="font-size:12.5px;color:#64748b;margin-bottom:10px">💡 ออเดอร์ <b>Prepaid</b> (โอนตรงเข้าบัญชี · non-marketplace) → เลือกจับกับ <b>เงินเข้าใน Statement</b> ที่ยอดตรง (ระบบ<b>ไม่จับให้อัตโนมัติเมื่อยอดซ้ำ</b> — ต้องเลือกเอง กันลูกหนี้ผิด) · ต้องอัป Statement บัญชีบริษัทที่หน้า Bank Recon ก่อน · <b>โอนตรง M Bark = เงินเข้าแบงค์เลย (เลือก Bank {Down 2} · ไม่มีรหัสเช็ค)</b></div>
-    ${kpi}${seedHtml}${table}
+    ${kpi}${incReBankInput('direct', state.company)}${seedHtml}${table}
     <div style="color:#94a3b8;font-size:11px;margin-top:8px">แสดง ${Math.min(list.length,500)}/${list.length} · ติ๊กเลือก ${selCount}/${ready.length} พร้อมออก · เลือกเงินเข้าที่ตรง → กลายเป็น "พร้อมออก RE" (ถ้าคีย์ IV แล้ว)</div>
   </div>`;
 }

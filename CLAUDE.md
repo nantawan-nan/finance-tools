@@ -191,6 +191,15 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-29 — ★ หน้าใหม่ "งานอัปโหลด" (uploadtasks) — เช็คลิสต์เอกสาร + สถานะ + ลากไฟล์ทีเดียว (classify)
+- **เจ้าของ:** อยากได้สรุปว่าแต่ละบริษัท/ช่องทางต้องอัปอะไร · อัปถึงวันไหน/ล่าสุดเมื่อไหร่ · TODO ให้ จนท. เห็นว่าต้องอัปอะไรทุกวัน/สัปดาห์ (รวม Express) + "นำเข้าทีเดียวจบ" (ข้อ 1 ของ data-flow improvement)
+- **หน้าใหม่ `uploadtasks`** ใต้ stage "งาน & เอกสาร" (`renderToolUploadTasks` · `utk*` · dispatch `t.id==="uploadtasks"`):
+  - **เช็คลิสต์ 10 แหล่ง × ความถี่** (`UTK_SOURCES` · day/week/month): BigSeller · หลังบ้าน · 141(IV) · Income · 191/1.9.1(RE) · กระเป๋าเงิน · Statement · COD · AP · งบการเงิน — โชว์ **อัปล่าสุด · ครอบถึงวันไหน · 🟢ทันสมัย/🟡ควรอัป/🔴ค้าง** (`utkLoad` query last/coverage ต่อแหล่ง · limit(1) · reuse order_ingested_at/period_to/iv_date/received_at)
+  - **TODO วันนี้** = แหล่งรายวันที่ warn/danger/ยังไม่อัป (แบนเนอร์แดง + ปุ่มไปหน้า)
+  - **Dropzone ลากไฟล์ทีเดียว** (`utkOnDrop`/`utkDetectFile`) — เดาชนิดจากหัวเรื่องในไฟล์ (reuse `bmpDetectCsvType`/`bmpIsTiktokWallet`/`bmpIsLazada*` + sniff header xlsx/xml) → บอกว่าไฟล์ไหน=รายงานอะไร ไปหน้าไหน + ปุ่มไปหน้าอัป
+- **v1 = classify + route** (เดาชนิด+บอกปลายทาง+กดไปหน้าอัป) · **ยังไม่ auto-process เต็มรูปแบบ** (การนำเข้าอัตโนมัติ multi-file per flow = follow-up) · cadence ปรับได้ (เจ้าของจะปรับบางอัน)
+- **ยังไม่ทำ:** unified import auto-process เต็ม · ข้อ 5 (COD/โอนตรง → RE ต่อ pipeline) · verified: syntax OK · boot 0 error · reuse detectors เดิม · ไม่ต้อง migration
+
 ### 2026-07-28 (11) — ★ Audit H7 (migrate 2 รอบ) + H6 (dedup ถอน) + H3/H4 (paginate แทน limit)
 - **H7:** `migrate.yml` รัน 2 รอบ (best-effort → strict) → fresh clone จบ push เดียว CI ไม่แดงหลอก · ★ ไม่ reorder ไฟล์ (กัน users_profile RLS flip + auth trigger พัง)
 - **H6:** dedup ถอน Marketplace เปลี่ยนจาก best-per-key → **นับจำนวนต่อ key** (ไฟล์ N ใบ · DB M ใบ → จับคู่ min + เพิ่มส่วนเกิน) → ใบถอนที่ 2 วันเดียวกันยอดเท่ากัน (TikTok/Lazada) ไม่หาย + คง auto-heal

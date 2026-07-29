@@ -846,6 +846,10 @@ const TOOLS = [
     multiInput:true, status:"live" },
 
   // ───── 7. งาน / เอกสาร ─────
+  { id:"uploadtasks", stage:"งาน & เอกสาร", ic:"✅", icon:"clipboard-check",
+    name:"งานอัปโหลด (เช็คลิสต์)", desc:"ต้องอัปอะไร · ถึงวันไหน · ค้างอะไร · ลากไฟล์ทีเดียว",
+    long:"เช็คลิสต์เอกสารที่ต้องอัปแต่ละบริษัท/ช่องทาง — อัปล่าสุดเมื่อไหร่ ครอบถึงวันไหน ค้างอะไร (รายวัน/สัปดาห์/เดือน) + ลากไฟล์ทั้งหมดมาวางทีเดียว ระบบเดาชนิดให้",
+    multiInput:true, status:"live" },
   { id:"tasks", stage:"งาน & เอกสาร", ic:"💵", icon:"wallet",
     name:"ทะเบียนคุมเงินสดย่อย", desc:"เบิกจ่าย · เติมเงิน · คงเหลือ",
     long:"คุมเงินสดย่อย — เบิกจ่าย/เติมเงิน · ยอดคงเหลือวิ่ง · แยกตามรอบ · นำเข้า/ส่งออก Excel",
@@ -1079,6 +1083,7 @@ function renderTool(){
     if (t.id==="expressmatch") return renderToolExpressMatch();
     if (t.id==="exportkey") return renderToolExportKey();
     if (t.id==="dashboard") return renderToolDashboard();
+    if (t.id==="uploadtasks") return renderToolUploadTasks();
     if (t.id==="tasks") return renderToolPettyCash();
     if (t.id==="advance") return renderToolAdvance();
     if (t.id==="docs") return renderToolDocs();
@@ -13781,6 +13786,187 @@ function docFiltered(){
   });
 }
 function docSet(k,v){ docGet()[k]=v; renderToolDocs(); }
+
+/* ============================================================
+   หน้า "งานอัปโหลด" (uploadtasks) — เช็คลิสต์เอกสารที่ต้องอัป + สถานะ + ลากไฟล์ทีเดียว (auto-classify)
+   utk* helpers
+   ============================================================ */
+function utkGet(){ if(!state.utk) state.utk={ loaded:false, busy:false, _co:null, st:{}, classified:null, classifying:false }; return state.utk; }
+// แหล่งข้อมูล + ความถี่ (day/week/month) + ปลายทาง · cadence ปรับได้ภายหลัง
+const UTK_SOURCES = [
+  { key:"bigseller", label:"BigSeller (ออเดอร์)",              cad:"day",   tool:"orders",         note:"ทุกช่องทาง → ทะเบียนคำสั่งซื้อ" },
+  { key:"recon",     label:"หลังบ้าน Shopee / TikTok / Lazada", cad:"day",   tool:"orders",         note:"กระทบยอดกับ BigSeller" },
+  { key:"iv141",     label:"Express 141.RWT (ตรวจการคีย์ IV)",  cad:"day",   tool:"sales_orders",   note:"ยืนยันการคีย์ IV" },
+  { key:"income",    label:"รับชำระ (Income)",                  cad:"day",   tool:"sales_income",   note:"เงินเข้าสุทธิต่อออเดอร์" },
+  { key:"re191",     label:"Express 191 / 1.9.1 (ตรวจ RE)",     cad:"week",  tool:"sales_income",   note:"ยืนยัน RE + เลขเช็ค" },
+  { key:"wallet",    label:"กระเป๋าเงิน Marketplace",           cad:"week",  tool:"bankrec",        note:"ยอดถอน → BQ" },
+  { key:"stm",       label:"Statement ธนาคาร SCB / BBL",        cad:"week",  tool:"bankrec",        note:"กระทบยอดธนาคาร" },
+  { key:"cod",       label:"iShip COD",                         cad:"week",  tool:"bankrec",        note:"เก็บเงินปลายทาง" },
+  { key:"ap",        label:"AP งบกระทบยอด / รายงานจ่ายชำระ",     cad:"month", tool:"ap_outstanding", note:"ตั้งหนี้ + จ่าย" },
+  { key:"fin",       label:"งบการเงิน (P&L / ฐานะ)",            cad:"month", tool:"finpnl",         note:"งบทางบัญชี" },
+];
+const UTK_CAD = { day:{ l:"ทุกวัน", ok:1, warn:3 }, week:{ l:"ทุกสัปดาห์", ok:7, warn:11 }, month:{ l:"รายเดือน", ok:31, warn:40 } };
+function utkDayISO(v){ if(!v) return null; const s=String(v); const m=s.match(/^(\d{4})-(\d{2})-(\d{2})/); return m?`${m[1]}-${m[2]}-${m[3]}`:null; }
+function utkDaysSince(v){ const d=utkDayISO(v); if(!d) return null; const a=new Date(d+"T00:00:00"), b=new Date(cffISO(new Date())+"T00:00:00"); return Math.round((b-a)/86400000); }
+function utkSev(cad, days){ if(days==null) return "none"; const c=UTK_CAD[cad]; if(days<=c.ok) return "ok"; if(days<=c.warn) return "warn"; return "danger"; }
+function utkThai(v){ const d=utkDayISO(v); if(!d) return "—"; const [y,m,dd]=d.split("-"); const mo=["ม.ค.","ก.พ.","มี.ค.","เม.ย.","พ.ค.","มิ.ย.","ก.ค.","ส.ค.","ก.ย.","ต.ค.","พ.ย.","ธ.ค."][+m-1]; return `${+dd} ${mo} ${(+y+543)%100}`; }
+
+async function utkLoad(){
+  const d=utkGet(); const co=await fopCompanyId(); if(!co) return;
+  d._co=state.company; d.busy=true;
+  const P=(q)=>q.then(r=>r).catch(e=>({data:null,error:e}));
+  try{
+    const [olLast, olCov, ivCov, reCov, rec, inc, stm, mp, cod, ap, fin] = await Promise.all([
+      P(sb.from("order_ledger").select("order_ingested_at").eq("company_id",co).is("deleted_at",null).not("order_ingested_at","is",null).order("order_ingested_at",{ascending:false}).limit(1)),
+      P(sb.from("order_ledger").select("order_date").eq("company_id",co).is("deleted_at",null).not("order_date","is",null).order("order_date",{ascending:false}).limit(1)),
+      P(sb.from("order_ledger").select("iv_date").eq("company_id",co).is("deleted_at",null).not("iv_no","is",null).not("iv_date","is",null).order("iv_date",{ascending:false}).limit(1)),
+      P(sb.from("order_ledger").select("received_at").eq("company_id",co).is("deleted_at",null).not("re_no","is",null).not("received_at","is",null).order("received_at",{ascending:false}).limit(1)),
+      P(sb.from("order_recon").select("created_at").eq("company",state.company).is("deleted_at",null).order("created_at",{ascending:false}).limit(1)),
+      P(sb.from("sales_income_rows").select("created_at").eq("company_id",co).is("deleted_at",null).order("created_at",{ascending:false}).limit(1)),
+      P(sb.from("brec_imports").select("created_at,period_to").eq("company_id",co).is("deleted_at",null).order("created_at",{ascending:false}).limit(1)),
+      P(sb.from("brec_mp_imports").select("created_at,period_to").eq("company_id",co).is("deleted_at",null).order("created_at",{ascending:false}).limit(1)),
+      P(sb.from("brec_cod_data").select("updated_at").eq("company_id",co).limit(1)),
+      P(sb.from("ap_invoices").select("created_at").eq("company_id",co).is("deleted_at",null).order("created_at",{ascending:false}).limit(1)),
+      P(sb.from("financial_statements").select("updated_at").eq("company_id",co).order("updated_at",{ascending:false}).limit(1)),
+    ]);
+    const one=(r,f)=> (r&&r.data&&r.data[0])? r.data[0][f] : null;
+    d.st = {
+      bigseller:{ last:one(olLast,"order_ingested_at"), cov:one(olCov,"order_date") },
+      recon:    { last:one(rec,"created_at"),           cov:null },
+      iv141:    { last:one(ivCov,"iv_date"),            cov:one(ivCov,"iv_date") },
+      income:   { last:one(inc,"created_at"),           cov:null },
+      re191:    { last:one(reCov,"received_at"),        cov:one(reCov,"received_at") },
+      wallet:   { last:one(mp,"created_at"),            cov:one(mp,"period_to") },
+      stm:      { last:one(stm,"created_at"),           cov:one(stm,"period_to") },
+      cod:      { last:one(cod,"updated_at"),           cov:null },
+      ap:       { last:one(ap,"created_at"),            cov:null },
+      fin:      { last:one(fin,"updated_at"),           cov:null },
+    };
+  }catch(e){ console.warn("utkLoad",e); }
+  d.busy=false; d.loaded=true;
+}
+
+/* ---- ตัวเดาชนิดไฟล์ (unified import) — อ่านหัวเรื่องในไฟล์ ---- */
+async function utkDetectFile(file){
+  const name=file.name||""; const ext=(name.split(".").pop()||"").toLowerCase();
+  const R=(type,label,tool,co)=>({ name, type, label, tool, co:co||null });
+  try{
+    if(ext==="csv"){
+      const text=bmpDecodeCp874(await file.arrayBuffer());
+      const t=bmpDetectCsvType(text);
+      if(t==="cheque")       return R("cheque","Express เช็ครับ (BQ)","bankrec");
+      if(t==="receipt")      return R("receipt","Express 191 รับชำระหนี้","sales_income");
+      if(t==="sales_rwt141") return R("iv141","Express 141.RWT (ตรวจ IV)","sales_orders");
+      if(t==="sales")        return R("sales","Express 723-5 วิเคราะห์ยอดขาย","sales_orders");
+      if(/ณ วันที่[\s\S]{0,40}\d/.test(text) && /ค้าง/.test(text)) return R("aroutstand","Express ลูกหนี้คงค้าง","sales_income");
+      return R("unknown","CSV — ตรวจไม่ออก","");
+    }
+    if(ext==="xml"){
+      const text=await file.text();
+      if(/หมวดเงินรับ|ประเภทกิจกรรมทางการเงิน/.test(text)) return R("ap","งบกระทบยอด (Express XML) → AP/Exec","ap_outstanding");
+      return R("ap","Express XML (ตั้งหนี้ AP)","ap_outstanding");
+    }
+    if(ext==="xlsx"||ext==="xls"){
+      const wb=XLSX.read(await file.arrayBuffer(),{type:"array",cellDates:false});
+      const sheets=(wb.SheetNames||[]).join(" | ");
+      if(typeof bmpIsTiktokWallet==="function" && bmpIsTiktokWallet(wb))   return R("wallet","กระเป๋าเงิน TikTok","bankrec");
+      if(typeof bmpIsLazadaIncome==="function" && bmpIsLazadaIncome(wb))   return R("wallet","กระเป๋าเงิน Lazada (รายรับ)","bankrec");
+      if(typeof bmpIsLazadaBalance==="function" && bmpIsLazadaBalance(wb)) return R("wallet","กระเป๋าเงิน Lazada (ยอด)","bankrec");
+      if(/RPT_01009|Transaction History|BusinessNet/i.test(sheets))       return R("stm","Statement SCB","bankrec");
+      // อ่านหัวแถวชีตแรกเพื่อเดา
+      const first=wb.Sheets[wb.SheetNames[0]]; const rows=first?XLSX.utils.sheet_to_json(first,{header:1,defval:"",range:0}):[];
+      const head=(rows.slice(0,12).flat().map(x=>String(x||"")).join(" ")).slice(0,1200);
+      if(/รายรับจากคำสั่งซื้อ|Wallet|ยอดคงเหลือในกระเป๋า|Balance/i.test(head)) return R("wallet","กระเป๋าเงิน Shopee/Marketplace","bankrec");
+      if(/ร้านค้าเพลตฟอร์ม|หมายเลขคำสั่งซื้อ.*แพลตฟอร์ม|Platform unique order/i.test(head)) return R("bigseller","BigSeller (ออเดอร์)","orders");
+      if(/ราคาขายสุทธิ|SKU Subtotal|Seller Discount|ค่าจัดส่งที่ชำระโดยผู้ซื้อ/i.test(head)) return R("recon","รายงานหลังบ้าน (Shopee/TikTok/Lazada)","orders");
+      if(/กำไรขาดทุน|งบแสดงฐานะ|รายได้จากการขาย/i.test(head)) return R("fin","งบการเงิน (P&L/ฐานะ)","finpnl");
+      if(/COD|เก็บเงินปลายทาง|iShip|เลขพัสดุ.*เก็บเงิน/i.test(head+" "+sheets)) return R("cod","iShip COD","bankrec");
+      if(/เงินเข้าสุทธิ|net_received|Income Overview/i.test(head+" "+sheets)) return R("income","รับชำระ (Income)","sales_income");
+      return R("unknown","Excel — ตรวจไม่ออก · เลือกปลายทางเอง","");
+    }
+    return R("unknown", (ext.toUpperCase()||"ไฟล์")+" — ไม่รองรับ","");
+  }catch(e){ return R("unknown","อ่านไฟล์ไม่ได้: "+(e.message||e),""); }
+}
+async function utkOnDrop(fileList){
+  const d=utkGet(); const files=[...(fileList||[])]; if(!files.length) return;
+  d.classifying=true; renderToolUploadTasks();
+  const res=[]; for(const f of files){ res.push(await utkDetectFile(f)); }
+  d.classified=res; d.classifying=false; renderToolUploadTasks();
+}
+function utkPickDrop(){ const i=document.createElement("input"); i.type="file"; i.multiple=true; i.accept=".csv,.xlsx,.xls,.xml"; i.onchange=()=>utkOnDrop(i.files); i.click(); }
+function utkClearDrop(){ const d=utkGet(); d.classified=null; renderToolUploadTasks(); }
+function utkGoTool(tool){ if(tool) setTool(tool); }
+
+async function renderToolUploadTasks(){
+  const d=utkGet(); const main=document.getElementById("main");
+  if((!d.loaded || d._co!==state.company) && !d.busy){ main.innerHTML=`<div class="page-head"><h1>งานอัปโหลด</h1></div><div style="padding:40px;text-align:center;color:#94a3b8">กำลังโหลด…</div>`; await utkLoad(); }
+  const co=COMPANIES.find(c=>c.id===state.company);
+  const st=d.st||{};
+  // TODO วันนี้ = แหล่งรายวันที่ warn/danger
+  const dayTodo=UTK_SOURCES.filter(s=>s.cad==="day").filter(s=>{ const sev=utkSev("day", utkDaysSince((st[s.key]||{}).last)); return sev==="warn"||sev==="danger"||sev==="none"; });
+  const sevChip=(sev)=>({ ok:'<span style="background:#dcfce7;color:#15803d;font-weight:700;font-size:11px;padding:2px 9px;border-radius:20px">🟢 ทันสมัย</span>',
+     warn:'<span style="background:#fef3c7;color:#b45309;font-weight:700;font-size:11px;padding:2px 9px;border-radius:20px">🟡 ควรอัป</span>',
+     danger:'<span style="background:#fee2e2;color:#b91c1c;font-weight:700;font-size:11px;padding:2px 9px;border-radius:20px">🔴 ค้างนาน</span>',
+     none:'<span style="background:#f1f5f9;color:#64748b;font-weight:700;font-size:11px;padding:2px 9px;border-radius:20px">— ยังไม่เคยอัป</span>' }[sev]);
+  const rowHtml=(s)=>{ const x=st[s.key]||{}; const days=utkDaysSince(x.last); const sev=utkSev(s.cad,days);
+    return `<tr style="border-bottom:1px solid #f1f5f9">
+      <td style="padding:9px 12px"><div style="font-weight:700;font-size:13.5px">${esc(s.label)}</div><div style="font-size:11.5px;color:#94a3b8">${esc(s.note)}</div></td>
+      <td style="padding:9px 12px;white-space:nowrap;font-size:12.5px">${x.last?`${utkThai(x.last)} <span style="color:#94a3b8">(${days} วันก่อน)</span>`:'<span style="color:#cbd5e1">—</span>'}</td>
+      <td style="padding:9px 12px;white-space:nowrap;font-size:12.5px">${x.cov?utkThai(x.cov):'<span style="color:#cbd5e1">—</span>'}</td>
+      <td style="padding:9px 12px;text-align:center">${sevChip(sev)}</td>
+      <td style="padding:9px 12px;text-align:center"><button class="ord-btn" style="font-size:12px" onclick="utkGoTool('${s.tool}')">ไปอัป →</button></td>
+    </tr>`; };
+  const groupHtml=(cad)=>{ const list=UTK_SOURCES.filter(s=>s.cad===cad); const c=UTK_CAD[cad];
+    return `<div style="background:#fff;border:1px solid #e2e8f0;border-radius:14px;overflow:hidden;margin-bottom:16px">
+      <div style="padding:11px 16px;background:${cad==='day'?'#ecfdf5':cad==='week'?'#fffbeb':'#eff6ff'};font-weight:800;font-size:14px;color:${cad==='day'?'#047857':cad==='week'?'#b45309':'#1d4ed8'}">${cad==='day'?'🟢':cad==='week'?'🟡':'🔵'} ${c.l}</div>
+      <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;min-width:640px">
+        <thead><tr style="background:#f8fafc;text-align:left;color:#64748b;font-size:11.5px">
+          <th style="padding:8px 12px">รายงาน</th><th style="padding:8px 12px">อัปล่าสุด</th><th style="padding:8px 12px">ครอบถึงวันที่</th><th style="padding:8px 12px;text-align:center">สถานะ</th><th style="padding:8px 12px;text-align:center">จัดการ</th>
+        </tr></thead><tbody>${list.map(rowHtml).join("")}</tbody>
+      </table></div></div>`; };
+  // dropzone
+  const cl=d.classified;
+  const clHtml = d.classifying
+    ? `<div style="padding:18px;text-align:center;color:#64748b">⏳ กำลังเดาชนิดไฟล์…</div>`
+    : (cl? `<div style="margin-top:12px">
+        ${cl.map(f=>{ const known=f.type!=="unknown"&&f.tool;
+          return `<div style="display:flex;align-items:center;gap:10px;padding:9px 12px;border:1px solid ${known?'#bbf7d0':'#fed7aa'};background:${known?'#f0fdf4':'#fff7ed'};border-radius:10px;margin-bottom:7px">
+            <span style="font-size:16px">${known?'✅':'⚠️'}</span>
+            <div style="flex:1;min-width:0"><div style="font-family:monospace;font-size:12px;color:#475569;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(f.name)}</div><div style="font-size:13px;font-weight:700">${esc(f.label)}</div></div>
+            ${known?`<button class="ord-btn" style="font-size:12px" onclick="utkGoTool('${f.tool}')">ไปหน้าอัป →</button>`:'<span style="font-size:12px;color:#b45309">เลือกหน้าอัปเอง</span>'}
+          </div>`; }).join("")}
+        <div style="font-size:12px;color:#94a3b8;margin-top:6px">ℹ️ เวอร์ชันนี้ระบบ<b>เดาชนิด + บอกว่าไปหน้าไหน</b> · กด "ไปหน้าอัป" เพื่ออัปไฟล์นั้นในหน้าที่ถูก (การนำเข้าอัตโนมัติเต็มรูปแบบกำลังต่อ) <button class="ord-btn" style="font-size:11px" onclick="utkClearDrop()">ล้าง</button></div>
+      </div>` : "");
+
+  main.innerHTML=`
+    <div class="page-head" style="display:flex;align-items:center;gap:12px">
+      <img src="${co?co.logo:''}" style="height:38px;width:auto" onerror="this.style.display='none'">
+      <div><h1 style="margin:0">งานอัปโหลด <span style="font-size:13px;color:#94a3b8;font-weight:600">· ${esc(co?co.name:'')}</span></h1>
+      <div style="font-size:13px;color:#64748b">ต้องอัปอะไร · อัปถึงวันไหน · ค้างอะไร — สลับบริษัทที่แถบซ้ายบนเพื่อดูอีกบริษัท</div></div>
+    </div>
+
+    ${dayTodo.length?`<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:14px;padding:14px 18px;margin-bottom:18px">
+      <div style="font-weight:800;color:#b91c1c;font-size:15px;margin-bottom:6px">📌 วันนี้ควรอัป ${dayTodo.length} รายการ (${esc(co?co.name:'')})</div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px">${dayTodo.map(s=>`<button class="ord-btn" style="font-size:12.5px" onclick="utkGoTool('${s.tool}')">${esc(s.label)} →</button>`).join("")}</div>
+    </div>`:`<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:14px;padding:12px 18px;margin-bottom:18px;font-weight:700;color:#15803d">✓ งานอัปรายวันของ ${esc(co?co.name:'')} ทันสมัยแล้ว</div>`}
+
+    <div style="background:#fff;border:2px dashed #cbd5e1;border-radius:16px;padding:22px;margin-bottom:22px;text-align:center"
+      ondragover="event.preventDefault();this.style.borderColor='var(--brand)';this.style.background='#f0fdfa'"
+      ondragleave="this.style.borderColor='#cbd5e1';this.style.background='#fff'"
+      ondrop="event.preventDefault();this.style.borderColor='#cbd5e1';this.style.background='#fff';utkOnDrop(event.dataTransfer.files)">
+      <div style="font-size:15px;font-weight:800;margin-bottom:4px">⬆️ ลากไฟล์ทั้งหมดมาวางที่นี่ (ทีเดียว)</div>
+      <div style="font-size:12.5px;color:#94a3b8;margin-bottom:12px">ระบบเดาชนิดไฟล์ให้เอง (BigSeller · หลังบ้าน · Express 141/191/เช็ครับ · กระเป๋าเงิน · Statement · COD · งบ)</div>
+      <button class="ord-btn primary" onclick="utkPickDrop()"><i data-lucide="upload"></i> เลือกไฟล์</button>
+      ${clHtml}
+    </div>
+
+    ${groupHtml("day")}
+    ${groupHtml("week")}
+    ${groupHtml("month")}
+    <div style="font-size:12px;color:#94a3b8;margin-top:8px">ℹ️ "ครอบถึงวันที่" = ข้อมูลในระบบไปถึงวันไหนแล้ว · จังหวะ (รายวัน/สัปดาห์/เดือน) ปรับได้ บอกผมได้เลยถ้าอยากย้ายรายการ</div>
+  `;
+  if(window.lucide) lucide.createIcons();
+}
 
 async function renderToolDocs(){
   const main=document.getElementById("main");

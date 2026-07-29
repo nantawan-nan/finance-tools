@@ -191,6 +191,14 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-29 (2) — ★ งานอัปโหลด: มอบหมายงาน (admin ตั้งความถี่/วัน/ผู้รับผิดชอบ · user ดู · เตือนหน้าหลัก)
+- **เจ้าของ:** admin ตั้งได้ว่าแต่ละงานอัปทุกวัน/สัปดาห์(วันไหน)/เดือน(วันที่เท่าไหร่) + มอบหมายให้ user (dropdown) · user ดูอย่างเดียว · เตือนที่หน้าหลักทุกครั้งที่เข้า
+- **Migration `upload-tasks.sql`:** ตาราง `upload_tasks` (company_id/source_key/frequency/weekday/monthday/assignee_id/assignee_name/active · unique co+source · RLS: read=บริษัท · write=admin/finance_mgr)
+- **`utkLoad` +โหลด tasks + รายชื่อ user** (จาก user_presence) · `utkSaveTask` (upsert · optimistic) · `utkFreq`/`utkSchedLabel`/`utkDueToday`/`utkTaskDue`(f,wd,md)
+- **UI:** row เพิ่มคอลัมน์ "ความถี่·มอบหมาย" — **admin** = dropdown ความถี่ + วัน(สัปดาห์/เดือน) + assignee · **user** = read-only (ตาราง + 👤 ผู้รับผิดชอบ) · group ตามความถี่ที่ตั้ง (config ทับ default)
+- **หน้าหลัก:** `homeLoadStats` +query `upload_tasks` assignee=ฉัน → `myTasksDue` (due today) → แบนเนอร์ teal "📌 งานอัปโหลดที่มอบหมายให้คุณวันนี้" + ปุ่มไปหน้า
+- **verified:** syntax OK · boot 0 error · **ต้อง push ให้ migration รันก่อน** · query upload_tasks graceful ถ้ายังไม่ deploy (error→[])
+
 ### 2026-07-29 — ★ หน้าใหม่ "งานอัปโหลด" (uploadtasks) — เช็คลิสต์เอกสาร + สถานะ + ลากไฟล์ทีเดียว (classify)
 - **เจ้าของ:** อยากได้สรุปว่าแต่ละบริษัท/ช่องทางต้องอัปอะไร · อัปถึงวันไหน/ล่าสุดเมื่อไหร่ · TODO ให้ จนท. เห็นว่าต้องอัปอะไรทุกวัน/สัปดาห์ (รวม Express) + "นำเข้าทีเดียวจบ" (ข้อ 1 ของ data-flow improvement)
 - **หน้าใหม่ `uploadtasks`** ใต้ stage "งาน & เอกสาร" (`renderToolUploadTasks` · `utk*` · dispatch `t.id==="uploadtasks"`):

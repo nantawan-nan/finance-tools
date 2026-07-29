@@ -8067,7 +8067,8 @@ async function homeLoadStats(){
       orders=orders.concat(data);
       if(data.length<osz) break; ofrom+=osz;
     }
-    const [apRes, balRes, apOverRes, stmRes, incRes, codRes, reconRes, presRes] = await Promise.all([
+    const myUid = AUTH.user ? AUTH.user.id : "00000000-0000-0000-0000-000000000000";
+    const [apRes, balRes, apOverRes, stmRes, incRes, codRes, reconRes, presRes, myTaskRes] = await Promise.all([
       sb.from("ap_invoices").select("amount_outstanding").eq("company_id",co).is("deleted_at",null),
       sb.rpc("fn_balance_as_of",{ p_company:co, p_as_of: todayISO }),
       // AP เลยกำหนดชำระ (planned_payment_date เป็นอดีต) แต่ยังค้างจ่าย
@@ -8081,7 +8082,9 @@ async function homeLoadStats(){
       // กระทบยอดหลังบ้านล่าสุด
       sb.from("order_recon").select("created_at").eq("company_id",co).order("created_at",{ascending:false}).limit(1),
       // ผู้ใช้งานล่าสุด (presence · global)
-      sb.from("user_presence").select("email,display_name,role,last_seen,current_tool").order("last_seen",{ascending:false}).limit(8)
+      sb.from("user_presence").select("email,display_name,role,last_seen,current_tool").order("last_seen",{ascending:false}).limit(8),
+      // ★ งานอัปโหลดที่มอบหมายให้ "ฉัน" (บริษัทนี้)
+      sb.from("upload_tasks").select("source_key,frequency,weekday,monthday").eq("company_id",co).eq("assignee_id",myUid).eq("active",true)
     ]);
     // ★ สถิติออเดอร์ = เฉพาะ "เดือนปัจจุบัน" (ภาพรวมการทำงานเดือนนี้) · AP/เงินสด = ยอด ณ ปัจจุบัน (ไม่ผูกเดือน)
     const curYm = todayISO.slice(0,7);
@@ -8131,6 +8134,10 @@ async function homeLoadStats(){
         }
       }
     }catch(e){ console.warn("home payRound", e); }
+    // ★ งานอัปโหลดที่มอบหมายให้ฉัน + ถึงกำหนดวันนี้
+    const myTasksDue = ((myTaskRes&&myTaskRes.data)||[])
+      .filter(t=> utkTaskDue(t.frequency, t.weekday, t.monthday))
+      .map(t=> ({ key:t.source_key, label:utkSrcLabel(t.source_key), tool:utkSrcTool(t.source_key) }));
     state.home.stats = {
       ivPct: active.length? Math.round(withIv.length/active.length*100):0,
       ivKeyed: withIv.length, ordTotal: active.length, cancelled: cancelledOrders.length, cancelledSum,
@@ -8138,6 +8145,7 @@ async function homeLoadStats(){
       apSum, cash, saleSum, maxOrderDate, payRound,
       apOverdueCount: apOverdue.length, apOverdueSum,
       unkeyedCount, oldestUnkeyed, lastStm, stmPeriodTo, lastIncome, lastCod, lastRecon, recentUsers,
+      myTasksDue,
       _loaded:true
     };
   }catch(e){ console.warn("home stats", e); }
@@ -8207,6 +8215,12 @@ function renderToolHome(){
         <button class="hd-btn" style="background:var(--brand);color:#fff;box-shadow:0 6px 14px rgba(14,154,136,.28)" onclick="renderToolHome()"><i data-lucide="refresh-cw" style="width:16px;height:16px"></i> อัปเดตข้อมูล</button>
       </div>
     </div>
+
+    ${(S.myTasksDue&&S.myTasksDue.length)? `<div style="margin-top:18px;background:linear-gradient(90deg,#0d9488,#0f766e);color:#fff;border-radius:16px;padding:16px 20px;box-shadow:0 8px 22px rgba(13,148,136,.28)">
+      <div style="font-weight:800;font-size:16px;margin-bottom:9px">📌 งานอัปโหลดที่มอบหมายให้คุณวันนี้ (${S.myTasksDue.length})</div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px">${S.myTasksDue.map(t=>`<button onclick="setTool('${t.tool}')" style="background:rgba(255,255,255,.18);color:#fff;border:1px solid rgba(255,255,255,.45);border-radius:20px;padding:6px 15px;font-size:13px;font-weight:600;cursor:pointer">${esc(t.label)} →</button>`).join("")}</div>
+      <div style="font-size:12px;opacity:.9;margin-top:9px">ดูเช็คลิสต์ทั้งหมด → <a onclick="setTool('uploadtasks')" style="color:#fff;text-decoration:underline;cursor:pointer">งานอัปโหลด</a></div>
+    </div>`:''}
 
     <!-- KPI CARDS -->
     <div class="hd-kpis" style="display:grid;grid-template-columns:repeat(5,1fr);gap:16px;margin-top:22px">
@@ -13791,7 +13805,8 @@ function docSet(k,v){ docGet()[k]=v; renderToolDocs(); }
    หน้า "งานอัปโหลด" (uploadtasks) — เช็คลิสต์เอกสารที่ต้องอัป + สถานะ + ลากไฟล์ทีเดียว (auto-classify)
    utk* helpers
    ============================================================ */
-function utkGet(){ if(!state.utk) state.utk={ loaded:false, busy:false, _co:null, st:{}, classified:null, classifying:false }; return state.utk; }
+function utkGet(){ if(!state.utk) state.utk={ loaded:false, busy:false, _co:null, st:{}, classified:null, classifying:false, tasks:{}, users:[] }; return state.utk; }
+const UTK_WEEKDAYS = ["อาทิตย์","จันทร์","อังคาร","พุธ","พฤหัส","ศุกร์","เสาร์"];
 // แหล่งข้อมูล + ความถี่ (day/week/month) + ปลายทาง · cadence ปรับได้ภายหลัง
 const UTK_SOURCES = [
   { key:"bigseller", label:"BigSeller (ออเดอร์)",              cad:"day",   tool:"orders",         note:"ทุกช่องทาง → ทะเบียนคำสั่งซื้อ" },
@@ -13842,9 +13857,50 @@ async function utkLoad(){
       ap:       { last:one(ap,"created_at"),            cov:null },
       fin:      { last:one(fin,"updated_at"),           cov:null },
     };
+    // ★ โหลดงานที่มอบหมาย (upload_tasks) + รายชื่อ user (สำหรับ dropdown assignee)
+    const [tk, us] = await Promise.all([
+      P(sb.from("upload_tasks").select("*").eq("company_id",co)),
+      P(sb.from("user_presence").select("user_id,email,display_name,role").order("last_seen",{ascending:false}))
+    ]);
+    const tmap={}; ((tk&&tk.data)||[]).forEach(r=>{ tmap[r.source_key]=r; }); d.tasks=tmap;
+    const seen=new Set(), ulist=[]; ((us&&us.data)||[]).forEach(u=>{ if(u.user_id && !seen.has(u.user_id)){ seen.add(u.user_id); ulist.push(u); } }); d.users=ulist;
   }catch(e){ console.warn("utkLoad",e); }
   d.busy=false; d.loaded=true;
 }
+/* บันทึกการมอบหมาย/ตั้งเวลา (admin) — upsert upload_tasks */
+async function utkSaveTask(sourceKey, patch){
+  const d=utkGet(); const co=await fopCompanyId(); if(!co) return;
+  const cur=d.tasks[sourceKey]||{ source_key:sourceKey };
+  const row={ company_id:co, source_key:sourceKey,
+    frequency: 'frequency' in patch ? patch.frequency : (cur.frequency||null),
+    weekday:   'weekday'   in patch ? patch.weekday   : (cur.weekday!=null?cur.weekday:null),
+    monthday:  'monthday'  in patch ? patch.monthday  : (cur.monthday!=null?cur.monthday:null),
+    assignee_id:   'assignee_id'   in patch ? patch.assignee_id   : (cur.assignee_id||null),
+    assignee_name: 'assignee_name' in patch ? patch.assignee_name : (cur.assignee_name||null),
+    active: 'active' in patch ? patch.active : (cur.active!==false),
+    updated_at:new Date().toISOString(), updated_by: AUTH.user?AUTH.user.id:null };
+  d.tasks[sourceKey]={ ...cur, ...row };   // optimistic (กัน re-render กระพริบ)
+  try{
+    const { error } = await sb.from("upload_tasks").upsert(row, { onConflict:"company_id,source_key" });
+    if(error) throw error;
+  }catch(e){ alert("บันทึกไม่สำเร็จ: "+fopErr(e)); }
+  renderToolUploadTasks();
+}
+/* ความถี่ที่ใช้จริง (config ทับ default) + ป้าย schedule */
+function utkFreq(src){ const t=(utkGet().tasks||{})[src.key]; return (t&&t.frequency)||src.cad; }
+function utkSchedLabel(src){ const t=(utkGet().tasks||{})[src.key]||{}; const f=utkFreq(src);
+  if(f==="week"  && t.weekday!=null)  return "ทุกวัน"+UTK_WEEKDAYS[t.weekday];
+  if(f==="month" && t.monthday!=null) return "ทุกวันที่ "+t.monthday;
+  return UTK_CAD[f].l; }
+/* งานนี้ "ถึงกำหนดวันนี้" ไหม (ตามตารางที่ตั้ง) */
+function utkTaskDue(f, weekday, monthday){ const now=new Date(); f=f||"day";
+  if(f==="day") return true;
+  if(f==="week")  return weekday==null ? true : now.getDay()===+weekday;
+  if(f==="month"){ if(monthday==null) return true; const dim=new Date(now.getFullYear(),now.getMonth()+1,0).getDate(); return now.getDate()===Math.min(+monthday,dim); }
+  return false; }
+function utkDueToday(src){ const t=(utkGet().tasks||{})[src.key]||{}; return utkTaskDue(utkFreq(src), t.weekday, t.monthday); }
+function utkSrcLabel(key){ const s=UTK_SOURCES.find(x=>x.key===key); return s?s.label:key; }
+function utkSrcTool(key){ const s=UTK_SOURCES.find(x=>x.key===key); return s?s.tool:"uploadtasks"; }
 
 /* ---- ตัวเดาชนิดไฟล์ (unified import) — อ่านหัวเรื่องในไฟล์ ---- */
 async function utkDetectFile(file){
@@ -13902,26 +13958,40 @@ async function renderToolUploadTasks(){
   if((!d.loaded || d._co!==state.company) && !d.busy){ main.innerHTML=`<div class="page-head"><h1>งานอัปโหลด</h1></div><div style="padding:40px;text-align:center;color:#94a3b8">กำลังโหลด…</div>`; await utkLoad(); }
   const co=COMPANIES.find(c=>c.id===state.company);
   const st=d.st||{};
-  // TODO วันนี้ = แหล่งรายวันที่ warn/danger
-  const dayTodo=UTK_SOURCES.filter(s=>s.cad==="day").filter(s=>{ const sev=utkSev("day", utkDaysSince((st[s.key]||{}).last)); return sev==="warn"||sev==="danger"||sev==="none"; });
+  const isAdmin = AUTH.role==="admin" || AUTH.role==="finance_mgr";
+  const users=d.users||[]; const uName=(u)=>(u.display_name||(u.email||"").split("@")[0]||"?");
+  // TODO วันนี้ = งานที่ "ถึงกำหนดวันนี้" (ตามตารางที่ตั้ง) และยังไม่ทันสมัย
+  const dayTodo=UTK_SOURCES.filter(s=>utkDueToday(s)).filter(s=>utkSev(utkFreq(s), utkDaysSince((st[s.key]||{}).last))!=="ok");
   const sevChip=(sev)=>({ ok:'<span style="background:#dcfce7;color:#15803d;font-weight:700;font-size:11px;padding:2px 9px;border-radius:20px">🟢 ทันสมัย</span>',
      warn:'<span style="background:#fef3c7;color:#b45309;font-weight:700;font-size:11px;padding:2px 9px;border-radius:20px">🟡 ควรอัป</span>',
      danger:'<span style="background:#fee2e2;color:#b91c1c;font-weight:700;font-size:11px;padding:2px 9px;border-radius:20px">🔴 ค้างนาน</span>',
      none:'<span style="background:#f1f5f9;color:#64748b;font-weight:700;font-size:11px;padding:2px 9px;border-radius:20px">— ยังไม่เคยอัป</span>' }[sev]);
-  const rowHtml=(s)=>{ const x=st[s.key]||{}; const days=utkDaysSince(x.last); const sev=utkSev(s.cad,days);
+  const rowHtml=(s)=>{ const x=st[s.key]||{}; const f=utkFreq(s); const days=utkDaysSince(x.last); const sev=utkSev(f,days); const t=(d.tasks||{})[s.key]||{};
+    let assignCell;
+    if(isAdmin){
+      const wd = f==="week" ? `<select onchange="utkSaveTask('${s.key}',{weekday:this.value===''?null:+this.value})" style="font-size:11px;padding:2px 4px;border:1px solid #e2e8f0;border-radius:6px"><option value="">ทุกวัน…</option>${UTK_WEEKDAYS.map((w,i)=>`<option value="${i}" ${t.weekday===i?'selected':''}>${w}</option>`).join("")}</select>` : "";
+      const md = f==="month" ? `<select onchange="utkSaveTask('${s.key}',{monthday:this.value===''?null:+this.value})" style="font-size:11px;padding:2px 4px;border:1px solid #e2e8f0;border-radius:6px"><option value="">วันที่…</option>${Array.from({length:31},(_,i)=>`<option value="${i+1}" ${t.monthday===i+1?'selected':''}>${i+1}</option>`).join("")}</select>` : "";
+      assignCell=`<div style="display:flex;flex-direction:column;gap:4px;min-width:190px">
+        <div style="display:flex;gap:4px;flex-wrap:wrap"><select onchange="utkSaveTask('${s.key}',{frequency:this.value})" style="font-size:11px;padding:2px 4px;border:1px solid #e2e8f0;border-radius:6px"><option value="day" ${f==='day'?'selected':''}>ทุกวัน</option><option value="week" ${f==='week'?'selected':''}>ทุกสัปดาห์</option><option value="month" ${f==='month'?'selected':''}>ทุกเดือน</option></select>${wd}${md}</div>
+        <select onchange="utkSaveTask('${s.key}',{assignee_id:this.value||null,assignee_name:this.value?this.options[this.selectedIndex].text:null})" style="font-size:11px;padding:2px 4px;border:1px solid #99f6e4;border-radius:6px;background:#f0fdfa"><option value="">— มอบหมายให้… —</option>${users.map(u=>`<option value="${esc(u.user_id)}" ${t.assignee_id===u.user_id?'selected':''}>${esc(uName(u))}</option>`).join("")}</select>
+      </div>`;
+    } else {
+      assignCell=`<div style="font-size:12.5px">${esc(utkSchedLabel(s))}${t.assignee_name?`<br><span style="color:#0d9488;font-weight:700">👤 ${esc(t.assignee_name)}</span>`:'<br><span style="color:#cbd5e1">ยังไม่มอบหมาย</span>'}</div>`;
+    }
     return `<tr style="border-bottom:1px solid #f1f5f9">
       <td style="padding:9px 12px"><div style="font-weight:700;font-size:13.5px">${esc(s.label)}</div><div style="font-size:11.5px;color:#94a3b8">${esc(s.note)}</div></td>
+      <td style="padding:9px 12px">${assignCell}</td>
       <td style="padding:9px 12px;white-space:nowrap;font-size:12.5px">${x.last?`${utkThai(x.last)} <span style="color:#94a3b8">(${days} วันก่อน)</span>`:'<span style="color:#cbd5e1">—</span>'}</td>
       <td style="padding:9px 12px;white-space:nowrap;font-size:12.5px">${x.cov?utkThai(x.cov):'<span style="color:#cbd5e1">—</span>'}</td>
       <td style="padding:9px 12px;text-align:center">${sevChip(sev)}</td>
       <td style="padding:9px 12px;text-align:center"><button class="ord-btn" style="font-size:12px" onclick="utkGoTool('${s.tool}')">ไปอัป →</button></td>
     </tr>`; };
-  const groupHtml=(cad)=>{ const list=UTK_SOURCES.filter(s=>s.cad===cad); const c=UTK_CAD[cad];
+  const groupHtml=(cad)=>{ const list=UTK_SOURCES.filter(s=>utkFreq(s)===cad); if(!list.length) return ""; const c=UTK_CAD[cad];
     return `<div style="background:#fff;border:1px solid #e2e8f0;border-radius:14px;overflow:hidden;margin-bottom:16px">
       <div style="padding:11px 16px;background:${cad==='day'?'#ecfdf5':cad==='week'?'#fffbeb':'#eff6ff'};font-weight:800;font-size:14px;color:${cad==='day'?'#047857':cad==='week'?'#b45309':'#1d4ed8'}">${cad==='day'?'🟢':cad==='week'?'🟡':'🔵'} ${c.l}</div>
-      <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;min-width:640px">
+      <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;min-width:760px">
         <thead><tr style="background:#f8fafc;text-align:left;color:#64748b;font-size:11.5px">
-          <th style="padding:8px 12px">รายงาน</th><th style="padding:8px 12px">อัปล่าสุด</th><th style="padding:8px 12px">ครอบถึงวันที่</th><th style="padding:8px 12px;text-align:center">สถานะ</th><th style="padding:8px 12px;text-align:center">จัดการ</th>
+          <th style="padding:8px 12px">รายงาน</th><th style="padding:8px 12px">${isAdmin?'ความถี่ · มอบหมายให้':'ตาราง · ผู้รับผิดชอบ'}</th><th style="padding:8px 12px">อัปล่าสุด</th><th style="padding:8px 12px">ครอบถึงวันที่</th><th style="padding:8px 12px;text-align:center">สถานะ</th><th style="padding:8px 12px;text-align:center">จัดการ</th>
         </tr></thead><tbody>${list.map(rowHtml).join("")}</tbody>
       </table></div></div>`; };
   // dropzone

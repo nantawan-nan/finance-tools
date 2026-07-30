@@ -654,7 +654,7 @@ function updateCrumb(){
    ===================================================================== */
 /* ★ เลข build — บั๊มทุกครั้งที่ deploy (โชว์มุมล่าง sidebar) · ใช้เช็คว่าเบราว์เซอร์ได้โค้ดล่าสุดหรือยัง
    (ตัวเช็คเวอร์ชันอัตโนมัติถูกปิดตามคำขอเจ้าของ — เลขนี้คือทางเช็คด้วยตาแทน) */
-const APP_BUILD = "3007a";
+const APP_BUILD = "3007b";
 const APP_CONFIG = {
   // null = โชว์ทุกโมดูล (ของเดิม) · หรือ array = โชว์เฉพาะ id เหล่านี้
   enabledTools: null,
@@ -31191,10 +31191,22 @@ async function bmpRunUpload(){
       if(!lzInc || !lzBal) throw new Error("Lazada ต้องอัป 2 ไฟล์: 'รายงานรับของฉัน' (Income Overview) + 'ยอดของฉัน' (Balance Transactions)");
       addToShop(bmpParseLazadaWallet(lzInc, lzBal), lzIncName, lzBalName);
     }
+    const skippedFiles = [];   // ★ ไฟล์ที่ไม่ใช่รายงานกระเป๋าเงิน (เช่นลากไฟล์ออเดอร์มาผิดช่อง) — ข้าม+แจ้ง ไม่ล้มทั้งการอัป
     for(const { wb, name:sfname } of singleFiles){
       // ★ รองรับ 2 รูปแบบ: Shopee Balance / TikTok "รายการรับเงิน" (auto-detect จากชื่อชีต)
-      const sd = bmpIsTiktokWallet(wb) ? bmpParseTiktokWallet(wb) : bmpParseShopeeBalance(wb);
-      addToShop(sd, sfname);
+      try{
+        const sd = bmpIsTiktokWallet(wb) ? bmpParseTiktokWallet(wb) : bmpParseShopeeBalance(wb);
+        addToShop(sd, sfname);
+      }catch(pe){
+        skippedFiles.push(sfname);
+        console.warn("bmpRunUpload: skip non-wallet file", sfname, pe);
+      }
+    }
+    if(skippedFiles.length && !shopeeByName.size){
+      throw new Error(`ไฟล์ที่เลือกไม่ใช่รายงานกระเป๋าเงินเลย: ${skippedFiles.join(", ")}\n\nช่องนี้รับเฉพาะ Shopee Balance / TikTok รายการรับเงิน / Lazada (2 ไฟล์) — ไฟล์ออเดอร์ (Order.all...) ให้ไปอัปที่หน้า "ทะเบียนคำสั่งซื้อ"`);
+    }
+    if(skippedFiles.length){
+      alert(`⚠ ข้ามไฟล์ที่ไม่ใช่รายงานกระเป๋าเงิน ${skippedFiles.length} ไฟล์:\n• ${skippedFiles.join("\n• ")}\n\n(ไฟล์ออเดอร์ Order.all... ให้อัปที่หน้า "ทะเบียนคำสั่งซื้อ")\n\nไฟล์กระเป๋าเงินที่เหลือจะประมวลผลต่อตามปกติ`);
     }
     // dedupe + sort per shop
     for(const g of shopeeByName.values()){

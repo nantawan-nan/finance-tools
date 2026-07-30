@@ -25568,6 +25568,12 @@ function bmpParseTiktokWallet(workbook){
   for(let i=1;i<wRows.length;i++){
     const r = wRows[i]; if(!r) continue;
     const t = String(r[wTyp]||"").trim(); if(!t) continue;
+    // ★★ กรองรายการ "ไม่สำเร็จ" (Failed/Cancelled) — เงินไม่ออกจากกระเป๋าจริง ค้างไว้ถอนรอบถัดไป
+    //    เคสจริง betra 22/07: Withdrawal 1,240 Failed → ถูกถอนรวมใน 23/07 (1,453.56 = 1,240+213.56)
+    //    เดิมไม่กรอง → สร้างใบถอนปลอม 22/07 + งวด 23/07 ขาด 1,240 กลายเป็น "ยอดยกมา" หลอก
+    //    (เช็คเฉพาะเมื่อ status เป็นข้อความ — status ที่เป็นตัวเลข = ยอดแตก 2 ช่อง ไม่ใช่สถานะ)
+    const stRaw = String(r[wSt]||"").trim();
+    if(!bmpTtIsNum(r[wSt]) && /failed|cancel|ล้มเหลว|ยกเลิก/i.test(stRaw)) continue;
     const iso = bmpIsoFromAny(r[wDone]) || bmpIsoFromAny(r[wReq]); if(!iso) continue;
     // ★ บางแถวยอดถูกแบ่ง 2 ช่อง (ช่อง "สถานะ" กลายเป็นตัวเลข) → บวกรวมเป็นยอดเดียว
     const amt = bmpTtNum(r[wAmt]) + (bmpTtIsNum(r[wSt]) ? bmpTtNum(r[wSt]) : 0);

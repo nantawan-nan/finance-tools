@@ -652,6 +652,9 @@ function updateCrumb(){
              (2) ตั้ง enabledTools = รายการ id โมดูลที่จะโชว์
              (3) ตั้ง companies = บริษัทของกิจการใหม่ (ใช้ id "benya"/"mbark" เพื่อได้ธีมสีเดิม)
    ===================================================================== */
+/* ★ เลข build — บั๊มทุกครั้งที่ deploy (โชว์มุมล่าง sidebar) · ใช้เช็คว่าเบราว์เซอร์ได้โค้ดล่าสุดหรือยัง
+   (ตัวเช็คเวอร์ชันอัตโนมัติถูกปิดตามคำขอเจ้าของ — เลขนี้คือทางเช็คด้วยตาแทน) */
+const APP_BUILD = "3007a";
 const APP_CONFIG = {
   // null = โชว์ทุกโมดูล (ของเดิม) · หรือ array = โชว์เฉพาะ id เหล่านี้
   enabledTools: null,
@@ -1030,7 +1033,7 @@ function renderSidebar(){
     </div>
     <div class="company-switch" id="companySwitch"></div>
     <div class="sb-nav">${navHtml}</div>
-    <div class="sb-footer"><span class="dot"></span>Finance Tools v2 · ${esc(AUTH.role||"")}</div>
+    <div class="sb-footer"><span class="dot"></span>Finance Tools v2 · ${esc(AUTH.role||"")} · <span title="เลข build — ใช้เช็คว่าได้โค้ดล่าสุดหรือยัง (ถ้าไม่ตรงที่แจ้ง = Ctrl+Shift+R)">b${typeof APP_BUILD!=="undefined"?APP_BUILD:"?"}</span></div>
   `;
   renderCompanies();
   if(window.lucide && window.lucide.createIcons){ try{ window.lucide.createIcons(); }catch(e){} }

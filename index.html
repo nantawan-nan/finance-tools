@@ -13935,6 +13935,8 @@ async function utkSaveTask(sourceKey, patch){
   try{
     const { error } = await sb.from("upload_tasks").upsert(row, { onConflict:"company_id,source_key" });
     if(error) throw error;
+    // ★ ตั้งค่างานเปลี่ยน → ล้างแคชหน้าหลัก เพื่อให้แบนเนอร์ "เตือนวันนี้" คำนวณใหม่ (กันค้าง stale)
+    if(state.home) state.home.stats=null;
   }catch(e){ alert("บันทึกไม่สำเร็จ: "+fopErr(e)); }
   renderToolUploadTasks();
 }

@@ -8187,8 +8187,10 @@ async function homeLoadStats(){
       }
     }catch(e){ console.warn("home payRound", e); }
     // ★ งานอัปโหลดที่มอบหมายให้ฉัน + ถึงกำหนดวันนี้
+    //   ใช้ "ความถี่ที่แท้จริง" = frequency ใน DB · ถ้า null → fallback ค่า default ของแหล่ง (src.cad)
+    //   เดิมใช้ t.frequency ดิบ → null กลายเป็น "day" (เตือนทุกวัน) ทั้งที่แหล่งเป็นรายเดือน/สัปดาห์
     const myTasksDue = ((myTaskRes&&myTaskRes.data)||[])
-      .filter(t=> utkTaskDue(t.frequency, t.weekday, t.monthday))
+      .filter(t=>{ const src=UTK_SOURCES.find(s=>s.key===t.source_key); const f=t.frequency||(src&&src.cad)||"day"; return utkTaskDue(f, t.weekday, t.monthday); })
       .map(t=> ({ key:t.source_key, label:utkSrcLabel(t.source_key), tool:utkSrcTool(t.source_key) }));
     state.home.stats = {
       ivPct: active.length? Math.round(withIv.length/active.length*100):0,
@@ -13923,8 +13925,10 @@ async function utkLoad(){
 async function utkSaveTask(sourceKey, patch){
   const d=utkGet(); const co=await fopCompanyId(); if(!co) return;
   const cur=d.tasks[sourceKey]||{ source_key:sourceKey };
+  const srcDef=(UTK_SOURCES.find(s=>s.key===sourceKey)||{}).cad||null;  // ★ ความถี่ default ของแหล่ง
   const row={ company_id:co, source_key:sourceKey,
-    frequency: 'frequency' in patch ? patch.frequency : (cur.frequency||null),
+    // เก็บความถี่ที่แท้จริงเสมอ (ถ้ายังว่าง → ใช้ default ของแหล่ง) กัน frequency=null ที่ทำหน้าหลักเตือนทุกวัน
+    frequency: 'frequency' in patch ? patch.frequency : (cur.frequency||srcDef),
     weekday:   'weekday'   in patch ? patch.weekday   : (cur.weekday!=null?cur.weekday:null),
     monthday:  'monthday'  in patch ? patch.monthday  : (cur.monthday!=null?cur.monthday:null),
     assignee_id:   'assignee_id'   in patch ? patch.assignee_id   : (cur.assignee_id||null),

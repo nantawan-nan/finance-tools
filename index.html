@@ -32654,9 +32654,11 @@ function appShowUpdateBanner(){
     '<button onclick="this.parentNode.remove()" style="background:transparent;color:#fff;border:none;cursor:pointer;font-size:18px;line-height:1">×</button>';
   document.body.appendChild(b);
 }
-appCheckUpdate();
-setInterval(appCheckUpdate, 180000);                            // ทุก 3 นาที
-window.addEventListener("focus", appCheckUpdate);               // + ตอนกลับมาที่แท็บ
+// ★ ปิดตัวเด้งเวอร์ชันใหม่อัตโนมัติ (เจ้าของขอเอาออก · เด้งบ่อยเกินตอน push ถี่)
+//   ได้เวอร์ชันใหม่ด้วยการ Hard refresh (Ctrl+Shift+R) แทน · เปิดคืนได้โดยเอา // 3 บรรทัดล่างออก
+// appCheckUpdate();
+// setInterval(appCheckUpdate, 180000);                         // ทุก 3 นาที
+// window.addEventListener("focus", appCheckUpdate);            // + ตอนกลับมาที่แท็บ
 </script>
 </body>
 </html>

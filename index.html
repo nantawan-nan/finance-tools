@@ -26123,55 +26123,83 @@ function bmpGroupWithdrawals(parsed, arData, chqData, salesData, shopName, share
       // เอาทั้ง pool (ทุก txn ก่อนการถอนนี้) + ยอดยกมา
       const assigned = queue.splice(0);
       let acc = +(carryIn + assigned.reduce((s,t)=> s + t.amount, 0)).toFixed(2);
-      // ถอนบางส่วน: pool เกินยอดถอน → ดัน "ทั้งวันใหม่สุด" กลับเข้าคิว (ยกไปงวดหน้า)
-      //   ★ ดันทีละ "วัน" (ไม่ใช่รายออเดอร์) — กันออเดอร์ยกเลิก (net<0) คั่นขอบ · วัน net ติดลบ (วันหักโฆษณา) ไม่ดัน
-      while(assigned.length && (acc - wdAmount) > 0.01){
-        const lastDate = assigned[assigned.length-1].txn_date;
-        let i = assigned.length, dayNet = 0;
-        while(i > 0 && assigned[i-1].txn_date === lastDate){ dayNet += assigned[i-1].amount; i--; }
-        if(dayNet > 0 && (acc - dayNet) >= (wdAmount - 0.01)){
-          const popped = assigned.splice(i);            // ตัดทั้งวันใหม่สุดออก
-          for(let k = popped.length-1; k >= 0; k--) queue.unshift(popped[k]);
-          acc = +(acc - dayNet).toFixed(2);
-        } else break;
-      }
-      // ★ เศษที่คร่อมกลางวัน → "หาออเดอร์ที่ net รวม = เศษพอดี" แล้วย้ายไปงวดหน้า → ยอดยกไป = 0
-      //   เจ้าของ: ถอนคร่อมวันต้อง "หาเจอว่าออเดอร์ไหน" เอาออเดอร์นั้นไปงวดถัดไป (ไม่ยกเป็นเงินสด)
-      //   วิธี: subset-sum เต็ม (กี่ออเดอร์ก็ได้) หาชุดออเดอร์บวกใน "วันที่คร่อม" ที่ net รวม = เศษ → ย้ายทั้งชุด
-      //   จำกัดที่วันคร่อม (วันใหม่สุดที่เหลือ) เพราะ push "ทั้งวัน" ก่อนหน้าเอาวันที่ครบออกไปแล้ว → เศษ ≤ net วันนี้
-      //   เช็คของออเดอร์ที่ย้าย → ไปอยู่ในใบฝากงวดถัดไปจริง · ใบฝากงวดนี้ = ตรง STM เป๊ะ
-      let carryOut = Math.max(0, +(acc - wdAmount).toFixed(2));
-      if(carryOut > 0.01){
-        const boundaryDate = assigned.length ? assigned[assigned.length-1].txn_date : null;
-        const posIdx = [];
-        for(let k = assigned.length-1; k >= 0 && assigned[k].txn_date === boundaryDate; k--){   // เฉพาะวันคร่อม
-          const t = assigned[k];
-          if(t.type === "รายรับจากคำสั่งซื้อ" && t.amount > 0.01) posIdx.push(k);
-        }
-        let pick = bmpSubsetForCarry(posIdx, assigned, Math.round(carryOut*100));
-        if(!pick){   // เผื่อเศษไม่ลงตัวในวันเดียว → ลองทุกออเดอร์บวกที่เหลือ
-          const allPos = [];
-          for(let k = assigned.length-1; k >= 0; k--){ const t=assigned[k]; if(t.type==="รายรับจากคำสั่งซื้อ" && t.amount>0.01) allPos.push(k); }
-          pick = bmpSubsetForCarry(allPos, assigned, Math.round(carryOut*100));
-        }
-        if(pick){
-          const moved = pick.map(k => assigned[k]);
-          pick.slice().sort((a,b)=> b-a).forEach(k => assigned.splice(k,1));   // ลบจากท้าย กัน index เลื่อน
-          moved.sort((a,b)=> String(a.datetime||"").localeCompare(String(b.datetime||"")));
-          for(let m = moved.length-1; m >= 0; m--) queue.unshift(moved[m]);     // ไปงวดหน้า เรียงเวลา
-          acc = +(acc - carryOut).toFixed(2);
-          carryOut = 0;
-        } else {
-          // หา subset เป๊ะไม่ได้ (ถอนคร่อม "กลางออเดอร์" จริง — เช็คแบ่งครึ่งไม่ได้) → ดันออเดอร์ใหม่สุดแบบไม่ให้ขาด · เหลือเศษเงินสดเล็กน้อย
-          while((acc - wdAmount) > 0.01){
-            let j = assigned.length - 1;
-            while(j >= 0 && !(assigned[j].type === "รายรับจากคำสั่งซื้อ" && assigned[j].amount > 0.01)) j--;
-            if(j < 0) break;
-            const t = assigned[j];
-            if((acc - t.amount) < (wdAmount - 0.01)) break;
-            assigned.splice(j, 1); queue.unshift(t); acc = +(acc - t.amount).toFixed(2);
+      let carryOut = 0;   // ★ carry เป็น "เงินสดเศษ" เท่านั้น · ออเดอร์ที่ยกไป = อยู่ใน queue (กันนับซ้ำ)
+      // ★ Shopee ถอนไม่หมดกระเป๋า: ยึด "ยอดคงเหลือจริงหลังถอน" (balance_after) เป็นตัวกำหนดว่ายกออเดอร์ไปเท่าไหร่ (ground truth)
+      //   เงินที่ค้างในกระเป๋าหลังถอน = ออเดอร์ที่ต้องยกไปงวดหน้า · แม่นกว่า FIFO เดา (partial withdrawal)
+      //   ★ ถอนเต็ม/M Bark → balance_after ≈ 0 → ตกไป FIFO เดิม (ไม่กระทบ) · Lazada/TikTok balance_after=0 → FIFO เดิม
+      const shopeeBal = (routing.channel === "shopee") ? Number(tx.balance_after) : NaN;
+      if(isFinite(shopeeBal) && shopeeBal > 0.5){
+        const wantCarry = Math.max(0, Math.min(+shopeeBal.toFixed(2), acc));   // ยอดที่ต้องยกไป (= เงินค้างกระเป๋า)
+        if(wantCarry > 0.01){
+          const posAll = [];
+          for(let k = assigned.length-1; k >= 0; k--){ const t=assigned[k]; if(t.type==="รายรับจากคำสั่งซื้อ" && t.amount>0.01) posAll.push(k); }
+          let pick = bmpSubsetForCarry(posAll, assigned, Math.round(wantCarry*100));
+          if(pick && pick.length){
+            const moved = pick.map(k => assigned[k]);
+            pick.slice().sort((a,b)=> b-a).forEach(k => assigned.splice(k,1));
+            moved.sort((a,b)=> String(a.datetime||"").localeCompare(String(b.datetime||"")));
+            for(let m = moved.length-1; m >= 0; m--) queue.unshift(moved[m]);   // ยกออเดอร์ไปงวดหน้า (queue) · ไม่ตั้ง carryOut เป็นเงินสด
+            acc = +(acc - wantCarry).toFixed(2);
+          } else {
+            // subset ไม่ลงตัว (คร่อมกลางออเดอร์) → ดันออเดอร์บวกใหม่สุดจนใกล้ยอดคงเหลือ (เหลือ ≤1 ใบกำกวมค้างงวดนี้)
+            let carried = 0;
+            while(carried + 0.5 < wantCarry){
+              let j = assigned.length - 1;
+              while(j >= 0 && !(assigned[j].type === "รายรับจากคำสั่งซื้อ" && assigned[j].amount > 0.01)) j--;
+              if(j < 0) break;
+              const t = assigned[j];
+              if(carried + t.amount > wantCarry + t.amount*0.5) break;   // ดันแล้วเกินเกินครึ่งใบ → หยุด (ใบนี้กำกวม เก็บงวดนี้)
+              assigned.splice(j, 1); queue.unshift(t); carried = +(carried + t.amount).toFixed(2);
+            }
+            acc = +(acc - carried).toFixed(2);
           }
-          carryOut = Math.max(0, +(acc - wdAmount).toFixed(2));
+        }
+      } else {
+        // ── TikTok/Lazada + Shopee ถอนเต็ม — FIFO เดาเหมือนเดิม ──
+        // ถอนบางส่วน: pool เกินยอดถอน → ดัน "ทั้งวันใหม่สุด" กลับเข้าคิว (ยกไปงวดหน้า)
+        while(assigned.length && (acc - wdAmount) > 0.01){
+          const lastDate = assigned[assigned.length-1].txn_date;
+          let i = assigned.length, dayNet = 0;
+          while(i > 0 && assigned[i-1].txn_date === lastDate){ dayNet += assigned[i-1].amount; i--; }
+          if(dayNet > 0 && (acc - dayNet) >= (wdAmount - 0.01)){
+            const popped = assigned.splice(i);
+            for(let k = popped.length-1; k >= 0; k--) queue.unshift(popped[k]);
+            acc = +(acc - dayNet).toFixed(2);
+          } else break;
+        }
+        // เศษที่คร่อมกลางวัน → subset-sum หาชุดออเดอร์ที่ net รวม = เศษ → ย้ายไปงวดหน้า
+        carryOut = Math.max(0, +(acc - wdAmount).toFixed(2));
+        if(carryOut > 0.01){
+          const boundaryDate = assigned.length ? assigned[assigned.length-1].txn_date : null;
+          const posIdx = [];
+          for(let k = assigned.length-1; k >= 0 && assigned[k].txn_date === boundaryDate; k--){
+            const t = assigned[k];
+            if(t.type === "รายรับจากคำสั่งซื้อ" && t.amount > 0.01) posIdx.push(k);
+          }
+          let pick = bmpSubsetForCarry(posIdx, assigned, Math.round(carryOut*100));
+          if(!pick){
+            const allPos = [];
+            for(let k = assigned.length-1; k >= 0; k--){ const t=assigned[k]; if(t.type==="รายรับจากคำสั่งซื้อ" && t.amount>0.01) allPos.push(k); }
+            pick = bmpSubsetForCarry(allPos, assigned, Math.round(carryOut*100));
+          }
+          if(pick){
+            const moved = pick.map(k => assigned[k]);
+            pick.slice().sort((a,b)=> b-a).forEach(k => assigned.splice(k,1));
+            moved.sort((a,b)=> String(a.datetime||"").localeCompare(String(b.datetime||"")));
+            for(let m = moved.length-1; m >= 0; m--) queue.unshift(moved[m]);
+            acc = +(acc - carryOut).toFixed(2);
+            carryOut = 0;
+          } else {
+            while((acc - wdAmount) > 0.01){
+              let j = assigned.length - 1;
+              while(j >= 0 && !(assigned[j].type === "รายรับจากคำสั่งซื้อ" && assigned[j].amount > 0.01)) j--;
+              if(j < 0) break;
+              const t = assigned[j];
+              if((acc - t.amount) < (wdAmount - 0.01)) break;
+              assigned.splice(j, 1); queue.unshift(t); acc = +(acc - t.amount).toFixed(2);
+            }
+            carryOut = Math.max(0, +(acc - wdAmount).toFixed(2));
+          }
         }
       }
       carryCash = carryOut;

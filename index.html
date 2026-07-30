@@ -18971,8 +18971,8 @@ async function cffPlannedDelete(id){
 function cffTogglePlan(){ const d=cffGet(); d.planOpen=!d.planOpen; cffRerender(); }
 /* ปุ่มลูกตา: ซ่อน/แสดง รายการวางแผนในรายงาน (ซ่อน = เห็นตามเงินจริง) */
 function cffToggleStaffPlan(){ const d=cffGet(); d.staffPlanShow = !(d.staffPlanShow !== false); cffRerender(); }
-/* เพิ่มรายการวางแผนจากฟอร์ม (อ่านค่าจาก DOM ตอนกด — ไม่ re-render ระหว่างพิมพ์) */
-async function cffPlanAdd(){
+/* อ่าน+ตรวจฟอร์มวางแผน (อ่านค่าจาก DOM ตอนกด — ไม่ re-render ระหว่างพิมพ์) → คืน rec หรือ null */
+function cffPlanReadForm(){
   const g=id=>document.getElementById(id);
   const kind=(g("cffPlanKind")||{}).value||"transfer";
   const from=(g("cffPlanFrom")||{}).value||"";
@@ -18980,16 +18980,35 @@ async function cffPlanAdd(){
   const amount=Number(((g("cffPlanAmt")||{}).value||"").replace(/[,\s]/g,""))||0;
   const date=(g("cffPlanDate")||{}).value||"";
   const note=((g("cffPlanNote")||{}).value||"").trim();
-  if(amount<=0){ alert("กรอกจำนวนเงินให้ถูกต้อง"); return; }
-  if(kind==="transfer" && (!from||!to)){ alert("โอนระหว่างบัญชี — เลือกทั้งบัญชีต้นทางและปลายทาง"); return; }
-  if(kind==="transfer" && from===to){ alert("บัญชีต้นทาง/ปลายทางต้องต่างกัน"); return; }
-  if(kind==="inflow" && !to){ alert("รับเงินคาดการณ์ — เลือกบัญชีปลายทาง (เงินเข้าบัญชีไหน)"); return; }
-  if(kind==="outflow" && !from){ alert("จ่ายคาดการณ์ — เลือกบัญชีต้นทาง (จ่ายจากบัญชีไหน)"); return; }
-  await cffPlannedSave({ kind,
+  if(amount<=0){ alert("กรอกจำนวนเงินให้ถูกต้อง"); return null; }
+  if(kind==="transfer" && (!from||!to)){ alert("โอนระหว่างบัญชี — เลือกทั้งบัญชีต้นทางและปลายทาง"); return null; }
+  if(kind==="transfer" && from===to){ alert("บัญชีต้นทาง/ปลายทางต้องต่างกัน"); return null; }
+  if(kind==="inflow" && !to){ alert("รับเงินคาดการณ์ — เลือกบัญชีปลายทาง (เงินเข้าบัญชีไหน)"); return null; }
+  if(kind==="outflow" && !from){ alert("จ่ายคาดการณ์ — เลือกบัญชีต้นทาง (จ่ายจากบัญชีไหน)"); return null; }
+  return { kind,
     from_account_id: (kind==="inflow")?null:(from||null),
     to_account_id: (kind==="outflow")?null:(to||null),
-    amount, plan_date: date||null, note: note||null });
+    amount, plan_date: date||null, note: note||null };
 }
+/* บันทึกฟอร์ม — เพิ่มใหม่ (insert) หรือ แก้ไข (update ตาม d.planEditId) */
+async function cffPlanSubmit(){
+  const rec=cffPlanReadForm(); if(!rec) return;
+  const d=cffGet();
+  if(d.planEditId){
+    const { error } = await sb.from("cff_planned").update({ ...rec, updated_at:new Date().toISOString(), updated_by:(AUTH.user?AUTH.user.id:null) }).eq("id", d.planEditId);
+    if(error){ alert("บันทึกไม่สำเร็จ: "+fopErr(error)); return; }
+    d.planEditId=null;
+  } else {
+    const cid = await fopCompanyId(); if(!cid) return;
+    const { error } = await sb.from("cff_planned").insert({ company_id:cid, created_by:(AUTH.user?AUTH.user.id:null), ...rec });
+    if(error){ alert("บันทึกไม่สำเร็จ: "+fopErr(error)); return; }
+  }
+  d._uiOnly=false; try{ await cffLoad(); }catch(e){} renderToolCashflowStaff();
+}
+async function cffPlanAdd(){ return cffPlanSubmit(); }  // backward-compat
+/* เข้าโหมดแก้ไขรายการ (เติมค่าลงฟอร์มด้านบน) */
+function cffPlanEdit(id){ const d=cffGet(); d.planEditId=id; d.planOpen=true; cffRerender(); setTimeout(()=>{ try{ document.getElementById("cffPlanKind")?.scrollIntoView({behavior:"smooth",block:"center"}); }catch(e){} }, 60); }
+function cffPlanCancelEdit(){ const d=cffGet(); d.planEditId=null; cffRerender(); }
 const CFF_PLAN_KIND={ transfer:{l:"🔄 โอนระหว่างบัญชี",c:"#6d28d9"}, inflow:{l:"⬇️ รับคาดการณ์",c:"#047857"}, outflow:{l:"⬆️ จ่ายคาดการณ์",c:"#be185d"} };
 function cffAcctLabel(dt,id){ const b=(dt.balances||[]).find(x=>x.bank_account_id===id); return b?`${cffBankName(b.bank_code)} ${b.account_no}`:"—"; }
 /* แผงจัดการรายการวางแผนล่วงหน้า (ต่อยอด forecast) */
@@ -18998,7 +19017,9 @@ function cffPlannedPanelHtml(d, dt, canWrite){
   const items=(dt.planned||[]).slice().sort((a,b)=>String(a.plan_date||"9999").localeCompare(String(b.plan_date||"9999")));
   const nf=(n)=>Number(n||0).toLocaleString("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2});
   const fmtDate=(iso)=>iso?new Date(iso).toLocaleDateString("th-TH",{day:"2-digit",month:"short"}):"— ไม่ระบุวัน —";
-  const acctOpts=(dt.balances||[]).map(b=>`<option value="${esc(b.bank_account_id)}">${esc(cffBankName(b.bank_code))} ${esc(b.account_no)}</option>`).join("");
+  const editItem = (canWrite && d.planEditId) ? items.find(x=>x.id===d.planEditId) : null;
+  const acctOptsSel=(sel)=>(dt.balances||[]).map(b=>`<option value="${esc(b.bank_account_id)}" ${b.bank_account_id===sel?'selected':''}>${esc(cffBankName(b.bank_code))} ${esc(b.account_no)}</option>`).join("");
+  const acctOpts=acctOptsSel(null);
   const head=`<div onclick="cffTogglePlan()" style="display:flex;align-items:center;gap:11px;padding:13px 18px;cursor:pointer">
     <span style="width:34px;height:34px;border-radius:9px;background:#ede9fe;color:#6d28d9;display:flex;align-items:center;justify-content:center;flex:none"><i data-lucide="calendar-clock" style="width:18px;height:18px"></i></span>
     <div style="flex:1"><div style="font-size:15px;font-weight:700">รายการวางแผนล่วงหน้า <span style="font-size:12px;font-weight:600;color:#8b5cf6;background:#ede9fe;padding:1px 9px;border-radius:999px;margin-left:4px">${items.length}</span></div><div style="font-size:12px;color:#64748b">โอนระหว่างบัญชี · เงินกู้/รับที่จะเข้า · จ่ายคาดการณ์ — เห็นยอดอนาคตโดยยอดจริงยังสะอาด</div></div>
@@ -19009,34 +19030,36 @@ function cffPlannedPanelHtml(d, dt, canWrite){
     <div style="display:flex;gap:9px;flex-wrap:wrap;align-items:flex-end">
       <div><div style="font-size:11px;color:#64748b;font-weight:600;margin-bottom:3px">ประเภท</div>
         <select id="cffPlanKind" style="padding:8px 10px;border:1px solid #d7d0f0;border-radius:8px;font-family:inherit;font-size:13px">
-          <option value="transfer">🔄 โอนระหว่างบัญชี</option><option value="inflow">⬇️ รับคาดการณ์ (เงินกู้ ฯลฯ)</option><option value="outflow">⬆️ จ่ายคาดการณ์</option>
+          <option value="transfer" ${editItem&&editItem.kind==='transfer'?'selected':''}>🔄 โอนระหว่างบัญชี</option><option value="inflow" ${editItem&&editItem.kind==='inflow'?'selected':''}>⬇️ รับคาดการณ์ (เงินกู้ ฯลฯ)</option><option value="outflow" ${editItem&&editItem.kind==='outflow'?'selected':''}>⬆️ จ่ายคาดการณ์</option>
         </select></div>
       <div><div style="font-size:11px;color:#64748b;font-weight:600;margin-bottom:3px">จากบัญชี (โอน/จ่าย)</div>
-        <select id="cffPlanFrom" style="padding:8px 10px;border:1px solid #d7d0f0;border-radius:8px;font-family:inherit;font-size:13px"><option value="">— เลือก —</option>${acctOpts}</select></div>
+        <select id="cffPlanFrom" style="padding:8px 10px;border:1px solid #d7d0f0;border-radius:8px;font-family:inherit;font-size:13px"><option value="">— เลือก —</option>${editItem?acctOptsSel(editItem.from_account_id):acctOpts}</select></div>
       <div><div style="font-size:11px;color:#64748b;font-weight:600;margin-bottom:3px">เข้าบัญชี (โอน/รับ)</div>
-        <select id="cffPlanTo" style="padding:8px 10px;border:1px solid #d7d0f0;border-radius:8px;font-family:inherit;font-size:13px"><option value="">— เลือก —</option>${acctOpts}</select></div>
+        <select id="cffPlanTo" style="padding:8px 10px;border:1px solid #d7d0f0;border-radius:8px;font-family:inherit;font-size:13px"><option value="">— เลือก —</option>${editItem?acctOptsSel(editItem.to_account_id):acctOpts}</select></div>
       <div><div style="font-size:11px;color:#64748b;font-weight:600;margin-bottom:3px">จำนวนเงิน</div>
-        <input id="cffPlanAmt" placeholder="0.00" style="padding:8px 10px;border:1px solid #d7d0f0;border-radius:8px;font-family:inherit;font-size:13px;width:120px;text-align:right"></div>
+        <input id="cffPlanAmt" placeholder="0.00" value="${editItem?esc(String(editItem.amount||'')):''}" style="padding:8px 10px;border:1px solid #d7d0f0;border-radius:8px;font-family:inherit;font-size:13px;width:120px;text-align:right"></div>
       <div><div style="font-size:11px;color:#64748b;font-weight:600;margin-bottom:3px">วันที่คาดว่าจะเกิด</div>
-        <input id="cffPlanDate" type="date" style="padding:8px 10px;border:1px solid #d7d0f0;border-radius:8px;font-family:inherit;font-size:13px"></div>
+        <input id="cffPlanDate" type="date" value="${editItem&&editItem.plan_date?esc(String(editItem.plan_date).slice(0,10)):''}" style="padding:8px 10px;border:1px solid #d7d0f0;border-radius:8px;font-family:inherit;font-size:13px"></div>
       <div style="flex:1;min-width:140px"><div style="font-size:11px;color:#64748b;font-weight:600;margin-bottom:3px">หมายเหตุ</div>
-        <input id="cffPlanNote" placeholder="เช่น เงินกู้ธนาคาร / โอนไปบัญชีจ่าย" style="padding:8px 10px;border:1px solid #d7d0f0;border-radius:8px;font-family:inherit;font-size:13px;width:100%"></div>
-      <button class="btn" onclick="cffPlanAdd()" style="background:#6d28d9;border-color:#6d28d9;color:#fff;padding:8px 16px">＋ เพิ่ม</button>
+        <input id="cffPlanNote" placeholder="เช่น เงินกู้ธนาคาร / โอนไปบัญชีจ่าย" value="${editItem?esc(editItem.note||''):''}" style="padding:8px 10px;border:1px solid #d7d0f0;border-radius:8px;font-family:inherit;font-size:13px;width:100%"></div>
+      <button class="btn" onclick="cffPlanSubmit()" style="background:${editItem?'#0d9488':'#6d28d9'};border-color:${editItem?'#0d9488':'#6d28d9'};color:#fff;padding:8px 16px">${editItem?'💾 บันทึกการแก้ไข':'＋ เพิ่ม'}</button>
+      ${editItem?`<button class="btn" onclick="cffPlanCancelEdit()" style="background:#fff;border:1px solid #cbd5e1;color:#475569;padding:8px 14px">ยกเลิก</button>`:''}
     </div>
-    <div style="font-size:11px;color:#94a3b8;margin-top:7px">โอน = เลือก 2 บัญชี (ต้นทาง→ปลายทาง) · รับ = เลือกบัญชีที่เงินเข้า · จ่าย = เลือกบัญชีที่จ่ายออก</div>
+    <div style="font-size:11px;color:#94a3b8;margin-top:7px">${editItem?'✏️ กำลังแก้ไขรายการที่เลือก — กด "บันทึกการแก้ไข" หรือ "ยกเลิก"':'โอน = เลือก 2 บัญชี (ต้นทาง→ปลายทาง) · รับ = เลือกบัญชีที่เงินเข้า · จ่าย = เลือกบัญชีที่จ่ายออก'}</div>
   </div>` : '';
   const list = items.length ? `<table style="width:100%;border-collapse:collapse;font-size:12.5px">
     <thead><tr style="color:#64748b;background:#faf9ff"><th style="text-align:left;padding:8px 12px">ประเภท</th><th style="text-align:left;padding:8px 12px">บัญชี</th><th style="text-align:left;padding:8px 12px">วันที่</th><th style="text-align:left;padding:8px 12px">หมายเหตุ</th><th style="text-align:right;padding:8px 12px">จำนวน</th>${canWrite?'<th></th>':''}</tr></thead>
     <tbody>${items.map(p=>{ const k=CFF_PLAN_KIND[p.kind]||{l:p.kind,c:"#64748b"};
       const acct = p.kind==='transfer' ? `${cffAcctLabel(dt,p.from_account_id)} → ${cffAcctLabel(dt,p.to_account_id)}`
                  : p.kind==='inflow' ? `เข้า ${cffAcctLabel(dt,p.to_account_id)}` : `จาก ${cffAcctLabel(dt,p.from_account_id)}`;
-      return `<tr style="border-top:1px solid #f1f5f9">
+      const editing = p.id===d.planEditId;
+      return `<tr style="border-top:1px solid #f1f5f9;${editing?'background:#f0fdfa':''}">
         <td style="padding:8px 12px;font-weight:600;color:${k.c};white-space:nowrap">${k.l}</td>
         <td style="padding:8px 12px;white-space:nowrap">${esc(acct)}</td>
         <td style="padding:8px 12px;white-space:nowrap;color:#475569">${esc(fmtDate(p.plan_date))}</td>
         <td style="padding:8px 12px;color:#64748b">${esc(p.note||'')}</td>
         <td style="padding:8px 12px;text-align:right;font-weight:700;color:${p.kind==='inflow'?'#047857':(p.kind==='outflow'?'#be185d':'#334155')}">${p.kind==='inflow'?'+':(p.kind==='outflow'?'−':'')}${nf(p.amount)}</td>
-        ${canWrite?`<td style="padding:8px 12px;text-align:right"><button onclick="cffPlannedDelete('${esc(p.id)}')" title="ลบ" style="border:none;background:none;cursor:pointer;color:#dc2626;padding:2px"><i data-lucide="trash-2" style="width:14px;height:14px"></i></button></td>`:''}
+        ${canWrite?`<td style="padding:8px 12px;text-align:right;white-space:nowrap"><button onclick="cffPlanEdit('${esc(p.id)}')" title="แก้ไข" style="border:none;background:none;cursor:pointer;color:#0d9488;padding:2px;margin-right:4px"><i data-lucide="pencil" style="width:14px;height:14px"></i></button><button onclick="cffPlannedDelete('${esc(p.id)}')" title="ลบ" style="border:none;background:none;cursor:pointer;color:#dc2626;padding:2px"><i data-lucide="trash-2" style="width:14px;height:14px"></i></button></td>`:''}
       </tr>`; }).join("")}</tbody></table>` : `<div style="padding:20px;text-align:center;color:#94a3b8;font-size:13px">ยังไม่มีรายการวางแผน — เพิ่มด้านบนเพื่อให้ประมาณการครอบคลุมอนาคต</div>`;
   return `<div style="background:#fff;border:1px solid var(--glass-border);border-radius:13px;margin:4px 0 14px;overflow:hidden">${head}${form}<div style="overflow-x:auto">${list}</div></div>`;
 }

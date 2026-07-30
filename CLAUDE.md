@@ -191,6 +191,12 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-30 — ★★ ถอน Marketplace เบญญา: Shopee ยึด balance จริง + fix ใบถอน TikTok โดนกลืนข้ามช่องทาง
+- **(1) Shopee ถอนไม่หมดกระเป๋า (commit fbb4bbd):** เบญญาฝ่ายขายถอน partial → FIFO เดาดริฟท์ · เจ้าของชี้วิธี "แบ่งรอบที่ยอดกระเป๋ากลับ 0" → `bmpGroupWithdrawals` เพิ่ม branch Shopee: ใช้ **`balance_after` จริง** (parser เก็บอยู่แล้ว) เป็นตัวกำหนดยอดยกออเดอร์ไปงวดหน้า (subset-sum หาชุดตรงยอดค้างกระเป๋า) · guard `shopeeBal>0.5`: ถอนเต็ม/M Bark/TikTok/Lazada → FIFO เดิมไม่กระทบ · carry ผ่าน queue (carryCash=0 กันนับซ้ำ) · **verified: qi care 742/742 = 100% · betra 8/9 รอบตรง** (รอบแรก พ.ค. = เงินค้างก่อนไฟล์ ~34,642 ต้องอัปไฟล์ เม.ย.)
+- **(2) ★★ ต้นเหตุ TikTok "เคยตรงแล้วเพี้ยน" (commit 2932a85):** dedup key ใบถอน (`bmpDkey` = วันที่|บัญชี|ยอด) **ไม่มี channel** — TikTok qi care + Shopee qi care ถอนเข้า**บัญชีเดียวกัน** (SCB 4170771640) → อัป Shopee ใหม่ auto-heal จับคู่ใบ TikTok ใน DB (วัน+ยอดชน) → **soft-delete ใบ TikTok ทิ้งแทนด้วย Shopee** · แก้: bmpDkey เพิ่ม channel นำหน้า + dbByKey/fileByKey (auto-heal) + `bmpDedupExisting` (ล้างซ้ำ) group รวม channel · verified 3 เคส (cross-channel ไม่กลืน · same-channel ยัง dedup · ล้างซ้ำเก็บถูกใบ)
+- **กู้ TikTok เบญญา:** ลบข้อมูลถอน tiktok qi care/betra → อัปไฟล์กระเป๋าเงิน TikTok ใหม่ (ครอบตั้งแต่ มิ.ย.) · แผนเต็ม `.claude/plans/dapper-roaming-beaver.md` (ขั้น 4 ยังไม่ทำ: resolve ยอดยกมาเป็นออเดอร์จริงจากทะเบียน)
+- **อื่นๆ วันนี้:** ล็อกอินด้วยชื่อผู้ใช้ (authUserToEmail ต่อโดเมน `finance.local` · ผู้ใช้เก่าอีเมลเต็มใช้ได้เหมือนเดิม) · CFF วางแผนแก้ไขรายการได้ (ปุ่มดินสอ → prefill ฟอร์ม) · ปิดแบนเนอร์เวอร์ชันใหม่ (appCheckUpdate คอมเมนต์ไว้) · ทะเบียนทดรอง: fix ขาด `multiInput:true` (หน้าไม่เคย render — โชว์ตัวอัปโหลดทั่วไป) + ปุ่ม "นำเข้าจาก GL" (`advImport*` · 542.CSV บัญชี 1171-06 · FIFO เคลียร์ต่อคน · พรีวิว assign OI) · utkSaveTask เก็บ frequency default กัน null (หน้าหลักเตือนผิด)
+
 ### 2026-07-29 (3) — ★ ข้อ 5 (COD/โอนตรง RE): ตั้ง "เลือก Bank {Down N}" เองในแอป (map Benya ครบวง)
 - **เจ้าของ:** ต่อ pipeline COD/โอนตรง RE ให้ครบ — gap เดียวคือ **bank routing ของ Benya** (เดิม `incReRow` hardcode เฉพาะ M Bark: โอนตรง={Down 2} · FACE COD={Down 10}) · Benya ตกไป marketplace routing = ช่อง Bank ว่าง · เจ้าของขอ **ทำเป็นช่องกรอกในแอป** (ไม่ต้อง hardcode)
 - **Migration `re-export-config.sql`:** ตาราง `re_export_config` (company_id PK · direct_down · cod_down · RLS read=บริษัท write=admin/finance_mgr/accountant)

@@ -31350,18 +31350,20 @@ async function bmpRunUpload(){
     const reimport = (dupAll||[]).length > 0;
     const fnameJoin = arr => arr.map(x=>x.name).join("; ");
 
-    // ★ load existing withdrawals → dedup โดย (withdraw_datetime + bank_account_id)
-    // กัน user upload ซ้ำสร้าง withdrawal เดียวกัน (re-upload) → dedup key = วันที่ + บัญชี + ยอด
+    // ★ load existing withdrawals → dedup โดย (channel + withdraw_date + bank_account_id + ยอด)
+    // กัน user upload ซ้ำสร้าง withdrawal เดียวกัน (re-upload) → dedup key = ช่องทาง + วันที่ + บัญชี + ยอด
     // ★ normalize: เดิมใช้ withdraw_datetime ดิบ → DB อ่านกลับเป็น ISO ('T') + amount numeric precision ต่าง → เทียบ string พลาด → ซ้ำ
-    const bmpDkey = (date, acct, amt) => `${String(date||'').slice(0,10)}|${acct}|${Number(amt||0).toFixed(2)}`;
+    // ★★ ต้องมี channel ใน key! — TikTok/Shopee ร้านเดียวกันถอนเข้า "บัญชีเดียวกัน" (เช่น qi care SCB 4170771640)
+    //    เดิมไม่มี channel → อัป Shopee แล้ว auto-heal จับคู่กับใบถอน TikTok ใน DB (วัน+ยอดตรงกัน) → soft-delete ใบ TikTok ทิ้ง (TikTok เพี้ยนทั้งที่ไม่ได้แตะ)
+    const bmpDkey = (ch, date, acct, amt) => `${String(ch||'')}|${String(date||'').slice(0,10)}|${acct}|${Number(amt||0).toFixed(2)}`;
     const { data:existingWds2 } = await sb.from("brec_mp_withdrawals")
-      .select("id,withdraw_date,bank_account_id,withdraw_amount,order_count")
+      .select("id,channel,withdraw_date,bank_account_id,withdraw_amount,order_count")
       .eq("company_id", co).is("deleted_at", null);
     // ★ H6: group DB rows ต่อ key เป็น "อาร์เรย์" (นับจำนวน) — รองรับใบถอนที่ 2 วันเดียวกันยอดเท่ากัน (เดิม best-per-key ทำใบที่ 2 หาย)
     //   เรียงจำนวนออเดอร์มากสุดก่อน → จับคู่ best-to-best กับไฟล์ (auto-heal ใบเก่า 0 ออเดอร์)
     const dbByKey = new Map();
     for(const w of (existingWds2||[])){
-      const k = bmpDkey(w.withdraw_date, w.bank_account_id, w.withdraw_amount);
+      const k = bmpDkey(w.channel, w.withdraw_date, w.bank_account_id, w.withdraw_amount);
       if(!dbByKey.has(k)) dbByKey.set(k, []);
       dbByKey.get(k).push(w);
     }
@@ -31384,7 +31386,7 @@ async function bmpRunUpload(){
       let shopSkipped = 0;
       const fileByKey = new Map();
       for(const wd of allWithdrawals){
-        const k = bmpDkey(wd.withdraw_date, acctId, wd.withdraw_amount);
+        const k = bmpDkey(wd.channel || routing.channel, wd.withdraw_date, acctId, wd.withdraw_amount);
         if(!fileByKey.has(k)) fileByKey.set(k, []);
         fileByKey.get(k).push(wd);
       }
@@ -31955,13 +31957,14 @@ async function bmpDeleteWithdrawal(id){
 async function bmpDedupExisting(){
   if(!brecCanWrite()){ alert("ไม่มีสิทธิ์"); return; }
   const d = brecGet(); const co = d.companyId || await fopCompanyId(); if(!co) return;
-  if(!confirm("ล้างรายการถอนซ้ำ (วันเดียวกัน + บัญชีเดียวกัน + ยอดถอนเท่ากัน)?\n\n• เก็บใบที่มีออเดอร์/ยอดผ่านเช็คมากสุด\n• ใบซ้ำ (เช่น ยอดผ่านเช็ค 0 · ออเดอร์ 0) จะถูกลบ (soft-delete)\n\nใช้แก้เคส re-upload แล้วเกิดใบซ้ำ")) return;
+  if(!confirm("ล้างรายการถอนซ้ำ (ช่องทางเดียวกัน + วันเดียวกัน + บัญชีเดียวกัน + ยอดถอนเท่ากัน)?\n\n• เก็บใบที่มีออเดอร์/ยอดผ่านเช็คมากสุด\n• ใบซ้ำ (เช่น ยอดผ่านเช็ค 0 · ออเดอร์ 0) จะถูกลบ (soft-delete)\n\nใช้แก้เคส re-upload แล้วเกิดใบซ้ำ")) return;
   try{
     const { data:wds } = await sb.from("brec_mp_withdrawals")
-      .select("id,withdraw_date,bank_account_id,withdraw_amount,order_count,sum_net")
+      .select("id,channel,withdraw_date,bank_account_id,withdraw_amount,order_count,sum_net")
       .eq("company_id", co).is("deleted_at", null);
     const groups = {};
-    (wds||[]).forEach(w=>{ const k=`${String(w.withdraw_date||'').slice(0,10)}|${w.bank_account_id}|${Number(w.withdraw_amount||0).toFixed(2)}`; (groups[k]=groups[k]||[]).push(w); });
+    // ★ key ต้องมี channel — TikTok/Shopee ร้านเดียวกันใช้บัญชีเดียวกัน · เดิมไม่มี channel = ใบถอนข้ามช่องทางกลืนกัน
+    (wds||[]).forEach(w=>{ const k=`${String(w.channel||'')}|${String(w.withdraw_date||'').slice(0,10)}|${w.bank_account_id}|${Number(w.withdraw_amount||0).toFixed(2)}`; (groups[k]=groups[k]||[]).push(w); });
     const toDelete = [];
     Object.values(groups).forEach(g=>{ if(g.length<=1) return;
       // เก็บใบที่ดีสุด: ออเดอร์มากสุด → ยอด net มากสุด

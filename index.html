@@ -12605,6 +12605,132 @@ async function advDelete(id){
   try{ const {error}=await sb.from('advances').update({deleted_at:new Date().toISOString()}).eq('id',id); if(error) throw error; await advLoad(true); renderToolAdvance(); }
   catch(e){ alert('ลบไม่สำเร็จ: '+fopErr(e)); }
 }
+
+/* ===== นำเข้าจาก GL (Express 542.CSV — บัญชี 1171-06 เงินทดรองจ่าย) =====
+   1 ใบเบิก (เดบิต RR/AC) = 1 รายการ · เคลียร์ (เครดิต) หักแบบ FIFO ต่อคน (เก่าก่อน)
+   รายการเครดิตที่จับคนไม่ได้ (เช่น OI คืนเงินสด) → ให้เลือกคนในพรีวิวก่อนยืนยัน */
+function advImportPick(){
+  if(!fopCanWrite()){ alert('สิทธิ์ไม่พอ'); return; }
+  const inp=document.createElement('input'); inp.type='file'; inp.accept='.csv,.txt';
+  inp.onchange=async()=>{ const f=inp.files&&inp.files[0]; if(!f) return;
+    try{ const buf=await f.arrayBuffer(); advImportParse(bmpDecodeCp874(buf)); }
+    catch(e){ alert('อ่านไฟล์ไม่สำเร็จ: '+(e.message||e)); } };
+  inp.click();
+}
+function advImpStripTitle(s){
+  s=String(s||'').replace(/\s+/g,' ').trim().replace(/^(คุณ|นาย|นางสาว|นาง|น\.ส\.)\s*/,'').trim();
+  // ชื่อไทย = ชื่อ+สกุล (2 คำ) — ตัดข้อความท้าย (ค่าเช่า/ซื้อข้าว ฯลฯ) ที่ติดมาในบรรทัดเดียวกันออก
+  return s.split(' ').slice(0,2).join(' ').trim();
+}
+function advImpName(desc){
+  const d=String(desc||'');
+  if(d.indexOf('จาก')>=0) return advImpStripTitle(d.split('จาก')[1]);
+  if(d.indexOf('ให้')>=0) return advImpStripTitle(d.split('ให้')[1]);
+  const m=d.match(/^(.+?)[-\s]*เคลียร์/); if(m) return advImpStripTitle(m[1]);
+  return '';
+}
+function advImportParse(text){
+  const rows=bmpParseCsvText(text);
+  const num=x=>{ const n=parseFloat(String(x||'').replace(/,/g,'').trim()); return isFinite(n)?n:0; };
+  const acode=/^\d{4}-\d{2}$/, dpat=/^\d{2}\/\d{2}\/\d{4}$/, refpat=/[A-Zก-๙]{2}\d{8,}/g;
+  let cur=null; const txns=[];
+  rows.forEach(r=>{ if(!r||r.length<10) return; const c1=(r[1]||'').trim();
+    if(acode.test(c1)){ cur=c1; return; }
+    if(cur==='1171-06' && dpat.test(c1)){
+      txns.push({date:c1, doc:(r[3]||'').trim(), desc:(r[4]||'').trim(), debit:num(r[6]), credit:num(r[7])});
+    }
+  });
+  if(!txns.length){ alert('ไม่พบรายการบัญชี 1171-06 (เงินทดรองจ่าย) ในไฟล์นี้ — ตรวจว่าเป็น GL ที่ครอบบัญชี 1171-06'); return; }
+  const doc2p={}, fn2full={};
+  txns.forEach(t=>{ if(t.debit>0){ const nm=advImpName(t.desc); t.person=nm; if(t.doc) doc2p[t.doc]=nm;
+    const fn=nm.split(' ')[0]; if(fn && (!(fn in fn2full)||nm.length>fn2full[fn].length)) fn2full[fn]=nm; } });
+  txns.forEach(t=>{ if(t.person) return; let p=null; const refs=t.desc.match(refpat)||[];
+    for(const rf of refs){ if(rf!==t.doc && doc2p[rf]){ p=doc2p[rf]; break; } }
+    if(!p){ const nm=advImpName(t.desc); if(nm) p=nm; } t.person=p||''; });
+  const canon=p=>{ if(!p) return ''; const fn=p.split(' ')[0]; return fn2full[fn]||p; };
+  txns.forEach(t=>{ t.pkey=canon(t.person); });
+  advGet().imp={ txns, persons:Object.values(fn2full).sort(), assign:{} };
+  advImportModal();
+}
+function advImportCompute(){
+  const imp=advGet().imp; if(!imp) return {rows:[],byPerson:{},unattr:[],orphanClr:0};
+  const A=imp.assign||{};
+  const eff=t=> (A[t.doc]!==undefined ? A[t.doc] : t.pkey);
+  const unattr=imp.txns.filter(t=>t.credit>0 && !t.pkey);   // เครดิตจับคนไม่ได้
+  const pool={};
+  imp.txns.forEach(t=>{ if(t.credit>0){ const p=eff(t); if(p) pool[p]=(pool[p]||0)+t.credit; } });
+  const JUNK=new Set(['เงินทดรองจ่าย','เงินสดย่อย','ไม่ระบุ']);   // ชื่อที่ไม่ใช่คน (parse เพี้ยน) — ไม่สร้างใบเบิก
+  const advs=imp.txns.filter(t=>t.debit>0 && eff(t) && !JUNK.has(eff(t))).map(t=>({p:eff(t),doc:t.doc,amt:t.debit,desc:t.desc,iso:bmpThaiDate(t.date)}));
+  advs.sort((a,b)=>(a.iso||'').localeCompare(b.iso||''));
+  const rem={}; Object.keys(pool).forEach(k=>rem[k]=pool[k]);
+  const rows=[];
+  advs.forEach(t=>{ let cl=0; if((rem[t.p]||0)>0){ cl=Math.min(rem[t.p],t.amt); rem[t.p]-=cl; }
+    rows.push({employee_name:t.p, advance_no:t.doc||null, advance_date:t.iso, amount:+t.amt.toFixed(2),
+               cleared_amount:+cl.toFixed(2), note:('GL: '+t.desc).slice(0,300)}); });
+  const byPerson={};
+  rows.forEach(r=>{ const b=byPerson[r.employee_name]||(byPerson[r.employee_name]={adv:0,cl:0,out:0,n:0});
+    b.adv+=r.amount; b.cl+=r.cleared_amount; b.out+=Math.max(0,r.amount-r.cleared_amount); b.n++; });
+  const orphanClr=Object.keys(rem).reduce((s,k)=>s+Math.max(0,rem[k]),0);  // เครดิตที่ไม่มีใบเบิกคู่
+  return {rows, byPerson, unattr, orphanClr};
+}
+function advImportAssign(doc,val){ const imp=advGet().imp; if(imp){ imp.assign[doc]=val||''; advImportModal(); } }
+function advImportClose(){ advGet().imp=null; document.getElementById('advImpModal')?.remove(); }
+function advImportModal(){
+  const imp=advGet().imp; if(!imp) return;
+  const {rows,byPerson,unattr,orphanClr}=advImportCompute();
+  const nf=n=>Number(n||0).toLocaleString('th-TH',{minimumFractionDigits:2,maximumFractionDigits:2});
+  const opts=(cur)=>['<option value="">— ไม่ระบุ (ไม่หัก) —</option>'].concat(
+    imp.persons.map(p=>`<option value="${esc(p)}" ${cur===p?'selected':''}>${esc(p)}</option>`)).join('');
+  const unattrHtml = unattr.length? `<div style="background:#fef3c7;border:1px solid #fde68a;border-radius:10px;padding:12px;margin:12px 0">
+    <div style="font-weight:700;color:#92400e;margin-bottom:8px">⚠️ รายการเคลียร์/คืนที่ระบุคนไม่ได้ ${unattr.length} รายการ — เลือกว่าเป็นของใคร (ไม่เลือก = ไม่ถูกนำไปหักเคลียร์)</div>
+    <table style="width:100%;border-collapse:collapse;font-size:12.5px">
+      <thead><tr style="color:#92400e"><th style="text-align:left;padding:4px">วันที่</th><th style="text-align:left;padding:4px">เอกสาร</th><th style="text-align:right;padding:4px">ยอด</th><th style="text-align:left;padding:4px">คำอธิบาย</th><th style="text-align:left;padding:4px">เป็นของ</th></tr></thead>
+      <tbody>${unattr.map(t=>`<tr style="border-top:1px solid #fde68a"><td style="padding:4px">${esc(t.date)}</td><td style="padding:4px">${esc(t.doc)}</td><td style="padding:4px;text-align:right;font-weight:700">${nf(t.credit)}</td><td style="padding:4px;color:#78716c">${esc(t.desc.slice(0,40))}</td><td style="padding:4px"><select onchange="advImportAssign('${esc(t.doc)}',this.value)" style="padding:5px 8px;border:1px solid #d6b45a;border-radius:7px;font:inherit;font-size:12px">${opts(imp.assign[t.doc]||'')}</select></td></tr>`).join('')}</tbody>
+    </table></div>` : '';
+  const perHtml=Object.entries(byPerson).sort((a,b)=>b[1].out-a[1].out).map(([p,b])=>
+    `<tr style="border-top:1px solid #eef2f7"><td style="padding:6px 8px;font-weight:600">${esc(p)}</td><td style="padding:6px 8px;text-align:center">${b.n}</td><td style="padding:6px 8px;text-align:right">${nf(b.adv)}</td><td style="padding:6px 8px;text-align:right;color:#16a34a">${nf(b.cl)}</td><td style="padding:6px 8px;text-align:right;font-weight:700;color:#dc2626">${nf(b.out)}</td></tr>`).join('');
+  const totOut=Object.values(byPerson).reduce((s,b)=>s+b.out,0);
+  document.getElementById('advImpModal')?.remove();
+  const m=document.createElement('div'); m.id='advImpModal';
+  m.style.cssText='position:fixed;inset:0;background:rgba(15,23,42,.5);z-index:1000;display:flex;align-items:center;justify-content:center;padding:20px';
+  m.innerHTML=`<div style="background:#fff;border-radius:14px;padding:24px;max-width:760px;width:100%;max-height:90vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.3)">
+    <div style="font-size:17px;font-weight:800;margin-bottom:4px">นำเข้าจาก GL — บัญชี 1171-06 เงินทดรองจ่าย</div>
+    <div style="font-size:12.5px;color:#64748b;margin-bottom:12px">จะสร้าง <b>${rows.length}</b> รายการเบิก · เคลียร์หักแบบ FIFO (ใบเก่าก่อน) · หน่วย: บาท</div>
+    ${unattrHtml}
+    <table style="width:100%;border-collapse:collapse;font-size:12.5px;margin-top:6px">
+      <thead><tr style="background:#f8fafc;color:#64748b"><th style="text-align:left;padding:6px 8px">พนักงาน</th><th style="padding:6px 8px">วง</th><th style="text-align:right;padding:6px 8px">เบิกรวม</th><th style="text-align:right;padding:6px 8px">เคลียร์</th><th style="text-align:right;padding:6px 8px">คงค้าง</th></tr></thead>
+      <tbody>${perHtml}</tbody>
+      <tfoot><tr style="border-top:2px solid #e2e8f0;font-weight:800"><td style="padding:6px 8px" colspan="4">คงค้างรวม</td><td style="padding:6px 8px;text-align:right;color:#dc2626">${nf(totOut)}</td></tr></tfoot>
+    </table>
+    ${orphanClr>0.5?`<div style="font-size:11.5px;color:#b45309;margin-top:8px">หมายเหตุ: มีรายการเคลียร์ ${nf(orphanClr)} ที่ไม่มีใบเบิกคู่ (บันทึกใต้ชื่อผู้รับเงิน) — ไม่ถูกนำไปหัก · ปรับด้วยมือภายหลังได้</div>`:''}
+    <div style="font-size:11.5px;color:#94a3b8;margin-top:10px">เลข RR ที่มีอยู่แล้วในทะเบียนจะถูกข้าม (กันซ้ำ) · หลังนำเข้าคุมต่อด้วยการกรอกมือได้เลย</div>
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px">
+      <button onclick="advImportClose()" style="border:1px solid #cbd5e1;background:#fff;color:#475569;padding:9px 16px;border-radius:9px;font-weight:600;cursor:pointer">ยกเลิก</button>
+      <button onclick="advImportCommit()" style="border:0;background:var(--brand,#0d9488);color:#fff;padding:9px 20px;border-radius:9px;font-weight:700;cursor:pointer">ยืนยันนำเข้า (${rows.length})</button>
+    </div>
+  </div>`;
+  m.addEventListener('click',e=>{ if(e.target===m) advImportClose(); });
+  document.body.appendChild(m);
+}
+async function advImportCommit(){
+  const {rows}=advImportCompute(); if(!rows.length){ alert('ไม่มีรายการให้นำเข้า'); return; }
+  const cid=await fopCompanyId(); if(!cid){ alert('ไม่พบบริษัท'); return; }
+  const d=advGet();
+  const exist=new Set((d.rows||[]).map(r=>(r.advance_no||'').trim()).filter(Boolean));
+  const toIns=rows.filter(r=>!r.advance_no || !exist.has(r.advance_no)).map(r=>({
+    company_id:cid, employee_name:r.employee_name, advance_no:r.advance_no, advance_date:r.advance_date,
+    amount:r.amount, cleared_amount:r.cleared_amount, note:r.note,
+    status: r.cleared_amount<=0.005?'open':(r.cleared_amount+0.005<r.amount?'partial':'cleared'),
+    created_by:AUTH.user?AUTH.user.id:null }));
+  const skipped=rows.length-toIns.length;
+  if(!toIns.length){ alert('ทุกรายการมีอยู่แล้วในทะเบียน (ข้ามทั้งหมด)'); return; }
+  if(!confirm(`นำเข้า ${toIns.length} รายการ${skipped?` (ข้ามซ้ำ ${skipped})`:''}?`)) return;
+  try{
+    for(let i=0;i<toIns.length;i+=100){ const {error}=await sb.from('advances').insert(toIns.slice(i,i+100)); if(error) throw error; }
+    advImportClose(); await advLoad(true); renderToolAdvance();
+    alert(`นำเข้าสำเร็จ ${toIns.length} รายการ${skipped?` · ข้ามซ้ำ ${skipped}`:''}`);
+  }catch(e){ alert('นำเข้าไม่สำเร็จ: '+fopErr(e)); }
+}
 function advFormHtml(d, canW, defaultEmp){
   const e = d.editId ? (d.rows.find(r=>r.id===d.editId)||{}) : {};
   const v=(x)=>x==null?'':esc(String(x));
@@ -12650,6 +12776,7 @@ async function renderToolAdvance(){
       <div><h1>ทะเบียนคุมเงินทดรองจ่าย <span class="badge">${esc(co.name)}</span></h1><div class="sub">คุมการเบิกเงินทดรองจ่ายรายพนักงาน · เบิกค่าอะไร · เคลียร์กับชุดไหน · กี่วง คงค้างเท่าไหร่ · หน่วย: บาท</div></div>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         ${canW?`<button class="btn" style="background:var(--brand,#0d9488);color:#fff;border:0;padding:9px 16px;border-radius:10px;font-weight:700;cursor:pointer" onclick="advToggleForm()">⬆ เพิ่มการเบิก</button>`:''}
+        ${canW?`<button class="btn ghost" style="border:1px solid #cbd5e1;background:#fff;color:#334155;padding:9px 14px;border-radius:10px;font-weight:600;cursor:pointer" onclick="advImportPick()" title="อัปไฟล์ GL (542.CSV บัญชี 1171-06) → สร้างรายการอัตโนมัติ">⬇ นำเข้าจาก GL</button>`:''}
         <button class="btn ghost" onclick="advLoad(true).then(renderToolAdvance)" style="border:1px solid #cbd5e1;background:#fff;color:#334155;padding:9px 12px;border-radius:10px;font-weight:600;cursor:pointer">⟳</button>
       </div>
     </div>

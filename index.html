@@ -443,8 +443,11 @@ const PRESENT_TOOLS       = ["execdash","cashflow","finstmt","finpnl","finbalanc
 
 async function authSignIn(email, password){
   // ★ รหัสพิเศษ present2026 + อีเมล nisa → เข้าบัญชี present (เห็นแค่ Exec Cash Flow)
-  if((email||"").toLowerCase()===PRESENT_ALIAS_EMAIL && password===PRESENT_PW){
+  if((email||"").trim().toLowerCase()===PRESENT_ALIAS_EMAIL && password===PRESENT_PW){
     email = PRESENT_EMAIL; password = PRESENT_PW;
+  } else {
+    // พิมพ์ชื่อผู้ใช้เฉยๆ (ไม่มี @) → ต่อโดเมนภายในอัตโนมัติ · พิมพ์อีเมลเต็ม = ใช้ตามนั้น
+    email = authUserToEmail(email);
   }
   const { data, error } = await sb.auth.signInWithPassword({ email, password });
   if(error) throw error;
@@ -526,8 +529,8 @@ function renderLogin(msg){
 
           <form id="lf" style="display:flex;flex-direction:column;gap:18px">
             <div>
-              <label style="display:block;font-size:13px;font-weight:600;color:#334155;margin-bottom:7px">อีเมล</label>
-              <input id="lfEmail" type="email" required autofocus placeholder="you@company.com"
+              <label style="display:block;font-size:13px;font-weight:600;color:#334155;margin-bottom:7px">ชื่อผู้ใช้ หรือ อีเมล</label>
+              <input id="lfEmail" type="text" required autofocus autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="ชื่อผู้ใช้ เช่น sirima"
                 style="display:block;width:100%;padding:12px 14px;border:1.5px solid #e2e8f0;border-radius:11px;font-size:14px;font-family:inherit;background:#F8FAFC;color:#0f172a;outline:none;transition:.15s"
                 onfocus="this.style.borderColor='#4F8AF7';this.style.background='#fff'"
                 onblur="this.style.borderColor='#e2e8f0';this.style.background='#F8FAFC'">
@@ -668,7 +671,26 @@ const APP_CONFIG = {
   // ธีมสี — null = ใช้สีตามบริษัท (teal/navy) · หรือ object override ทั้งแอป
   // { brand, brandDark, brandSoft, brandRgb, in, inSoft, inInk, out, outSoft, outInk }
   theme: null,
+
+  // ★ โดเมนภายในสำหรับ "ล็อกอินด้วยชื่อผู้ใช้" (ไม่ต้องพิมพ์ @อีเมล)
+  //   ผู้ใช้พิมพ์แค่ "sirima" → ระบบต่อเป็น sirima@<userLoginDomain> เบื้องหลัง (Supabase Auth บังคับใช้อีเมล)
+  //   ⚠️ ห้ามเปลี่ยนหลังสร้างผู้ใช้แล้ว (เป็นส่วนหนึ่งของ identity ที่เก็บใน Supabase) — เปลี่ยน = ผู้ใช้เดิม login ไม่ได้
+  userLoginDomain: "finance.local",
 };
+/* แปลง input ตอน login/สร้างผู้ใช้ → อีเมลจริง · มี @ = ใช้ตามนั้น · ไม่มี = ต่อโดเมนภายใน */
+function authUserToEmail(input){
+  let s=(input||"").trim();
+  if(!s) return s;
+  if(s.includes("@")) return s.toLowerCase();
+  const dom=(typeof APP_CONFIG!=="undefined" && APP_CONFIG.userLoginDomain)||"finance.local";
+  return s.toLowerCase().replace(/\s+/g,"")+"@"+dom;
+}
+/* ตัดโดเมนภายในออกเวลาแสดงผล (ให้เห็นเป็นชื่อผู้ใช้สะอาด) · อีเมลจริงโชว์เต็ม */
+function authLoginDisplay(email){
+  const dom=(typeof APP_CONFIG!=="undefined" && APP_CONFIG.userLoginDomain)||"finance.local";
+  const e=String(email||""); const suf="@"+dom;
+  return e.toLowerCase().endsWith(suf.toLowerCase()) ? e.slice(0, e.length-suf.length) : e;
+}
 function appToolEnabled(id){ return !APP_CONFIG.enabledTools || APP_CONFIG.enabledTools.includes(id); }
 /* optIn tool = โชว์เฉพาะตอนถูกใส่ใน enabledTools เท่านั้น (ของเดิม enabledTools=null จะไม่เห็น) */
 function appToolVisible(t){
@@ -8948,7 +8970,7 @@ async function renderToolUsers(){
                 const rc = ROLE_COLORS[role]||"#64748b";
                 return `
                 <tr${banned?' style="opacity:.55"':''}>
-                  <td style="font-family:monospace;font-size:12px">${esc(u.email||"—")}${banned?' <span style="font-family:inherit;background:#fee2e2;color:#b91c1c;padding:1px 7px;border-radius:999px;font-size:10.5px;font-weight:700">ปิดใช้งาน</span>':''}</td>
+                  <td style="font-family:monospace;font-size:12px" title="${esc(u.email||"")}">${esc(authLoginDisplay(u.email)||"—")}${banned?' <span style="font-family:inherit;background:#fee2e2;color:#b91c1c;padding:1px 7px;border-radius:999px;font-size:10.5px;font-weight:700">ปิดใช้งาน</span>':''}</td>
                   <td style="font-weight:600">${esc(name)}</td>
                   <td>${role==="—"?'<span style="color:var(--ink-3)">—</span>':`<span style="font-size:11px;font-weight:700;padding:2px 9px;border-radius:20px;background:${rc}1a;color:${rc}">${esc(roleLbl(role))}</span>`}</td>
                   <td>${acc.length===0 ? '<span style="color:var(--ink-3);font-size:12px">—</span>' :
@@ -9010,9 +9032,10 @@ function usrOpenAdd(){
       <h3 style="margin:0 0 16px;font-size:17px;font-weight:800">+ เพิ่มผู้ใช้ใหม่</h3>
       <div style="display:grid;gap:12px">
         <label>
-          <div style="font-size:12px;font-weight:700;color:var(--ink-2);margin-bottom:4px">อีเมล *</div>
-          <input id="uAddEmail" type="email" required placeholder="staff@company.com"
+          <div style="font-size:12px;font-weight:700;color:var(--ink-2);margin-bottom:4px">ชื่อผู้ใช้ หรือ อีเมล *</div>
+          <input id="uAddEmail" type="text" required autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="เช่น sirima (ไม่ต้องมี @)"
             style="width:100%;padding:9px 12px;border:1px solid var(--line);border-radius:8px;font-size:14px;font-family:inherit">
+          <div style="font-size:11px;color:var(--ink-3);margin-top:3px">พิมพ์ชื่อผู้ใช้เฉยๆ ก็ได้ (ระบบต่อ <code>@${esc((typeof APP_CONFIG!=="undefined"&&APP_CONFIG.userLoginDomain)||"finance.local")}</code> ให้เอง) · หรือใส่อีเมลเต็มก็ได้</div>
         </label>
         <label>
           <div style="font-size:12px;font-weight:700;color:var(--ink-2);margin-bottom:4px">รหัสผ่าน *</div>
@@ -9109,12 +9132,14 @@ async function usrResetPwd(uid){
 async function usrCreate(){
   const err = document.getElementById("uAddErr");
   const btn = document.getElementById("uAddBtn");
-  const email = document.getElementById("uAddEmail").value.trim();
+  const rawId = document.getElementById("uAddEmail").value.trim();
+  const email = authUserToEmail(rawId);          // ชื่อผู้ใช้ → อีเมลจริง (ต่อโดเมนภายในถ้าไม่มี @)
+  const loginId = authLoginDisplay(email);        // สิ่งที่ผู้ใช้พิมพ์ตอน login (ชื่อผู้ใช้ หรืออีเมลเต็ม)
   const pwd   = document.getElementById("uAddPwd").value;
   const name  = document.getElementById("uAddName").value.trim();
   const role  = document.getElementById("uAddRole").value;
-  if(!email || !pwd){
-    err.textContent = "กรุณาระบุอีเมล + รหัสผ่าน";
+  if(!rawId || !pwd){
+    err.textContent = "กรุณาระบุชื่อผู้ใช้/อีเมล + รหัสผ่าน";
     err.style.display = ""; return;
   }
   if(pwd.length < 8){
@@ -9170,7 +9195,8 @@ async function usrCreate(){
     }
 
     document.getElementById("usrModal").remove();
-    alert("สร้าง user สำเร็จ\n\nEmail: " + email + "\nPassword: " + pwd + "\n\nก๊อปแจ้ง user แล้วให้เขา login เปลี่ยนรหัสเอง");
+    alert("สร้าง user สำเร็จ\n\nชื่อผู้ใช้ (ใช้ login): " + loginId + "\nรหัสผ่าน: " + pwd + "\n\nก๊อปแจ้ง user แล้วให้เขา login เปลี่ยนรหัสเอง"
+      + (loginId!==email ? "\n\n(อีเมลจริงเบื้องหลัง: " + email + ")" : ""));
     renderToolUsers();
   }catch(e){
     btn.disabled = false; btn.textContent = "สร้าง user";

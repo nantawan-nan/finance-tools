@@ -654,7 +654,7 @@ function updateCrumb(){
    ===================================================================== */
 /* ★ เลข build — บั๊มทุกครั้งที่ deploy (โชว์มุมล่าง sidebar) · ใช้เช็คว่าเบราว์เซอร์ได้โค้ดล่าสุดหรือยัง
    (ตัวเช็คเวอร์ชันอัตโนมัติถูกปิดตามคำขอเจ้าของ — เลขนี้คือทางเช็คด้วยตาแทน) */
-const APP_BUILD = "3007f";
+const APP_BUILD = "3007g";
 const APP_CONFIG = {
   // null = โชว์ทุกโมดูล (ของเดิม) · หรือ array = โชว์เฉพาะ id เหล่านี้
   enabledTools: null,
@@ -26116,9 +26116,6 @@ function bmpGroupWithdrawals(parsed, arData, chqData, salesData, shopName, share
     const es = Object.entries(chqPrefixCount[ch]);
     if(es.length) chqPrefixByChannel[ch] = es.sort((a,b)=>b[1]-a[1])[0][0];   // prefix ที่พบบ่อยสุดในรายงานจริง
   }
-  // ★ map RE→เลขเช็คจริง (จาก 191) — ใช้ดึงเลขเช็คจริงตรง ๆ ผ่านเลข RE (แม่นกว่าเดา prefix · ร้านเดียวมีทั้ง SI/SB/TQ)
-  const reToChequeG = new Map();
-  for(const c of (arData.cheques||[])){ if(c.receipt_no && c.cheque_no && !reToChequeG.has(c.receipt_no)) reToChequeG.set(c.receipt_no, c.cheque_no); }
   const withdrawals = [];
   // ★ Model A: 1 การถอน = ทุก txn ที่สะสมในกระเป๋าตั้งแต่ถอนครั้งก่อน (orders + ค่าโฆษณา + ยกเลิก)
   //   → ทุกออเดอร์ในงวดได้เช็ครับครบ · ค่าโฆษณา/ยกเลิก = ค่าใช้จ่าย · pool net = ยอดถอน (ถอนเต็มกระเป๋า)
@@ -26233,25 +26230,26 @@ function bmpGroupWithdrawals(parsed, arData, chqData, salesData, shopName, share
         const gross = chq ? Number(chq.amount) : (iv ? Number(iv.total) : (led && led.sale_amount!=null ? Number(led.sale_amount) : 0));
         const net = o.amount;
         const feeDiff = gross ? +(gross - net).toFixed(2) : 0;
-        // ใบเสร็จ (RE): เช็ค SP จาก รับชำระ → RE/เลขเช็ค ในทะเบียน
-        const hasReceipt = !!chq || !!(led && (led.re_no || led.cheque_no));
-        // เลขที่เช็ค: (1) เลขจริงจากรับชำระ 191 · (2) เลขเช็คจริงในทะเบียน (ไม่ใช่ RE) · (3) สร้างคาดการณ์ = prefix จริงที่เรียนจาก 191 + เลข RE · (4) ยังไม่มี RE
-        const learnedPfx = chqPrefixByChannel[routing.channel] || bmpChequePrefix(routing.channel);
-        const reDigits = (led && led.re_no) ? String(led.re_no).replace(/\D/g,"") : "";
-        // ★ เลขเช็คจริงจาก 191 ผ่าน RE (แม่นกว่าเดา · ร้านเดียวมี SI/SB/TQ ปน) · fallback: IV→เช็ค
-        const chqByRe = (led && led.re_no && reToChequeG.get(led.re_no)) || (ivNo && arData.ivToCheque && arData.ivToCheque.get(ivNo) ? arData.ivToCheque.get(ivNo).cheque_no : null) || null;
-        const chequeNo = chq ? chq.cheque_no
-                             : (led && led.cheque_no && !/^RE/i.test(led.cheque_no) ? led.cheque_no
-                             : (chqByRe ? chqByRe
-                             : (reDigits ? (learnedPfx + reDigits)
-                             : (ivNo ? ("PENDING-" + ivNo) : ("UNKNOWN-" + o.order_id)))));
-        let mismatch = false; let reason = "";
-        if(!ivNo){ mismatch = true; reason = "ยังไม่คีย์ IV (ไม่พบในทะเบียน/รายงาน)"; }
-        else if(ivVoided){ mismatch = true; reason = "IV ถูก void"; }
-        else if(chq && Math.abs(chq.amount - net) > 0.05){
+        // ★ เลขที่เช็ค = เลขจริงจาก 191 ผ่าน IV ของออเดอร์เอง เท่านั้น (ห้ามยืมจากเลข RE ที่ระบบเดา · เลข RE เดาอาจชนกับ RE จริงของช่องทางอื่น เช่น TikTok)
+        //   (1) chq จากรับชำระ 191 (ผ่าน IV ของ 723-5) · (2) เลขเช็ค tagged ในทะเบียน (ไม่ใช่ RE) · (3) 191 ผ่าน IV ของทะเบียน · ไม่มี = "ยังไม่ออก RE จริง"
+        const taggedChq = (led && led.cheque_no && !/^RE/i.test(led.cheque_no)) ? led.cheque_no : null;
+        const ivChqObj = (ivNo && arData.ivToCheque) ? arData.ivToCheque.get(ivNo) : null;
+        const realCheque = (chq && chq.cheque_no) || taggedChq || (ivChqObj && ivChqObj.cheque_no) || null;
+        const hasReceipt = !!realCheque;   // ★ ออก RE จริงต่อเมื่อมีเลขเช็คจริงจาก 191 (เลข RE เดาบนออเดอร์ไม่นับ)
+        let chequeNo, mismatch = false, reason = "";
+        if(realCheque){
+          chequeNo = realCheque;
+        } else if(!ivNo){
+          chequeNo = "UNKNOWN-" + o.order_id; mismatch = true; reason = "ยังไม่คีย์ IV (ไม่พบในทะเบียน/รายงาน)";
+        } else if(ivVoided){
+          chequeNo = "PENDING-" + ivNo; mismatch = true; reason = "IV ถูก void";
+        } else {
+          chequeNo = "PENDING-" + ivNo; mismatch = true; reason = "ยังไม่ออกใบเสร็จ RE จริง (IV ยังไม่พบในรายงานรับชำระ 191)";
+        }
+        // ยอดเช็คจาก 191 ต่างจาก net → เตือน (เฉพาะเมื่อมีเช็คจริง)
+        if(!mismatch && chq && Math.abs(chq.amount - net) > 0.05){
           mismatch = true; reason = "ยอดเช็ค " + chq.amount.toFixed(2) + " ≠ Shopee net " + net.toFixed(2);
         }
-        else if(!hasReceipt){ mismatch = true; reason = "ยังไม่ออกใบเสร็จ RE (ตรวจในทะเบียน/รับชำระ)"; }
         return {
           channel: routing.channel,
           order_id: o.order_id,
@@ -26261,8 +26259,8 @@ function bmpGroupWithdrawals(parsed, arData, chqData, salesData, shopName, share
           express_gross: gross,
           shopee_net: net,
           fee_diff: feeDiff,
-          receipt_no: chq ? chq.receipt_no : (led && led.re_no ? led.re_no : (ivNo || null)),
-          has_receipt: !!ivNo,
+          receipt_no: realCheque ? (chq ? chq.receipt_no : (led && led.re_no ? led.re_no : (ivNo || null))) : null,   // RE จริงต่อเมื่อยืนยันใน 191 (เลข RE เดาไม่โชว์)
+          has_receipt: hasReceipt,
           has_cheque_deposit: !!chq,
           existing_bq: null,
           mismatch_flag: mismatch,
@@ -32155,13 +32153,12 @@ async function bmpApplyRegistryToOrders(co, d){
     data.forEach(r=>{ if(r.order_id) ledger.set(String(r.order_id), r); });
     if(data.length<sz) break; from+=sz;
   }
-  // ★ ดึงเลขเช็คจริงจากรายงาน 191 (cache) — map RE→เช็ค + IV→เช็ค · แม่นกว่าเดา prefix (ร้านเดียวมีทั้ง SI/SB/TQ)
-  const reToCheque = new Map(), ivToChequeC = new Map();
+  // ★ เลขเช็คจริงจากรายงาน 191 (cache) — map IV→เช็ค (แหล่งจริงเดียว · ห้ามใช้ RE เพราะเลข RE บนออเดอร์เป็นเลขที่ระบบเดา · อาจชนกับ RE จริงของช่องทางอื่น)
+  const ivToChequeC = new Map();
   try{
     const cachedEx = await bmpLoadExpressFromCache(co);
-    if(cachedEx && cachedEx.arData){
-      for(const c of (cachedEx.arData.cheques||[])){ if(c.receipt_no && c.cheque_no && !reToCheque.has(c.receipt_no)) reToCheque.set(c.receipt_no, c.cheque_no); }
-      if(cachedEx.arData.ivToCheque){ for(const [iv,chq] of cachedEx.arData.ivToCheque.entries()){ if(chq && chq.cheque_no && !ivToChequeC.has(iv)) ivToChequeC.set(iv, chq.cheque_no); } }
+    if(cachedEx && cachedEx.arData && cachedEx.arData.ivToCheque){
+      for(const [iv,chq] of cachedEx.arData.ivToCheque.entries()){ if(chq && chq.cheque_no && !ivToChequeC.has(iv)) ivToChequeC.set(iv, chq.cheque_no); }
     }
   }catch(e){ console.warn("bmp cache cheque map", e); }
   const orders = (d.mp.orders||[]).filter(o=>o.txn_type==="order");
@@ -32169,21 +32166,23 @@ async function bmpApplyRegistryToOrders(co, d){
   for(const o of orders){
     const led = ledger.get(String(o.order_id)); if(!led) continue;   // ยังไม่อยู่ในทะเบียน → ข้าม (orphan แยกจัดการ)
     const ivNo = led.iv_no || null;
-    const reDigits = led.re_no ? String(led.re_no).replace(/\D/g,"") : "";
-    const pfx = bmpChequePrefix(o.channel);
-    // ★ เลขเช็คจริงจาก 191: (1) led.cheque_no (tagged) → (2) map RE→เช็ค → (3) map IV→เช็ค → (4) เดา prefix+RE (สุดท้าย)
-    const realFrom191 = (led.re_no && reToCheque.get(led.re_no)) || (ivNo && ivToChequeC.get(ivNo)) || null;
-    const chequeNo = (led.cheque_no && !/^RE/i.test(led.cheque_no)) ? led.cheque_no
-                   : (realFrom191 ? realFrom191
-                   : (reDigits ? (pfx+reDigits)
-                   : (ivNo ? ("PENDING-"+ivNo) : ("UNKNOWN-"+o.order_id))));
-    const hasRe = !!(led.re_no || led.cheque_no);
-    let mismatch=false, reason="";
-    if(!ivNo){ mismatch=true; reason="ยังไม่คีย์ IV (ไม่พบในทะเบียน/รายงาน)"; }
-    else if(!hasRe){ mismatch=true; reason="ยังไม่ออกใบเสร็จ RE (ตรวจในทะเบียน/รับชำระ)"; }
+    // ★ เลขเช็คจริง = (1) tagged แล้ว → (2) จาก 191 ผ่าน IV ของออเดอร์เอง · ไม่มี = "ยังไม่ออก RE จริง" (ไม่เดา ไม่ยืมเลขจาก RE อื่น)
+    const taggedChq = (led.cheque_no && !/^RE/i.test(led.cheque_no)) ? led.cheque_no : null;
+    const chqFromIv = ivNo ? (ivToChequeC.get(ivNo) || null) : null;
+    const realCheque = taggedChq || chqFromIv;
+    let chequeNo, mismatch=false, reason="";
+    if(realCheque){
+      chequeNo = realCheque;
+    } else if(!ivNo){
+      chequeNo = "UNKNOWN-"+o.order_id; mismatch=true; reason="ยังไม่คีย์ IV (ไม่พบในทะเบียน/รายงาน)";
+    } else {
+      // มี IV แต่ IV ยังไม่พบในรายงาน 191 = ยังไม่ออกใบเสร็จ RE จริง (เลข RE บนออเดอร์เป็นเลขที่ระบบเดา — ยังไม่ยืนยัน)
+      chequeNo = "PENDING-"+ivNo; mismatch=true; reason="ยังไม่ออกใบเสร็จ RE จริง (IV ยังไม่พบในรายงานรับชำระ 191)";
+    }
     const gross = (o.express_gross && Number(o.express_gross)>0) ? Number(o.express_gross)
                 : (led.sale_amount!=null ? Number(led.sale_amount) : Number(o.express_gross||0));
-    const receiptNo = led.re_no || ivNo || null;
+    // RE จริงต่อเมื่อ IV ยืนยันใน 191 แล้ว · ไม่งั้นเก็บ null (เลข RE เดายังไม่ยืนยัน — โชว์ว่ายังไม่ออก RE)
+    const receiptNo = realCheque ? (led.re_no || ivNo || null) : null;
     // เปลี่ยนแปลงจริงไหม (กัน update เปล่า)
     const changed = (o.cheque_no||"")!==chequeNo || !!o.mismatch_flag!==mismatch
       || (o.mismatch_reason||"")!==reason || !!o.has_receipt!==!!ivNo

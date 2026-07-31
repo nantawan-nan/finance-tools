@@ -191,6 +191,14 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-07-31 — ★ ถอน Marketplace: อัป 191 ใหม่แล้วเลขเช็คไม่อัปเดต (QI care ค้าง SB แทน SI) — commit fcb4660
+- **เจ้าของ (เบญญา Shopee QI care):** ส่งออกใบผ่านเช็คขึ้นเลขเช็ค **SB2607000051** แต่ Express จริงคีย์เป็น **SI**2607000051 (Shopee-QI care) · แนนอัปรายงาน 191 รับชำระหนี้แล้วก็ยังขึ้น SB
+- **วินิจฉัย (แกะไฟล์ 191.CSV จริง):** ไฟล์ 191 **ถูกต้อง** — RE2607000051 → เช็คจริง **SI2607000051** → IV2606001431 (มีทั้ง SB=Betra และ SI=QI care ปนถูกตามร้าน) · SB บนการ์ด = **เลขเดา** (prefix เรียนต่อช่องทาง shopee เลือก SB ของ Betra ที่เจอบ่อยกว่า + เลข RE)
+- **ต้นเหตุ (`ordTagReceipts` l.26951):** เงื่อนไข re-tag = `!o.re_no || o.re_no!==chq.receipt_no` เท่านั้น → อัป 191 ใหม่ที่เลขเช็คถูก (SI) แต่ **re_no เท่าเดิม** (RE2607000051) → เงื่อนไข false → **ข้าม ไม่ยอมเขียนทับ cheque_no** → SB (เดา/เก่า) ค้างตลอด
+- **แก้:** เพิ่มเงื่อนไข `|| o.cheque_no!==chq.cheque_no` (re-tag เมื่อเลขเช็คต่างด้วย) + เพิ่ม `cheque_no` ใน select ของ `ordFetchAllRows` (ไม่งั้นเทียบไม่ได้ · undefined ตลอด)
+- **วิธีแก้ให้เจ้าของ:** หลัง deploy → อัปรายงาน (191) อีกรอบ → ทะเบียนได้เลขเช็คจริง SI → กด **"อัปเดต IV/RE จากทะเบียน"** บนการ์ด → SB เปลี่ยนเป็น SI
+- **APP_BUILD 3007d** · หมายเหตุ: prefix เรียนต่อ**ช่องทาง**ไม่ใช่ต่อ**ร้าน** (SI/SB ปนใน shopee) ยังเป็น gotcha เดิม — แต่พอ tag เลขเช็คจริงจาก 191 ได้ ก็ไม่ต้องพึ่งเลขเดาแล้ว
+
 ### 2026-07-30 — ★★ ถอน Marketplace เบญญา: Shopee ยึด balance จริง + fix ใบถอน TikTok โดนกลืนข้ามช่องทาง
 - **(1) Shopee ถอนไม่หมดกระเป๋า (commit fbb4bbd):** เบญญาฝ่ายขายถอน partial → FIFO เดาดริฟท์ · เจ้าของชี้วิธี "แบ่งรอบที่ยอดกระเป๋ากลับ 0" → `bmpGroupWithdrawals` เพิ่ม branch Shopee: ใช้ **`balance_after` จริง** (parser เก็บอยู่แล้ว) เป็นตัวกำหนดยอดยกออเดอร์ไปงวดหน้า (subset-sum หาชุดตรงยอดค้างกระเป๋า) · guard `shopeeBal>0.5`: ถอนเต็ม/M Bark/TikTok/Lazada → FIFO เดิมไม่กระทบ · carry ผ่าน queue (carryCash=0 กันนับซ้ำ) · **verified: qi care 742/742 = 100% · betra 8/9 รอบตรง** (รอบแรก พ.ค. = เงินค้างก่อนไฟล์ ~34,642 ต้องอัปไฟล์ เม.ย.)
 - **(2) ★★ ต้นเหตุ TikTok "เคยตรงแล้วเพี้ยน" (commit 2932a85):** dedup key ใบถอน (`bmpDkey` = วันที่|บัญชี|ยอด) **ไม่มี channel** — TikTok qi care + Shopee qi care ถอนเข้า**บัญชีเดียวกัน** (SCB 4170771640) → อัป Shopee ใหม่ auto-heal จับคู่ใบ TikTok ใน DB (วัน+ยอดชน) → **soft-delete ใบ TikTok ทิ้งแทนด้วย Shopee** · แก้: bmpDkey เพิ่ม channel นำหน้า + dbByKey/fileByKey (auto-heal) + `bmpDedupExisting` (ล้างซ้ำ) group รวม channel · verified 3 เคส (cross-channel ไม่กลืน · same-channel ยัง dedup · ล้างซ้ำเก็บถูกใบ)

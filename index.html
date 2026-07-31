@@ -654,7 +654,7 @@ function updateCrumb(){
    ===================================================================== */
 /* ★ เลข build — บั๊มทุกครั้งที่ deploy (โชว์มุมล่าง sidebar) · ใช้เช็คว่าเบราว์เซอร์ได้โค้ดล่าสุดหรือยัง
    (ตัวเช็คเวอร์ชันอัตโนมัติถูกปิดตามคำขอเจ้าของ — เลขนี้คือทางเช็คด้วยตาแทน) */
-const APP_BUILD = "3007c";
+const APP_BUILD = "3007d";
 const APP_CONFIG = {
   // null = โชว์ทุกโมดูล (ของเดิม) · หรือ array = โชว์เฉพาะ id เหล่านี้
   enabledTools: null,
@@ -26944,11 +26944,12 @@ async function ordIngestFromSales(co, salesData, srcLabel){
 async function ordTagReceipts(co, arData){
   const m = arData && arData.ivToCheque;
   if(!m || !m.size) return 0;
-  const orders = await ordFetchAllRows(co, "id,iv_no,re_no,sale_amount", q=>q.not("iv_no","is",null));
+  const orders = await ordFetchAllRows(co, "id,iv_no,re_no,cheque_no,sale_amount", q=>q.not("iv_no","is",null));
   const now=new Date().toISOString(); const ups=[];
   for(const o of (orders||[])){
     const chq = m.get(o.iv_no);
-    if(chq && (!o.re_no || o.re_no!==chq.receipt_no)){
+    // ★ re-tag เมื่อ RE ว่าง/เปลี่ยน "หรือ" เลขเช็คต่างจาก 191 — กันเคสอัป 191 ใหม่ (เลขเช็คถูก SI) แต่ re_no เท่าเดิม → เดิมข้าม ทำให้เลขเช็คเก่า (SB/เดา) ค้าง
+    if(chq && (!o.re_no || o.re_no!==chq.receipt_no || o.cheque_no!==chq.cheque_no)){
       const fee = (Number(o.sale_amount)||0) ? +(Number(o.sale_amount) - Number(chq.amount)).toFixed(2) : null;
       ups.push({ id:o.id, patch:{ re_no:chq.receipt_no, cheque_no:chq.cheque_no,
         receipt_net:Number(chq.amount)||0, receipt_gross:Number(o.sale_amount)||null,

@@ -654,7 +654,7 @@ function updateCrumb(){
    ===================================================================== */
 /* ★ เลข build — บั๊มทุกครั้งที่ deploy (โชว์มุมล่าง sidebar) · ใช้เช็คว่าเบราว์เซอร์ได้โค้ดล่าสุดหรือยัง
    (ตัวเช็คเวอร์ชันอัตโนมัติถูกปิดตามคำขอเจ้าของ — เลขนี้คือทางเช็คด้วยตาแทน) */
-const APP_BUILD = "3007d";
+const APP_BUILD = "3007e";
 const APP_CONFIG = {
   // null = โชว์ทุกโมดูล (ของเดิม) · หรือ array = โชว์เฉพาะ id เหล่านี้
   enabledTools: null,
@@ -26367,8 +26367,10 @@ function bmpRenderUploadModal(){
   const cache = d.mp.expressCache;
   const hasCache = !!cache;
   // ★ Express = ตัวเลือก (ถ้าไม่อัป จะดึง IV/RE จากทะเบียน) → ปุ่มเปิดใช้แค่มีไฟล์กระเป๋าเงินก็พอ
-  const expressPartial = (f.sales.length || f.receipt.length || f.cheque.length) && !(f.sales.length && f.receipt.length && f.cheque.length);
-  const ready = !!(f.shopee.length && !expressPartial);   // อัป Express บางส่วน = ต้องครบ 3 (หรือไม่อัปเลย)
+  const hasAnyExpress = !!(f.sales.length || f.receipt.length || f.cheque.length);
+  const expressPartial = hasAnyExpress && !(f.sales.length && f.receipt.length && f.cheque.length);
+  // มีกระเป๋าเงิน: Express ต้องครบ 3 หรือไม่อัปเลย · ไม่มีกระเป๋าเงิน: อัป Express ไฟล์ใดก็ได้ (re-tag เลขเช็ค/RE · merge กับ cache · ไม่จับกลุ่มถอนใหม่)
+  const ready = !!((f.shopee.length && !expressPartial) || (!f.shopee.length && hasAnyExpress));
   const cacheNote = (key, label) => {
     if((d.mp.files[key]||[]).length) return ""; // มีไฟล์ใหม่แล้ว ไม่ต้องโชว์ cache
     if(!hasCache) return "";
@@ -31161,7 +31163,8 @@ async function bmpRunUpload(){
   if(d.mp.parsing){ console.warn("bmpRunUpload: already in progress, ignored"); return; }
   const f = d.mp.files;
   const hasExpressFiles = !!(f.sales.length || f.receipt.length || f.cheque.length);
-  if(!f.shopee.length){ alert("เลือกไฟล์รายงานกระเป๋าเงินก่อน (Shopee Balance หรือ TikTok รายการรับเงิน)"); return; }
+  const expressOnly = !f.shopee.length && hasExpressFiles;   // ★ อัปแค่ Express (ไม่มีกระเป๋าเงิน) = re-tag IV/RE/เลขเช็ค อย่างเดียว (ไม่จับกลุ่มถอนใหม่)
+  if(!f.shopee.length && !hasExpressFiles){ alert("เลือกไฟล์รายงานกระเป๋าเงิน (Shopee Balance / TikTok / Lazada) หรือ รายงาน Express (รับชำระ 191 / 723-5 / เช็ครับ) ก่อน"); return; }
   const co = d.companyId || await fopCompanyId();
   if(!co){ alert("หา company_id ไม่เจอ"); return; }
   // ★ ไม่บังคับ Express — ถ้าไม่อัป + ไม่มี cache จะดึง IV/RE จากทะเบียน (order_ledger) เอง (จัดการใน else branch ด้านล่าง)
@@ -31247,33 +31250,42 @@ async function bmpRunUpload(){
         const names = csvByType.unknown.map(x=>x.file.name).join(", ");
         throw new Error(`ไฟล์ CSV ไม่รู้จัก: ${names} — ต้องเป็น รับชำระ / เช็ครับ / รายงานขาย 723-5 หรือ 141.RWT`);
       }
-      if(!csvByType.cheque.length) throw new Error('ขาดไฟล์ "รายงานเช็ครับ เรียงตามวันที่นำฝาก"');
-      if(!csvByType.receipt.length) throw new Error('ขาดไฟล์ "รายงานการรับชำระหนี้"');
-      if(!csvByType.sales.length && !csvByType.sales_rwt141.length) throw new Error('ขาดไฟล์ "รายงานขาย 723-5" หรือ "รายงานขายเงินเชื่อ 141.RWT"');
+      // ★ อัปบางไฟล์ก็ได้ — ชนิดที่ไม่ได้อัป จะดึงจาก cache เดิม (เช่น อัปแค่ 191 → 723-5/เช็ครับ ใช้ของเก่า)
+      const cachedEx = await bmpLoadExpressFromCache(co);
+      const hasSales = csvByType.sales.length || csvByType.sales_rwt141.length;
+      if(!csvByType.cheque.length && !(cachedEx && cachedEx.chqData)) throw new Error('ขาดไฟล์ "รายงานเช็ครับ เรียงตามวันที่นำฝาก" (และไม่มีในแคช)');
+      if(!csvByType.receipt.length && !(cachedEx && cachedEx.arData)) throw new Error('ขาดไฟล์ "รายงานการรับชำระหนี้" (และไม่มีในแคช)');
+      if(!hasSales && !(cachedEx && cachedEx.salesData)) throw new Error('ขาดไฟล์ "รายงานขาย 723-5" หรือ "141.RWT" (และไม่มีในแคช)');
 
-      // parse sales — 723-5 (bmpParseSalesReport) + 141.RWT (bmpParseExpressRwt141) · shape เข้ากันได้ (doc_no/doc_type/ref_order_id/total/voided)
-      let mergedIvs = [];
-      for(const item of csvByType.sales){ mergedIvs = mergedIvs.concat(bmpParseSalesReport(item.text).ivs); }
-      for(const item of csvByType.sales_rwt141){ mergedIvs = mergedIvs.concat(bmpParseExpressRwt141(item.text).ivs); }
-      const ivSeen = new Set();
-      mergedIvs = mergedIvs.filter(iv => { if(!iv.doc_no || ivSeen.has(iv.doc_no)) return false; ivSeen.add(iv.doc_no); return true; });
-      salesData = { ivs: mergedIvs };
-      // parse receipt
-      let mergedCheques = []; const mergedIvToCheque = new Map();
-      for(const item of csvByType.receipt){
-        const rd = bmpParseArReceipt(item.text);
-        mergedCheques = mergedCheques.concat(rd.cheques);
-        if(rd.ivToCheque){ for(const [iv, chq] of rd.ivToCheque.entries()){ if(!mergedIvToCheque.has(iv)) mergedIvToCheque.set(iv, chq); } }
-      }
-      const arSeen = new Set();
-      mergedCheques = mergedCheques.filter(c => { if(!c.cheque_no || arSeen.has(c.cheque_no)) return false; arSeen.add(c.cheque_no); return true; });
-      arData = { cheques: mergedCheques, ivToCheque: mergedIvToCheque };
-      // parse cheque report
-      let mergedDeposits = [];
-      for(const item of csvByType.cheque){ mergedDeposits = mergedDeposits.concat(bmpParseChequeReport(item.text).deposits); }
-      const chSeen = new Set();
-      mergedDeposits = mergedDeposits.filter(d2 => { const k = `${d2.cheque_no}|${d2.bq}`; if(chSeen.has(k)) return false; chSeen.add(k); return true; });
-      chqData = { deposits: mergedDeposits };
+      // parse sales — 723-5 (bmpParseSalesReport) + 141.RWT (bmpParseExpressRwt141) · ไม่ได้อัป → ใช้ cache
+      if(hasSales){
+        let mergedIvs = [];
+        for(const item of csvByType.sales){ mergedIvs = mergedIvs.concat(bmpParseSalesReport(item.text).ivs); }
+        for(const item of csvByType.sales_rwt141){ mergedIvs = mergedIvs.concat(bmpParseExpressRwt141(item.text).ivs); }
+        const ivSeen = new Set();
+        mergedIvs = mergedIvs.filter(iv => { if(!iv.doc_no || ivSeen.has(iv.doc_no)) return false; ivSeen.add(iv.doc_no); return true; });
+        salesData = { ivs: mergedIvs };
+      } else { salesData = cachedEx.salesData; }
+      // parse receipt (191) — ไม่ได้อัป → ใช้ cache
+      if(csvByType.receipt.length){
+        let mergedCheques = []; const mergedIvToCheque = new Map();
+        for(const item of csvByType.receipt){
+          const rd = bmpParseArReceipt(item.text);
+          mergedCheques = mergedCheques.concat(rd.cheques);
+          if(rd.ivToCheque){ for(const [iv, chq] of rd.ivToCheque.entries()){ if(!mergedIvToCheque.has(iv)) mergedIvToCheque.set(iv, chq); } }
+        }
+        const arSeen = new Set();
+        mergedCheques = mergedCheques.filter(c => { if(!c.cheque_no || arSeen.has(c.cheque_no)) return false; arSeen.add(c.cheque_no); return true; });
+        arData = { cheques: mergedCheques, ivToCheque: mergedIvToCheque };
+      } else { arData = cachedEx.arData; }
+      // parse cheque report — ไม่ได้อัป → ใช้ cache
+      if(csvByType.cheque.length){
+        let mergedDeposits = [];
+        for(const item of csvByType.cheque){ mergedDeposits = mergedDeposits.concat(bmpParseChequeReport(item.text).deposits); }
+        const chSeen = new Set();
+        mergedDeposits = mergedDeposits.filter(d2 => { const k = `${d2.cheque_no}|${d2.bq}`; if(chSeen.has(k)) return false; chSeen.add(k); return true; });
+        chqData = { deposits: mergedDeposits };
+      } else { chqData = cachedEx.chqData; }
       // ★ save cache
       await sb.from("brec_mp_express_cache").upsert({
         company_id: co,
@@ -31303,6 +31315,20 @@ async function bmpRunUpload(){
     // ★ Phase B: แท็กรับชำระ (RE/SP/net/fee) ใส่ออเดอร์ ผ่าน iv_no
     let ordTagRe = 0;
     try{ ordTagRe = await ordTagReceipts(co, arData); }catch(e){ console.warn("ord tag re", e); }
+
+    // ★ อัปแค่ Express (ไม่มีกระเป๋าเงิน): re-tag ทะเบียนเสร็จแล้ว → ซิงค์เลข IV/RE/เลขเช็ค เข้าการ์ด (brec_mp_orders) แล้วจบ · ไม่แตะการจับกลุ่มถอน
+    if(expressOnly){
+      let synced = 0;
+      try{ synced = await bmpApplyRegistryToOrders(co, d); }catch(e){ console.warn("registry sync", e); }
+      d.tab = "mp";
+      await bmpLoadFromDb();
+      d.mp.parsing = false;
+      bmpCloseUpload();
+      let m2 = `อัปรายงาน Express สำเร็จ (ไม่ได้แตะกระเป๋าเงิน/การจับกลุ่ม)\n\n📒 ทะเบียนคำสั่งซื้อ — จับ IV: ${ordResult.tagged} · แท็กรับชำระ (เลขเช็ค/RE): ${ordTagRe} · อัปการ์ด: ${synced}`;
+      if(window._ordWrFail){ m2 += `\n\n⚠️ เขียนทะเบียนไม่สำเร็จ ${window._ordWrFail} รายการ (เช็คสิทธิ์/เน็ต แล้วลองใหม่)`; window._ordWrFail=0; }
+      alert(m2);
+      return;
+    }
     const allWdForTag = [];   // เก็บ withdrawal ทุก shop ไว้ tag เงินเข้าแบงค์ (Phase C)
 
     // ----- ★ โหลดทะเบียน IV/RE ของเรา (order_ledger) = แหล่งหลักจับคู่ (เจ้าของขอ) -----
@@ -32111,6 +32137,49 @@ function bmpFilteredWds(d){
     return true;
   });
 }
+/* core: อ่าน order_ledger ล่าสุด → อัป cheque_no/re_no/mismatch ของ brec_mp_orders (d.mp.orders) · คืนจำนวนที่แก้
+   (ไม่ confirm/alert/reload — ใช้ร่วม bmpRefreshFromRegistry + Express-only upload) */
+async function bmpApplyRegistryToOrders(co, d){
+  const ledger = new Map(); let from=0; const sz=1000;
+  while(true){
+    const { data, error } = await sb.from("order_ledger").select("order_id,iv_no,re_no,sale_amount,cheque_no")
+      .eq("company_id",co).is("deleted_at",null).range(from,from+sz-1);
+    if(error){ throw error; }
+    if(!data || !data.length) break;
+    data.forEach(r=>{ if(r.order_id) ledger.set(String(r.order_id), r); });
+    if(data.length<sz) break; from+=sz;
+  }
+  const orders = (d.mp.orders||[]).filter(o=>o.txn_type==="order");
+  const updates=[];
+  for(const o of orders){
+    const led = ledger.get(String(o.order_id)); if(!led) continue;   // ยังไม่อยู่ในทะเบียน → ข้าม (orphan แยกจัดการ)
+    const ivNo = led.iv_no || null;
+    const reDigits = led.re_no ? String(led.re_no).replace(/\D/g,"") : "";
+    const pfx = bmpChequePrefix(o.channel);
+    const chequeNo = (led.cheque_no && !/^RE/i.test(led.cheque_no)) ? led.cheque_no
+                   : (reDigits ? (pfx+reDigits)
+                   : (ivNo ? ("PENDING-"+ivNo) : ("UNKNOWN-"+o.order_id)));
+    const hasRe = !!(led.re_no || led.cheque_no);
+    let mismatch=false, reason="";
+    if(!ivNo){ mismatch=true; reason="ยังไม่คีย์ IV (ไม่พบในทะเบียน/รายงาน)"; }
+    else if(!hasRe){ mismatch=true; reason="ยังไม่ออกใบเสร็จ RE (ตรวจในทะเบียน/รับชำระ)"; }
+    const gross = (o.express_gross && Number(o.express_gross)>0) ? Number(o.express_gross)
+                : (led.sale_amount!=null ? Number(led.sale_amount) : Number(o.express_gross||0));
+    const receiptNo = led.re_no || ivNo || null;
+    // เปลี่ยนแปลงจริงไหม (กัน update เปล่า)
+    const changed = (o.cheque_no||"")!==chequeNo || !!o.mismatch_flag!==mismatch
+      || (o.mismatch_reason||"")!==reason || !!o.has_receipt!==!!ivNo
+      || Number(o.express_gross||0)!==gross || (o.receipt_no||null)!==receiptNo;
+    if(changed){ updates.push({ id:o.id, cheque_no:chequeNo, receipt_no:receiptNo,
+      has_receipt:!!ivNo, express_gross:gross, fee_diff: gross? +(gross-Number(o.shopee_net||0)).toFixed(2):0,
+      mismatch_flag:mismatch, mismatch_reason:reason }); }
+  }
+  for(let i=0;i<updates.length;i+=20){
+    const chunk=updates.slice(i,i+20);
+    await Promise.all(chunk.map(u=>{ const {id,...ff}=u; return sb.from("brec_mp_orders").update(ff).eq("id",id); }));
+  }
+  return updates.length;
+}
 /* ★ อัปเดต IV/RE/เลขเช็ค จากทะเบียนคำสั่งซื้อ (order_ledger) โดยไม่ต้อง re-upload ไฟล์กระเป๋าเงิน
    — brec_mp_orders freeze IV/RE ตอน upload · คีย์ IV/RE ทีหลังต้องกดปุ่มนี้ให้ re-resolve จาก registry ปัจจุบัน */
 async function bmpRefreshFromRegistry(){
@@ -32118,52 +32187,11 @@ async function bmpRefreshFromRegistry(){
   const d = brecGet(); const co = d.companyId || await fopCompanyId(); if(!co) return;
   if(!confirm("อัปเดตสถานะ IV/RE ของออเดอร์ในหน้านี้ ให้ตรงกับทะเบียนคำสั่งซื้อล่าสุด?\n\nใช้เมื่อ 'ส่งออกไปคีย์ IV/RE แล้ว' — ระบบจะดึงเลข IV/RE/เลขเช็ค ล่าสุดจากทะเบียนมาเติมให้\n(ไม่ต้อง re-upload ไฟล์กระเป๋าเงิน · ไม่แตะยอด/การจับกลุ่ม)")) return;
   try{
-    // โหลดทะเบียน (order_ledger) ทั้งบริษัท — แบ่งหน้า
-    const ledger = new Map(); let from=0; const sz=1000;
-    while(true){
-      const { data, error } = await sb.from("order_ledger").select("order_id,iv_no,re_no,sale_amount,cheque_no")
-        .eq("company_id",co).is("deleted_at",null).range(from,from+sz-1);
-      if(error){ throw error; }
-      if(!data || !data.length) break;
-      data.forEach(r=>{ if(r.order_id) ledger.set(String(r.order_id), r); });
-      if(data.length<sz) break; from+=sz;
-    }
-    const orders = (d.mp.orders||[]).filter(o=>o.txn_type==="order");
-    const updates=[];
-    for(const o of orders){
-      const led = ledger.get(String(o.order_id)); if(!led) continue;   // ยังไม่อยู่ในทะเบียน → ข้าม (orphan แยกจัดการ)
-      const ivNo = led.iv_no || null;
-      const reDigits = led.re_no ? String(led.re_no).replace(/\D/g,"") : "";
-      const pfx = bmpChequePrefix(o.channel);
-      const chequeNo = (led.cheque_no && !/^RE/i.test(led.cheque_no)) ? led.cheque_no
-                     : (reDigits ? (pfx+reDigits)
-                     : (ivNo ? ("PENDING-"+ivNo) : ("UNKNOWN-"+o.order_id)));
-      const hasRe = !!(led.re_no || led.cheque_no);
-      let mismatch=false, reason="";
-      if(!ivNo){ mismatch=true; reason="ยังไม่คีย์ IV (ไม่พบในทะเบียน/รายงาน)"; }
-      else if(!hasRe){ mismatch=true; reason="ยังไม่ออกใบเสร็จ RE (ตรวจในทะเบียน/รับชำระ)"; }
-      const gross = (o.express_gross && Number(o.express_gross)>0) ? Number(o.express_gross)
-                  : (led.sale_amount!=null ? Number(led.sale_amount) : Number(o.express_gross||0));
-      const receiptNo = led.re_no || ivNo || null;
-      // เปลี่ยนแปลงจริงไหม (กัน update เปล่า)
-      const changed = (o.cheque_no||"")!==chequeNo || !!o.mismatch_flag!==mismatch
-        || (o.mismatch_reason||"")!==reason || !!o.has_receipt!==!!ivNo
-        || Number(o.express_gross||0)!==gross || (o.receipt_no||null)!==receiptNo;
-      if(changed){ updates.push({ id:o.id, cheque_no:chequeNo, receipt_no:receiptNo,
-        has_receipt:!!ivNo, express_gross:gross, fee_diff: gross? +(gross-Number(o.shopee_net||0)).toFixed(2):0,
-        mismatch_flag:mismatch, mismatch_reason:reason }); }
-    }
-    if(!updates.length){ alert("ไม่มีอะไรต้องอัปเดต — สถานะตรงกับทะเบียนแล้ว ✓"); return; }
-    // อัปเดตเป็นชุด (chunk ละ 20 · parallel)
-    let done=0;
-    for(let i=0;i<updates.length;i+=20){
-      const chunk=updates.slice(i,i+20);
-      await Promise.all(chunk.map(u=>{ const {id,...f}=u; return sb.from("brec_mp_orders").update(f).eq("id",id); }));
-      done+=chunk.length;
-    }
+    const n = await bmpApplyRegistryToOrders(co, d);
+    if(!n){ alert("ไม่มีอะไรต้องอัปเดต — สถานะตรงกับทะเบียนแล้ว ✓"); return; }
     await bmpLoadFromDb();
     renderToolBankRec();
-    alert(`อัปเดต ${updates.length} ออเดอร์จากทะเบียนแล้ว ✓\nออเดอร์ที่คีย์ IV/RE ครบจะเปลี่ยนเป็น "ตรงครบ"`);
+    alert(`อัปเดต ${n} ออเดอร์จากทะเบียนแล้ว ✓\nออเดอร์ที่คีย์ IV/RE ครบจะเปลี่ยนเป็น "ตรงครบ"`);
   }catch(e){ alert("อัปเดตไม่สำเร็จ: "+fopErr(e)); }
 }
 /* ★ ติ๊ก "ดำเนินการแล้ว" (คีย์ BQ เสร็จ) → ย้ายไปแท็บดำเนินการแล้ว */

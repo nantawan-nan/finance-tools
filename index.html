@@ -654,7 +654,7 @@ function updateCrumb(){
    ===================================================================== */
 /* ★ เลข build — บั๊มทุกครั้งที่ deploy (โชว์มุมล่าง sidebar) · ใช้เช็คว่าเบราว์เซอร์ได้โค้ดล่าสุดหรือยัง
    (ตัวเช็คเวอร์ชันอัตโนมัติถูกปิดตามคำขอเจ้าของ — เลขนี้คือทางเช็คด้วยตาแทน) */
-const APP_BUILD = "3007i";
+const APP_BUILD = "3007j";
 const APP_CONFIG = {
   // null = โชว์ทุกโมดูล (ของเดิม) · หรือ array = โชว์เฉพาะ id เหล่านี้
   enabledTools: null,
@@ -5130,7 +5130,7 @@ function incEnsureReBatches(){
 }
 function incSetReBatch(id){ const d=incGet(); d.reBatchId = id||null; renderToolSalesIncome(); }
 /* ★ จับคู่แถว 1.9.1 ↔ ออเดอร์ แบบทนรูปแบบ (normalize + เลข IV ล้วน) — กันเคสเว้นวรรค/มี-ไม่มี "IV" นำหน้า */
-function incNormKey(s){ const k=String(s==null?"":s).toUpperCase().replace(/\s+/g,""); return /^\d{16,}$/.test(k)?k.slice(0,15):k; }   // ★ เลข TikTok ≥16 หลัก JS/Excel ปัดหลักท้าย → เทียบด้วย 15 หลักแรก (IV/RE มีตัวอักษร ไม่กระทบ)
+function incNormKey(s){ const k=String(s==null?"":s).toUpperCase().replace(/\s+/g,""); return /^\d{16,}$/.test(k)?(k.slice(0,13)+k.slice(-3)):k; }   // ★ เลข TikTok ≥16 หลัก corrupt คนละแบบ (Express เลขกลางหาย) → เทียบด้วย 13 หลักแรก+3 หลักท้าย (IV/RE มีตัวอักษร ไม่กระทบ)
 function incIvDigits(s){ const m=String(s==null?"":s).match(/\d{6,}/); return m?m[0]:""; }
 function incBuildOrdIndex(ordRows){
   const byIv={}, byIvDig={}, byOrd={};
@@ -30435,11 +30435,12 @@ function ordIvEnsureBatches(){
 }
 function ordIvSetBatch(id){ const d=ordGet(); if(!d.ivCheck) return; d.ivCheck.batchId = id||null; renderToolOrders(); }
 /* coverage ของ batch: ส่งออกกี่ใบ · พบใน 141.RWT กี่ใบ · ขาด(ยังไม่คีย์) · นอกสโคป */
-/* ★ key เทียบ order_id ทนความเพี้ยน — เลข TikTok ≥16 หลัก JS/Excel ปัดหลักท้าย (585201835798464196 → …300)
-   → เทียบด้วย 15 หลักแรกที่ไม่มีวันเพี้ยน · ตัด space (Express CSV แทรก space กลาง ID) · alphanumeric (Shopee) คงเดิม */
+/* ★ key เทียบ order_id ทนความเพี้ยน — เลข TikTok ≥16 หลักถูก corrupt คนละแบบ:
+   BigSeller เก็บครบ (585201835798464196) · Express ทำเลขกลางหาย 1 ตัว (58520183579846196 = "4" หลักที่ 15 หาย)
+   → เทียบด้วย "13 หลักแรก + 3 หลักท้าย" (ส่วนที่รอดทั้ง 2 ระบบ) · ตัด space · alphanumeric (Shopee) คงเดิม */
 function ordOidKey(oid){
   const s = String(oid==null?"":oid).trim().replace(/\s+/g,"");
-  return /^\d{16,}$/.test(s) ? s.slice(0,15) : s;
+  return /^\d{16,}$/.test(s) ? (s.slice(0,13)+s.slice(-3)) : s;
 }
 function ordIvBatchCoverage(d){
   const ic = d.ivCheck; if(!ic || !ic.batchId) return null;

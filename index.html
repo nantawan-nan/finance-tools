@@ -654,7 +654,7 @@ function updateCrumb(){
    ===================================================================== */
 /* ★ เลข build — บั๊มทุกครั้งที่ deploy (โชว์มุมล่าง sidebar) · ใช้เช็คว่าเบราว์เซอร์ได้โค้ดล่าสุดหรือยัง
    (ตัวเช็คเวอร์ชันอัตโนมัติถูกปิดตามคำขอเจ้าของ — เลขนี้คือทางเช็คด้วยตาแทน) */
-const APP_BUILD = "3007g";
+const APP_BUILD = "3007h";
 const APP_CONFIG = {
   // null = โชว์ทุกโมดูล (ของเดิม) · หรือ array = โชว์เฉพาะ id เหล่านี้
   enabledTools: null,
@@ -5130,7 +5130,7 @@ function incEnsureReBatches(){
 }
 function incSetReBatch(id){ const d=incGet(); d.reBatchId = id||null; renderToolSalesIncome(); }
 /* ★ จับคู่แถว 1.9.1 ↔ ออเดอร์ แบบทนรูปแบบ (normalize + เลข IV ล้วน) — กันเคสเว้นวรรค/มี-ไม่มี "IV" นำหน้า */
-function incNormKey(s){ return String(s==null?"":s).toUpperCase().replace(/\s+/g,""); }
+function incNormKey(s){ const k=String(s==null?"":s).toUpperCase().replace(/\s+/g,""); return /^\d{16,}$/.test(k)?k.slice(0,15):k; }   // ★ เลข TikTok ≥16 หลัก JS/Excel ปัดหลักท้าย → เทียบด้วย 15 หลักแรก (IV/RE มีตัวอักษร ไม่กระทบ)
 function incIvDigits(s){ const m=String(s==null?"":s).match(/\d{6,}/); return m?m[0]:""; }
 function incBuildOrdIndex(ordRows){
   const byIv={}, byIvDig={}, byOrd={};
@@ -30434,23 +30434,30 @@ function ordIvEnsureBatches(){
 }
 function ordIvSetBatch(id){ const d=ordGet(); if(!d.ivCheck) return; d.ivCheck.batchId = id||null; renderToolOrders(); }
 /* coverage ของ batch: ส่งออกกี่ใบ · พบใน 141.RWT กี่ใบ · ขาด(ยังไม่คีย์) · นอกสโคป */
+/* ★ key เทียบ order_id ทนความเพี้ยน — เลข TikTok ≥16 หลัก JS/Excel ปัดหลักท้าย (585201835798464196 → …300)
+   → เทียบด้วย 15 หลักแรกที่ไม่มีวันเพี้ยน · ตัด space (Express CSV แทรก space กลาง ID) · alphanumeric (Shopee) คงเดิม */
+function ordOidKey(oid){
+  const s = String(oid==null?"":oid).trim().replace(/\s+/g,"");
+  return /^\d{16,}$/.test(s) ? s.slice(0,15) : s;
+}
 function ordIvBatchCoverage(d){
   const ic = d.ivCheck; if(!ic || !ic.batchId) return null;
   const batches = (d.ivrec && d.ivrec.batches) || [];
   const b = batches.find(x => String(x.id)===String(ic.batchId)); if(!b) return null;
   const expected = Array.isArray(b.order_ids) ? b.order_ids.map(String) : [];
-  const expSet = new Set(expected);
+  const expKeys = new Map();   // key → oid ตัวแรก (กันเลข TikTok เพี้ยนเทียบไม่ติด)
+  expected.forEach(oid=>{ const k=ordOidKey(oid); if(!expKeys.has(k)) expKeys.set(k,oid); });
   const rowsById = new Map((d.rows||[]).map(o => [String(o.id), o]));
   const oidOf = (r)=>{ const o = r.orderRowId ? rowsById.get(String(r.orderRowId)) : null; return String((o && o.order_id) || r.ref_order_id || ""); };
-  const foundSet = new Set(); const extra = [];
+  const foundKeys = new Set(); const extra = [];
   (ic.results||[]).forEach(r=>{
-    const oid = oidOf(r);
+    const oid = oidOf(r); const k = ordOidKey(oid);
     if(r.status==="orphan"){ extra.push({ oid: oid||"(ไม่รู้จัก)", iv:r.iv_no, reason:"ไม่พบออเดอร์" }); return; }
-    if(oid && expSet.has(oid)) foundSet.add(oid);
+    if(k && expKeys.has(k)) foundKeys.add(k);
     else extra.push({ oid: oid||"(ไม่รู้จัก)", iv:r.iv_no, reason: r.voided?"voided":"นอก batch นี้" });
   });
-  const missing = expected.filter(oid => !foundSet.has(oid));
-  return { batch:b, expectedN:expected.length, keyedN:foundSet.size, missing, extra };
+  const missing = expected.filter(oid => !foundKeys.has(ordOidKey(oid)));
+  return { batch:b, expectedN:expected.length, keyedN:foundKeys.size, missing, extra };
 }
 async function ordIvSaveBatchVerify(){
   const d = ordGet(); const cov = ordIvBatchCoverage(d);

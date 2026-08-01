@@ -654,7 +654,7 @@ function updateCrumb(){
    ===================================================================== */
 /* ★ เลข build — บั๊มทุกครั้งที่ deploy (โชว์มุมล่าง sidebar) · ใช้เช็คว่าเบราว์เซอร์ได้โค้ดล่าสุดหรือยัง
    (ตัวเช็คเวอร์ชันอัตโนมัติถูกปิดตามคำขอเจ้าของ — เลขนี้คือทางเช็คด้วยตาแทน) */
-const APP_BUILD = "3007h";
+const APP_BUILD = "3007i";
 const APP_CONFIG = {
   // null = โชว์ทุกโมดูล (ของเดิม) · หรือ array = โชว์เฉพาะ id เหล่านี้
   enabledTools: null,
@@ -5157,7 +5157,8 @@ function incReBatchCoverage(d){
   for(const r of ((d.verify&&d.verify.rows)||[])){
     const o = incMatchVerifyRow(r, idx);
     const nk = o?incNormKey(o.order_id):(r.order_ref?incNormKey(r.order_ref):"");
-    if(o && expSet.has(nk)) foundSet.add(nk);
+    // ★ key ตรงกับ batch = คีย์แล้วจริง (แม้จับออเดอร์ในทะเบียนไม่เจอ เพราะ order_id TikTok 18 หลักเพี้ยน)
+    if(nk && expSet.has(nk)) foundSet.add(nk);
     else extra.push({ oid: (o?o.order_id:r.order_ref)||"(ไม่รู้จัก)", re:r.re_no, reason: o?"นอก batch นี้":"ไม่พบออเดอร์" });
   }
   const missing = expected.filter(oid=>!foundSet.has(incNormKey(oid)));
@@ -30452,9 +30453,10 @@ function ordIvBatchCoverage(d){
   const foundKeys = new Set(); const extra = [];
   (ic.results||[]).forEach(r=>{
     const oid = oidOf(r); const k = ordOidKey(oid);
-    if(r.status==="orphan"){ extra.push({ oid: oid||"(ไม่รู้จัก)", iv:r.iv_no, reason:"ไม่พบออเดอร์" }); return; }
-    if(k && expKeys.has(k)) foundKeys.add(k);
-    else extra.push({ oid: oid||"(ไม่รู้จัก)", iv:r.iv_no, reason: r.voided?"voided":"นอก batch นี้" });
+    // ★ เช็ค key ตรงกับ batch ก่อนเสมอ — orphan/conflict ที่ ref_order_id ตรงกับใบส่งออก = คีย์แล้วจริง (แม้ order_id ในทะเบียนเพี้ยน 18 หลัก จน IV จับออเดอร์ไม่เจอ)
+    if(k && expKeys.has(k)){ foundKeys.add(k); return; }
+    const reason = r.status==="orphan" ? "ไม่พบออเดอร์" : (r.voided?"voided":"นอก batch นี้");
+    extra.push({ oid: oid||"(ไม่รู้จัก)", iv:r.iv_no, reason });
   });
   const missing = expected.filter(oid => !foundKeys.has(ordOidKey(oid)));
   return { batch:b, expectedN:expected.length, keyedN:foundKeys.size, missing, extra };

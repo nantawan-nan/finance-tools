@@ -654,7 +654,7 @@ function updateCrumb(){
    ===================================================================== */
 /* ★ เลข build — บั๊มทุกครั้งที่ deploy (โชว์มุมล่าง sidebar) · ใช้เช็คว่าเบราว์เซอร์ได้โค้ดล่าสุดหรือยัง
    (ตัวเช็คเวอร์ชันอัตโนมัติถูกปิดตามคำขอเจ้าของ — เลขนี้คือทางเช็คด้วยตาแทน) */
-const APP_BUILD = "3007l";
+const APP_BUILD = "3007m";
 const APP_CONFIG = {
   // null = โชว์ทุกโมดูล (ของเดิม) · หรือ array = โชว์เฉพาะ id เหล่านี้
   enabledTools: null,
@@ -3633,7 +3633,7 @@ function incGet(){
   if(!d.reBankCfg) d.reBankCfg = null;   // ★ {direct_down, cod_down} — โหลดจาก re_export_config
   return d;
 }
-function incSetSubtab(t){ const d=incGet(); d.subtab = t; if(t==='recon'||t==='export') d.re191Ivs=undefined; renderToolSalesIncome(); }   // ★ reset ชุด IV-in-191 ตอนเข้าแท็บ recon/export → โหลดสด (เผื่ออัป 191 สะสมเพิ่ม)
+function incSetSubtab(t){ incGet().subtab = t; renderToolSalesIncome(); }
 /* ★ ตั้งค่า "เลือก Bank {Down N}" ต่อบริษัท (RE โอนตรง/COD) — โหลด/บันทึก re_export_config */
 async function incLoadReBankCfg(){
   const d=incGet(); const co=await fopCompanyId(); if(!co){ d.reBankCfg={}; return; }
@@ -3844,21 +3844,6 @@ async function renderToolSalesIncome(){
     if(window.lucide) lucide.createIcons();
     ordLoad().then(()=>{ d._ordLoading=false; renderToolSalesIncome(); }).catch(()=>{ d._ordLoading=false; renderToolSalesIncome(); });
     return;
-  }
-
-  // ★ recon/export: โหลด "IV ที่ออก RE แล้วจริง" จาก 191 สะสม (brec_mp_express_cache) — ใช้เป็นเกณฑ์ "รับชำระแล้ว"
-  //   ให้ตรงกับ Bank Recon (ยึด IV อยู่ใน 191 · ไม่เชื่อ re_no ที่ค้าง/ผิด) · โหลดครั้งเดียวต่อการเข้าแท็บ (reset ใน incSetSubtab)
-  if((subtab==='recon'||subtab==='export') && d.re191Ivs===undefined && !d._re191Loading){
-    d._re191Loading = true;
-    try{
-      const co191 = await fopCompanyId();
-      const cache191 = co191 ? await bmpLoadExpressFromCache(co191) : null;
-      const set191 = new Set();
-      if(cache191 && cache191.arData && cache191.arData.ivToCheque){ for(const iv of cache191.arData.ivToCheque.keys()) set191.add(String(iv)); }
-      d.re191Ivs = set191;
-    }catch(e){ console.warn("re191 load", e); d.re191Ivs = new Set(); }
-    d._re191Loading = false;
-    return renderToolSalesIncome();
   }
 
   // ★ โหลด config "เลือก Bank {Down N}" (RE โอนตรง/COD) ครั้งแรกเมื่อเข้าแท็บ codre/direct (non-blocking)
@@ -4201,10 +4186,7 @@ function incReconData(d){
   const vrows = (d.verify && d.verify.rows) || [];
   const keyedIv=new Set(), keyedOrder=new Set();
   for(const vr of vrows){ if(vr.iv_no) keyedIv.add(vr.iv_no); if(vr.order_ref) keyedOrder.add(vr.order_ref); }
-  // ★ "รับชำระแล้ว" = IV อยู่ใน 191 สะสม (re191Ivs · เกณฑ์เดียวกับ Bank Recon) หรือ พบใน 1.9.1 verify
-  //   ★ เลิกเชื่อ !!o.re_no — เลข RE ในทะเบียนอาจเป็นเลขเดา/แท็กผิดใบ (ยังไม่ออก RE จริง) · ยึด 191 เท่านั้น (กฎเจ้าของ)
-  const re191 = d.re191Ivs || new Set();
-  const isReceived = (o)=> (o.iv_no && re191.has(String(o.iv_no))) || (o.iv_no && keyedIv.has(o.iv_no)) || keyedOrder.has(o.order_id);
+  const isReceived = (o)=> !!o.re_no || (o.iv_no && keyedIv.has(o.iv_no)) || keyedOrder.has(o.order_id);
 
   // ไล่จากฝั่ง Income → กรณี: พร้อมออก RE (ยังไม่รับชำระ) / รับชำระแล้ว / ยังไม่คีย์ IV / ไม่เจอออเดอร์
   const ready=[], received=[], noIv=[], noOrder=[], cancelledRefund=[], creditNote=[];
@@ -4231,7 +4213,7 @@ function incReconData(d){
   for(const o of ordRows){
     if(!o.iv_no) continue;
     if(o.status==='cancelled') continue;
-    if(isReceived(o)) continue;              // ★ รับชำระจริง (IV อยู่ใน 191) = ไม่ค้าง · ไม่เชื่อ re_no ที่ค้าง/ผิด
+    if(o.re_no) continue;                    // รับชำระ (RE) ไปแล้ว = ไม่ค้าง
     if(incByOrder[o.order_id]) continue;      // มี income แล้ว → อยู่กลุ่ม ready/noIv
     if(!incIsoInRange(o.iv_date||o.order_date, d)) continue;   // ★ กรองเดือน (ตาม iv_date — noIncome ไม่มีวันรับเงิน)
     noIncome.push({ order_id:o.order_id, channel:ordChannelDetail(o),
@@ -4482,7 +4464,6 @@ function incReCandidates(d){
   const vrows = (d.verify && d.verify.rows) || [];
   const keyedIv = new Set(), keyedOrder = new Set();
   for(const vr of vrows){ if(vr.iv_no) keyedIv.add(vr.iv_no); if(vr.order_ref) keyedOrder.add(vr.order_ref); }
-  const re191 = d.re191Ivs || new Set();   // ★ IV ที่ออก RE แล้วจริง (191 สะสม · เกณฑ์เดียวกับ Bank Recon)
   // ★ รหัสลูกค้า: ดึงจาก 141.RWT (รายงาน IV) ตามเลข IV — ให้ตรงกับที่คีย์ขายจริง
   //   (อัปในแท็บ "ตรวจการคีย์ IV" หน้าคำสั่งซื้อ → เก็บใน ordGet().ivCheck.results)
   const ivc = ordGet().ivCheck; const ivCustMap = {};
@@ -4505,7 +4486,7 @@ function incReCandidates(d){
     const isDirect = !channel;
     let net = Number(r.net_received)||0;
     if(isDirect && outstanding>0 && !(net>0)) net = outstanding;   // โอนตรงไม่มี income (net=0) → เงินเข้าเต็มยอด
-    const inReport191 = (ord.iv_no && (re191.has(String(ord.iv_no)) || keyedIv.has(ord.iv_no))) || keyedOrder.has(r.order_id);   // ★ ยึด 191 สะสม + 1.9.1 verify (ไม่เชื่อ re_no ที่ค้าง)
+    const inReport191 = (ord.iv_no && keyedIv.has(ord.iv_no)) || keyedOrder.has(r.order_id);
     // ★ เตือน: แบรนด์ที่บัญชี "คีย์ IV จริง" (จาก 141.RWT) ≠ แบรนด์ที่ RE จะใช้ (ตาม SKU) → RE อาจไม่ตรง IV
     const skuBr = incBrandOf(ord);
     let custWarn = "";
@@ -4604,8 +4585,8 @@ function incClearArReport(){ const d=incGet(); d.arReport=null; renderToolSalesI
 function incExportView(d){
   const company = state.company;
   const cands = incReCandidates(d);
-  const ready = cands.filter(r=> !r.inReport191);     // ★ ยังไม่ยืนยันใน 191 (สะสม+1.9.1) = ยังไม่ออก RE จริง → ส่งออกได้ (ไม่เชื่อ re_no ที่ค้าง/ผิด)
-  const done  = cands.filter(r=> r.inReport191);      // ยืนยันใน 191 แล้ว = ออก RE จริง
+  const ready = cands.filter(r=> !r.re_no && !r.inReport191);     // ยังไม่คีย์ RE + ไม่พบใน 1.9.1
+  const done  = cands.filter(r=> r.re_no || r.inReport191);       // คีย์ RE แล้ว / พบใน 1.9.1
   const probOf = (r)=>{
     if(company!=="mbark" && r.channel && !bankDownCmd(r.actualBrand,r.channel))
       return r.actualBrand ? `ยังไม่ตั้ง bank ช่อง ${r.channel} (${r.actualBrand})` : "เดาแบรนด์ Betra/Qi ไม่ออก";

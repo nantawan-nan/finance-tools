@@ -654,7 +654,7 @@ function updateCrumb(){
    ===================================================================== */
 /* ★ เลข build — บั๊มทุกครั้งที่ deploy (โชว์มุมล่าง sidebar) · ใช้เช็คว่าเบราว์เซอร์ได้โค้ดล่าสุดหรือยัง
    (ตัวเช็คเวอร์ชันอัตโนมัติถูกปิดตามคำขอเจ้าของ — เลขนี้คือทางเช็คด้วยตาแทน) */
-const APP_BUILD = "3007j";
+const APP_BUILD = "3007k";
 const APP_CONFIG = {
   // null = โชว์ทุกโมดูล (ของเดิม) · หรือ array = โชว์เฉพาะ id เหล่านี้
   enabledTools: null,
@@ -31271,35 +31271,40 @@ async function bmpRunUpload(){
       if(!csvByType.receipt.length && !(cachedEx && cachedEx.arData)) throw new Error('ขาดไฟล์ "รายงานการรับชำระหนี้" (และไม่มีในแคช)');
       if(!hasSales && !(cachedEx && cachedEx.salesData)) throw new Error('ขาดไฟล์ "รายงานขาย 723-5" หรือ "141.RWT" (และไม่มีในแคช)');
 
-      // parse sales — 723-5 (bmpParseSalesReport) + 141.RWT (bmpParseExpressRwt141) · ไม่ได้อัป → ใช้ cache
-      if(hasSales){
-        let mergedIvs = [];
-        for(const item of csvByType.sales){ mergedIvs = mergedIvs.concat(bmpParseSalesReport(item.text).ivs); }
-        for(const item of csvByType.sales_rwt141){ mergedIvs = mergedIvs.concat(bmpParseExpressRwt141(item.text).ivs); }
-        const ivSeen = new Set();
-        mergedIvs = mergedIvs.filter(iv => { if(!iv.doc_no || ivSeen.has(iv.doc_no)) return false; ivSeen.add(iv.doc_no); return true; });
-        salesData = { ivs: mergedIvs };
-      } else { salesData = cachedEx.salesData; }
-      // parse receipt (191) — ไม่ได้อัป → ใช้ cache
-      if(csvByType.receipt.length){
-        let mergedCheques = []; const mergedIvToCheque = new Map();
+      // ★★ สะสม (accumulate): รวม cache เดิม + ที่อัปใหม่ · อัปเฉพาะวัน/ช่วงได้ ไม่ต้องทั้งเดือน · ใบใหม่ทับใบเดิม (newer wins)
+      //    reset: d.mp._resetCache=true → ไม่โหลด cache เดิม (เริ่มสะสมใหม่ทั้งหมด · ใช้ตอน void/อยากเคลียร์)
+      const accBase = d.mp._resetCache ? null : cachedEx;
+      // sales (IV) — key doc_no
+      {
+        const byDoc = new Map();
+        for(const iv of ((accBase&&accBase.salesData&&accBase.salesData.ivs)||[])){ if(iv.doc_no) byDoc.set(iv.doc_no, iv); }
+        for(const item of csvByType.sales){ for(const iv of bmpParseSalesReport(item.text).ivs){ if(iv.doc_no) byDoc.set(iv.doc_no, iv); } }
+        for(const item of csvByType.sales_rwt141){ for(const iv of bmpParseExpressRwt141(item.text).ivs){ if(iv.doc_no) byDoc.set(iv.doc_no, iv); } }
+        salesData = { ivs: [...byDoc.values()] };
+      }
+      // receipt (191) — สะสม IV→เช็ค (key IV) + cheques (key เลขเช็ค) · ใบใหม่ทับ
+      {
+        const ivMap = new Map(), chqMap = new Map();
+        const cAr = accBase && accBase.arData;
+        if(cAr){
+          if(cAr.ivToCheque) for(const [iv,chq] of cAr.ivToCheque.entries()){ ivMap.set(iv, chq); }
+          for(const c of (cAr.cheques||[])){ if(c.cheque_no) chqMap.set(c.cheque_no, c); }
+        }
         for(const item of csvByType.receipt){
           const rd = bmpParseArReceipt(item.text);
-          mergedCheques = mergedCheques.concat(rd.cheques);
-          if(rd.ivToCheque){ for(const [iv, chq] of rd.ivToCheque.entries()){ if(!mergedIvToCheque.has(iv)) mergedIvToCheque.set(iv, chq); } }
+          if(rd.ivToCheque) for(const [iv,chq] of rd.ivToCheque.entries()){ ivMap.set(iv, chq); }   // fresh ทับ IV เดิม
+          for(const c of rd.cheques){ if(c.cheque_no) chqMap.set(c.cheque_no, c); }
         }
-        const arSeen = new Set();
-        mergedCheques = mergedCheques.filter(c => { if(!c.cheque_no || arSeen.has(c.cheque_no)) return false; arSeen.add(c.cheque_no); return true; });
-        arData = { cheques: mergedCheques, ivToCheque: mergedIvToCheque };
-      } else { arData = cachedEx.arData; }
-      // parse cheque report — ไม่ได้อัป → ใช้ cache
-      if(csvByType.cheque.length){
-        let mergedDeposits = [];
-        for(const item of csvByType.cheque){ mergedDeposits = mergedDeposits.concat(bmpParseChequeReport(item.text).deposits); }
-        const chSeen = new Set();
-        mergedDeposits = mergedDeposits.filter(d2 => { const k = `${d2.cheque_no}|${d2.bq}`; if(chSeen.has(k)) return false; chSeen.add(k); return true; });
-        chqData = { deposits: mergedDeposits };
-      } else { chqData = cachedEx.chqData; }
+        arData = { cheques: [...chqMap.values()], ivToCheque: ivMap };
+      }
+      // cheque report — สะสม deposits (key เลขเช็ค|bq)
+      {
+        const depMap = new Map();
+        for(const d2 of ((accBase&&accBase.chqData&&accBase.chqData.deposits)||[])){ depMap.set(`${d2.cheque_no}|${d2.bq}`, d2); }
+        for(const item of csvByType.cheque){ for(const d2 of bmpParseChequeReport(item.text).deposits){ depMap.set(`${d2.cheque_no}|${d2.bq}`, d2); } }
+        chqData = { deposits: [...depMap.values()] };
+      }
+      d.mp._resetCache = false;
       // ★ save cache
       await sb.from("brec_mp_express_cache").upsert({
         company_id: co,
@@ -32207,6 +32212,21 @@ async function bmpApplyRegistryToOrders(co, d){
   }
   return updates.length;
 }
+/* ★ ล้าง Express ที่สะสมไว้ (191/723-5/เช็ครับ) — reset · ใช้ตอน void RE หรืออยากเริ่มสะสมใหม่ทั้งหมด
+   ลบ cache แล้วตั้ง flag → อัปครั้งถัดไปเริ่มสะสมใหม่ (ไม่รวมของเก่า) */
+async function bmpResetExpressCache(){
+  if(!brecCanWrite()){ alert("ไม่มีสิทธิ์"); return; }
+  const d = brecGet(); const co = d.companyId || await fopCompanyId(); if(!co) return;
+  if(!confirm("ล้าง Express ที่สะสมไว้ (191/723-5/เช็ครับ) ทั้งหมด?\n\nใช้เมื่อ void RE หรืออยากเริ่มนับใหม่ — อัป 191 ครั้งถัดไปจะเริ่มสะสมใหม่ทั้งหมด (แนะนำอัปทั้งเดือน 1 ครั้ง)\n\n(ไม่กระทบ order_ledger / ใบถอน / ยอด — ล้างแค่แคช Express ที่ใช้ยืนยันการออก RE)")) return;
+  try{
+    await sb.from("brec_mp_express_cache").upsert({
+      company_id: co, sales_json:{ivs:[]}, ar_json:{cheques:[],ivToCheque:[]}, cheque_json:{deposits:[]},
+      sales_files:"", ar_files:"", cheque_files:"", updated_at:new Date().toISOString()
+    }, { onConflict:"company_id" });
+    d.mp._resetCache = true;   // เผื่อ upload ในรอบเดียวกัน
+    alert("ล้างสะสม Express แล้ว ✓\nอัป 191 (แนะนำทั้งเดือน) ครั้งถัดไป → เริ่มสะสมใหม่");
+  }catch(e){ alert("ล้างไม่สำเร็จ: "+fopErr(e)); }
+}
 /* ★ อัปเดต IV/RE/เลขเช็ค จากทะเบียนคำสั่งซื้อ (order_ledger) โดยไม่ต้อง re-upload ไฟล์กระเป๋าเงิน
    — brec_mp_orders freeze IV/RE ตอน upload · คีย์ IV/RE ทีหลังต้องกดปุ่มนี้ให้ re-resolve จาก registry ปัจจุบัน */
 async function bmpRefreshFromRegistry(){
@@ -32741,6 +32761,7 @@ function bmpRenderTab(d){
       <button class="brec-btn" onclick="bmpRefreshFromRegistry()" title="ดึงสถานะ IV/RE/เลขเช็ค ล่าสุดจากทะเบียนคำสั่งซื้อ (ใช้เมื่อคีย์ IV/RE เพิ่มแล้ว · ไม่ต้อง re-upload ไฟล์กระเป๋าเงิน)"><i data-lucide="refresh-cw"></i> อัปเดต IV/RE จากทะเบียน</button>
       <button class="brec-btn" onclick="bmpDedupExisting()" title="ล้างรายการถอนซ้ำ (วันเดียวกัน+บัญชี+ยอดเท่ากัน) — เก็บใบที่มีออเดอร์มากสุด" style="border-color:#fca5a5;color:#b91c1c"><i data-lucide="eraser"></i> ล้างรายการซ้ำ</button>
       <button class="brec-btn" onclick="bmpClearModal()" title="ลบข้อมูลรายงานถอน เลือกช่องทาง/ร้านได้ — ล้างเฉพาะร้านที่เลือกแล้วอัปใหม่" style="border-color:#fca5a5;color:#b91c1c"><i data-lucide="trash-2"></i> ลบข้อมูลถอน</button>
+      <button class="brec-btn" onclick="bmpResetExpressCache()" title="ล้าง Express ที่สะสมไว้ (191/723-5/เช็ครับ) — ใช้ตอน void RE หรืออยากเริ่มสะสมใหม่ · อัปครั้งถัดไปจะเริ่มนับใหม่ทั้งหมด" style="border-color:#fca5a5;color:#b91c1c"><i data-lucide="rotate-ccw"></i> ล้างสะสม Express</button>
       <button class="brec-btn primary" onclick="bmpExportCsv()" title="ส่งออกใบผ่านเช็ค (CSV) — เฉพาะใบถอนที่ตรงครบ · ข้ามใบที่ยังไม่ตรง"><i data-lucide="download"></i> ⬇ ส่งออกใบผ่านเช็ค (CSV) ${selCount?`· ${selCount} ที่เลือก`:((d.mp.filterMatch||'all')==='ready'?'· ตรงครบ':'· ทั้งหมด')}</button>
       <button class="brec-btn" onclick="bmpExportMismatchXlsx()" ${totalMismatch?'':'disabled'}><i data-lucide="file-warning"></i> ⬇ รายงานไม่ตรง (Excel)</button>
     </div>

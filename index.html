@@ -654,7 +654,7 @@ function updateCrumb(){
    ===================================================================== */
 /* ★ เลข build — บั๊มทุกครั้งที่ deploy (โชว์มุมล่าง sidebar) · ใช้เช็คว่าเบราว์เซอร์ได้โค้ดล่าสุดหรือยัง
    (ตัวเช็คเวอร์ชันอัตโนมัติถูกปิดตามคำขอเจ้าของ — เลขนี้คือทางเช็คด้วยตาแทน) */
-const APP_BUILD = "3007m";
+const APP_BUILD = "3007n";
 const APP_CONFIG = {
   // null = โชว์ทุกโมดูล (ของเดิม) · หรือ array = โชว์เฉพาะ id เหล่านี้
   enabledTools: null,
@@ -4176,6 +4176,125 @@ function incReconBreakdown(arr){
     <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span style="font-size:11.5px;font-weight:700;color:#475569;min-width:52px">แยกช่อง</span>${ent(byCh).map(([k,v])=>chip(incReconChLabel(k),v)).join("")}</div>
   </div>`;
 }
+/* ★★ ตรวจ "RE ผูกผิดใบ" — ออเดอร์ที่มี re_no แต่หลักฐาน (191 สะสม / 1.9.1) บอกว่า RE นั้นเป็นของ IV อื่น
+   ปรัชญา: ไม่มีหลักฐาน = ไม่ตัดสิน (คงสถานะเดิม) · เปลี่ยนเฉพาะที่พิสูจน์ได้ว่าขัดแย้ง
+   → กันเคส b3007l ที่ยึด "ต้องอยู่ใน 191" แล้วทุกใบกลายเป็นยังไม่รับชำระ */
+async function incLoadReEvidence(){
+  const ivToRe = new Map(), reToIvs = new Map();
+  const add = (iv, re)=>{
+    if(!iv || !re) return;
+    const I = incNormKey(iv), R = incNormKey(re);
+    if(!ivToRe.has(I)) ivToRe.set(I, R);
+    if(!reToIvs.has(R)) reToIvs.set(R, new Set());
+    reToIvs.get(R).add(I);
+  };
+  try{
+    const co = await fopCompanyId();
+    const cache = co ? await bmpLoadExpressFromCache(co) : null;   // 191 สะสม (จาก Bank Recon)
+    if(cache && cache.arData && cache.arData.ivToCheque){
+      for(const [iv, chq] of cache.arData.ivToCheque.entries()) if(chq && chq.receipt_no) add(iv, chq.receipt_no);
+    }
+  }catch(e){ console.warn("re evidence 191", e); }
+  for(const vr of ((incGet().verify && incGet().verify.rows)||[])) add(vr.iv_no, vr.re_no);   // + ไฟล์ 1.9.1 ที่อัปไว้
+  return { ivToRe, reToIvs, size: reToIvs.size };
+}
+/* จำแนกออเดอร์ที่มี re_no → ยืนยันแล้ว / ผูกผิด (พิสูจน์ได้) / ไม่มีหลักฐาน */
+function incClassifyReTags(ev){
+  const confirmed=[], wrong=[], unknown=[];
+  for(const o of (ordGet().rows||[])){
+    if(!o.re_no || !o.iv_no || o.status==='cancelled') continue;
+    const I = incNormKey(o.iv_no), R = incNormKey(o.re_no);
+    const evRe = ev.ivToRe.get(I);        // หลักฐานบอก IV นี้คู่กับ RE ไหน
+    const evIvs = ev.reToIvs.get(R);      // หลักฐานบอก RE นี้เป็นของ IV ไหนบ้าง
+    if(evRe && evRe===R){ confirmed.push({o}); continue; }                       // ตรงกัน = ถูกต้อง
+    if(evIvs && !evIvs.has(I)){ wrong.push({o, realIvs:[...evIvs], evRe}); continue; }   // ★ RE นี้เป็นของ IV อื่น = ผูกผิด
+    if(evRe && evRe!==R){ wrong.push({o, realIvs:[], evRe}); continue; }         // ★ IV นี้ควรคู่กับ RE อื่น = ผูกผิด
+    unknown.push({o});                                                           // ไม่มีหลักฐาน → ไม่ตัดสิน
+  }
+  return { confirmed, wrong, unknown };
+}
+async function incOpenReAudit(){
+  const d = incGet();
+  d._reAuditBusy = true; renderToolSalesIncome();
+  try{
+    if(!ordGet().loaded) await ordLoad();
+    const ev = await incLoadReEvidence();
+    d._reAudit = { ...incClassifyReTags(ev), evSize: ev.size, sel:new Set() };
+  }catch(e){ alert("ตรวจไม่สำเร็จ: "+(e.message||e)); d._reAudit=null; }
+  d._reAuditBusy = false; renderToolSalesIncome();
+}
+function incCloseReAudit(){ const d=incGet(); d._reAudit=null; renderToolSalesIncome(); }
+function incReAuditToggle(oid){ const d=incGet(); const s=d._reAudit&&d._reAudit.sel; if(!s) return; if(s.has(oid)) s.delete(oid); else s.add(oid); renderToolSalesIncome(); }
+function incReAuditAll(on){ const d=incGet(); const a=d._reAudit; if(!a) return; a.sel = on ? new Set(a.wrong.map(w=>String(w.o.order_id))) : new Set(); renderToolSalesIncome(); }
+/* ล้าง RE ที่ผูกผิด (เฉพาะที่ติ๊ก) → ออเดอร์กลับไป "พร้อมออก RE" · เขียนเฉพาะที่ผู้ใช้เลือกเอง */
+async function incClearWrongRe(){
+  const d=incGet(); const a=d._reAudit; if(!a || !a.sel.size){ alert("ยังไม่ได้เลือกรายการ"); return; }
+  const items = a.wrong.filter(w=>a.sel.has(String(w.o.order_id)));
+  if(!confirm(`ล้าง RE ที่ผูกผิด ${items.length} รายการ?\n\nจะล้าง: เลข RE · วันที่ RE · เลขเช็ค · ยอดรับชำระ (เฉพาะออเดอร์ที่เลือก)\nออเดอร์จะกลับไปอยู่ "พร้อมออก RE" → ส่งออกไปคีย์ได้\n\n(ไม่แตะ IV / ยอดขาย / ใบถอน)`)) return;
+  let ok=0, fail=0;
+  const patch = { re_no:null, re_date:null, cheque_no:null, receipt_net:null, receipt_gross:null, receipt_fee:null, received_at:null,
+                  updated_at:new Date().toISOString(), updated_by:(AUTH.user&&AUTH.user.id)||null };
+  for(let i=0;i<items.length;i+=20){
+    const chunk = items.slice(i,i+20);
+    const res = await Promise.all(chunk.map(w=> sb.from("order_ledger").update(patch).eq("id", w.o.id)));
+    res.forEach((r,k)=>{ if(r.error){ fail++; console.warn("clearRe", chunk[k].o.order_id, r.error); } else { ok++;
+      const lo = (ordGet().rows||[]).find(x=>x.id===chunk[k].o.id); if(lo){ lo.re_no=null; lo.re_date=null; lo.cheque_no=null; } } });
+  }
+  d._reAudit=null;
+  alert(`ล้าง RE ที่ผูกผิดแล้ว ${ok} รายการ${fail?` · ล้มเหลว ${fail}`:""}\n\nไปแท็บ "ส่งออก RE → AutoKey" เพื่อส่งออกไปคีย์ได้เลย`);
+  renderToolSalesIncome();
+}
+function incReAuditPanelHtml(d){
+  if(d._reAuditBusy) return `<div style="background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:20px;margin-bottom:12px;text-align:center;color:#64748b;font-size:12.5px"><i data-lucide="loader-2" style="width:18px;height:18px;color:var(--brand)"></i> กำลังตรวจ RE ที่ผูกผิด (อ่านหลักฐานจาก 191 สะสม + 1.9.1)…</div>`;
+  const a = d._reAudit; if(!a) return "";
+  const sel = a.sel || new Set();
+  const chip=(n,lab,clr,bg)=>`<div style="text-align:center;padding:7px 14px;border-radius:9px;background:${bg};border:1px solid ${clr}33;min-width:96px"><div style="font:800 20px/1 inherit;color:${clr}" class="tnum">${n.toLocaleString("th-TH")}</div><div style="font:600 11px/1.3 inherit;color:#64748b;margin-top:3px">${lab}</div></div>`;
+  const rows = a.wrong.slice(0,300).map(w=>{
+    const oid=String(w.o.order_id); const on=sel.has(oid);
+    const real = w.realIvs.length ? w.realIvs.join(", ") : (w.evRe?`— (IV นี้ควรคู่กับ ${esc(w.evRe)})`:"—");
+    return `<tr style="border-top:1px solid #f1f5f9;background:${on?'#fef2f2':'#fff'}">
+      <td style="padding:6px 8px"><input type="checkbox" ${on?'checked':''} onchange="incReAuditToggle('${esc(oid)}')"></td>
+      <td style="padding:6px 8px;font-family:monospace;font-size:11px">${esc(oid)}</td>
+      <td style="padding:6px 8px;font-family:monospace;font-size:11px">${esc(w.o.iv_no||'')}</td>
+      <td style="padding:6px 8px;font-family:monospace;font-size:11px;color:#dc2626;font-weight:700">${esc(w.o.re_no||'')}</td>
+      <td style="padding:6px 8px;font-family:monospace;font-size:11px;color:#15803d">${esc(real)}</td>
+      <td style="padding:6px 8px;text-align:right;font-variant-numeric:tabular-nums">${salesFmt(Number(w.o.sale_amount)||0)}</td></tr>`;
+  }).join("");
+  return `<div style="background:#fff;border:1px solid #e2e8f0;border-left:4px solid #dc2626;border-radius:12px;padding:14px 16px;margin-bottom:12px">
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px">
+      <i data-lucide="search-check" style="width:18px;height:18px;color:#dc2626"></i>
+      <b style="font-size:13.5px">ผลตรวจ RE ที่ผูกกับออเดอร์</b>
+      <span style="font-size:11.5px;color:#64748b">หลักฐาน: 191 สะสม + 1.9.1 (${a.evSize.toLocaleString("th-TH")} RE)</span>
+      <div style="flex:1"></div>
+      <button class="brec-btn" onclick="incCloseReAudit()" style="padding:4px 10px;font-size:12px">✕ ปิด</button>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+      ${chip(a.confirmed.length,"✓ ยืนยันถูกต้อง","#16a34a","#f0fdf4")}
+      ${chip(a.wrong.length,"⚠ ผูกผิดใบ (พิสูจน์ได้)","#dc2626","#fef2f2")}
+      ${chip(a.unknown.length,"? ไม่มีหลักฐาน (ไม่แตะ)","#64748b","#f8fafc")}
+    </div>
+    ${a.wrong.length ? `
+      <div style="font-size:12px;color:#7f1d1d;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:8px 11px;margin-bottom:9px">
+        ออเดอร์เหล่านี้ติดเลข RE ของ<b>ใบอื่น</b> → ระบบเลยคิดว่า "รับชำระแล้ว" → <b>ส่งออก RE ไม่ได้</b> · ล้างแล้วจะกลับไป "พร้อมออก RE"
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
+        <button class="brec-btn" onclick="incReAuditAll(true)" style="padding:4px 10px;font-size:12px">เลือกทั้งหมด</button>
+        <button class="brec-btn" onclick="incReAuditAll(false)" style="padding:4px 10px;font-size:12px">ไม่เลือก</button>
+        <div style="flex:1"></div>
+        <button class="brec-btn primary" onclick="incClearWrongRe()" ${sel.size?'':'disabled'} style="padding:5px 13px;font-size:12.5px"><i data-lucide="eraser"></i> ล้าง RE ที่ผูกผิด (${sel.size})</button>
+      </div>
+      <div style="max-height:420px;overflow:auto;border:1px solid #e2e8f0;border-radius:9px">
+        <table style="width:100%;border-collapse:collapse;font-size:12px">
+          <thead><tr style="background:#f8fafc;position:sticky;top:0">
+            <th style="padding:7px 8px;width:34px"></th><th style="padding:7px 8px;text-align:left">ออเดอร์</th>
+            <th style="padding:7px 8px;text-align:left">IV (ของออเดอร์นี้)</th><th style="padding:7px 8px;text-align:left">RE ที่ติดผิด</th>
+            <th style="padding:7px 8px;text-align:left">RE นี้เป็นของ IV</th><th style="padding:7px 8px;text-align:right">ยอด</th>
+          </tr></thead><tbody>${rows}</tbody></table>
+      </div>
+      ${a.wrong.length>300?`<div style="font-size:11.5px;color:#64748b;margin-top:6px">แสดง 300 จาก ${a.wrong.length} รายการ</div>`:""}`
+    : `<div style="font-size:12.5px;color:#15803d;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:9px 12px">✓ ไม่พบ RE ผูกผิดใบ — เลข RE ที่ตรวจได้ทั้งหมดตรงกับหลักฐาน<br><span style="color:#64748b;font-size:11.5px">ถ้ายังส่งออก RE ไม่ได้ แปลว่าติดสาเหตุอื่น (เช่น IV ที่คีย์ RE จริงแล้ว หรือ 191 ยังไม่ครอบ) — กลุ่ม "ไม่มีหลักฐาน ${a.unknown.length}" คือใบที่ระบบยังไม่มีข้อมูลยืนยัน</span></div>`}
+  </div>`;
+}
 function incReconData(d){
   const allInc = d.incRows || [];
   const incRows = allInc.filter(r=>incRowInRange(r,d));   // ★ กลุ่มฝั่ง income กรองตามเดือน/ช่วงวันรับเงิน
@@ -4293,9 +4412,12 @@ function incRenderRecon(d){
     ${card('noIncome','#0369a1','clock','🔵 มี IV · ยังไม่มี Income',R.noIncome,r=>r.sale_amount,'รอเงินเข้า / ดึง Income เพิ่ม')}
   </div>`;
   // ★ รับชำระไปแล้ว (มี IV + RE) — ไม่นับเป็น "พร้อมออก RE" (ให้ตรงกับหน้าส่งออก RE ที่ตัดออกไปแล้ว)
-  const receivedNote = (R.received && R.received.length) ? `<div onclick="incSetReconGroup('received')" style="cursor:pointer;font-size:12px;color:#15803d;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:9px;padding:8px 12px;margin-bottom:10px;display:flex;align-items:center;gap:8px">
+  const receivedNote = (R.received && R.received.length) ? `<div style="font-size:12px;color:#15803d;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:9px;padding:8px 12px;margin-bottom:10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
     <i data-lucide="check-check" style="width:14px;height:14px;color:#16a34a"></i>
-    <span>อีก <b>${R.received.length}</b> ใบ<b>รับชำระไปแล้ว</b> (มี RE / พบใน 1.9.1) — ไม่นับเป็น "พร้อมออก RE" · <span style="color:#0369a1">${grp==='received'?'ซ่อน':'คลิกดู'}</span></span></div>` : "";
+    <span onclick="incSetReconGroup('received')" style="cursor:pointer">อีก <b>${R.received.length}</b> ใบ<b>รับชำระไปแล้ว</b> (มี RE / พบใน 1.9.1) — ไม่นับเป็น "พร้อมออก RE" · <span style="color:#0369a1">${grp==='received'?'ซ่อน':'คลิกดู'}</span></span>
+    <div style="flex:1"></div>
+    <button class="brec-btn" onclick="event.stopPropagation();incOpenReAudit()" style="padding:4px 11px;font-size:11.5px;border-color:#fca5a5;color:#b91c1c" title="ตรวจว่าเลข RE ที่ติดอยู่ตรงกับหลักฐาน (191 สะสม / 1.9.1) ไหม — ใบที่ผูกผิดจะทำให้ส่งออก RE ไม่ได้"><i data-lucide="search-check"></i> ตรวจ RE ผูกผิดใบ</button>
+  </div>` : "";
   // ★ มี IV · เงินเข้า ≤ 0 → บัญชีไม่รับชำระ ต้องออกใบลดหนี้ (CN) แทน — แยกออกจาก "พร้อมออก RE"
   const cnTotal = (R.creditNote||[]).reduce((s,r)=>s+(r.net||0),0);
   const creditNote = (R.creditNote && R.creditNote.length) ? `<div onclick="incSetReconGroup('creditNote')" style="cursor:pointer;font-size:12px;color:#9a3412;background:#fff7ed;border:1px solid #fed7aa;border-left:4px solid #ea580c;border-radius:9px;padding:9px 12px;margin-bottom:10px;display:flex;align-items:center;gap:8px">
@@ -4388,7 +4510,7 @@ function incRenderRecon(d){
 
   return `<div style="padding:16px 0 0">
     <div style="font-size:12px;color:#64748b;margin-bottom:12px">🔗 จับคู่ด้วย <b>เลขออเดอร์</b> (Income ↔ ทะเบียนคำสั่งซื้อ) · "ไม่เจอออเดอร์ในทะเบียน" = ยังไม่รู้ว่ามี IV ไหม (ต้องนำเข้าออเดอร์ก่อน) · "มี IV ยังไม่มี Income" นับทุกช่องทาง (ตัดยกเลิก + ที่รับชำระแล้ว)</div>
-    ${cards}${receivedNote}${creditNote}${cancelNote}${detail}</div>`;
+    ${cards}${receivedNote}${incReAuditPanelHtml(d)}${creditNote}${cancelNote}${detail}</div>`;
 }
 /* ตั้งเลข RE เริ่มต้น (ผู้ใช้กรอก) — restore focus/caret หลัง re-render */
 function incSetReSeed(v){

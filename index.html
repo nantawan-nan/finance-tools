@@ -654,7 +654,7 @@ function updateCrumb(){
    ===================================================================== */
 /* ★ เลข build — บั๊มทุกครั้งที่ deploy (โชว์มุมล่าง sidebar) · ใช้เช็คว่าเบราว์เซอร์ได้โค้ดล่าสุดหรือยัง
    (ตัวเช็คเวอร์ชันอัตโนมัติถูกปิดตามคำขอเจ้าของ — เลขนี้คือทางเช็คด้วยตาแทน) */
-const APP_BUILD = "3007p";
+const APP_BUILD = "3007q";
 const APP_CONFIG = {
   // null = โชว์ทุกโมดูล (ของเดิม) · หรือ array = โชว์เฉพาะ id เหล่านี้
   enabledTools: null,
@@ -26258,6 +26258,13 @@ function bmpGroupWithdrawals(parsed, arData, chqData, salesData, shopName, share
   //   คร่อมกลางวัน (ตัดไม่ลงวัน) → เก็บเป็น "ยอดยกมา/ยกไป" (carry cash · เช็คออกงวดที่ออเดอร์อยู่ · เงินถอนงวดถัดไป)
   const queue = [];
   let carryCash = 0;   // เงินคงเหลือจากงวดก่อน (เช็คออกงวดก่อนแล้ว แต่ถอนงวดนี้)
+  // ★★ เงินที่ค้างในกระเป๋า "ก่อนแถวแรกของไฟล์" — อ่านจาก ledger: ยอดคงเหลือแถวแรก − ยอดแถวแรก
+  //    (ออเดอร์เดือนก่อนที่ไม่อยู่ในไฟล์) · ไม่ seed = ใบถอนแรก ๆ ขาดยอด → ขึ้น "ยอดยกมา" หลอก แล้วลามทั้งไฟล์
+  //    TikTok/Lazada parser ตั้ง balance_after=0 → op ไม่เป็นบวก → carryCash=0 (พฤติกรรมเดิม ไม่กระทบ)
+  if(txns.length && Number(txns[0].balance_after)){
+    const op = +(Number(txns[0].balance_after) - Number(txns[0].amount)).toFixed(2);
+    if(isFinite(op) && op > 0) carryCash = op;
+  }
   for(const tx of txns){
     if(tx.type === "การถอนเงิน"){
       const wdAmount = Math.abs(tx.amount);
@@ -26266,94 +26273,25 @@ function bmpGroupWithdrawals(parsed, arData, chqData, salesData, shopName, share
       const assigned = queue.splice(0);
       let acc = +(carryIn + assigned.reduce((s,t)=> s + t.amount, 0)).toFixed(2);
       let carryOut = 0;   // ★ carry เป็น "เงินสดเศษ" เท่านั้น · ออเดอร์ที่ยกไป = อยู่ใน queue (กันนับซ้ำ)
-      // ★ Shopee ถอนไม่หมดกระเป๋า: ยึด "ยอดคงเหลือจริงหลังถอน" (balance_after) เป็นตัวกำหนดว่ายกออเดอร์ไปเท่าไหร่ (ground truth)
-      //   เงินที่ค้างในกระเป๋าหลังถอน = ออเดอร์ที่ต้องยกไปงวดหน้า · แม่นกว่า FIFO เดา (partial withdrawal)
-      //   ★ ถอนเต็ม/M Bark → balance_after ≈ 0 → ตกไป FIFO เดิม (ไม่กระทบ) · Lazada/TikTok balance_after=0 → FIFO เดิม
-      const shopeeBal = (routing.channel === "shopee") ? Number(tx.balance_after) : NaN;
-      if(isFinite(shopeeBal) && shopeeBal > 0.5){
-        const wantCarry = Math.max(0, Math.min(+shopeeBal.toFixed(2), acc));   // ยอดที่ต้องยกไป (= เงินค้างกระเป๋า)
-        if(wantCarry > 0.01){
-          const posAll = [];
-          for(let k = assigned.length-1; k >= 0; k--){ const t=assigned[k]; if(t.type==="รายรับจากคำสั่งซื้อ" && t.amount>0.01) posAll.push(k); }
-          let pick = bmpSubsetForCarry(posAll, assigned, Math.round(wantCarry*100));
-          if(pick && pick.length){
-            const moved = pick.map(k => assigned[k]);
-            pick.slice().sort((a,b)=> b-a).forEach(k => assigned.splice(k,1));
-            moved.sort((a,b)=> String(a.datetime||"").localeCompare(String(b.datetime||"")));
-            for(let m = moved.length-1; m >= 0; m--) queue.unshift(moved[m]);   // ยกออเดอร์ไปงวดหน้า (queue) · ไม่ตั้ง carryOut เป็นเงินสด
-            acc = +(acc - wantCarry).toFixed(2);
-          } else {
-            // subset ไม่ลงตัว (คร่อมกลางออเดอร์) → ดันออเดอร์บวกใหม่สุดจนใกล้ยอดคงเหลือ (เหลือ ≤1 ใบกำกวมค้างงวดนี้)
-            let carried = 0;
-            while(carried + 0.5 < wantCarry){
-              let j = assigned.length - 1;
-              while(j >= 0 && !(assigned[j].type === "รายรับจากคำสั่งซื้อ" && assigned[j].amount > 0.01)) j--;
-              if(j < 0) break;
-              const t = assigned[j];
-              if(carried + t.amount > wantCarry + t.amount*0.5) break;   // ดันแล้วเกินเกินครึ่งใบ → หยุด (ใบนี้กำกวม เก็บงวดนี้)
-              assigned.splice(j, 1); queue.unshift(t); carried = +(carried + t.amount).toFixed(2);
-            }
-            acc = +(acc - carried).toFixed(2);
-          }
-        }
-      } else {
-        // ── TikTok/Lazada + Shopee ถอนเต็ม — FIFO เดาเหมือนเดิม ──
-        // ถอนบางส่วน: pool เกินยอดถอน → ดัน "ทั้งวันใหม่สุด" กลับเข้าคิว (ยกไปงวดหน้า)
-        while(assigned.length && (acc - wdAmount) > 0.01){
-          const lastDate = assigned[assigned.length-1].txn_date;
-          let i = assigned.length, dayNet = 0;
-          while(i > 0 && assigned[i-1].txn_date === lastDate){ dayNet += assigned[i-1].amount; i--; }
-          if(dayNet > 0 && (acc - dayNet) >= (wdAmount - 0.01)){
-            const popped = assigned.splice(i);
-            for(let k = popped.length-1; k >= 0; k--) queue.unshift(popped[k]);
-            acc = +(acc - dayNet).toFixed(2);
-          } else break;
-        }
-        // เศษที่คร่อมกลางวัน → subset-sum หาชุดออเดอร์ที่ net รวม = เศษ → ย้ายไปงวดหน้า
-        carryOut = Math.max(0, +(acc - wdAmount).toFixed(2));
-        if(carryOut > 0.01){
-          const boundaryDate = assigned.length ? assigned[assigned.length-1].txn_date : null;
-          const posIdx = [];
-          for(let k = assigned.length-1; k >= 0 && assigned[k].txn_date === boundaryDate; k--){
-            const t = assigned[k];
-            if(t.type === "รายรับจากคำสั่งซื้อ" && t.amount > 0.01) posIdx.push(k);
-          }
-          let pick = bmpSubsetForCarry(posIdx, assigned, Math.round(carryOut*100));
-          if(!pick){
-            const allPos = [];
-            for(let k = assigned.length-1; k >= 0; k--){ const t=assigned[k]; if(t.type==="รายรับจากคำสั่งซื้อ" && t.amount>0.01) allPos.push(k); }
-            pick = bmpSubsetForCarry(allPos, assigned, Math.round(carryOut*100));
-          }
-          if(pick){
-            const moved = pick.map(k => assigned[k]);
-            pick.slice().sort((a,b)=> b-a).forEach(k => assigned.splice(k,1));
-            moved.sort((a,b)=> String(a.datetime||"").localeCompare(String(b.datetime||"")));
-            for(let m = moved.length-1; m >= 0; m--) queue.unshift(moved[m]);
-            acc = +(acc - carryOut).toFixed(2);
-            carryOut = 0;
-          } else {
-            while((acc - wdAmount) > 0.01){
-              let j = assigned.length - 1;
-              while(j >= 0 && !(assigned[j].type === "รายรับจากคำสั่งซื้อ" && assigned[j].amount > 0.01)) j--;
-              if(j < 0) break;
-              const t = assigned[j];
-              if((acc - t.amount) < (wdAmount - 0.01)) break;
-              assigned.splice(j, 1); queue.unshift(t); acc = +(acc - t.amount).toFixed(2);
-            }
-            carryOut = Math.max(0, +(acc - wdAmount).toFixed(2));
-          }
-        }
+      // ★★ แบ่งงวดแบบ FIFO ตามมูลค่า (กระเป๋าเงิน = บัญชีเดินสะพัด · เงินเข้าก่อนถูกถอนก่อน)
+      //    ดัน "ออเดอร์ใหม่สุด" กลับงวดหน้าทีละใบ ตราบใดที่งวดนี้ยังคลุมยอดถอนได้ → เหลือเศษน้อยสุด
+      //    ★ เลิกใช้ subset-sum + สาขา balance_after: เงินในกระเป๋าไม่ได้แบ่งเป็นก้อนพอดี ๆ (ออเดอร์คร่อมขอบเป็นเรื่องปกติ)
+      //      subset หาชุดที่รวมพอดีไม่เจอ → fallback ดันผิด → งวดถัดไปขาด → ลามทั้งไฟล์ ("ยอดยกมา" เพียบ)
+      //    verified ไฟล์จริง (BETRA/QI พ.ค.–ก.ค.): ใบที่ขาด 13 → 1 · ค่าใช้จ่ายในกระเป๋าออกมาถูกต้อง
+      while(true){
+        let j = assigned.length - 1;
+        while(j >= 0 && !(assigned[j].type === "รายรับจากคำสั่งซื้อ" && assigned[j].amount > 0.01)) j--;
+        if(j < 0) break;
+        if(+(acc - assigned[j].amount).toFixed(2) >= wdAmount - 0.01){
+          const t = assigned.splice(j, 1)[0];
+          queue.unshift(t);                      // ยกออเดอร์ไปงวดหน้า (ไม่ใช่เงินสด → เช็คตามไปด้วย)
+          acc = +(acc - t.amount).toFixed(2);
+        } else break;                            // ดันอีกใบแล้วจะไม่พอถอน → หยุด (ใบนี้คร่อมขอบ เก็บงวดนี้)
       }
+      carryOut = Math.max(0, +(acc - wdAmount).toFixed(2));   // เศษเงินสดที่เหลือ (< 1 ออเดอร์)
       carryCash = carryOut;
       const orders = assigned.filter(t => t.type === "รายรับจากคำสั่งซื้อ");
       const adjustments = assigned.filter(t => t.type === "รายการปรับปรุง");
-      // ★ DIAG: บันทึกการแบ่งงวดจริง (หาสาเหตุ "ยอดยกมา") — read-only
-      try{
-        const posSum = orders.filter(o=>o.amount>0).reduce((s,o)=>s+o.amount,0);
-        window._bmpDiag2 = window._bmpDiag2 || [];
-        window._bmpDiag2.push(`${shopName.slice(0,12)} ${tx.txn_date} ถอน${Math.round(wdAmount)} bal=${Number(tx.balance_after)||0} `
-          + `${(isFinite(shopeeBal)&&shopeeBal>0.5)?"BAL":"FIFO"} ยกมา${Math.round(carryIn)} ออเดอร์${orders.length}=${Math.round(posSum)} ยกไป${Math.round(carryOut)} ขาด/เกิน${Math.round(posSum-wdAmount)}`);
-      }catch(_){}
       const sumNet = orders.reduce((s,o)=> s + o.amount, 0);
       const adjAmount = adjustments.reduce((s,a)=> s + a.amount, 0);
       const bq = nextBq(tx.txn_date);
@@ -31667,19 +31605,6 @@ async function bmpRunUpload(){
     if(skipped.length) msg += `\n\nข้าม: ${skipped.join(", ")}`;
     msg += `\n\n📒 ทะเบียนคำสั่งซื้อ — จับ IV: ${ordResult.tagged} · แท็กรับชำระ: ${ordTagRe} · แท็กเงินเข้าแบงค์: ${ordTagBank}`;
     if(window._ordWrFail){ msg += `\n\n⚠️ แท็ก IV/RE/เงินเข้าแบงค์ ลงทะเบียนไม่สำเร็จ ${window._ordWrFail} รายการ (เช็คสิทธิ์/เน็ต แล้วกด "อัปเดต IV/RE จากทะเบียน" ใหม่)`; window._ordWrFail=0; }
-    // ★ DIAG: โชว์ว่า parser อ่าน "ยอดคงเหลือในกระเป๋า (balance_after)" ได้ไหม — ตัวชี้ขาดของอาการ "ยอดยกมา"
-    if(window._bmpDiag && window._bmpDiag.length){
-      msg += `\n\n──── ตรวจการอ่านไฟล์ (ส่งภาพนี้ให้ผู้พัฒนา) ────`;
-      for(const dg of window._bmpDiag){
-        msg += `\n${dg.shop}: คอลัมน์ balance=${dg.cBal} (หัวตาราง ${dg.headCols} ช่อง) · ใบถอน ${dg.wd} ใบ · มีค่า balance ${dg.wdWithBal} ใบ`;
-        if(dg.sample && dg.sample.length) msg += `\n   ${dg.sample.join("\n   ")}`;
-      }
-      window._bmpDiag = [];
-    }
-    if(window._bmpDiag2 && window._bmpDiag2.length){
-      msg += `\n\n──── การแบ่งงวด (ก.ค.) ────\n` + window._bmpDiag2.filter(s=>s.includes("2026-07")).slice(0,14).join("\n");
-      window._bmpDiag2 = [];
-    }
     alert(msg);
   } catch(e){
     alert("อัปไม่สำเร็จ: " + (e.message||e));

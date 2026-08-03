@@ -654,7 +654,7 @@ function updateCrumb(){
    ===================================================================== */
 /* ★ เลข build — บั๊มทุกครั้งที่ deploy (โชว์มุมล่าง sidebar) · ใช้เช็คว่าเบราว์เซอร์ได้โค้ดล่าสุดหรือยัง
    (ตัวเช็คเวอร์ชันอัตโนมัติถูกปิดตามคำขอเจ้าของ — เลขนี้คือทางเช็คด้วยตาแทน) */
-const APP_BUILD = "3007t";
+const APP_BUILD = "3007u";
 const APP_CONFIG = {
   // null = โชว์ทุกโมดูล (ของเดิม) · หรือ array = โชว์เฉพาะ id เหล่านี้
   enabledTools: null,
@@ -26265,6 +26265,9 @@ function bmpGroupWithdrawals(parsed, arData, chqData, salesData, shopName, share
     const op = +(Number(txns[0].balance_after) - Number(txns[0].amount)).toFixed(2);
     if(isFinite(op) && op > 0) carryCash = op;
   }
+  // ★ ไฟล์นี้มี "ยอดคงเหลือในกระเป๋า" จริงไหม (Shopee มี · TikTok/Lazada parser ตั้ง 0 ทุกแถว)
+  //   ใช้เป็นตัว anchor ยอดยกไป — ต้องมีอย่างน้อย 1 แถวที่ balance_after ไม่เป็น 0 ถึงถือว่าไฟล์มีข้อมูลนี้
+  const hasLedgerBalance = txns.some(t => Number(t.balance_after) > 0);
   for(const tx of txns){
     if(tx.type === "การถอนเงิน"){
       const wdAmount = Math.abs(tx.amount);
@@ -26284,6 +26287,7 @@ function bmpGroupWithdrawals(parsed, arData, chqData, salesData, shopName, share
       //     ทั้งที่ยอดคงเหลือในกระเป๋าจริง = 0) แล้วเศษลามไปงวดถัดไปเรื่อย ๆ
       //   ★ เกณฑ์ตรวจ (เจ้าของเป็นคนชี้): "ยกไป" ต้องเท่ากับ "ยอดคงเหลือในกระเป๋า (balance_after)" เสมอ
       //   verified ไฟล์จริง: BETRA เศษรวม 1,048 → 22 · ทุกใบ ก.ค. = 0 · QI 06/07 26.71 → 0.71 (ตรงกับที่การเงินแมพมือ)
+      let pushedValue = 0;                         // มูลค่าออเดอร์ที่ยกไปงวดหน้า (เช็คตามไปด้วย)
       while(true){
         const rem = +(acc - wdAmount).toFixed(2);
         if(rem <= 0.01) break;                     // ยกพอแล้ว (งวดนี้เหลือพอดียอดถอน)
@@ -26296,10 +26300,19 @@ function bmpGroupWithdrawals(parsed, arData, chqData, salesData, shopName, share
         if(bi < 0) break;                          // ไม่มีใบไหนยกได้แล้ว → ที่เหลือเป็นเศษเงินสด
         const t = assigned.splice(bi, 1)[0];
         queue.push(t);                             // ยกออเดอร์ไปงวดหน้า (เช็คตามไปด้วย · ไม่ใช่เงินสด)
+        pushedValue = +(pushedValue + t.amount).toFixed(2);
         acc = +(acc - t.amount).toFixed(2);
       }
       queue.sort((a,b)=> String(a.datetime||"").localeCompare(String(b.datetime||"")));   // คงลำดับเวลาในคิว
       carryOut = Math.max(0, +(acc - wdAmount).toFixed(2));   // เศษเงินสดที่เหลือ (< ออเดอร์ใบเล็กสุด)
+      // ★★★ ANCHOR กับ ledger — "ยกไปทั้งหมด (ออเดอร์ + เงินสด) ต้องไม่เกินยอดคงเหลือจริงในกระเป๋า (balance_after)"
+      //   เกณฑ์ที่เจ้าของชี้: ถอนจนเหลือ 0 → ยกไปต้องเป็น 0 · ถ้าคำนวณแล้วเกิน = การแบ่งงวดคลาด (สะสมข้ามงวด)
+      //   ยึด ledger เป็นความจริง → ส่วนต่างเล็กน้อยไปโผล่ที่ "ค่าใช้จ่ายในกระเป๋า" แทนที่จะลามเป็นยอดยกไปงวดถัดไป
+      //   ★ TikTok/Lazada (balance_after=0 ทุกแถว · parser ตั้งเอง) → ข้าม anchor ใช้ค่าที่คำนวณเหมือนเดิม
+      const ledgerBal = Number(tx.balance_after);
+      if(hasLedgerBalance && isFinite(ledgerBal) && ledgerBal >= 0){
+        carryOut = Math.max(0, +(ledgerBal - pushedValue).toFixed(2));
+      }
       carryCash = carryOut;
       const orders = assigned.filter(t => t.type === "รายรับจากคำสั่งซื้อ");
       const adjustments = assigned.filter(t => t.type === "รายการปรับปรุง");

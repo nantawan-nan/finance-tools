@@ -654,7 +654,7 @@ function updateCrumb(){
    ===================================================================== */
 /* ★ เลข build — บั๊มทุกครั้งที่ deploy (โชว์มุมล่าง sidebar) · ใช้เช็คว่าเบราว์เซอร์ได้โค้ดล่าสุดหรือยัง
    (ตัวเช็คเวอร์ชันอัตโนมัติถูกปิดตามคำขอเจ้าของ — เลขนี้คือทางเช็คด้วยตาแทน) */
-const APP_BUILD = "3007n";
+const APP_BUILD = "3007o";
 const APP_CONFIG = {
   // null = โชว์ทุกโมดูล (ของเดิม) · หรือ array = โชว์เฉพาะ id เหล่านี้
   enabledTools: null,
@@ -25613,6 +25613,16 @@ function bmpParseShopeeBalance(workbook){
   }
   // sort ascending by datetime (Shopee report is descending)
   txns.sort((a,b)=> a.datetime.localeCompare(b.datetime));
+  // ★ DIAG: บันทึกว่า parser อ่าน balance_after ได้จริงไหม (ตัวชี้ขาดว่าทำไมเกิด "ยอดยกมา")
+  try{
+    const wdRows = txns.filter(t=>t.type==="การถอนเงิน");
+    const withBal = wdRows.filter(t=>Number(t.balance_after)>0).length;
+    window._bmpDiag = window._bmpDiag || [];
+    window._bmpDiag.push({ shop:shopName, cBal, headCols:head.length, txns:txns.length,
+      wd:wdRows.length, wdWithBal:withBal,
+      sample:wdRows.slice(0,6).map(t=>`${t.txn_date} ถอน ${Math.abs(t.amount).toFixed(0)} bal=${t.balance_after}`) });
+    console.log("[bmpDiag]", shopName, "cBal="+cBal, "wd="+wdRows.length, "wdWithBal="+withBal, wdRows.slice(0,6).map(t=>t.txn_date+"|"+t.balance_after));
+  }catch(_){}
   return { shopName, periodFrom, periodTo, txns };
 }
 function bmpIsoFromAny(v){
@@ -31650,6 +31660,15 @@ async function bmpRunUpload(){
     if(skipped.length) msg += `\n\nข้าม: ${skipped.join(", ")}`;
     msg += `\n\n📒 ทะเบียนคำสั่งซื้อ — จับ IV: ${ordResult.tagged} · แท็กรับชำระ: ${ordTagRe} · แท็กเงินเข้าแบงค์: ${ordTagBank}`;
     if(window._ordWrFail){ msg += `\n\n⚠️ แท็ก IV/RE/เงินเข้าแบงค์ ลงทะเบียนไม่สำเร็จ ${window._ordWrFail} รายการ (เช็คสิทธิ์/เน็ต แล้วกด "อัปเดต IV/RE จากทะเบียน" ใหม่)`; window._ordWrFail=0; }
+    // ★ DIAG: โชว์ว่า parser อ่าน "ยอดคงเหลือในกระเป๋า (balance_after)" ได้ไหม — ตัวชี้ขาดของอาการ "ยอดยกมา"
+    if(window._bmpDiag && window._bmpDiag.length){
+      msg += `\n\n──── ตรวจการอ่านไฟล์ (ส่งภาพนี้ให้ผู้พัฒนา) ────`;
+      for(const dg of window._bmpDiag){
+        msg += `\n${dg.shop}: คอลัมน์ balance=${dg.cBal} (หัวตาราง ${dg.headCols} ช่อง) · ใบถอน ${dg.wd} ใบ · มีค่า balance ${dg.wdWithBal} ใบ`;
+        if(dg.sample && dg.sample.length) msg += `\n   ${dg.sample.join("\n   ")}`;
+      }
+      window._bmpDiag = [];
+    }
     alert(msg);
   } catch(e){
     alert("อัปไม่สำเร็จ: " + (e.message||e));

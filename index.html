@@ -654,7 +654,7 @@ function updateCrumb(){
    ===================================================================== */
 /* ★ เลข build — บั๊มทุกครั้งที่ deploy (โชว์มุมล่าง sidebar) · ใช้เช็คว่าเบราว์เซอร์ได้โค้ดล่าสุดหรือยัง
    (ตัวเช็คเวอร์ชันอัตโนมัติถูกปิดตามคำขอเจ้าของ — เลขนี้คือทางเช็คด้วยตาแทน) */
-const APP_BUILD = "3007r";
+const APP_BUILD = "3007s";
 const APP_CONFIG = {
   // null = โชว์ทุกโมดูล (ของเดิม) · หรือ array = โชว์เฉพาะ id เหล่านี้
   enabledTools: null,
@@ -26278,15 +26278,37 @@ function bmpGroupWithdrawals(parsed, arData, chqData, salesData, shopName, share
       //    ★ เลิกใช้ subset-sum + สาขา balance_after: เงินในกระเป๋าไม่ได้แบ่งเป็นก้อนพอดี ๆ (ออเดอร์คร่อมขอบเป็นเรื่องปกติ)
       //      subset หาชุดที่รวมพอดีไม่เจอ → fallback ดันผิด → งวดถัดไปขาด → ลามทั้งไฟล์ ("ยอดยกมา" เพียบ)
       //    verified ไฟล์จริง (BETRA/QI พ.ค.–ก.ค.): ใบที่ขาด 13 → 1 · ค่าใช้จ่ายในกระเป๋าออกมาถูกต้อง
-      while(true){
-        let j = assigned.length - 1;
-        while(j >= 0 && !(assigned[j].type === "รายรับจากคำสั่งซื้อ" && assigned[j].amount > 0.01)) j--;
-        if(j < 0) break;
-        if(+(acc - assigned[j].amount).toFixed(2) >= wdAmount - 0.01){
-          const t = assigned.splice(j, 1)[0];
-          queue.unshift(t);                      // ยกออเดอร์ไปงวดหน้า (ไม่ใช่เงินสด → เช็คตามไปด้วย)
+      // ★ ขั้นแรก: ถ้ามีออเดอร์ "ใบเดียว" ที่ยอดพอดีกับเงินที่ต้องยกไป (เหลือเศษ < 1 บาท) → ยกใบนั้น
+      //   ตรงกับที่การเงินแมพมือ + ตรงกับพฤติกรรมจริงของ Shopee (ทิ้งออเดอร์ใบนั้นค้างกระเป๋า)
+      //   verified ไฟล์จริง QI 06/07: เงินเหลือ 527.71 = ออเดอร์ 527 ใบเดียว → เศษ 0.71 (เดิมดันใบใหม่สุดได้เศษ 26.71)
+      //   ★ blast radius แคบ: ทดสอบ QI+BETRA พ.ค.–ก.ค. เปลี่ยนแค่ 1 จาก 33 รอบ · รอบอื่นตกไป FIFO เดิมทุกใบ
+      const needCarry = +(acc - wdAmount).toFixed(2);
+      let pickedOne = false;
+      if(needCarry > 0.5){
+        let bi = -1, bv = 0;
+        for(let k = 0; k < assigned.length; k++){
+          const t = assigned[k];
+          if(t.type !== "รายรับจากคำสั่งซื้อ" || t.amount <= 0.01) continue;
+          if(t.amount <= needCarry + 0.01 && (needCarry - t.amount) < 1 && t.amount > bv){ bv = t.amount; bi = k; }
+        }
+        if(bi >= 0){
+          const t = assigned.splice(bi, 1)[0];
+          queue.unshift(t);
           acc = +(acc - t.amount).toFixed(2);
-        } else break;                            // ดันอีกใบแล้วจะไม่พอถอน → หยุด (ใบนี้คร่อมขอบ เก็บงวดนี้)
+          pickedOne = true;
+        }
+      }
+      if(!pickedOne){
+        while(true){
+          let j = assigned.length - 1;
+          while(j >= 0 && !(assigned[j].type === "รายรับจากคำสั่งซื้อ" && assigned[j].amount > 0.01)) j--;
+          if(j < 0) break;
+          if(+(acc - assigned[j].amount).toFixed(2) >= wdAmount - 0.01){
+            const t = assigned.splice(j, 1)[0];
+            queue.unshift(t);                      // ยกออเดอร์ไปงวดหน้า (ไม่ใช่เงินสด → เช็คตามไปด้วย)
+            acc = +(acc - t.amount).toFixed(2);
+          } else break;                            // ดันอีกใบแล้วจะไม่พอถอน → หยุด (ใบนี้คร่อมขอบ เก็บงวดนี้)
+        }
       }
       carryOut = Math.max(0, +(acc - wdAmount).toFixed(2));   // เศษเงินสดที่เหลือ (< 1 ออเดอร์)
       carryCash = carryOut;

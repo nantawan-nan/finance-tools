@@ -654,7 +654,7 @@ function updateCrumb(){
    ===================================================================== */
 /* ★ เลข build — บั๊มทุกครั้งที่ deploy (โชว์มุมล่าง sidebar) · ใช้เช็คว่าเบราว์เซอร์ได้โค้ดล่าสุดหรือยัง
    (ตัวเช็คเวอร์ชันอัตโนมัติถูกปิดตามคำขอเจ้าของ — เลขนี้คือทางเช็คด้วยตาแทน) */
-const APP_BUILD = "3007o";
+const APP_BUILD = "3007p";
 const APP_CONFIG = {
   // null = โชว์ทุกโมดูล (ของเดิม) · หรือ array = โชว์เฉพาะ id เหล่านี้
   enabledTools: null,
@@ -26347,6 +26347,13 @@ function bmpGroupWithdrawals(parsed, arData, chqData, salesData, shopName, share
       carryCash = carryOut;
       const orders = assigned.filter(t => t.type === "รายรับจากคำสั่งซื้อ");
       const adjustments = assigned.filter(t => t.type === "รายการปรับปรุง");
+      // ★ DIAG: บันทึกการแบ่งงวดจริง (หาสาเหตุ "ยอดยกมา") — read-only
+      try{
+        const posSum = orders.filter(o=>o.amount>0).reduce((s,o)=>s+o.amount,0);
+        window._bmpDiag2 = window._bmpDiag2 || [];
+        window._bmpDiag2.push(`${shopName.slice(0,12)} ${tx.txn_date} ถอน${Math.round(wdAmount)} bal=${Number(tx.balance_after)||0} `
+          + `${(isFinite(shopeeBal)&&shopeeBal>0.5)?"BAL":"FIFO"} ยกมา${Math.round(carryIn)} ออเดอร์${orders.length}=${Math.round(posSum)} ยกไป${Math.round(carryOut)} ขาด/เกิน${Math.round(posSum-wdAmount)}`);
+      }catch(_){}
       const sumNet = orders.reduce((s,o)=> s + o.amount, 0);
       const adjAmount = adjustments.reduce((s,a)=> s + a.amount, 0);
       const bq = nextBq(tx.txn_date);
@@ -31668,6 +31675,10 @@ async function bmpRunUpload(){
         if(dg.sample && dg.sample.length) msg += `\n   ${dg.sample.join("\n   ")}`;
       }
       window._bmpDiag = [];
+    }
+    if(window._bmpDiag2 && window._bmpDiag2.length){
+      msg += `\n\n──── การแบ่งงวด (ก.ค.) ────\n` + window._bmpDiag2.filter(s=>s.includes("2026-07")).slice(0,14).join("\n");
+      window._bmpDiag2 = [];
     }
     alert(msg);
   } catch(e){

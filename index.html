@@ -654,7 +654,7 @@ function updateCrumb(){
    ===================================================================== */
 /* ★ เลข build — บั๊มทุกครั้งที่ deploy (โชว์มุมล่าง sidebar) · ใช้เช็คว่าเบราว์เซอร์ได้โค้ดล่าสุดหรือยัง
    (ตัวเช็คเวอร์ชันอัตโนมัติถูกปิดตามคำขอเจ้าของ — เลขนี้คือทางเช็คด้วยตาแทน) */
-const APP_BUILD = "3007q";
+const APP_BUILD = "3007r";
 const APP_CONFIG = {
   // null = โชว์ทุกโมดูล (ของเดิม) · หรือ array = โชว์เฉพาะ id เหล่านี้
   enabledTools: null,
@@ -31628,9 +31628,17 @@ async function bmpLoadFromDb(){
   const wdIds = (wds||[]).map(w=>w.id);
   let orders = [];
   if(wdIds.length){
-    const { data:os } = await sb.from("brec_mp_orders").select("*")
-      .in("withdrawal_id", wdIds).is("deleted_at", null);
-    orders = os || [];
+    // ★★ ต้องแบ่งหน้า — PostgREST ตัดที่ 1000 แถวเสมอ · ออเดอร์ต่อบริษัทมีหลักพัน
+    //    เดิมโหลดครั้งเดียว → ได้แค่ 1000 แถวแรก → ใบถอนที่เหลือโชว์ "ออเดอร์ 0" + "ยอดยกมา" เต็มจำนวน (อาการหลอก)
+    const PAGE = 1000;
+    for(let from2 = 0; ; from2 += PAGE){
+      const { data:os, error:oe } = await sb.from("brec_mp_orders").select("*")
+        .in("withdrawal_id", wdIds).is("deleted_at", null)
+        .order("id", { ascending: true }).range(from2, from2 + PAGE - 1);
+      if(oe){ console.warn("mp orders load fail", oe); break; }
+      orders = orders.concat(os || []);
+      if(!os || os.length < PAGE) break;
+    }
   }
   d.mp.withdrawals = wds || [];
   d.mp.orders = orders;
@@ -31639,13 +31647,18 @@ async function bmpLoadFromDb(){
 
   // ★ โหลด bank deposit rows "ทั้งบริษัท" (ไม่ผูก account_id) → match กับ STM
   // เพราะ withdrawal กับ statement อาจอยู่คนละ account record (เลขบัญชี normalize ต่างกัน)
-  const { data:bankRows } = await sb.from("brec_bank_rows")
-    .select("id,bank_account_id,txn_date,deposit,description,ref_note")
-    .eq("company_id", co)
-    .is("deleted_at", null)
-    .gt("deposit", 0)
-    .order("txn_date",{ascending:true});
-  d.mp.bankRows = bankRows || [];
+  // ★ แบ่งหน้าเช่นกัน — เงินเข้าทั้งบริษัทหลายเดือนเกิน 1000 แถวได้ → เดิมจับ STM ไม่เจอแบบเงียบ ๆ
+  let bankRows = []; const BPAGE = 1000;
+  for(let bf = 0; ; bf += BPAGE){
+    const { data:br, error:be } = await sb.from("brec_bank_rows")
+      .select("id,bank_account_id,txn_date,deposit,description,ref_note")
+      .eq("company_id", co).is("deleted_at", null).gt("deposit", 0)
+      .order("txn_date",{ascending:true}).range(bf, bf + BPAGE - 1);
+    if(be){ console.warn("mp bank rows load fail", be); break; }
+    bankRows = bankRows.concat(br || []);
+    if(!br || br.length < BPAGE) break;
+  }
+  d.mp.bankRows = bankRows;
 }
 
 /* match 1 withdrawal กับ bank statement (deposit ตรงวัน+ยอด ทั้งบริษัท) */

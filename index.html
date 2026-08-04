@@ -654,7 +654,7 @@ function updateCrumb(){
    ===================================================================== */
 /* ★ เลข build — บั๊มทุกครั้งที่ deploy (โชว์มุมล่าง sidebar) · ใช้เช็คว่าเบราว์เซอร์ได้โค้ดล่าสุดหรือยัง
    (ตัวเช็คเวอร์ชันอัตโนมัติถูกปิดตามคำขอเจ้าของ — เลขนี้คือทางเช็คด้วยตาแทน) */
-const APP_BUILD = "3007u";
+const APP_BUILD = "3007v";
 const APP_CONFIG = {
   // null = โชว์ทุกโมดูล (ของเดิม) · หรือ array = โชว์เฉพาะ id เหล่านี้
   enabledTools: null,
@@ -26314,6 +26314,32 @@ function bmpGroupWithdrawals(parsed, arData, chqData, salesData, shopName, share
         carryOut = Math.max(0, +(ledgerBal - pushedValue).toFixed(2));
       }
       carryCash = carryOut;
+      // ★★ Lazada: ออเดอร์เดียวเงินเข้าหลายรอบบิล (รอบแรก = ขาย−ค่าธรรมเนียม · รอบถัดไป = ค่าบริการจัดส่งติดลบ)
+      //   → เช็คจริงที่บัญชีคีย์เป็น "ใบเดียว ยอดสุทธิรวมทุกรอบบิล" (เจ้าของยืนยัน: 532.78 + (−32.10) = 500.68)
+      //   รวมเฉพาะที่ตกอยู่ใน "รอบถอนเดียวกัน" (เพราะรวมทีหลังจากแบ่งงวดแล้ว) — คนละรอบถอน = เงินเข้าคนละงวดจริง ไม่รวม
+      //   ★ ทำเฉพาะ Lazada (Shopee/TikTok เงินเข้าออเดอร์ครั้งเดียว · ไม่แตะ = blast radius แคบ)
+      //   verified ไฟล์จริง QI: ออเดอร์ข้ามรอบบิล 26 ใบ · อยู่รอบถอนเดียวกัน 23 ใบ (รวมได้) · คนละรอบถอน 2 ใบ (ไม่รวม)
+      if(routing.channel === "lazada"){
+        const byOid = new Map();
+        for(const t of assigned){
+          const oid = String(t.order_id||"").trim();
+          if(!oid || (t.type !== "รายรับจากคำสั่งซื้อ" && t.type !== "รายการปรับปรุง")) continue;
+          if(!byOid.has(oid)) byOid.set(oid, []);
+          byOid.get(oid).push(t);
+        }
+        for(const [oid, arr] of byOid){
+          if(arr.length < 2) continue;
+          const sum = +arr.reduce((s,t)=> s + t.amount, 0).toFixed(2);
+          arr.sort((a,b)=> Math.abs(b.amount) - Math.abs(a.amount));   // เก็บแถวยอดมากสุดเป็นตัวหลัก
+          const keep = arr[0];
+          keep.amount = sum;
+          keep.type = sum > 0 ? "รายรับจากคำสั่งซื้อ" : "รายการปรับปรุง";
+          for(let i = 1; i < arr.length; i++){
+            const idx = assigned.indexOf(arr[i]);
+            if(idx >= 0) assigned.splice(idx, 1);
+          }
+        }
+      }
       const orders = assigned.filter(t => t.type === "รายรับจากคำสั่งซื้อ");
       const adjustments = assigned.filter(t => t.type === "รายการปรับปรุง");
       const sumNet = orders.reduce((s,o)=> s + o.amount, 0);

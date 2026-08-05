@@ -654,7 +654,7 @@ function updateCrumb(){
    ===================================================================== */
 /* ★ เลข build — บั๊มทุกครั้งที่ deploy (โชว์มุมล่าง sidebar) · ใช้เช็คว่าเบราว์เซอร์ได้โค้ดล่าสุดหรือยัง
    (ตัวเช็คเวอร์ชันอัตโนมัติถูกปิดตามคำขอเจ้าของ — เลขนี้คือทางเช็คด้วยตาแทน) */
-const APP_BUILD = "3007v";
+const APP_BUILD = "3007w";
 const APP_CONFIG = {
   // null = โชว์ทุกโมดูล (ของเดิม) · หรือ array = โชว์เฉพาะ id เหล่านี้
   enabledTools: null,
@@ -24132,6 +24132,20 @@ function brecInjectCSS(){
   .cb-ok-banner{background:linear-gradient(135deg,#f0fdf4,#ecfdf5);border:1px solid #bbf7d0;border-left:4px solid #16a34a;color:#166534;border-radius:11px;padding:11px 16px;font-size:13px;font-weight:700;margin-bottom:12px;display:flex;align-items:center;gap:8px}
   .cb-ok-banner i{width:17px;height:17px}
   .cb-toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:10px}
+  /* ★ แถบค้นหา + จัดหมวดทีเดียว */
+  .cb-bulk{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-bottom:10px;padding:9px 12px;
+    background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px}
+  .cb-bulk-find{display:flex;align-items:center;gap:7px;flex:1;min-width:260px;background:#fff;
+    border:1px solid #cbd5e1;border-radius:8px;padding:5px 10px}
+  .cb-bulk-find input{flex:1;border:0;outline:0;background:transparent;font:400 13px/1.4 inherit;color:#0f172a}
+  .cb-x{border:0;background:#e2e8f0;color:#475569;border-radius:6px;width:20px;height:20px;cursor:pointer;font-size:11px;line-height:1}
+  .cb-bulk-act{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .cb-bulk-n{font:500 12.5px/1 inherit;color:#475569;white-space:nowrap}
+  .cb-bulk-sel{min-width:250px;padding:6px 10px;border:1px solid #cbd5e1;border-radius:8px;
+    font:400 12.5px/1.4 inherit;background:#fff;color:#0f172a}
+  .cb-bulk-sel:focus{outline:2px solid var(--brand);outline-offset:-1px}
+  .cb-bulk-sel.bad{border-color:#f59e0b;background:#fffbeb}
+  .cb-bulk-warn{font:500 11.5px/1 inherit;color:#b45309}
   .cb-chips{display:inline-flex;gap:6px;flex-wrap:wrap}
   .cb-chip{border:1px solid var(--line,#e2e8f0);background:#fff;border-radius:999px;padding:6px 13px;font:600 12.5px/1 inherit;color:var(--ink-2,#475569);cursor:pointer;display:inline-flex;gap:6px;align-items:center}
   .cb-chip b{font-weight:800}
@@ -24157,6 +24171,8 @@ function brecInjectCSS(){
   .cb-c.rem .s{font-size:10.5px;color:var(--ink-3,#94a3b8);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .cb-sel{width:100%;border:1px solid var(--line,#e2e8f0);border-radius:8px;padding:5px 8px;font:600 12px/1.2 inherit;background:#fff;color:var(--ink,#0f172a);cursor:pointer}
   .cb-sel.empty{border-color:#fca5a5;background:#fff1f2}
+  .cb-sel:focus{outline:2px solid var(--brand);outline-offset:-1px}
+  .cb-sel::placeholder{color:#94a3b8;font-weight:400}
   .cb-badge{font-size:11px;font-weight:700;padding:3px 10px;border-radius:999px;white-space:nowrap}
   .cb-badge.ok{background:#dcfce7;color:#15803d}
   .cb-badge.rv{background:#fef3c7;color:#b45309}
@@ -24911,10 +24927,62 @@ function catbotCounts(cb){
 function catbotSetCat(ai,ri,val){
   const cb = catbotGet(brecGet()); const a=cb.accounts[ai]; if(!a) return;
   const r=a.rows[ri]; if(!r) return;
+  val = String(val||"").trim();
+  // ★ ช่องหมวดเป็น input+datalist (พิมพ์ค้นหาได้) → พิมพ์เองแล้วไม่ตรง 40 หมวดที่ล็อกไว้ = ไม่รับ คืนค่าเดิม
+  if(val && !CATBOT_CATS.includes(val)){
+    alert(`ไม่มีหมวด "${val}" ในระบบ\n\nพิมพ์คำบางส่วนแล้วเลือกจากรายการที่ขึ้นมา (หมวดล็อกไว้ ${CATBOT_CATS.length} หมวด สร้างใหม่ไม่ได้)`);
+    brecRefresh();
+    return;
+  }
   r.cat = val; r.act = catbotActOf(val); r.method="manual"; r.tier = val? "ok":"none"; r.edited=true;
   brecRefresh();
 }
 function catbotSetFilter(f){ catbotGet(brecGet()).filter=f; brecRefresh(); }
+/* ★ ค้นหาในหมายเหตุ/เลขที่ — debounce + คง caret (ห้าม re-render ทุกตัวอักษร · [[feedback_input_no_rerender]]) */
+function catbotSetSearch(v){
+  const cb = catbotGet(brecGet()); cb.q = v||"";
+  clearTimeout(cb._qT);
+  cb._qT = setTimeout(()=>{ brecRefresh();
+    requestAnimationFrame(()=>{ const e=document.getElementById("cbSearchBox"); if(e){ e.focus(); try{ e.setSelectionRange(e.value.length,e.value.length); }catch(_){} } });
+  }, 180);
+}
+function catbotClearSearch(){ const cb=catbotGet(brecGet()); cb.q=""; cb.bulkCat=""; brecRefresh(); }
+function catbotSetBulkCat(v){ catbotGet(brecGet()).bulkCat = v||""; brecRefresh(); }
+/* แถวที่ผ่านทั้งชิปกรอง + คำค้น (ใช้ร่วม render + จัดหมวดทีเดียว) */
+function catbotVisibleRows(cb){
+  const filt = cb.filter||"all";
+  const q = String(cb.q||"").trim().toLowerCase();
+  return catbotFlatRows(cb).filter(x=>{
+    const r=x.r;
+    const passFilt = filt==="all" ? true : filt==="ok" ? r.tier==="ok" : filt==="review" ? (r.tier==="review"||r.tier==="none") : true;
+    if(!passFilt) return false;
+    if(!q) return true;
+    return `${r.remark||""} ${r.docNo||""} ${r.amount||""} ${r.cat||""}`.toLowerCase().includes(q);
+  });
+}
+/* ★ จัดหมวดให้ทุกแถวที่กรองอยู่ทีเดียว (เช่น ค้น "IShip" → เลือกหมวด → กดปุ่มเดียวจบ) */
+function catbotBulkApply(){
+  const cb = catbotGet(brecGet());
+  const cat = cb.bulkCat||"";
+  if(!cat){ alert("เลือกหมวดที่จะจัดก่อน"); return; }
+  // ★ หมวดล็อก 40 หมวด — ห้ามสร้างใหม่ (ช่องค้นหาพิมพ์เองได้ ต้องตรวจก่อน)
+  if(!CATBOT_CATS.includes(cat)){
+    alert(`ไม่มีหมวด "${cat}" ในระบบ\n\nพิมพ์คำบางส่วนแล้วเลือกจากรายการที่ขึ้นมา (หมวดล็อกไว้ ${CATBOT_CATS.length} หมวด สร้างใหม่ไม่ได้)`);
+    return;
+  }
+  const rows = catbotVisibleRows(cb);
+  if(!rows.length){ alert("ไม่มีรายการที่กรองอยู่"); return; }
+  const already = rows.filter(x=>x.r.cat && x.r.cat!==cat).length;
+  let msg = `จัดหมวด "${cat}" ให้ ${rows.length} รายการที่กรองอยู่?`;
+  if(cb.q) msg += `\n(คำค้น: "${cb.q}")`;
+  if(already) msg += `\n\n⚠️ มี ${already} รายการที่เลือกหมวดอื่นไว้แล้ว — จะถูกเขียนทับ`;
+  if(!confirm(msg)) return;
+  for(const x of rows){
+    const r=x.r; r.cat=cat; r.act=catbotActOf(cat); r.method="manual"; r.tier="ok"; r.edited=true;
+  }
+  cb.bulkCat="";
+  brecRefresh();
+}
 function catbotClear(){
   if(!confirm("ล้างรายการที่อัปไว้ทั้งหมด? (ยังไม่ได้บันทึกจะหาย)")) return;
   const d=brecGet(); d.catbot = { accounts:[], model:(d.catbot||{}).model, loaded:true, busy:false, filter:"all", note:"", err:"", fileNames:[] };
@@ -25064,9 +25132,10 @@ function catbotRenderTab(d){
     </div>`;
   }
   const cnt = catbotCounts(cb);
-  const flat = catbotFlatRows(cb);
   const filt = cb.filter||"all";
-  const shown = flat.filter(x=> filt==="all"?true : filt==="ok"?x.r.tier==="ok" : filt==="review"?(x.r.tier==="review"||x.r.tier==="none") : true);
+  const shown = catbotVisibleRows(cb);
+  const bulkBad = !!(cb.bulkCat && !CATBOT_CATS.includes(cb.bulkCat));   // พิมพ์เองแล้วไม่ตรงหมวดที่ล็อกไว้
+  const bulkOk  = !!(shown.length && cb.bulkCat && !bulkBad);
   const chip=(v,l,n,cls)=>`<button class="cb-chip ${filt===v?"active":""} ${cls||""}" onclick="catbotSetFilter('${v}')">${l} <b>${n}</b></button>`;
   const rowsHtml = shown.map(x=>{
     const r=x.r;
@@ -25077,7 +25146,8 @@ function catbotRenderTab(d){
       <div class="cb-c amt ${amtCls}">${fmt(r.amount)}</div>
       <div class="cb-c rem"><div class="t">${esc(r.remark||"—")}</div><div class="s">${esc(r.docNo||"")}${r.method&&r.method!=="none"?" · "+catbotMethodLbl(r.method):""}</div></div>
       <div class="cb-c cat">
-        <select class="cb-sel ${r.cat?"":"empty"}" onchange="catbotSetCat(${x.ai},${x.ri},this.value)">${catbotCatOptions(r.cat)}</select>
+        <input list="cbCatList" class="cb-sel ${r.cat?"":"empty"}" placeholder="— เลือก/พิมพ์ค้นหาหมวด —"
+               value="${esc(r.cat||"")}" onchange="catbotSetCat(${x.ai},${x.ri},this.value)">
       </div>
       <div class="cb-c badge">${catbotBadge(r)}</div>
     </div>`;
@@ -25095,6 +25165,25 @@ function catbotRenderTab(d){
       <button class="brec-btn" onclick="catbotUpload()"><i data-lucide="plus"></i> เพิ่มไฟล์</button>
       <button class="brec-btn" onclick="catbotClear()" style="color:#b91c1c"><i data-lucide="trash-2"></i> ล้าง</button>
       <button class="brec-btn primary" onclick="catbotConfirm()"><i data-lucide="check-check"></i> ยืนยัน & เรียนรู้ (${cnt.total})</button>
+    </div>
+    <!-- ★ ค้นหา + จัดหมวดทีเดียว: ค้น "IShip" → เลือกหมวด → กดปุ่มเดียวจัดให้ทุกแถวที่กรอง -->
+    <div class="cb-bulk">
+      <div class="cb-bulk-find">
+        <i data-lucide="search" style="width:15px;height:15px;color:#64748b;flex:none"></i>
+        <input id="cbSearchBox" type="text" placeholder="ค้นหาในหมายเหตุ / เลขที่ / ยอด — เช่น IShip, Flash, ค่าโฆษณา"
+               value="${esc(cb.q||"")}" oninput="catbotSetSearch(this.value)">
+        ${cb.q?`<button class="cb-x" onclick="catbotClearSearch()" title="ล้างคำค้น">✕</button>`:""}
+      </div>
+      <div class="cb-bulk-act">
+        <span class="cb-bulk-n">พบ <b>${shown.length}</b> รายการ</span>
+        <input list="cbCatList" class="cb-bulk-sel ${bulkBad?"bad":""}" placeholder="— เลือก/พิมพ์ค้นหาหมวด —"
+               value="${esc(cb.bulkCat||"")}" onchange="catbotSetBulkCat(this.value)">
+        <datalist id="cbCatList">${CATBOT_CATS.map(c=>`<option value="${esc(c)}"></option>`).join("")}</datalist>
+        <button class="brec-btn primary" onclick="catbotBulkApply()" ${bulkOk?"":"disabled"}>
+          <i data-lucide="wand-2"></i> จัดหมวดทั้ง ${shown.length} รายการ
+        </button>
+        ${bulkBad?`<span class="cb-bulk-warn">ไม่มีหมวดนี้ — พิมพ์คำบางส่วนแล้วเลือกจากรายการ</span>`:""}
+      </div>
     </div>
     <div class="cb-legend">
       <span><b>${cnt.ok}</b> รายการมั่นใจ (เติมให้แล้ว)</span> ·

@@ -654,7 +654,7 @@ function updateCrumb(){
    ===================================================================== */
 /* ★ เลข build — บั๊มทุกครั้งที่ deploy (โชว์มุมล่าง sidebar) · ใช้เช็คว่าเบราว์เซอร์ได้โค้ดล่าสุดหรือยัง
    (ตัวเช็คเวอร์ชันอัตโนมัติถูกปิดตามคำขอเจ้าของ — เลขนี้คือทางเช็คด้วยตาแทน) */
-const APP_BUILD = "3007z";
+const APP_BUILD = "3008a";
 const APP_CONFIG = {
   // null = โชว์ทุกโมดูล (ของเดิม) · หรือ array = โชว์เฉพาะ id เหล่านี้
   enabledTools: null,
@@ -24187,6 +24187,20 @@ function brecInjectCSS(){
   .cb-grp .g-m{display:flex;gap:4px;font:600 10px/1 inherit;color:#64748b;font-style:normal}
   .cb-grp .g-m i{font-style:normal}
   .cb-grp .g-m i.rv{color:#b45309}
+  /* ★ ยอดยกมารายบัญชี */
+  .cb-accts{display:grid;grid-template-columns:repeat(auto-fill,minmax(430px,1fr));gap:8px;padding:10px}
+  .cb-acct{border:1px solid #e2e8f0;border-radius:9px;padding:9px 11px;background:#fff;
+    display:grid;grid-template-columns:1fr auto auto auto;gap:6px 14px;align-items:end}
+  .cb-acct.bad{border-color:#fca5a5;background:#fff7f7}
+  .cb-acct .a-h{grid-column:1/-1;display:flex;gap:8px;align-items:baseline;font:700 12.5px/1.3 inherit;color:#0f172a}
+  .cb-acct .a-h span{font:500 11px/1.3 inherit;color:#94a3b8}
+  .cb-acct .a-f{display:flex;flex-direction:column;gap:2px;font:600 12px/1.3 inherit;color:#0f172a}
+  .cb-acct .a-f>span{font:500 10.5px/1 inherit;color:#64748b}
+  .cb-acct .a-f b.in{color:#0d9488}
+  .cb-acct .a-f b.out{color:#e11d48}
+  .cb-acct .a-in{width:120px;border:1px solid var(--brand);border-radius:7px;padding:4px 7px;
+    font:700 12.5px/1.2 inherit;text-align:right;background:#fff;color:#0f172a}
+  .cb-acct .a-chk{grid-column:1/-1;display:flex;gap:8px;align-items:center;margin-top:2px}
   .cb-pickbar{display:flex;align-items:center;gap:10px;margin-bottom:10px;padding:7px 12px;border-radius:9px;
     background:rgba(var(--brand-rgb),.08);border:1px solid rgba(var(--brand-rgb),.25);font:500 12.5px/1.4 inherit;color:#0f172a}
   .cb-x2{border:1px solid #cbd5e1;background:#fff;color:#475569;border-radius:7px;padding:3px 9px;cursor:pointer;font:600 11.5px/1.3 inherit}
@@ -25039,6 +25053,36 @@ function catbotCatBlur(ai,ri,el){
 }
 function catbotCatWipe(ai,ri){ catbotSetCat(ai,ri,""); }   // ล้างหมวดของแถวนี้
 function catbotSetFilter(f){ catbotGet(brecGet()).filter=f; brecRefresh(); }
+
+/* ★★ ยอดยกมาต่อบัญชี — Express XML บางไฟล์แถวแรกไม่มี "ยอดคงเหลือ" → ตอนอ่านได้ opening = 0
+   ทำให้เงินสดปลายงวดของบัญชีนั้นติดลบ · ให้แก้ในหน้าได้ (แก้แล้วส่งออก/ยืนยันใหม่ = ตัวเลขถูกทุกที่) */
+function catbotAcctStats(a){
+  let inAmt=0, outAmt=0, lastBal=null;
+  for(const r of (a.rows||[])){
+    inAmt  += Number(r.dep)||0;
+    outAmt += Number(r.wd)||0;
+    if(r.balance!=null && r.balance!=="") lastBal = Number(r.balance);
+  }
+  const opening = Number(a.opening)||0;
+  const closing = +(opening + inAmt - outAmt).toFixed(2);
+  const diff = (lastBal!=null && isFinite(lastBal)) ? +(closing - lastBal).toFixed(2) : null;
+  return { inAmt, outAmt, opening, closing, lastBal, diff, ok: (diff===null || Math.abs(diff)<0.02) };
+}
+function catbotSetOpening(ai, val){
+  const cb=catbotGet(brecGet()); const a=cb.accounts[ai]; if(!a) return;
+  const n = Number(String(val==null?"":val).replace(/[,\s฿]/g,""));
+  a.opening = isFinite(n) ? n : 0;
+  brecRefresh(); catbotQueueSave();
+}
+/* คำนวณยอดยกมาย้อนกลับจาก "ยอดคงเหลือแถวสุดท้าย" ในไฟล์ (ยอดยกมา = คงเหลือ − รับ + จ่าย) */
+function catbotFixOpening(ai){
+  const cb=catbotGet(brecGet()); const a=cb.accounts[ai]; if(!a) return;
+  const s=catbotAcctStats(a);
+  if(s.lastBal==null){ alert("ไฟล์บัญชีนี้ไม่มีคอลัมน์ยอดคงเหลือ — คำนวณย้อนกลับไม่ได้ ต้องกรอกยอดยกมาเอง"); return; }
+  a.opening = +(s.lastBal - s.inAmt + s.outAmt).toFixed(2);
+  brecRefresh(); catbotQueueSave();
+}
+function catbotToggleAccts(){ const cb=catbotGet(brecGet()); cb.acctOpen=!cb.acctOpen; brecRefresh(); }
 /* ★ ค้นหาในหมายเหตุ/เลขที่ — debounce + คง caret (ห้าม re-render ทุกตัวอักษร · [[feedback_input_no_rerender]]) */
 function catbotSetSearch(v){
   const cb = catbotGet(brecGet()); cb.q = v||"";
@@ -25275,6 +25319,26 @@ function catbotRenderTab(d){
   const bulkBad = !!(cb.bulkCat && !CATBOT_CATS.includes(cb.bulkCat));   // พิมพ์เองแล้วไม่ตรงหมวดที่ล็อกไว้
   const bulkOk  = !!(shown.length && cb.bulkCat && !bulkBad);
   const grps    = catbotCatGroups(cb);                                    // สรุปรายหมวด (รีวิว)
+  // ★ แถบยอดยกมารายบัญชี — เปิดอัตโนมัติถ้ามีบัญชีที่กระทบยอดไม่ลงตัว
+  const acctStats = cb.accounts.map((a,ai)=>({ a, ai, s:catbotAcctStats(a) }));
+  const acctBad   = acctStats.filter(x=>!x.s.ok || !x.s.opening).length;
+  const acctOpen  = (cb.acctOpen===undefined) ? acctBad>0 : cb.acctOpen;
+  const acctHtml  = acctStats.map(({a,ai,s})=>`
+    <div class="cb-acct ${s.ok&&s.opening?"":"bad"}">
+      <div class="a-h"><b>${esc(a.bank||"")} ${esc(a.accountNo||"")}</b><span>${esc(a.monthKey||"")}${a.fileName?" · "+esc(a.fileName):""}</span></div>
+      <label class="a-f"><span>ยอดยกมา</span>
+        <input class="a-in" value="${s.opening}" onfocus="this.select()" onchange="catbotSetOpening(${ai},this.value)">
+      </label>
+      <div class="a-f"><span>รับ</span><b class="in">${fmt(s.inAmt)}</b></div>
+      <div class="a-f"><span>จ่าย</span><b class="out">${fmt(s.outAmt)}</b></div>
+      <div class="a-f"><span>คงเหลือปลายงวด</span><b class="${s.closing<0?"out":""}">${fmt(s.closing)}</b></div>
+      <div class="a-chk">${
+        s.lastBal==null ? `<span class="cb-badge no">ไฟล์ไม่มียอดคงเหลือ</span>`
+        : s.ok ? `<span class="cb-badge ok">✓ ตรงยอดคงเหลือในไฟล์</span>`
+        : `<span class="cb-badge rv">⚠ ต่างจากไฟล์ ${fmt(s.diff)}</span>
+           <button class="cb-x2" onclick="catbotFixOpening(${ai})">คำนวณยอดยกมาให้</button>`
+      }</div>
+    </div>`).join("");
   const grpHtml = grps.map(g=>{
     const idx = g.cat ? CATBOT_CATS.indexOf(g.cat) : -1;
     const on  = cb.catPick===g.cat;
@@ -25316,6 +25380,7 @@ function catbotRenderTab(d){
         ${chip("ok","✅ มั่นใจ",cnt.ok,"ok")}
         ${chip("review","⚠️ ต้องรีวิว",cnt.review+cnt.none,"rv")}
         <button class="cb-chip ${cb.reviewOpen?"active":""}" onclick="catbotToggleReview()" title="ดูสรุปรายหมวด — ตรวจว่าจัดถูกไหม">📊 รีวิวตามหมวด <b>${grps.length}</b></button>
+        <button class="cb-chip ${acctOpen?"active":""} ${acctBad?"rv":""}" onclick="catbotToggleAccts()" title="ยอดยกมา / กระทบยอดรายบัญชี">🏦 ยอดยกมา <b>${acctBad?"⚠"+acctBad:acctStats.length}</b></button>
       </div>
       <div class="sp" style="flex:1"></div>
       <button class="brec-btn" onclick="catbotUpload()"><i data-lucide="plus"></i> เพิ่มไฟล์</button>
@@ -25344,6 +25409,10 @@ function catbotRenderTab(d){
         ${bulkBad?`<span class="cb-bulk-warn">ไม่มีหมวดนี้ — พิมพ์คำบางส่วนแล้วเลือกจากรายการ</span>`:""}
       </div>
     </div>
+    ${acctOpen?`<div class="cb-grpwrap">
+      <div class="cb-grphead">🏦 ยอดยกมา / กระทบยอดรายบัญชี — แก้ "ยอดยกมา" ได้ตรงนี้ (Express บางไฟล์ไม่มียอดยกมา ระบบจะอ่านเป็น 0 ทำให้ปลายงวดติดลบ)</div>
+      <div class="cb-accts">${acctHtml||`<div class="cb-note-sm">ไม่มีบัญชี</div>`}</div>
+    </div>`:""}
     ${cb.reviewOpen?`<div class="cb-grpwrap">
       <div class="cb-grphead">📊 สรุปรายหมวด — คลิกหมวดเพื่อดูเฉพาะรายการในหมวดนั้น (ตรวจว่าจัดถูกไหม)
         ${cb.catPick!=null?`<button class="cb-x2" onclick="catbotClearPick()">✕ ดูทุกหมวด</button>`:""}</div>

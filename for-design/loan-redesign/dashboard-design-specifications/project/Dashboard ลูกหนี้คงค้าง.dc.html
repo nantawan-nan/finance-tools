@@ -1,0 +1,1025 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&family=IBM+Plex+Sans:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{background:#eef3f3;font-family:'IBM Plex Sans Thai',system-ui,sans-serif;color:#14344a;-webkit-font-smoothing:antialiased;}
+  .num{font-variant-numeric:tabular-nums;font-feature-settings:'tnum';}
+  ::-webkit-scrollbar{height:10px;width:10px;}
+  ::-webkit-scrollbar-thumb{background:#cdddd9;border-radius:8px;}
+  @keyframes pop{from{opacity:0;transform:translateY(4px);}to{opacity:1;transform:none;}}
+</style>
+</helmet>
+
+<div style="min-height:100vh;display:flex;background:#eef3f3;">
+
+  <!-- ===== SIDEBAR ===== -->
+  <aside style="position:fixed;top:0;left:0;bottom:0;width:68px;background:linear-gradient(180deg,#11324a,#0d2738);display:flex;flex-direction:column;align-items:center;padding:18px 0;gap:6px;z-index:40;">
+    <div style="width:40px;height:40px;border-radius:11px;background:linear-gradient(135deg,#16b3a3,#0f8a7e);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px;letter-spacing:.5px;box-shadow:0 6px 16px -6px rgba(22,179,163,.7);">BD</div>
+    <div style="height:14px;"></div>
+    <div style="width:46px;height:46px;border-radius:12px;background:rgba(22,179,163,.18);color:#7fe6d8;display:flex;align-items:center;justify-content:center;">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>
+    </div>
+    <div style="width:46px;height:46px;border-radius:12px;color:#7c98aa;display:flex;align-items:center;justify-content:center;">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 13h4l3 7 4-16 3 9h4"/></svg>
+    </div>
+    <div style="width:46px;height:46px;border-radius:12px;color:#7c98aa;display:flex;align-items:center;justify-content:center;">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/></svg>
+    </div>
+    <div style="width:46px;height:46px;border-radius:12px;color:#7c98aa;display:flex;align-items:center;justify-content:center;">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
+    </div>
+    <div style="margin-top:auto;width:46px;height:46px;border-radius:12px;color:#7c98aa;display:flex;align-items:center;justify-content:center;">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+    </div>
+  </aside>
+
+  <!-- ===== MAIN ===== -->
+  <div style="flex:1;margin-left:68px;display:flex;flex-direction:column;min-width:0;">
+
+    <!-- top bar -->
+    <header style="position:sticky;top:0;z-index:30;background:rgba(255,255,255,.88);backdrop-filter:blur(10px);border-bottom:1px solid #e2ebe9;height:58px;display:flex;align-items:center;padding:0 28px;gap:14px;">
+      <div style="display:flex;align-items:center;gap:8px;font-size:13.5px;color:#5b7384;">
+        <span style="font-weight:700;color:#0f8a7e;letter-spacing:.4px;">BDH</span>
+        <span style="opacity:.4;">/</span><span>การเงิน</span>
+        <span style="opacity:.4;">/</span><span>สินเชื่อ</span>
+        <span style="opacity:.4;">/</span><span style="color:#14344a;font-weight:600;">ลูกหนี้คงค้าง</span>
+      </div>
+      <div style="margin-left:auto;display:flex;align-items:center;gap:18px;">
+        <div style="display:flex;align-items:center;gap:7px;font-size:13px;color:#5b7384;" class="num">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+          22 มิ.ย. 2569
+        </div>
+        <div style="display:flex;align-items:center;gap:9px;">
+          <div style="width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,#16b3a3,#0f8a7e);color:#fff;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600;">N</div>
+          <div style="line-height:1.2;">
+            <div style="font-size:13px;font-weight:600;color:#14344a;">nantawan</div>
+            <div style="font-size:11px;color:#9aae b8;color:#93a7b3;">ผู้ดูแลระบบ</div>
+          </div>
+          <span style="background:#0f8a7e;color:#fff;font-size:10.5px;font-weight:700;padding:3px 8px;border-radius:6px;letter-spacing:.6px;">ADMIN</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- ============ DASHBOARD VIEW ============ -->
+    <sc-if value="{{ isDash }}" hint-placeholder-val="{{ true }}">
+    <main style="padding:24px 28px 48px;display:flex;flex-direction:column;gap:20px;max-width:1640px;width:100%;">
+
+      <!-- page header -->
+      <div style="display:flex;align-items:flex-end;gap:20px;flex-wrap:wrap;">
+        <div style="flex:1;min-width:260px;">
+          <div style="display:flex;align-items:center;gap:10px;">
+            <div style="width:5px;height:30px;border-radius:3px;background:linear-gradient(180deg,#16b3a3,#0f8a7e);"></div>
+            <h1 style="font-size:25px;font-weight:700;color:#11324a;letter-spacing:-.2px;">Dashboard ลูกหนี้คงค้าง</h1>
+            <span style="border:1px solid #cfe6e1;color:#0f8a7e;font-size:11px;font-weight:700;padding:3px 8px;border-radius:6px;">พอร์ตสินเชื่อ</span>
+          </div>
+          <p class="num" style="margin-top:7px;margin-left:15px;font-size:13px;color:#7188 98;color:#718898;">ณ วันที่ 31 พ.ค. 2569 · อัปเดตล่าสุด 22/6/69 16:02 · หน่วย: บาท</p>
+        </div>
+        <!-- layout switch -->
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span style="font-size:12px;color:#93a7b3;">เลย์เอาต์</span>
+          <div style="display:flex;background:#e3eb ea;background:#e4edeb;border:1px solid #d6e3e0;border-radius:9px;padding:3px;gap:2px;">
+            <button onClick="{{ setLayout.A }}" style="border:none;cursor:pointer;font-family:inherit;font-size:12.5px;font-weight:600;padding:5px 13px;border-radius:7px;background:{{ layABg }};color:{{ layAFg }};">A · KPI</button>
+            <button onClick="{{ setLayout.B }}" style="border:none;cursor:pointer;font-family:inherit;font-size:12.5px;font-weight:600;padding:5px 13px;border-radius:7px;background:{{ layBBg }};color:{{ layBFg }};">B · Executive</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- control bar -->
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+        <!-- period -->
+        <div style="display:flex;background:#fff;border:1px solid #e2ebe9;border-radius:10px;padding:3px;gap:2px;box-shadow:0 1px 2px rgba(20,52,74,.04);">
+          <button onClick="{{ setPeriod.month }}" style="border:none;cursor:pointer;font-family:inherit;font-size:13px;font-weight:600;padding:7px 15px;border-radius:7px;background:{{ pmBg }};color:{{ pmFg }};">เดือนนี้</button>
+          <button onClick="{{ setPeriod.quarter }}" style="border:none;cursor:pointer;font-family:inherit;font-size:13px;font-weight:600;padding:7px 15px;border-radius:7px;background:{{ pqBg }};color:{{ pqFg }};">ไตรมาสนี้</button>
+          <button onClick="{{ setPeriod.year }}" style="border:none;cursor:pointer;font-family:inherit;font-size:13px;font-weight:600;padding:7px 15px;border-radius:7px;background:{{ pyBg }};color:{{ pyFg }};">ปีนี้</button>
+          <button style="border:none;cursor:pointer;font-family:inherit;font-size:13px;font-weight:500;padding:7px 13px;border-radius:7px;background:transparent;color:#7188 98;color:#718898;display:flex;align-items:center;gap:5px;"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>กำหนดเอง</button>
+        </div>
+
+        <!-- filters -->
+        <div style="position:relative;">
+          <button onClick="{{ tglBranch }}" style="display:flex;align-items:center;gap:7px;background:#fff;border:1px solid #e2ebe9;border-radius:10px;padding:8px 13px;font-family:inherit;font-size:13px;color:#14344a;cursor:pointer;box-shadow:0 1px 2px rgba(20,52,74,.04);"><span style="color:#93a7b3;">สาขา:</span><span style="font-weight:600;">{{ fBranch }}</span><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M6 9l6 6 6-6"/></svg></button>
+          <sc-if value="{{ showBranch }}" hint-placeholder-val="{{ false }}">
+            <div style="position:absolute;top:44px;left:0;z-index:20;background:#fff;border:1px solid #e2ebe9;border-radius:11px;box-shadow:0 16px 40px -12px rgba(20,52,74,.28);padding:6px;min-width:180px;animation:pop .12s ease;">
+              <sc-for list="{{ branchOpts }}" as="o" hint-placeholder-count="4"><button onClick="{{ pickBranch.o }}" style="display:block;width:100%;text-align:right;border:none;background:transparent;font-family:inherit;font-size:13px;color:#14344a;padding:8px 11px;border-radius:7px;cursor:pointer;" style-hover="background:#eef6f4;">{{ o }}</button></sc-for>
+            </div>
+          </sc-if>
+        </div>
+        <div style="position:relative;">
+          <button onClick="{{ tglType }}" style="display:flex;align-items:center;gap:7px;background:#fff;border:1px solid #e2ebe9;border-radius:10px;padding:8px 13px;font-family:inherit;font-size:13px;color:#14344a;cursor:pointer;box-shadow:0 1px 2px rgba(20,52,74,.04);"><span style="color:#93a7b3;">ประเภท:</span><span style="font-weight:600;">{{ fType }}</span><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M6 9l6 6 6-6"/></svg></button>
+          <sc-if value="{{ showType }}" hint-placeholder-val="{{ false }}">
+            <div style="position:absolute;top:44px;left:0;z-index:20;background:#fff;border:1px solid #e2ebe9;border-radius:11px;box-shadow:0 16px 40px -12px rgba(20,52,74,.28);padding:6px;min-width:190px;animation:pop .12s ease;">
+              <sc-for list="{{ typeOpts }}" as="o" hint-placeholder-count="4"><button onClick="{{ pickType.o }}" style="display:block;width:100%;text-align:right;border:none;background:transparent;font-family:inherit;font-size:13px;color:#14344a;padding:8px 11px;border-radius:7px;cursor:pointer;" style-hover="background:#eef6f4;">{{ o }}</button></sc-for>
+            </div>
+          </sc-if>
+        </div>
+        <div style="position:relative;">
+          <button onClick="{{ tglOwner }}" style="display:flex;align-items:center;gap:7px;background:#fff;border:1px solid #e2ebe9;border-radius:10px;padding:8px 13px;font-family:inherit;font-size:13px;color:#14344a;cursor:pointer;box-shadow:0 1px 2px rgba(20,52,74,.04);"><span style="color:#93a7b3;">เจ้าหน้าที่:</span><span style="font-weight:600;">{{ fOwner }}</span><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M6 9l6 6 6-6"/></svg></button>
+          <sc-if value="{{ showOwner }}" hint-placeholder-val="{{ false }}">
+            <div style="position:absolute;top:44px;left:0;z-index:20;background:#fff;border:1px solid #e2ebe9;border-radius:11px;box-shadow:0 16px 40px -12px rgba(20,52,74,.28);padding:6px;min-width:180px;animation:pop .12s ease;">
+              <sc-for list="{{ ownerOpts }}" as="o" hint-placeholder-count="4"><button onClick="{{ pickOwner.o }}" style="display:block;width:100%;text-align:right;border:none;background:transparent;font-family:inherit;font-size:13px;color:#14344a;padding:8px 11px;border-radius:7px;cursor:pointer;" style-hover="background:#eef6f4;">{{ o }}</button></sc-for>
+            </div>
+          </sc-if>
+        </div>
+        <div style="position:relative;">
+          <button onClick="{{ tglStatus }}" style="display:flex;align-items:center;gap:7px;background:#fff;border:1px solid #e2ebe9;border-radius:10px;padding:8px 13px;font-family:inherit;font-size:13px;color:#14344a;cursor:pointer;box-shadow:0 1px 2px rgba(20,52,74,.04);"><span style="color:#93a7b3;">สถานะ:</span><span style="font-weight:600;">{{ fStatus }}</span><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M6 9l6 6 6-6"/></svg></button>
+          <sc-if value="{{ showStatus }}" hint-placeholder-val="{{ false }}">
+            <div style="position:absolute;top:44px;left:0;z-index:20;background:#fff;border:1px solid #e2ebe9;border-radius:11px;box-shadow:0 16px 40px -12px rgba(20,52,74,.28);padding:6px;min-width:190px;animation:pop .12s ease;">
+              <sc-for list="{{ statusOpts }}" as="o" hint-placeholder-count="6"><button onClick="{{ pickStatus.o }}" style="display:block;width:100%;text-align:right;border:none;background:transparent;font-family:inherit;font-size:13px;color:#14344a;padding:8px 11px;border-radius:7px;cursor:pointer;" style-hover="background:#eef6f4;">{{ o }}</button></sc-for>
+            </div>
+          </sc-if>
+        </div>
+
+        <div style="margin-left:auto;display:flex;gap:10px;">
+          <button onClick="{{ refresh }}" style="display:flex;align-items:center;gap:7px;background:#fff;border:1px solid #e2ebe9;border-radius:10px;padding:9px 15px;font-family:inherit;font-size:13px;font-weight:600;color:#14344a;cursor:pointer;box-shadow:0 1px 2px rgba(20,52,74,.04);"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>รีเฟรช</button>
+          <button style="display:flex;align-items:center;gap:7px;background:linear-gradient(135deg,#16b3a3,#0d7d70);border:none;border-radius:10px;padding:9px 17px;font-family:inherit;font-size:13px;font-weight:600;color:#fff;cursor:pointer;box-shadow:0 8px 18px -8px rgba(15,138,126,.7);"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5M12 15V3"/></svg>Export Excel</button>
+        </div>
+      </div>
+
+      <!-- ===== KPI ROW (Layout A) ===== -->
+      <sc-if value="{{ layA }}" hint-placeholder-val="{{ true }}">
+      <div style="display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:14px;">
+        <!-- card 1 -->
+        <button onClick="{{ drill.overdue }}" style="text-align:right;cursor:pointer;background:linear-gradient(150deg,#11324a,#16455f);border:none;border-radius:16px;padding:17px 17px 14px;color:#fff;box-shadow:0 14px 30px -16px rgba(17,50,74,.7);display:flex;flex-direction:column;gap:9px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;">
+            <span style="width:34px;height:34px;border-radius:10px;background:rgba(127,230,216,.18);display:flex;align-items:center;justify-content:center;color:#7fe6d8;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></span>
+            <span style="font-size:11px;color:#a8c0cb;">ลูกหนี้คงค้างรวม</span>
+          </div>
+          <div class="num" style="font-size:22px;font-weight:700;letter-spacing:-.5px;">฿{{ k1 }}</div>
+          <div style="display:flex;align-items:center;justify-content:space-between;">
+            <span class="num" style="font-size:11px;color:#ffd9c2;display:flex;align-items:center;gap:3px;"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M7 17L17 7M17 7H9M17 7v8"/></svg>{{ k1d }}</span>
+            <svg width="64" height="22" viewBox="0 0 90 30" fill="none" stroke="#7fe6d8" stroke-width="2.4" style="opacity:.85;"><path d="{{ sp1 }}"/></svg>
+          </div>
+        </button>
+        <!-- card 2 -->
+        <button onClick="{{ drill.principal }}" style="text-align:right;cursor:pointer;background:#fff;border:1px solid #e6efee;border-radius:16px;padding:17px 17px 14px;box-shadow:0 1px 2px rgba(20,52,74,.04);display:flex;flex-direction:column;gap:9px;" style-hover="border-color:#bfe0d9;">
+          <div style="display:flex;align-items:center;justify-content:space-between;">
+            <span style="width:34px;height:34px;border-radius:10px;background:#e9f5f2;display:flex;align-items:center;justify-content:center;color:#0f8a7e;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21h18M5 21V9l7-5 7 5v12M9 21v-6h6v6"/></svg></span>
+            <span style="font-size:11px;color:#93a7b3;">เงินต้นคงค้าง · Principal</span>
+          </div>
+          <div class="num" style="font-size:22px;font-weight:700;color:#11324a;letter-spacing:-.5px;">฿{{ k2 }}</div>
+          <div style="display:flex;align-items:center;justify-content:space-between;">
+            <span class="num" style="font-size:11px;color:#b9821a;display:flex;align-items:center;gap:3px;"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M7 17L17 7M17 7H9M17 7v8"/></svg>{{ k2d }}</span>
+            <svg width="64" height="22" viewBox="0 0 90 30" fill="none" stroke="#0f8a7e" stroke-width="2.4"><path d="{{ sp2 }}"/></svg>
+          </div>
+        </button>
+        <!-- card 3 -->
+        <button onClick="{{ drill.interest }}" style="text-align:right;cursor:pointer;background:#fff;border:1px solid #e6efee;border-radius:16px;padding:17px 17px 14px;box-shadow:0 1px 2px rgba(20,52,74,.04);display:flex;flex-direction:column;gap:9px;" style-hover="border-color:#ecd6a0;">
+          <div style="display:flex;align-items:center;justify-content:space-between;">
+            <span style="width:34px;height:34px;border-radius:10px;background:#fbf2dc;display:flex;align-items:center;justify-content:center;color:#b9821a;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="5" x2="5" y2="19"/><circle cx="6.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="17.5" r="2.5"/></svg></span>
+            <span style="font-size:11px;color:#93a7b3;">ดอกเบี้ยคงค้าง · Interest</span>
+          </div>
+          <div class="num" style="font-size:22px;font-weight:700;color:#11324a;letter-spacing:-.5px;">฿{{ k3 }}</div>
+          <div style="display:flex;align-items:center;justify-content:space-between;">
+            <span class="num" style="font-size:11px;color:#b9821a;display:flex;align-items:center;gap:3px;"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M7 17L17 7M17 7H9M17 7v8"/></svg>{{ k3d }}</span>
+            <svg width="64" height="22" viewBox="0 0 90 30" fill="none" stroke="#d4a843" stroke-width="2.4"><path d="{{ sp3 }}"/></svg>
+          </div>
+        </button>
+        <!-- card 4 -->
+        <button onClick="{{ drill.due }}" style="text-align:right;cursor:pointer;background:#fff;border:1px solid #e6efee;border-radius:16px;padding:17px 17px 14px;box-shadow:0 1px 2px rgba(20,52,74,.04);display:flex;flex-direction:column;gap:9px;" style-hover="border-color:#bfe0d9;">
+          <div style="display:flex;align-items:center;justify-content:space-between;">
+            <span style="width:34px;height:34px;border-radius:10px;background:#e9f5f2;display:flex;align-items:center;justify-content:center;color:#0f8a7e;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18M9 16l2 2 4-4"/></svg></span>
+            <span style="font-size:11px;color:#93a7b3;">ถึงกำหนดชำระเดือนนี้</span>
+          </div>
+          <div class="num" style="font-size:22px;font-weight:700;color:#11324a;letter-spacing:-.5px;">฿{{ k4 }}</div>
+          <div style="display:flex;align-items:center;justify-content:space-between;">
+            <span class="num" style="font-size:11px;color:#0f8a7e;display:flex;align-items:center;gap:3px;"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M7 17L17 7M17 7H9M17 7v8"/></svg>{{ k4d }}</span>
+            <svg width="64" height="22" viewBox="0 0 90 30" fill="none" stroke="#0f8a7e" stroke-width="2.4"><path d="{{ sp4 }}"/></svg>
+          </div>
+        </button>
+        <!-- card 5 -->
+        <button onClick="{{ drill.recv }}" style="text-align:right;cursor:pointer;background:#fff;border:1px solid #e6efee;border-radius:16px;padding:17px 17px 14px;box-shadow:0 1px 2px rgba(20,52,74,.04);display:flex;flex-direction:column;gap:8px;" style-hover="border-color:#bfe0d9;">
+          <div style="display:flex;align-items:center;justify-content:space-between;">
+            <span style="width:34px;height:34px;border-radius:10px;background:#e7f4ec;display:flex;align-items:center;justify-content:center;color:#2e9e6b;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6L9 17l-5-5"/></svg></span>
+            <span style="font-size:11px;color:#93a7b3;">รับชำระแล้วเดือนนี้</span>
+          </div>
+          <div class="num" style="font-size:22px;font-weight:700;color:#11324a;letter-spacing:-.5px;">฿{{ k5 }}</div>
+          <div class="num" style="display:flex;gap:8px;font-size:10.5px;color:#718898;">
+            <span style="color:#0f8a7e;">ต้น ฿{{ k5P }}</span><span style="color:#b9821a;">ดบ. ฿{{ k5I }}</span>
+          </div>
+        </button>
+        <!-- card 6 -->
+        <button onClick="{{ drill.overdue }}" style="text-align:right;cursor:pointer;background:#fff;border:1px solid #f1d9d3;border-radius:16px;padding:17px 17px 14px;box-shadow:0 1px 2px rgba(178,59,46,.05);display:flex;flex-direction:column;gap:9px;" style-hover="border-color:#e6b3a8;">
+          <div style="display:flex;align-items:center;justify-content:space-between;">
+            <span style="width:34px;height:34px;border-radius:10px;background:#f8e7e2;display:flex;align-items:center;justify-content:center;color:#b23b2e;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></span>
+            <span style="font-size:11px;color:#b23b2e;font-weight:600;">ยอดค้างเกินกำหนด</span>
+          </div>
+          <div class="num" style="font-size:22px;font-weight:700;color:#b23b2e;letter-spacing:-.5px;">฿{{ k6 }}</div>
+          <div style="display:flex;align-items:center;justify-content:space-between;">
+            <span class="num" style="font-size:11px;color:#b23b2e;display:flex;align-items:center;gap:3px;"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M7 17L17 7M17 7H9M17 7v8"/></svg>{{ k6d }} · {{ k6N }} ราย</span>
+            <svg width="64" height="22" viewBox="0 0 90 30" fill="none" stroke="#d9685a" stroke-width="2.4"><path d="{{ sp6 }}"/></svg>
+          </div>
+        </button>
+      </div>
+      </sc-if>
+
+      <!-- ===== EXECUTIVE HERO (Layout B) ===== -->
+      <sc-if value="{{ layB }}" hint-placeholder-val="{{ false }}">
+      <div style="display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1.85fr);gap:16px;">
+        <!-- hero left -->
+        <div style="background:linear-gradient(155deg,#11324a,#15425c);border-radius:18px;padding:24px;color:#fff;display:flex;flex-direction:column;gap:18px;box-shadow:0 20px 44px -22px rgba(17,50,74,.8);">
+          <div>
+            <div style="font-size:12.5px;color:#a8c0cb;">ลูกหนี้คงค้างรวม · {{ periodLabel }}</div>
+            <div class="num" style="font-size:34px;font-weight:700;letter-spacing:-1px;margin-top:4px;">฿{{ k1 }}</div>
+            <div class="num" style="font-size:12px;color:#ffd9c2;margin-top:4px;">▲ {{ k1d }} เทียบกับงวดก่อน</div>
+          </div>
+          <div style="display:flex;align-items:center;gap:20px;">
+            <div style="position:relative;width:128px;height:128px;border-radius:50%;background:{{ donutGrad }};flex:none;">
+              <div style="position:absolute;inset:18px;border-radius:50%;background:#13384f;display:flex;flex-direction:column;align-items:center;justify-content:center;">
+                <span style="font-size:10px;color:#a8c0cb;">รวม</span>
+                <span class="num" style="font-size:14px;font-weight:700;">฿{{ donutTotal }}</span>
+              </div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:11px;font-size:12.5px;flex:1;">
+              <div style="display:flex;align-items:center;gap:8px;"><span style="width:10px;height:10px;border-radius:3px;background:#0f8a7e;flex:none;"></span><span style="color:#cdddd9;">เงินต้นคงค้าง</span><span class="num" style="margin-right:auto;color:#fff;font-weight:600;"> {{ donutPP }}%</span></div>
+              <div class="num" style="font-size:13px;font-weight:600;margin-top:-7px;padding-right:18px;">฿{{ donutPVal }}</div>
+              <div style="display:flex;align-items:center;gap:8px;"><span style="width:10px;height:10px;border-radius:3px;background:#e0a83e;flex:none;"></span><span style="color:#cdddd9;">ดอกเบี้ยคงค้าง</span><span class="num" style="margin-right:auto;color:#fff;font-weight:600;"> {{ donutIP }}%</span></div>
+              <div class="num" style="font-size:13px;font-weight:600;margin-top:-7px;padding-right:18px;">฿{{ donutIVal }}</div>
+            </div>
+          </div>
+        </div>
+        <!-- 4 mini KPIs + overdue -->
+        <div style="display:flex;flex-direction:column;gap:14px;">
+          <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;">
+            <button onClick="{{ drill.principal }}" style="text-align:right;cursor:pointer;background:#fff;border:1px solid #e6efee;border-radius:14px;padding:15px;box-shadow:0 1px 2px rgba(20,52,74,.04);display:flex;flex-direction:column;gap:5px;">
+              <span style="font-size:11px;color:#93a7b3;">เงินต้นคงค้าง · Principal</span>
+              <span class="num" style="font-size:20px;font-weight:700;color:#11324a;">฿{{ k2 }}</span>
+              <span class="num" style="font-size:11px;color:#b9821a;">▲ {{ k2d }}</span>
+            </button>
+            <button onClick="{{ drill.interest }}" style="text-align:right;cursor:pointer;background:#fff;border:1px solid #e6efee;border-radius:14px;padding:15px;box-shadow:0 1px 2px rgba(20,52,74,.04);display:flex;flex-direction:column;gap:5px;">
+              <span style="font-size:11px;color:#93a7b3;">ดอกเบี้ยคงค้าง · Interest</span>
+              <span class="num" style="font-size:20px;font-weight:700;color:#11324a;">฿{{ k3 }}</span>
+              <span class="num" style="font-size:11px;color:#b9821a;">▲ {{ k3d }}</span>
+            </button>
+            <button onClick="{{ drill.due }}" style="text-align:right;cursor:pointer;background:#fff;border:1px solid #e6efee;border-radius:14px;padding:15px;box-shadow:0 1px 2px rgba(20,52,74,.04);display:flex;flex-direction:column;gap:5px;">
+              <span style="font-size:11px;color:#93a7b3;">ถึงกำหนดชำระเดือนนี้</span>
+              <span class="num" style="font-size:20px;font-weight:700;color:#11324a;">฿{{ k4 }}</span>
+              <span class="num" style="font-size:11px;color:#0f8a7e;">▲ {{ k4d }}</span>
+            </button>
+            <button onClick="{{ drill.recv }}" style="text-align:right;cursor:pointer;background:#fff;border:1px solid #e6efee;border-radius:14px;padding:15px;box-shadow:0 1px 2px rgba(20,52,74,.04);display:flex;flex-direction:column;gap:5px;">
+              <span style="font-size:11px;color:#93a7b3;">รับชำระแล้วเดือนนี้</span>
+              <span class="num" style="font-size:20px;font-weight:700;color:#11324a;">฿{{ k5 }}</span>
+              <span class="num" style="font-size:10.5px;color:#718898;">ต้น ฿{{ k5P }} · ดบ. ฿{{ k5I }}</span>
+            </button>
+          </div>
+          <button onClick="{{ drill.overdue }}" style="text-align:right;cursor:pointer;background:linear-gradient(120deg,#fff,#fbeeea);border:1px solid #f1d9d3;border-radius:14px;padding:15px 18px;display:flex;align-items:center;gap:16px;box-shadow:0 1px 2px rgba(178,59,46,.05);">
+            <span style="width:40px;height:40px;border-radius:11px;background:#f8e1db;display:flex;align-items:center;justify-content:center;color:#b23b2e;flex:none;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></span>
+            <div style="flex:1;">
+              <div style="font-size:12px;color:#b23b2e;font-weight:600;">ยอดค้างเกินกำหนด ({{ k6N }} ราย)</div>
+              <div class="num" style="font-size:24px;font-weight:700;color:#b23b2e;letter-spacing:-.5px;">฿{{ k6 }}</div>
+            </div>
+            <span class="num" style="font-size:12px;color:#b23b2e;font-weight:600;">▲ {{ k6d }}</span>
+          </button>
+        </div>
+      </div>
+      </sc-if>
+
+      <!-- filter chip -->
+      <sc-if value="{{ isFiltering }}" hint-placeholder-val="{{ false }}">
+        <div style="display:flex;align-items:center;gap:10px;background:#e9f5f2;border:1px solid #bfe0d9;border-radius:10px;padding:9px 14px;align-self:flex-start;animation:pop .14s ease;">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#0f8a7e" stroke-width="2"><path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z"/></svg>
+          <span style="font-size:13px;color:#0d6b60;">กำลังกรองตาราง: <b>{{ filterLabel }}</b> · {{ rowCount }} ราย</span>
+          <button onClick="{{ clearFilter }}" style="border:none;background:#cfe6e1;color:#0d6b60;width:22px;height:22px;border-radius:6px;cursor:pointer;font-size:13px;display:flex;align-items:center;justify-content:center;">✕</button>
+        </div>
+      </sc-if>
+
+      <!-- ===== CHARTS ROW: monthly bar + donut ===== -->
+      <div style="display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr);gap:16px;">
+        <!-- monthly stacked bar -->
+        <div style="background:#fff;border:1px solid #e6efee;border-radius:16px;padding:20px 22px;box-shadow:0 1px 2px rgba(20,52,74,.04);">
+          <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:6px;">
+            <div>
+              <h3 style="font-size:15px;font-weight:700;color:#11324a;">ยอดเรียกเก็บ vs ยอดรับชำระจริง</h3>
+              <p style="font-size:12px;color:#93a7b3;margin-top:2px;">ย้อนหลัง 6 เดือน · แยกเงินต้น / ดอกเบี้ย</p>
+            </div>
+            <div style="display:flex;gap:14px;font-size:11px;color:#718898;flex-wrap:wrap;justify-content:flex-end;">
+              <span style="display:flex;align-items:center;gap:5px;"><span style="width:10px;height:10px;border-radius:3px;background:#9fd6cf;"></span>เรียกเก็บ-ต้น</span>
+              <span style="display:flex;align-items:center;gap:5px;"><span style="width:10px;height:10px;border-radius:3px;background:#f2dca6;"></span>เรียกเก็บ-ดบ.</span>
+              <span style="display:flex;align-items:center;gap:5px;"><span style="width:10px;height:10px;border-radius:3px;background:#0f8a7e;"></span>รับจริง-ต้น</span>
+              <span style="display:flex;align-items:center;gap:5px;"><span style="width:10px;height:10px;border-radius:3px;background:#e0a83e;"></span>รับจริง-ดบ.</span>
+            </div>
+          </div>
+          <div style="display:flex;align-items:flex-end;gap:14px;height:230px;padding-top:18px;">
+            <sc-for list="{{ monthly }}" as="c" hint-placeholder-count="6">
+              <div onMouseEnter="{{ onBarEnter.c.i }}" onMouseLeave="{{ onBarLeave }}" style="flex:1;display:flex;flex-direction:column;align-items:center;gap:8px;height:100%;justify-content:flex-end;position:relative;cursor:default;">
+                <!-- tooltip -->
+                <sc-if value="{{ c.isHover }}" hint-placeholder-val="{{ false }}">
+                  <div class="num" style="position:absolute;bottom:calc(100% + 4px);left:50%;transform:translateX(-50%);background:#11324a;color:#fff;border-radius:10px;padding:10px 12px;font-size:11px;white-space:nowrap;z-index:10;box-shadow:0 12px 28px -10px rgba(17,50,74,.6);line-height:1.7;">
+                    <div style="font-weight:700;margin-bottom:3px;border-bottom:1px solid rgba(255,255,255,.15);padding-bottom:3px;">{{ c.m }}</div>
+                    <div style="color:#9fd6cf;">เรียกเก็บรวม: ฿{{ c.bTot }}</div>
+                    <div style="color:#cdddd9;">· ต้น ฿{{ c.bPf }} · ดบ. ฿{{ c.bIf }}</div>
+                    <div style="color:#7fe6d8;margin-top:3px;">รับจริงรวม: ฿{{ c.rTot }} ({{ c.rate }}%)</div>
+                    <div style="color:#cdddd9;">· ต้น ฿{{ c.rPf }} · ดบ. ฿{{ c.rIf }}</div>
+                  </div>
+                </sc-if>
+                <div style="display:flex;gap:5px;align-items:flex-end;width:100%;justify-content:center;height:100%;">
+                  <div style="width:24px;display:flex;flex-direction:column;justify-content:flex-end;height:100%;">
+                    <div style="width:100%;background:#f2dca6;border-radius:4px 4px 0 0;height:{{ c.bIh }}%;"></div>
+                    <div style="width:100%;background:#9fd6cf;height:{{ c.bPh }}%;"></div>
+                  </div>
+                  <div style="width:24px;display:flex;flex-direction:column;justify-content:flex-end;height:100%;">
+                    <div style="width:100%;background:#e0a83e;border-radius:4px 4px 0 0;height:{{ c.rIh }}%;"></div>
+                    <div style="width:100%;background:#0f8a7e;height:{{ c.rPh }}%;"></div>
+                  </div>
+                </div>
+                <span style="font-size:11px;color:#93a7b3;">{{ c.m }}</span>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+
+        <!-- donut -->
+        <div style="background:#fff;border:1px solid #e6efee;border-radius:16px;padding:20px 22px;box-shadow:0 1px 2px rgba(20,52,74,.04);display:flex;flex-direction:column;">
+          <h3 style="font-size:15px;font-weight:700;color:#11324a;">สัดส่วนลูกหนี้คงค้าง</h3>
+          <p style="font-size:12px;color:#93a7b3;margin-top:2px;">โครงสร้างยอดคงค้าง</p>
+          <div style="display:flex;align-items:center;justify-content:center;margin:14px 0;">
+            <div style="position:relative;width:172px;height:172px;border-radius:50%;background:{{ donutGrad }};">
+              <div style="position:absolute;inset:26px;border-radius:50%;background:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;box-shadow:inset 0 1px 4px rgba(20,52,74,.06);">
+                <span style="font-size:11px;color:#93a7b3;">ยอดรวม</span>
+                <span class="num" style="font-size:16px;font-weight:700;color:#11324a;letter-spacing:-.3px;">฿{{ donutTotal }}</span>
+                <span style="font-size:10.5px;color:#93a7b3;">บาท</span>
+              </div>
+            </div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:10px;">
+            <div style="display:flex;align-items:center;gap:9px;padding:8px 11px;border-radius:9px;background:#f4faf8;">
+              <span style="width:11px;height:11px;border-radius:3px;background:#0f8a7e;flex:none;"></span>
+              <span style="font-size:12.5px;color:#14344a;flex:1;">เงินต้นคงค้าง</span>
+              <span class="num" style="font-size:12.5px;font-weight:700;color:#0f8a7e;">{{ donutPP }}%</span>
+              <span class="num" style="font-size:12px;color:#718898;width:108px;text-align:right;">฿{{ donutPVal }}</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:9px;padding:8px 11px;border-radius:9px;background:#fdf9ee;">
+              <span style="width:11px;height:11px;border-radius:3px;background:#e0a83e;flex:none;"></span>
+              <span style="font-size:12.5px;color:#14344a;flex:1;">ดอกเบี้ยคงค้าง</span>
+              <span class="num" style="font-size:12.5px;font-weight:700;color:#b9821a;">{{ donutIP }}%</span>
+              <span class="num" style="font-size:12px;color:#718898;width:108px;text-align:right;">฿{{ donutIVal }}</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:9px;padding:8px 11px;border-radius:9px;background:#fafafa;">
+              <span style="width:11px;height:11px;border-radius:3px;background:#d8c0b8;flex:none;"></span>
+              <span style="font-size:12.5px;color:#93a7b3;flex:1;">ค่าปรับ / ดอกเบี้ยผิดนัด</span>
+              <span class="num" style="font-size:12.5px;font-weight:700;color:#93a7b3;">0.0%</span>
+              <span class="num" style="font-size:12px;color:#93a7b3;width:108px;text-align:right;">฿0.00</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== AGING + TREND ROW ===== -->
+      <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;">
+        <!-- aging -->
+        <div style="background:#fff;border:1px solid #e6efee;border-radius:16px;padding:20px 22px;box-shadow:0 1px 2px rgba(20,52,74,.04);">
+          <div style="display:flex;align-items:flex-start;justify-content:space-between;">
+            <div>
+              <h3 style="font-size:15px;font-weight:700;color:#11324a;">วิเคราะห์อายุลูกหนี้ · Aging</h3>
+              <p style="font-size:12px;color:#93a7b3;margin-top:2px;">คลิกแถบเพื่อกรองตารางด้านล่าง</p>
+            </div>
+            <div style="display:flex;gap:12px;font-size:11px;color:#718898;">
+              <span style="display:flex;align-items:center;gap:5px;"><span style="width:10px;height:10px;border-radius:3px;background:#0f8a7e;"></span>เงินต้น</span>
+              <span style="display:flex;align-items:center;gap:5px;"><span style="width:10px;height:10px;border-radius:3px;background:#e0a83e;"></span>ดอกเบี้ย</span>
+            </div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:14px;margin-top:18px;">
+            <sc-for list="{{ aging }}" as="a" hint-placeholder-count="5">
+              <button onClick="{{ drill.aging }}" data-key="{{ a.key }}" style="text-align:right;border:none;background:transparent;cursor:pointer;padding:0;font-family:inherit;">
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+                  <span style="font-size:12.5px;font-weight:600;color:{{ a.labCol }};display:flex;align-items:center;gap:6px;"><sc-if value="{{ a.hot }}" hint-placeholder-val="{{ false }}"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#b23b2e" stroke-width="2.4"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></sc-if>{{ a.label }}</span>
+                  <span class="num" style="font-size:11px;color:#93a7b3;">{{ a.n }} ราย · {{ a.pct }}%</span>
+                </div>
+                <div style="display:flex;align-items:center;gap:10px;">
+                  <div style="flex:1;height:22px;background:#f0f4f3;border-radius:6px;overflow:hidden;display:flex;">
+                    <div style="width:{{ a.barW }}%;height:100%;display:flex;border-radius:6px;overflow:hidden;">
+                      <div style="width:{{ a.pSeg }}%;background:#0f8a7e;height:100%;"></div>
+                      <div style="width:{{ a.iSeg }}%;background:#e0a83e;height:100%;"></div>
+                    </div>
+                  </div>
+                  <span class="num" style="font-size:12px;font-weight:700;color:#11324a;width:118px;text-align:right;">฿{{ a.total }}</span>
+                </div>
+              </button>
+            </sc-for>
+          </div>
+        </div>
+
+        <!-- trend line -->
+        <div style="background:#fff;border:1px solid #e6efee;border-radius:16px;padding:20px 22px;box-shadow:0 1px 2px rgba(20,52,74,.04);">
+          <div style="display:flex;align-items:flex-start;justify-content:space-between;">
+            <div>
+              <h3 style="font-size:15px;font-weight:700;color:#11324a;">แนวโน้มรายได้ดอกเบี้ย</h3>
+              <p style="font-size:12px;color:#93a7b3;margin-top:2px;">เกิดขึ้น · เก็บได้จริง · ค้างรับสะสม</p>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:5px;font-size:11px;color:#718898;align-items:flex-end;">
+              <span style="display:flex;align-items:center;gap:5px;"><span style="width:14px;height:3px;border-radius:2px;background:#1f6f94;"></span>ดอกเบี้ยที่เกิดขึ้น</span>
+              <span style="display:flex;align-items:center;gap:5px;"><span style="width:14px;height:3px;border-radius:2px;background:#0f8a7e;"></span>เก็บได้จริง</span>
+              <span style="display:flex;align-items:center;gap:5px;"><span style="width:14px;height:3px;border-radius:2px;background:#d9685a;"></span>ค้างรับสะสม</span>
+              <span style="display:flex;align-items:center;gap:5px;"><span style="width:14px;height:0;border-top:2px dashed #93a7b3;"></span>เป้าหมาย</span>
+            </div>
+          </div>
+          <div style="position:relative;margin-top:14px;">
+            <svg viewBox="0 0 {{ trend.W }} {{ trend.Hh }}" style="width:100%;height:auto;display:block;overflow:visible;">
+              <sc-for list="{{ trend.gridYs }}" as="g" hint-placeholder-count="5">
+                <line x1="{{ trend.padL }}" y1="{{ g.y }}" x2="{{ trend.padR }}" y2="{{ g.y }}" stroke="#eef2f1" stroke-width="1"></line>
+              </sc-for>
+              <line x1="{{ trend.padL }}" y1="{{ trend.targetY }}" x2="{{ trend.padR }}" y2="{{ trend.targetY }}" stroke="#93a7b3" stroke-width="1.4" stroke-dasharray="5 5"></line>
+              <path d="{{ trend.outPath }}" fill="none" stroke="#d9685a" stroke-width="2.6" stroke-linejoin="round" stroke-linecap="round"></path>
+              <path d="{{ trend.accPath }}" fill="none" stroke="#1f6f94" stroke-width="2.6" stroke-linejoin="round" stroke-linecap="round"></path>
+              <path d="{{ trend.colPath }}" fill="none" stroke="#0f8a7e" stroke-width="2.6" stroke-linejoin="round" stroke-linecap="round"></path>
+              <sc-for list="{{ trend.pts }}" as="p" hint-placeholder-count="6">
+                <g>
+                  <circle cx="{{ p.x }}" cy="{{ p.outY }}" r="3.5" fill="#d9685a"></circle>
+                  <circle cx="{{ p.x }}" cy="{{ p.accY }}" r="3.5" fill="#1f6f94"></circle>
+                  <circle cx="{{ p.x }}" cy="{{ p.colY }}" r="3.5" fill="#0f8a7e"></circle>
+                  <text x="{{ p.x }}" y="{{ trend.Hh }}" text-anchor="middle" font-size="11" fill="#93a7b3" font-family="IBM Plex Sans Thai">{{ p.m }}</text>
+                  <rect x="{{ p.rectX }}" y="0" width="40" height="{{ trend.Hh }}" fill="transparent" onMouseEnter="{{ onPtEnter.p.i }}" onMouseLeave="{{ onPtLeave }}"></rect>
+                </g>
+              </sc-for>
+            </svg>
+            <sc-for list="{{ trend.pts }}" as="p" hint-placeholder-count="0">
+              <sc-if value="{{ p.isHover }}" hint-placeholder-val="{{ false }}">
+                <div class="num" style="position:absolute;left:{{ p.tipLeft }}%;top:0;transform:translateX(-50%);background:#11324a;color:#fff;border-radius:9px;padding:8px 11px;font-size:11px;white-space:nowrap;z-index:10;box-shadow:0 12px 28px -10px rgba(17,50,74,.6);line-height:1.65;pointer-events:none;">
+                  <div style="font-weight:700;margin-bottom:2px;">{{ p.m }} 69</div>
+                  <div style="color:#7fb6d6;">เกิดขึ้น: ฿{{ p.acc }}</div>
+                  <div style="color:#7fe6d8;">เก็บได้: ฿{{ p.col }}</div>
+                  <div style="color:#f0a99c;">ค้างรับ: ฿{{ p.out }}</div>
+                </div>
+              </sc-if>
+            </sc-for>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== TABLE + INSIGHT ===== -->
+      <div style="display:grid;grid-template-columns:minmax(0,2.6fr) minmax(0,1fr);gap:16px;align-items:start;">
+        <!-- table -->
+        <div style="background:#fff;border:1px solid #e6efee;border-radius:16px;box-shadow:0 1px 2px rgba(20,52,74,.04);overflow:hidden;">
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:18px 22px 12px;">
+            <div style="display:flex;align-items:center;gap:9px;">
+              <h3 style="font-size:15px;font-weight:700;color:#11324a;">ลูกหนี้ที่ต้องติดตาม</h3>
+              <span style="font-size:11px;color:#b23b2e;background:#f8e7e2;padding:3px 9px;border-radius:6px;font-weight:600;">เรียงตามความเสี่ยง</span>
+            </div>
+            <span class="num" style="font-size:12px;color:#93a7b3;">{{ rowCount }} ราย</span>
+          </div>
+          <div style="overflow-x:auto;">
+            <table class="num" style="width:100%;border-collapse:collapse;font-size:12.5px;min-width:880px;">
+              <thead>
+                <tr style="background:#f6faf9;color:#718898;font-size:11px;text-align:right;">
+                  <th style="padding:11px 16px;text-align:right;font-weight:600;">รหัส / ชื่อลูกหนี้</th>
+                  <th style="padding:11px 12px;font-weight:600;">ครบกำหนด</th>
+                  <th style="padding:11px 12px;font-weight:600;">ค้าง</th>
+                  <th style="padding:11px 12px;font-weight:600;">เงินต้นคงค้าง</th>
+                  <th style="padding:11px 12px;font-weight:600;">ดอกเบี้ยคงค้าง</th>
+                  <th style="padding:11px 12px;font-weight:600;">ยอดค้างรวม</th>
+                  <th style="padding:11px 12px;font-weight:600;">สถานะ</th>
+                  <th style="padding:11px 16px;font-weight:600;text-align:center;">จัดการ</th>
+                </tr>
+              </thead>
+              <tbody>
+                <sc-for list="{{ debtorRows }}" as="r" hint-placeholder-count="7">
+                  <tr style="border-top:1px solid #eef2f1;" style-hover="background:#f9fcfb;">
+                    <td style="padding:12px 16px;text-align:right;">
+                      <button onClick="{{ openDetail.r.code }}" style="border:none;background:transparent;cursor:pointer;font-family:inherit;text-align:right;padding:0;">
+                        <div style="font-weight:700;color:#0f8a7e;font-size:12.5px;">{{ r.code }}</div>
+                        <div style="color:#14344a;font-size:12.5px;font-family:'IBM Plex Sans Thai';">{{ r.name }}</div>
+                        <div style="color:#93a7b3;font-size:10.5px;">{{ r.type }} · {{ r.owner }}</div>
+                      </button>
+                    </td>
+                    <td style="padding:12px;color:#5b7384;">{{ r.due }}</td>
+                    <td style="padding:12px;">
+                      <span style="display:inline-block;padding:3px 9px;border-radius:6px;font-size:11px;font-weight:600;background:{{ r.daysBg }};color:{{ r.daysFg }};">{{ r.days }}</span>
+                    </td>
+                    <td style="padding:12px;font-weight:600;color:{{ r.pCol }};">฿{{ r.principal }}</td>
+                    <td style="padding:12px;font-weight:600;color:{{ r.iCol }};">฿{{ r.interest }}</td>
+                    <td style="padding:12px;font-weight:700;color:#11324a;">฿{{ r.total }}</td>
+                    <td style="padding:12px;">
+                      <span style="display:inline-block;padding:4px 10px;border-radius:7px;font-size:11px;font-weight:600;background:{{ r.stBg }};color:{{ r.stFg }};">{{ r.status }}</span>
+                    </td>
+                    <td style="padding:12px 16px;">
+                      <div style="display:flex;gap:6px;justify-content:center;">
+                        <button onClick="{{ openDetail.r.code }}" title="ดูรายละเอียด" style="width:30px;height:30px;border-radius:8px;border:1px solid #e2ebe9;background:#fff;color:#0f8a7e;cursor:pointer;display:flex;align-items:center;justify-content:center;" style-hover="background:#eef6f4;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button>
+                        <button title="บันทึกการติดตาม" style="width:30px;height:30px;border-radius:8px;border:1px solid #e2ebe9;background:#fff;color:#3a6ea5;cursor:pointer;display:flex;align-items:center;justify-content:center;" style-hover="background:#eef3f9;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/></svg></button>
+                        <button title="ส่งแจ้งเตือน" style="width:30px;height:30px;border-radius:8px;border:1px solid #e2ebe9;background:#fff;color:#c47b1b;cursor:pointer;display:flex;align-items:center;justify-content:center;" style-hover="background:#fbf3e3;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 0 1-3.46 0"/></svg></button>
+                      </div>
+                    </td>
+                  </tr>
+                </sc-for>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- insight panel -->
+        <div style="display:flex;flex-direction:column;gap:14px;">
+          <div style="background:linear-gradient(155deg,#11324a,#15425c);border-radius:16px;padding:20px;color:#fff;box-shadow:0 16px 36px -20px rgba(17,50,74,.8);">
+            <div style="display:flex;align-items:center;gap:9px;margin-bottom:14px;">
+              <span style="width:32px;height:32px;border-radius:9px;background:rgba(127,230,216,.18);display:flex;align-items:center;justify-content:center;color:#7fe6d8;"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18h6M10 22h4M12 2a7 7 0 0 0-4 12.7c.6.5 1 1.3 1 2.1V18h6v-1.2c0-.8.4-1.6 1-2.1A7 7 0 0 0 12 2z"/></svg></span>
+              <h3 style="font-size:15px;font-weight:700;">Insight สำหรับผู้บริหาร</h3>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:13px;">
+              <div style="display:flex;gap:10px;align-items:flex-start;">
+                <span style="width:6px;height:6px;border-radius:50%;background:#f0a99c;margin-top:6px;flex:none;"></span>
+                <p style="font-size:12.5px;line-height:1.55;color:#dce7eb;"><b style="color:#ffd9c2;">ค้างเกิน 90 วัน คิดเป็น 69.2%</b> ของพอร์ต (฿50.33 ลบ.) — ความเสี่ยงสูง ควรเร่งติดตาม</p>
+              </div>
+              <div style="display:flex;gap:10px;align-items:flex-start;">
+                <span style="width:6px;height:6px;border-radius:50%;background:#7fe6d8;margin-top:6px;flex:none;"></span>
+                <p style="font-size:12.5px;line-height:1.55;color:#dce7eb;">ดอกเบี้ยค้างรับ ฿3.28 ลบ. คิดเป็น <b style="color:#fff;">4.5%</b> ของยอดลูกหนี้รวม</p>
+              </div>
+              <div style="display:flex;gap:10px;align-items:flex-start;">
+                <span style="width:6px;height:6px;border-radius:50%;background:#7fe6d8;margin-top:6px;flex:none;"></span>
+                <p style="font-size:12.5px;line-height:1.55;color:#dce7eb;">ลูกหนี้ 3 รายแรก (B003, B005, B001.1) คิดเป็น <b style="color:#fff;">84%</b> ของยอดคงค้าง — กระจุกตัวสูง</p>
+              </div>
+              <div style="display:flex;gap:10px;align-items:flex-start;">
+                <span style="width:6px;height:6px;border-radius:50%;background:#f0a99c;margin-top:6px;flex:none;"></span>
+                <p style="font-size:12.5px;line-height:1.55;color:#dce7eb;">เดือนนี้เก็บชำระได้ ฿1.15 ลบ. <b style="color:#ffd9c2;">ต่ำกว่าเป้า ฿8.00 ลบ.</b> (14%)</p>
+              </div>
+              <div style="display:flex;gap:10px;align-items:flex-start;">
+                <span style="width:6px;height:6px;border-radius:50%;background:#7fe6d8;margin-top:6px;flex:none;"></span>
+                <p style="font-size:12.5px;line-height:1.55;color:#dce7eb;">มีลูกหนี้ 1 ราย (S001) ครบกำหนดภายใน 7 วัน — ฿1.49 ลบ.</p>
+              </div>
+            </div>
+          </div>
+          <div style="background:#fff;border:1px solid #e6efee;border-radius:16px;padding:18px 20px;box-shadow:0 1px 2px rgba(20,52,74,.04);">
+            <div style="font-size:12px;color:#93a7b3;margin-bottom:4px;">อัตราการเก็บเงินเดือนนี้</div>
+            <div class="num" style="font-size:26px;font-weight:700;color:#b23b2e;">14%</div>
+            <div style="height:8px;background:#f0f4f3;border-radius:5px;margin-top:8px;overflow:hidden;"><div style="width:14%;height:100%;background:linear-gradient(90deg,#e0a83e,#b23b2e);border-radius:5px;"></div></div>
+            <div class="num" style="font-size:11px;color:#93a7b3;margin-top:7px;">฿1,150,000 จาก ฿8,000,000 เป้าหมาย</div>
+          </div>
+        </div>
+      </div>
+
+      <p style="font-size:11px;color:#a8b8c0;text-align:center;margin-top:8px;">BDH · ระบบบริหารลูกหนี้คงค้าง · ข้อมูลตัวอย่างสำหรับการออกแบบ</p>
+    </main>
+    </sc-if>
+
+    <!-- ============ DETAIL VIEW ============ -->
+    <sc-if value="{{ isDetail }}" hint-placeholder-val="{{ false }}">
+    <main style="padding:24px 28px 48px;display:flex;flex-direction:column;gap:18px;max-width:1280px;width:100%;">
+      <button onClick="{{ closeDetail }}" style="display:flex;align-items:center;gap:7px;border:none;background:transparent;color:#0f8a7e;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;align-self:flex-start;padding:4px 0;"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>กลับสู่ Dashboard</button>
+
+      <!-- detail header -->
+      <div style="background:linear-gradient(150deg,#11324a,#15425c);border-radius:18px;padding:24px 26px;color:#fff;display:flex;align-items:center;gap:20px;flex-wrap:wrap;box-shadow:0 18px 40px -20px rgba(17,50,74,.8);">
+        <div style="width:58px;height:58px;border-radius:15px;background:rgba(127,230,216,.18);color:#7fe6d8;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:700;flex:none;">{{ detail.code }}</div>
+        <div style="flex:1;min-width:200px;">
+          <h1 style="font-size:23px;font-weight:700;">{{ detail.name }}</h1>
+          <p style="font-size:13px;color:#a8c0cb;margin-top:3px;">{{ detail.type }} · {{ detail.branch }} · ผู้ดูแล: {{ detail.owner }}</p>
+        </div>
+        <span style="display:inline-block;padding:6px 14px;border-radius:9px;font-size:12.5px;font-weight:600;background:{{ detail.statusBg }};color:{{ detail.statusFg }};">{{ detail.status }}</span>
+      </div>
+
+      <!-- detail KPI -->
+      <div style="display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:14px;">
+        <div style="background:#fff;border:1px solid #e6efee;border-radius:14px;padding:16px;box-shadow:0 1px 2px rgba(20,52,74,.04);">
+          <div style="font-size:11px;color:#93a7b3;">วงเงินกู้</div>
+          <div class="num" style="font-size:18px;font-weight:700;color:#11324a;margin-top:5px;">฿{{ detail.limit }}</div>
+        </div>
+        <div style="background:#fff;border:1px solid #e6efee;border-radius:14px;padding:16px;box-shadow:0 1px 2px rgba(20,52,74,.04);">
+          <div style="font-size:11px;color:#93a7b3;">เงินต้นคงเหลือ</div>
+          <div class="num" style="font-size:18px;font-weight:700;color:#0f8a7e;margin-top:5px;">฿{{ detail.principal }}</div>
+        </div>
+        <div style="background:#fff;border:1px solid #e6efee;border-radius:14px;padding:16px;box-shadow:0 1px 2px rgba(20,52,74,.04);">
+          <div style="font-size:11px;color:#93a7b3;">ดอกเบี้ยค้างรับ</div>
+          <div class="num" style="font-size:18px;font-weight:700;color:#b9821a;margin-top:5px;">฿{{ detail.interest }}</div>
+        </div>
+        <div style="background:#fff;border:1px solid #f1d9d3;border-radius:14px;padding:16px;box-shadow:0 1px 2px rgba(178,59,46,.05);">
+          <div style="font-size:11px;color:#b23b2e;">ยอดผิดนัด / ค่าปรับ</div>
+          <div class="num" style="font-size:18px;font-weight:700;color:#b23b2e;margin-top:5px;">฿{{ detail.penalty }}</div>
+        </div>
+        <div style="background:#fff;border:1px solid #e6efee;border-radius:14px;padding:16px;box-shadow:0 1px 2px rgba(20,52,74,.04);">
+          <div style="font-size:11px;color:#93a7b3;">ยอดค้างรวม</div>
+          <div class="num" style="font-size:18px;font-weight:700;color:#11324a;margin-top:5px;">฿{{ detail.total }}</div>
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:minmax(0,1.7fr) minmax(0,1fr);gap:16px;align-items:start;">
+        <!-- schedule -->
+        <div style="background:#fff;border:1px solid #e6efee;border-radius:16px;box-shadow:0 1px 2px rgba(20,52,74,.04);overflow:hidden;">
+          <h3 style="font-size:15px;font-weight:700;color:#11324a;padding:18px 22px 12px;">ตารางงวดชำระ</h3>
+          <div style="overflow-x:auto;">
+            <table class="num" style="width:100%;border-collapse:collapse;font-size:12.5px;min-width:480px;">
+              <thead><tr style="background:#f6faf9;color:#718898;font-size:11px;">
+                <th style="padding:10px 16px;text-align:right;font-weight:600;">งวด</th>
+                <th style="padding:10px 12px;text-align:right;font-weight:600;">ครบกำหนด</th>
+                <th style="padding:10px 12px;text-align:right;font-weight:600;">เงินต้น</th>
+                <th style="padding:10px 12px;text-align:right;font-weight:600;">ดอกเบี้ย</th>
+                <th style="padding:10px 12px;text-align:right;font-weight:600;">รวม</th>
+                <th style="padding:10px 16px;text-align:right;font-weight:600;">สถานะ</th>
+              </tr></thead>
+              <tbody>
+                <sc-for list="{{ detail.sched }}" as="g" hint-placeholder-count="10">
+                  <tr style="border-top:1px solid #eef2f1;">
+                    <td style="padding:10px 16px;text-align:right;font-weight:600;color:#11324a;">{{ g.n }}</td>
+                    <td style="padding:10px 12px;text-align:right;color:#5b7384;">{{ g.due }}</td>
+                    <td style="padding:10px 12px;text-align:right;color:#5b7384;">฿{{ g.p }}</td>
+                    <td style="padding:10px 12px;text-align:right;color:#5b7384;">฿{{ g.i }}</td>
+                    <td style="padding:10px 12px;text-align:right;font-weight:600;color:#11324a;">฿{{ g.t }}</td>
+                    <td style="padding:10px 16px;text-align:right;"><span style="display:inline-block;padding:3px 9px;border-radius:6px;font-size:10.5px;font-weight:600;background:{{ g.stBg }};color:{{ g.stFg }};">{{ g.st }}</span></td>
+                  </tr>
+                </sc-for>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- right column: payments + legal + docs -->
+        <div style="display:flex;flex-direction:column;gap:16px;">
+          <div style="background:#fff;border:1px solid #e6efee;border-radius:16px;padding:18px 20px;box-shadow:0 1px 2px rgba(20,52,74,.04);">
+            <h3 style="font-size:14px;font-weight:700;color:#11324a;margin-bottom:12px;">ประวัติการรับชำระ</h3>
+            <div style="display:flex;flex-direction:column;gap:11px;">
+              <sc-for list="{{ detail.pays }}" as="p" hint-placeholder-count="2">
+                <div style="display:flex;align-items:center;gap:11px;">
+                  <span style="width:30px;height:30px;border-radius:8px;background:#e7f4ec;color:#2e9e6b;display:flex;align-items:center;justify-content:center;flex:none;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6L9 17l-5-5"/></svg></span>
+                  <div style="flex:1;line-height:1.4;"><div class="num" style="font-size:12px;color:#5b7384;">{{ p.date }} · {{ p.ref }}</div><div class="num" style="font-size:10.5px;color:#93a7b3;">ต้น ฿{{ p.p }} · ดบ. ฿{{ p.i }}</div></div>
+                  <span class="num" style="font-size:13px;font-weight:700;color:#2e9e6b;">฿{{ p.t }}</span>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+          <div style="background:#fff;border:1px solid #e6efee;border-radius:16px;padding:18px 20px;box-shadow:0 1px 2px rgba(20,52,74,.04);">
+            <h3 style="font-size:14px;font-weight:700;color:#11324a;margin-bottom:10px;">สถานะทางกฎหมาย</h3>
+            <div style="display:flex;gap:10px;align-items:flex-start;background:#fbf2dc;border-radius:10px;padding:11px 13px;">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#b9821a" stroke-width="2" style="flex:none;margin-top:1px;"><path d="M12 3v18M5 7h14M5 7l-2 6a3 3 0 0 0 6 0L7 7M19 7l-2 6a3 3 0 0 0 6 0l-2-6"/></svg>
+              <p style="font-size:12.5px;color:#7a5a12;line-height:1.5;">{{ detail.legal }}</p>
+            </div>
+          </div>
+          <div style="background:#fff;border:1px solid #e6efee;border-radius:16px;padding:18px 20px;box-shadow:0 1px 2px rgba(20,52,74,.04);">
+            <h3 style="font-size:14px;font-weight:700;color:#11324a;margin-bottom:12px;">เอกสารแนบ</h3>
+            <div style="display:flex;flex-direction:column;gap:9px;">
+              <sc-for list="{{ detail.docs }}" as="d" hint-placeholder-count="3">
+                <a href="#" style="display:flex;align-items:center;gap:10px;text-decoration:none;padding:8px 10px;border-radius:9px;border:1px solid #eef2f1;" style-hover="background:#f6faf9;">
+                  <span style="width:28px;height:28px;border-radius:7px;background:#eef6f4;color:#0f8a7e;display:flex;align-items:center;justify-content:center;flex:none;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg></span>
+                  <span style="flex:1;font-size:12px;color:#14344a;">{{ d.name }}</span>
+                  <span class="num" style="font-size:10.5px;color:#93a7b3;">{{ d.size }}</span>
+                </a>
+              </sc-for>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- follow-up history full width -->
+      <div style="background:#fff;border:1px solid #e6efee;border-radius:16px;padding:20px 22px;box-shadow:0 1px 2px rgba(20,52,74,.04);">
+        <h3 style="font-size:15px;font-weight:700;color:#11324a;margin-bottom:16px;">ประวัติการติดตาม</h3>
+        <div style="display:flex;flex-direction:column;gap:0;">
+          <sc-for list="{{ detail.follow }}" as="h" hint-placeholder-count="3">
+            <div style="display:flex;gap:14px;">
+              <div style="display:flex;flex-direction:column;align-items:center;flex:none;">
+                <span style="width:11px;height:11px;border-radius:50%;background:#0f8a7e;border:3px solid #d6ede8;"></span>
+                <span style="width:2px;flex:1;background:#e6efee;min-height:14px;"></span>
+              </div>
+              <div style="padding-bottom:16px;flex:1;">
+                <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+                  <span class="num" style="font-size:12px;font-weight:600;color:#11324a;">{{ h.date }}</span>
+                  <span style="font-size:10.5px;color:#0f8a7e;background:#eef6f4;padding:2px 8px;border-radius:5px;">{{ h.ch }}</span>
+                  <span style="font-size:11px;color:#93a7b3;">โดย {{ h.by }}</span>
+                </div>
+                <p style="font-size:12.5px;color:#5b7384;margin-top:4px;line-height:1.5;">{{ h.note }}</p>
+              </div>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+    </main>
+    </sc-if>
+
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1440,&quot;height&quot;:1024}}">
+class Component extends DCLogic {
+  state = {
+    period: 'month',
+    layout: 'A',
+    view: 'dashboard',
+    detailCode: null,
+    filterId: null,
+    hoverBar: null,
+    hoverPt: null,
+    fBranch: 'ทุกสาขา',
+    fType: 'ทุกประเภท',
+    fOwner: 'ทุกคน',
+    fStatus: 'ทุกสถานะ',
+    showBranch: false, showType: false, showOwner: false, showStatus: false
+  };
+
+  // ---------- helpers ----------
+  fmt(n){ return Number(n).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+  fmt0(n){ return Number(n).toLocaleString('en-US'); }
+  fmtM(n){ return (n/1e6).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+
+  // ---------- static data ----------
+  get debtors(){
+    return [
+      {code:'B003', name:'ไบโอแอ็กซ์เซล', type:'สินเชื่อธุรกิจ', items:73, billed:44637582.24, paid:1000000, lastPay:'12 ก.พ. 2569', principal:42700000, interest:937582.24, total:43637582.24, due:'15 ก.พ. 2569', days:120, bucket:'90+', status:'ค้างเกิน 90 วัน', owner:'สมชาย พิทักษ์', branch:'สำนักงานใหญ่', dueThisMonth:false},
+      {code:'B001.1', name:'บัณฑิตา มีดีซี', type:'สินเชื่อโครงการ', items:27, billed:6690785.64, paid:0, lastPay:'—', principal:5500000, interest:1190785.64, total:6690785.64, due:'18 มี.ค. 2569', days:96, bucket:'90+', status:'ค้างเกิน 90 วัน', owner:'อรพรรณ ศรีสุข', branch:'สาขารังสิต', dueThisMonth:false},
+      {code:'M002', name:'เอ็ม บาร์ค', type:'สินเชื่อธุรกิจ', items:67, billed:4308082.33, paid:0, lastPay:'—', principal:4000000, interest:308082.33, total:4308082.33, due:'09 เม.ย. 2569', days:72, bucket:'61-90', status:'อยู่ระหว่างติดตาม', owner:'สมชาย พิทักษ์', branch:'สำนักงานใหญ่', dueThisMonth:false},
+      {code:'B005', name:'เบญญญา เมดิคอล อินโนเวชั่นส์', type:'สินเชื่อหมุนเวียน', items:113, billed:11114205.68, paid:0, lastPay:'—', principal:10550000, interest:564205.68, total:11114205.68, due:'06 พ.ค. 2569', days:45, bucket:'31-60', status:'ค้างเกิน 30 วัน', owner:'อรพรรณ ศรีสุข', branch:'สาขารังสิต', dueThisMonth:false},
+      {code:'B004', name:'บิวายจีจีอี โซลูชั่นส์', type:'สินเชื่อธุรกิจ', items:31, billed:4325397.28, paid:0, lastPay:'—', principal:4100000, interest:225397.28, total:4325397.28, due:'02 มิ.ย. 2569', days:18, bucket:'1-30', status:'ค้างชำระ', owner:'ธนวัฒน์ ใจดี', branch:'สาขาชลบุรี', dueThisMonth:true},
+      {code:'T001', name:'ธารา วอเตอร์ คอนสตรัคชั่น', type:'สินเชื่อโครงการ', items:3, billed:1145982.22, paid:0, lastPay:'—', principal:1127145, interest:18837.22, total:1145982.22, due:'10 มิ.ย. 2569', days:10, bucket:'1-30', status:'ค้างชำระ', owner:'ธนวัฒน์ ใจดี', branch:'สาขาชลบุรี', dueThisMonth:true},
+      {code:'S001', name:'เอสทีอาร์ อินโนเวชั่น', type:'สินเชื่อหมุนเวียน', items:8, billed:1637164.38, paid:150000, lastPay:'05 มิ.ย. 2569', principal:1450000, interest:37164.38, total:1487164.38, due:'27 มิ.ย. 2569', days:-5, bucket:'current', status:'ใกล้ครบกำหนด', owner:'ธนวัฒน์ ใจดี', branch:'สาขาชลบุรี', dueThisMonth:true}
+    ];
+  }
+
+  statusColor(s){
+    const m={
+      'ปกติ':['#0f8a7e','#e6f4f1'],
+      'ใกล้ครบกำหนด':['#b9821a','#fbf1da'],
+      'ค้างชำระ':['#c47b1b','#fbf0db'],
+      'ค้างเกิน 30 วัน':['#c2664a','#f8e7df'],
+      'ค้างเกิน 90 วัน':['#b23b2e','#f6e0dc'],
+      'อยู่ระหว่างติดตาม':['#3a6ea5','#e6eef7'],
+      'ปิดบัญชีแล้ว':['#5b7384','#eef2f3']
+    };
+    return m[s]||['#5b7384','#eef2f3'];
+  }
+
+  // period-dependent KPI numbers
+  get periodData(){
+    const P={
+      month:{ total:72709199.77, principal:69427145.00, interest:3282054.77, due:8420000.00, recv:1150000.00, recvP:1080000.00, recvI:70000.00, overdue:71222035.39, overdueN:6,
+        d:{total:'+3.2%',principal:'+2.8%',interest:'+5.1%',due:'+1.4%',recv:'−84.6%',overdue:'+12.0%'} , label:'เดือนนี้ (พ.ค. 2569)'},
+      quarter:{ total:72709199.77, principal:69427145.00, interest:3282054.77, due:24180000.00, recv:14620000.00, recvP:13180000.00, recvI:1440000.00, overdue:71222035.39, overdueN:6,
+        d:{total:'+6.1%',principal:'+5.4%',interest:'+9.8%',due:'+2.7%',recv:'−12.3%',overdue:'+18.4%'}, label:'ไตรมาสนี้ (Q2/2569)'},
+      year:{ total:72709199.77, principal:69427145.00, interest:3282054.77, due:69240000.00, recv:42890000.00, recvP:38600000.00, recvI:4290000.00, overdue:71222035.39, overdueN:6,
+        d:{total:'+14.5%',principal:'+12.9%',interest:'+22.1%',due:'+8.0%',recv:'+5.6%',overdue:'+31.2%'}, label:'ปีนี้ (2569)'}
+    };
+    return P[this.state.period]||P.month;
+  }
+
+  // ---------- drill-down filters ----------
+  get filterDefs(){
+    return {
+      overdue:{label:'ค้างเกินกำหนด', test:d=>d.days>0},
+      '90+':{label:'ค้างเกิน 90 วัน', test:d=>d.bucket==='90+'},
+      '61-90':{label:'ค้าง 61–90 วัน', test:d=>d.bucket==='61-90'},
+      '31-60':{label:'ค้าง 31–60 วัน', test:d=>d.bucket==='31-60'},
+      '1-30':{label:'ค้าง 1–30 วัน', test:d=>d.bucket==='1-30'},
+      current:{label:'ยังไม่ถึงกำหนด', test:d=>d.bucket==='current'},
+      due:{label:'ถึงกำหนดเดือนนี้', test:d=>d.dueThisMonth},
+      recv:{label:'มีการรับชำระแล้ว', test:d=>d.paid>0},
+      principal:{label:'เรียงตามเงินต้นคงค้าง', test:null, sort:(a,b)=>b.principal-a.principal},
+      interest:{label:'เรียงตามดอกเบี้ยคงค้าง', test:null, sort:(a,b)=>b.interest-a.interest, hl:'interest'}
+    };
+  }
+
+  setFilter(id){ this.setState(s=>({filterId: s.filterId===id?null:id, view:'dashboard'})); }
+  clearFilter(){ this.setState({filterId:null}); }
+  setPeriod(p){ this.setState({period:p}); }
+  setLayout(l){ this.setState({layout:l}); }
+  openDetail(code){ this.setState({view:'detail', detailCode:code}); window.scrollTo(0,0); }
+  closeDetail(){ this.setState({view:'dashboard'}); window.scrollTo(0,0); }
+  refresh(){ this.setState({filterId:null}); }
+
+  // ---------- detail data ----------
+  getDetail(code){
+    const d=this.debtors.find(x=>x.code===code); if(!d) return null;
+    const limit = Math.round(d.principal*1.35/100000)*100000;
+    const fmt=this.fmt.bind(this);
+    // installment schedule
+    const sched=[];
+    const months=['ธ.ค. 68','ม.ค. 69','ก.พ. 69','มี.ค. 69','เม.ย. 69','พ.ค. 69','มิ.ย. 69','ก.ค. 69','ส.ค. 69','ก.ย. 69'];
+    const perP=d.principal/8, perI=d.interest/8;
+    for(let i=0;i<10;i++){
+      let st = i<2?'ชำระแล้ว':(i<2+ (d.bucket==='90+'?4:d.bucket==='61-90'?3:d.bucket==='31-60'?2:1)?'ค้างชำระ':'รอชำระ');
+      if(i<2) st='ชำระแล้ว';
+      else if(d.days>0 && i< (d.bucket==='90+'?7:d.bucket==='61-90'?6:d.bucket==='31-60'?5:4)) st='ค้างชำระ';
+      else st='รอชำระ';
+      sched.push({n:i+1, due:months[i], p:fmt(perP), i:fmt(perI), t:fmt(perP+perI), st});
+    }
+    const pays = d.paid>0 ? [
+      {date:d.lastPay, ref:'RC-69'+(d.code.replace(/\D/g,''))+'02', p:fmt(d.paid*0.92), i:fmt(d.paid*0.08), t:fmt(d.paid)},
+      {date:'18 ม.ค. 2569', ref:'RC-69'+(d.code.replace(/\D/g,''))+'01', p:fmt(perP*1.0), i:fmt(perI*1.0), t:fmt(perP+perI)}
+    ] : [
+      {date:'18 ม.ค. 2569', ref:'RC-69'+(d.code.replace(/\D/g,''))+'01', p:fmt(perP), i:fmt(perI), t:fmt(perP+perI)},
+      {date:'15 ธ.ค. 2568', ref:'RC-68'+(d.code.replace(/\D/g,''))+'12', p:fmt(perP), i:fmt(perI), t:fmt(perP+perI)}
+    ];
+    const follow = [
+      {date:'12 มิ.ย. 2569', by:d.owner, ch:'โทรศัพท์', note:'แจ้งยอดค้างและขอนัดชำระภายในสัปดาห์นี้ ลูกค้ารับทราบ'},
+      {date:'02 มิ.ย. 2569', by:d.owner, ch:'อีเมล', note:'ส่งหนังสือแจ้งเตือนยอดค้างชำระอย่างเป็นทางการ'},
+      {date:'20 พ.ค. 2569', by:'ระบบอัตโนมัติ', ch:'SMS', note:'แจ้งเตือนก่อนครบกำหนดชำระ 7 วัน'}
+    ];
+    const docs=[
+      {name:'สัญญาสินเชื่อ '+d.code+'.pdf', size:'2.4 MB'},
+      {name:'หนังสือค้ำประกัน.pdf', size:'1.1 MB'},
+      {name:'งบการเงินล่าสุด.xlsx', size:'860 KB'}
+    ];
+    const legal = d.bucket==='90+' ? 'อยู่ระหว่างเตรียมเอกสารดำเนินคดี (ทนายความรับเรื่อง)' : (d.days>30?'ออกหนังสือทวงถามครั้งที่ 2 แล้ว':'ปกติ ไม่มีคดีความ');
+    const penalty = d.bucket==='90+' ? d.interest*0.18 : (d.days>30? d.interest*0.06 : 0);
+    return {
+      code:d.code, name:d.name, type:d.type, owner:d.owner, branch:d.branch, status:d.status,
+      statusCol:this.statusColor(d.status),
+      limit:fmt(limit), principal:fmt(d.principal), interest:fmt(d.interest), total:fmt(d.total),
+      penalty:fmt(penalty), days:d.days, due:d.due, items:d.items,
+      paidPct: Math.round((1-d.principal/limit)*100),
+      sched, pays, follow, docs, legal
+    };
+  }
+
+  // ---------- chart geometry ----------
+  buildMonthly(){
+    const M=[
+      {m:'ธ.ค. 68', bP:7800000,bI:610000, rP:6200000,rI:540000},
+      {m:'ม.ค. 69', bP:8400000,bI:650000, rP:7100000,rI:600000},
+      {m:'ก.พ. 69', bP:9100000,bI:700000, rP:5900000,rI:480000},
+      {m:'มี.ค. 69', bP:9800000,bI:760000, rP:8300000,rI:690000},
+      {m:'เม.ย. 69', bP:10600000,bI:820000, rP:7600000,rI:610000},
+      {m:'พ.ค. 69', bP:11300000,bI:880000, rP:1080000,rI:70000}
+    ];
+    const max=Math.max(...M.map(x=>Math.max(x.bP+x.bI, x.rP+x.rI)));
+    const f=this.fmt.bind(this);
+    return M.map((x,i)=>({
+      m:x.m, i,
+      onEnter:()=>this.setState({hoverBar:i}),
+      bPh:(x.bP/max*100), bIh:(x.bI/max*100),
+      rPh:(x.rP/max*100), rIh:(x.rI/max*100),
+      isHover: this.state.hoverBar===i,
+      bTot:f(x.bP+x.bI), rTot:f(x.rP+x.rI),
+      bPf:f(x.bP), bIf:f(x.bI), rPf:f(x.rP), rIf:f(x.rI),
+      rate: Math.round((x.rP+x.rI)/(x.bP+x.bI)*100)
+    }));
+  }
+
+  buildTrend(){
+    const T=[
+      {m:'ธ.ค.', acc:610000, col:540000, out:2650000},
+      {m:'ม.ค.', acc:650000, col:600000, out:2700000},
+      {m:'ก.พ.', acc:700000, col:480000, out:2920000},
+      {m:'มี.ค.', acc:760000, col:690000, out:2990000},
+      {m:'เม.ย.', acc:820000, col:610000, out:3200000},
+      {m:'พ.ค.', acc:880000, col:70000, out:3282054.77}
+    ];
+    const target=750000;
+    const W=620,Hh=210, padL=46, padR=20, padT=18, padB=34;
+    const ax = i => padL + i*((W-padL-padR)/(T.length-1));
+    const maxY=3400000;
+    const ay = v => (Hh-padB) - (v/maxY)*((Hh-padB)-padT);
+    const line = key => T.map((t,i)=>`${i===0?'M':'L'}${ax(i).toFixed(1)},${ay(t[key]).toFixed(1)}`).join(' ');
+    const f=this.fmt.bind(this), fm=this.fmtM.bind(this);
+    return {
+      W,Hh,
+      accPath:line('acc'), colPath:line('col'), outPath:line('out'),
+      targetY:ay(target), padL, padR:W-padR,
+      gridYs:[0,850000,1700000,2550000,3400000].map(v=>({y:ay(v), lab:fm(v)})),
+      pts:T.map((t,i)=>({
+        m:t.m, x:ax(i), rectX:ax(i)-20,
+        accY:ay(t.acc), colY:ay(t.col), outY:ay(t.out),
+        isHover:this.state.hoverPt===i, i,
+        onEnter:()=>this.setState({hoverPt:i}),
+        acc:f(t.acc), col:f(t.col), out:f(t.out),
+        tipLeft: (ax(i)/W*100)
+      }))
+    };
+  }
+
+  buildAging(){
+    const A=[
+      {key:'current', label:'ยังไม่ถึงกำหนด', total:1487164.38, p:1450000, i:37164.38, n:1, hot:false},
+      {key:'1-30', label:'ค้าง 1–30 วัน', total:5471379.50, p:5227145, i:244234.50, n:2, hot:false},
+      {key:'31-60', label:'ค้าง 31–60 วัน', total:11114205.68, p:10550000, i:564205.68, n:1, hot:false},
+      {key:'61-90', label:'ค้าง 61–90 วัน', total:4308082.33, p:4000000, i:308082.33, n:1, hot:false},
+      {key:'90+', label:'ค้างเกิน 90 วัน', total:50328367.88, p:48200000, i:2128367.88, n:2, hot:true}
+    ];
+    const grand=72709199.77;
+    const max=Math.max(...A.map(x=>x.total));
+    const f=this.fmt.bind(this);
+    return A.map(x=>({
+      key:x.key, label:x.label, n:x.n, hot:x.hot,
+      labCol: x.hot? '#b23b2e':'#14344a',
+      onClick:()=>this.setFilter(x.key),
+      barW:(x.total/max*100),
+      pSeg:(x.p/x.total*100), iSeg:(x.i/x.total*100),
+      total:f(x.total), p:f(x.p), i:f(x.i),
+      pct:(x.total/grand*100).toFixed(1),
+      active:this.state.filterId===x.key
+    }));
+  }
+
+  spark(vals){
+    const max=Math.max(...vals), min=Math.min(...vals);
+    const W=90,H=30;
+    return vals.map((v,i)=>`${i===0?'M':'L'}${(i*(W/(vals.length-1))).toFixed(1)},${(H - (max===min?0.5:(v-min)/(max-min))*(H-4)-2).toFixed(1)}`).join(' ');
+  }
+
+  // ---------- options ----------
+  get branchOpts(){return ['ทุกสาขา','สำนักงานใหญ่','สาขารังสิต','สาขาชลบุรี'];}
+  get typeOpts(){return ['ทุกประเภท','สินเชื่อธุรกิจ','สินเชื่อโครงการ','สินเชื่อหมุนเวียน'];}
+  get ownerOpts(){return ['ทุกคน','สมชาย พิทักษ์','อรพรรณ ศรีสุข','ธนวัฒน์ ใจดี'];}
+  get statusOpts(){return ['ทุกสถานะ','ใกล้ครบกำหนด','ค้างชำระ','ค้างเกิน 30 วัน','ค้างเกิน 90 วัน','อยู่ระหว่างติดตาม'];}
+
+  renderVals(){
+    const s=this.state, pd=this.periodData, f=this.fmt.bind(this), fm=this.fmtM.bind(this);
+    const fdef = s.filterId ? this.filterDefs[s.filterId] : null;
+
+    // filtered + dropdown filtered debtors
+    let rows=this.debtors.slice();
+    if(fdef && fdef.test) rows=rows.filter(fdef.test);
+    if(s.fBranch!=='ทุกสาขา') rows=rows.filter(d=>d.branch===s.fBranch);
+    if(s.fType!=='ทุกประเภท') rows=rows.filter(d=>d.type===s.fType);
+    if(s.fOwner!=='ทุกคน') rows=rows.filter(d=>d.owner===s.fOwner);
+    if(s.fStatus!=='ทุกสถานะ') rows=rows.filter(d=>d.status===s.fStatus);
+    if(fdef && fdef.sort) rows.sort(fdef.sort); else rows.sort((a,b)=>b.days-a.days || b.total-a.total);
+    const hl = fdef && fdef.hl;
+
+    const debtorRows = rows.map(d=>{
+      const sc=this.statusColor(d.status);
+      const dBg = d.days>90? '#f6e0dc' : d.days>0? '#fbf1da' : '#e6f4f1';
+      const dFg = d.days>90? '#b23b2e' : d.days>0? '#c47b1b' : '#0f8a7e';
+      return {
+        code:d.code, name:d.name, type:d.type, due:d.due,
+        days: d.days<0? 'ยังไม่ถึงกำหนด' : d.days+' วัน',
+        daysBg:dBg, daysFg:dFg,
+        principal:f(d.principal), interest:f(d.interest), total:f(d.total),
+        pCol: hl==='principal'? '#0f8a7e':'#3a5566',
+        iCol: hl==='interest'? '#b9821a':'#3a5566',
+        lastPay: d.paid>0 ? f(d.paid)+'  ·  '+d.lastPay : '—',
+        status:d.status, stFg:sc[0], stBg:sc[1], owner:d.owner,
+        onOpen:()=>this.openDetail(d.code)
+      };
+    });
+
+    const detail = s.view==='detail' ? this.getDetail(s.detailCode) : null;
+
+    // donut
+    const pPct=69427145.00/72709199.77*100, iPct=3282054.77/72709199.77*100;
+    const pDeg=pPct/100*360;
+    const donutGrad=`conic-gradient(#0f8a7e 0deg ${pDeg.toFixed(2)}deg, #e0a83e ${pDeg.toFixed(2)}deg 360deg)`;
+
+    return {
+      layout:s.layout, period:s.period, view:s.view,
+      setPeriodMonth:()=>this.setPeriod('month'), setPeriodQuarter:()=>this.setPeriod('quarter'), setPeriodYear:()=>this.setPeriod('year'),
+      setLayoutA:()=>this.setLayout('A'), setLayoutB:()=>this.setLayout('B'),
+      pmBg:s.period==='month'?'#11324a':'transparent', pmFg:s.period==='month'?'#fff':'#718898',
+      pqBg:s.period==='quarter'?'#11324a':'transparent', pqFg:s.period==='quarter'?'#fff':'#718898',
+      pyBg:s.period==='year'?'#11324a':'transparent', pyFg:s.period==='year'?'#fff':'#718898',
+      layABg:s.layout==='A'?'#11324a':'transparent', layAFg:s.layout==='A'?'#fff':'#5b7384',
+      layBBg:s.layout==='B'?'#11324a':'transparent', layBFg:s.layout==='B'?'#fff':'#5b7384',
+      layA:s.layout==='A', layB:s.layout==='B',
+      isDash:s.view==='dashboard', isDetail:s.view==='detail',
+      periodLabel:pd.label,
+
+      // kpis
+      k1:f(pd.total), k1d:pd.d.total, k2:f(pd.principal), k2d:pd.d.principal,
+      k3:f(pd.interest), k3d:pd.d.interest, k4:f(pd.due), k4d:pd.d.due,
+      k5:f(pd.recv), k5P:f(pd.recvP), k5I:f(pd.recvI), k5d:pd.d.recv,
+      k6:f(pd.overdue), k6N:pd.overdueN, k6d:pd.d.overdue,
+      sp1:this.spark([70.1,70.6,71.0,71.4,72.0,72.7]),
+      sp2:this.spark([67.9,68.2,68.5,68.8,69.1,69.4]),
+      sp3:this.spark([3.0,3.05,3.1,3.15,3.2,3.28]),
+      sp4:this.spark([7.9,8.0,8.1,8.2,8.3,8.42]),
+      sp5:this.spark([6.1,7.1,5.9,8.3,7.6,1.15]),
+      sp6:this.spark([62,64,66,67,69,71.2]),
+
+      // drill
+      drillTotal:()=>this.clearFilter(),
+      drillPrincipal:()=>this.setFilter('principal'),
+      drillInterest:()=>this.setFilter('interest'),
+      drillDue:()=>this.setFilter('due'),
+      drillRecv:()=>this.setFilter('recv'),
+      drillOverdue:()=>this.setFilter('overdue'),
+      isFiltering: !!s.filterId,
+      filterLabel: fdef? fdef.label : '',
+      clearFilter:()=>this.clearFilter(),
+      rowCount: debtorRows.length,
+
+      // charts
+      monthly:this.buildMonthly(),
+      onBarEnter:i=>()=>this.setState({hoverBar:i}),
+      onBarLeave:()=>this.setState({hoverBar:null}),
+      donutGrad, donutTotal:f(72709199.77), donutPP:pPct.toFixed(1), donutIP:iPct.toFixed(1),
+      donutPVal:f(69427145.00), donutIVal:f(3282054.77),
+      aging:this.buildAging(),
+      trend:this.buildTrend(),
+      onPtEnter:i=>()=>this.setState({hoverPt:i}),
+      onPtLeave:()=>this.setState({hoverPt:null}),
+
+      debtorRows,
+
+      // detail
+      detail,
+      openDetail:c=>()=>this.openDetail(c),
+      closeDetail:()=>this.closeDetail(),
+      refresh:()=>this.refresh(),
+
+      // filter dropdowns
+      fBranch:s.fBranch, fType:s.fType, fOwner:s.fOwner, fStatus:s.fStatus,
+      branchOpts:this.branchOpts, typeOpts:this.typeOpts, ownerOpts:this.ownerOpts, statusOpts:this.statusOpts,
+      showBranch:s.showBranch, showType:s.showType, showOwner:s.showOwner, showStatus:s.showStatus,
+      tglBranch:()=>this.setState(st=>({showBranch:!st.showBranch,showType:false,showOwner:false,showStatus:false})),
+      tglType:()=>this.setState(st=>({showType:!st.showType,showBranch:false,showOwner:false,showStatus:false})),
+      tglOwner:()=>this.setState(st=>({showOwner:!st.showOwner,showBranch:false,showType:false,showStatus:false})),
+      tglStatus:()=>this.setState(st=>({showStatus:!st.showStatus,showBranch:false,showType:false,showOwner:false})),
+      pickBranch:v=>()=>this.setState({fBranch:v,showBranch:false}),
+      pickType:v=>()=>this.setState({fType:v,showType:false}),
+      pickOwner:v=>()=>this.setState({fOwner:v,showOwner:false}),
+      pickStatus:v=>()=>this.setState({fStatus:v,showStatus:false})
+    };
+  }
+}
+</script>
+</body>
+</html>

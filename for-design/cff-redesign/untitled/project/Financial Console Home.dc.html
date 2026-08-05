@@ -1,0 +1,674 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  *{box-sizing:border-box;}
+  body{margin:0;background:#EAF1F5;font-family:'IBM Plex Sans Thai','IBM Plex Sans',system-ui,sans-serif;color:#1F2A44;-webkit-font-smoothing:antialiased;}
+  .tnum{font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1;}
+  ::-webkit-scrollbar{width:9px;height:9px;}
+  ::-webkit-scrollbar-thumb{background:#CAD6E2;border-radius:6px;}
+  @keyframes fadeUp{from{opacity:0;transform:translateY(10px);}to{opacity:1;transform:translateY(0);}}
+  @keyframes shimmer{0%{transform:translateX(-130%);}55%{transform:translateX(230%);}100%{transform:translateX(230%);}}
+</style>
+</helmet>
+
+<div style="display:flex;min-height:100vh;align-items:stretch;">
+
+  <!-- ============ SIDEBAR ============ -->
+  <aside ref="{{ sidebarRef }}" data-collapsed="false" style="width:252px;flex:none;background:#fff;border-right:1px solid #E6EDF4;display:flex;flex-direction:column;transition:width .25s cubic-bezier(.4,0,.2,1);overflow:hidden;position:sticky;top:0;height:100vh;">
+    <!-- logo -->
+    <div style="padding:20px 18px 14px;display:flex;align-items:center;gap:11px;white-space:nowrap;">
+      <div style="width:38px;height:38px;border-radius:11px;background:linear-gradient(140deg,#16C0A8,#0E9A88);display:flex;align-items:center;justify-content:center;flex:none;box-shadow:0 5px 13px rgba(16,180,160,.32);">
+        <svg width="21" height="21" viewBox="0 0 24 24" fill="none"><path d="M5 4v11.5a3.5 3.5 0 1 0 3.5-3.5H5" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/><path d="M19 20V8.5A3.5 3.5 0 1 0 15.5 12H19" stroke="#BDF3E9" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </div>
+      <div>
+        <div style="font-size:15.5px;font-weight:700;letter-spacing:-.2px;">Financial Console</div>
+        <div style="font-size:11.5px;color:#9AA8BF;">Finance Tools v2</div>
+      </div>
+    </div>
+
+    <!-- company switcher -->
+    <div style="margin:4px 16px 10px;display:flex;gap:5px;background:#F1F5F9;border-radius:11px;padding:4px;white-space:nowrap;">
+      <div style="{{ mbarkStyle }}" onClick="{{ switchMBark }}">M Bark</div>
+      <div style="{{ benyaStyle }}" onClick="{{ switchBenya }}">Benya</div>
+    </div>
+
+    <!-- menu -->
+    <nav style="flex:1;overflow-y:auto;padding:6px 12px 16px;">
+
+      <div style="font-size:11.5px;font-weight:600;color:#A6B2C4;letter-spacing:.4px;padding:12px 8px 6px;white-space:nowrap;">ภาพรวม</div>
+      <div style="display:flex;align-items:center;gap:11px;padding:10px 13px;border-radius:11px;background:#E6F7F1;color:#0E9A88;font-weight:600;cursor:pointer;white-space:nowrap;position:relative;overflow:hidden;">
+        <span style="position:absolute;left:0;top:7px;bottom:7px;width:3.5px;border-radius:3px;background:#12B5A0;"></span>
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" style="flex:none;"><path d="M4 11.5 12 4l8 7.5M6 10v9.5h12V10" stroke="#0E9A88" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span style="font-size:14.5px;flex:1;">หน้าหลัก</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:11px;padding:10px 13px;border-radius:11px;color:#5B6B86;cursor:pointer;white-space:nowrap;overflow:hidden;" style-hover="background:#F2F6FA;">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" style="flex:none;"><path d="M4 17l5-5 3.5 3.5L20 8M20 8h-4M20 8v4" stroke="#5B6B86" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span style="font-size:14.5px;flex:1;">Executive Cash Flow</span>
+      </div>
+
+      <div style="font-size:11.5px;font-weight:600;color:#A6B2C4;letter-spacing:.4px;padding:14px 8px 6px;white-space:nowrap;">การขาย</div>
+      <div style="display:flex;align-items:center;gap:11px;padding:10px 13px;border-radius:11px;color:#5B6B86;cursor:pointer;white-space:nowrap;overflow:hidden;" style-hover="background:#F2F6FA;">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" style="flex:none;"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2" stroke="#5B6B86" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span style="font-size:14.5px;flex:1;">Sales Dashboard</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:11px;padding:10px 13px;border-radius:11px;color:#5B6B86;cursor:pointer;white-space:nowrap;overflow:hidden;" style-hover="background:#F2F6FA;">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" style="flex:none;"><path d="M7 3h7l4 4v14H7z" stroke="#5B6B86" stroke-width="1.8" stroke-linejoin="round"/><path d="M14 3v4h4M9.5 13h6M9.5 16.5h6" stroke="#5B6B86" stroke-width="1.6" stroke-linecap="round"/></svg>
+        <span style="font-size:14.5px;flex:1;">BigSeller → IV</span>
+      </div>
+
+      <div style="font-size:11.5px;font-weight:600;color:#A6B2C4;letter-spacing:.4px;padding:14px 8px 6px;white-space:nowrap;">ลูกหนี้ (AR)</div>
+      <div style="display:flex;align-items:center;gap:11px;padding:10px 13px;border-radius:11px;color:#5B6B86;cursor:pointer;white-space:nowrap;overflow:hidden;" style-hover="background:#F2F6FA;">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" style="flex:none;"><path d="M3 7h15a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z" stroke="#5B6B86" stroke-width="1.8"/><path d="M16 12.5h2.5M3 7l9-3 6 3" stroke="#5B6B86" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span style="font-size:14.5px;flex:1;">AR Outstanding</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:11px;padding:10px 13px;border-radius:11px;color:#5B6B86;cursor:pointer;white-space:nowrap;overflow:hidden;" style-hover="background:#F2F6FA;">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" style="flex:none;"><circle cx="6" cy="6" r="2.4" stroke="#5B6B86" stroke-width="1.8"/><circle cx="18" cy="18" r="2.4" stroke="#5B6B86" stroke-width="1.8"/><path d="M6 8.5V14a3.5 3.5 0 0 0 3.5 3.5H15" stroke="#5B6B86" stroke-width="1.8" stroke-linecap="round"/></svg>
+        <span style="font-size:14.5px;flex:1;">Map ลูกหนี้ → เงินเข้า</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:11px;padding:10px 13px;border-radius:11px;color:#5B6B86;cursor:pointer;white-space:nowrap;overflow:hidden;" style-hover="background:#F2F6FA;">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" style="flex:none;"><path d="M4 7l2 2 3-3M4 17l2 2 3-3M13 8h7M13 16h7" stroke="#5B6B86" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span style="font-size:14.5px;flex:1;">จับยอด Settlement</span>
+      </div>
+
+      <div style="font-size:11.5px;font-weight:600;color:#A6B2C4;letter-spacing:.4px;padding:14px 8px 6px;white-space:nowrap;">ธนาคาร</div>
+      <div style="display:flex;align-items:center;gap:11px;padding:10px 13px;border-radius:11px;color:#5B6B86;cursor:pointer;white-space:nowrap;overflow:hidden;" style-hover="background:#F2F6FA;">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" style="flex:none;"><path d="M20 11a8 8 0 1 0-2.3 5.6M20 11V5M20 11h-6" stroke="#5B6B86" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span style="font-size:14.5px;flex:1;">Bank Reconciliation</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:11px;padding:10px 13px;border-radius:11px;color:#5B6B86;cursor:pointer;white-space:nowrap;overflow:hidden;" style-hover="background:#F2F6FA;">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" style="flex:none;"><path d="M19 7 7 19M7 19h8M7 19v-8" stroke="#5B6B86" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span style="font-size:14.5px;flex:1;">กระทบยอดถอนเงิน</span>
+      </div>
+
+      <div style="font-size:11.5px;font-weight:600;color:#A6B2C4;letter-spacing:.4px;padding:14px 8px 6px;white-space:nowrap;">เจ้าหนี้ (AP)</div>
+      <div style="display:flex;align-items:center;gap:11px;padding:10px 13px;border-radius:11px;color:#5B6B86;cursor:pointer;white-space:nowrap;overflow:hidden;" style-hover="background:#F2F6FA;">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" style="flex:none;"><path d="M7 3h7l4 4v14H7z" stroke="#5B6B86" stroke-width="1.8" stroke-linejoin="round"/><path d="M14 3v4h4M11 11v4M11 17.5h.01" stroke="#5B6B86" stroke-width="1.7" stroke-linecap="round"/></svg>
+        <span style="font-size:14.5px;flex:1;">AP Outstanding</span>
+        <span style="font-size:11px;font-weight:600;color:#E23D4B;background:#FDECEE;padding:2px 8px;border-radius:999px;">เร่งด่วน 3</span>
+      </div>
+
+      <div style="font-size:11.5px;font-weight:600;color:#A6B2C4;letter-spacing:.4px;padding:14px 8px 6px;white-space:nowrap;">กระแสเงินสด</div>
+      <div style="display:flex;align-items:center;gap:11px;padding:10px 13px;border-radius:11px;color:#5B6B86;cursor:pointer;white-space:nowrap;overflow:hidden;" style-hover="background:#F2F6FA;">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" style="flex:none;"><path d="M3 8c2-2 4-2 6 0s4 2 6 0 4-2 6 0M3 16c2-2 4-2 6 0s4 2 6 0 4-2 6 0" stroke="#5B6B86" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span style="font-size:14.5px;flex:1;">Cash Flow Forecast</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:11px;padding:10px 13px;border-radius:11px;color:#5B6B86;cursor:pointer;white-space:nowrap;overflow:hidden;" style-hover="background:#F2F6FA;">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" style="flex:none;"><path d="M3 21h18M5 21V10M9 21V10M15 21V10M19 21V10M12 3 3.5 8h17L12 3Z" stroke="#5B6B86" stroke-width="1.6" stroke-linejoin="round"/></svg>
+        <span style="font-size:14.5px;flex:1;">ยอดเงินคงเหลือธนาคาร</span>
+      </div>
+
+      <div style="font-size:11.5px;font-weight:600;color:#A6B2C4;letter-spacing:.4px;padding:14px 8px 6px;white-space:nowrap;">งาน &amp; เอกสาร</div>
+      <div style="display:flex;align-items:center;gap:11px;padding:10px 13px;border-radius:11px;color:#5B6B86;cursor:pointer;white-space:nowrap;overflow:hidden;" style-hover="background:#F2F6FA;">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" style="flex:none;"><path d="M4 6l2 2 3-3M4 13l2 2 3-3M4 19l2 2 3-3M13 6h7M13 13h7M13 19h7" stroke="#5B6B86" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span style="font-size:14.5px;flex:1;">Task Management</span>
+        <span style="font-size:11px;font-weight:600;color:#C77E14;background:#FBEFD7;padding:2px 8px;border-radius:999px;">5</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:11px;padding:10px 13px;border-radius:11px;color:#5B6B86;cursor:pointer;white-space:nowrap;overflow:hidden;" style-hover="background:#F2F6FA;">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" style="flex:none;"><path d="M3 7a2 2 0 0 1 2-2h4l2 2.5h8a2 2 0 0 1 2 2V18a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z" stroke="#5B6B86" stroke-width="1.8" stroke-linejoin="round"/></svg>
+        <span style="font-size:14.5px;flex:1;">Document Center</span>
+        <span style="font-size:11px;font-weight:600;color:#C77E14;background:#FBEFD7;padding:2px 8px;border-radius:999px;">6</span>
+      </div>
+
+      <div style="font-size:11.5px;font-weight:600;color:#A6B2C4;letter-spacing:.4px;padding:14px 8px 6px;white-space:nowrap;">ตั้งค่า</div>
+      <div style="display:flex;align-items:center;gap:11px;padding:10px 13px;border-radius:11px;color:#5B6B86;cursor:pointer;white-space:nowrap;overflow:hidden;" style-hover="background:#F2F6FA;">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" style="flex:none;"><circle cx="9" cy="8" r="3" stroke="#5B6B86" stroke-width="1.8"/><path d="M3.5 19a5.5 5.5 0 0 1 11 0M16 6.5a2.5 2.5 0 0 1 0 5M16 19a5 5 0 0 0-2-4" stroke="#5B6B86" stroke-width="1.7" stroke-linecap="round"/></svg>
+        <span style="font-size:14.5px;flex:1;">จัดการผู้ใช้</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:11px;padding:10px 13px;border-radius:11px;color:#5B6B86;cursor:pointer;white-space:nowrap;overflow:hidden;" style-hover="background:#F2F6FA;">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" style="flex:none;"><path d="M5 4h11l3 3v13H5z" stroke="#5B6B86" stroke-width="1.8" stroke-linejoin="round"/><path d="M9 9h6M9 12.5h6M9 16h4" stroke="#5B6B86" stroke-width="1.6" stroke-linecap="round"/></svg>
+        <span style="font-size:14.5px;flex:1;">Audit Trail</span>
+      </div>
+    </nav>
+  </aside>
+
+  <!-- ============ MAIN ============ -->
+  <main style="flex:1;min-width:0;display:flex;flex-direction:column;background:linear-gradient(125deg,#EAF1F5 0%,#E6F2EE 100%);">
+
+    <!-- TOP BAR -->
+    <div style="display:flex;align-items:center;gap:18px;padding:14px 30px;background:rgba(255,255,255,.72);backdrop-filter:blur(8px);border-bottom:1px solid #E6EDF4;position:sticky;top:0;z-index:5;">
+      <div onClick="{{ toggleSidebar }}" style="width:38px;height:38px;border-radius:10px;display:flex;align-items:center;justify-content:center;cursor:pointer;flex:none;" style-hover="background:#EEF3F8;">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M4 6h16M4 12h16M4 18h16" stroke="#5B6B86" stroke-width="2" stroke-linecap="round"/></svg>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;font-size:14px;color:#9AA8BF;">
+        <span style="font-weight:600;color:#1F2A44;">{{ company }}</span><span>/</span><span>ภาพรวม</span><span>/</span><span style="color:#5B6B86;">หน้าหลัก</span>
+      </div>
+      <div style="flex:1;"></div>
+      <div style="display:flex;align-items:center;gap:9px;background:#F1F5F9;border:1px solid #E6EDF4;border-radius:10px;padding:8px 13px;width:240px;color:#9AA8BF;">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="#9AA8BF" stroke-width="1.9"/><path d="m20 20-3.2-3.2" stroke="#9AA8BF" stroke-width="1.9" stroke-linecap="round"/></svg>
+        <span style="font-size:13.5px;">ค้นหาโมดูล รายการ...</span>
+      </div>
+      <div style="position:relative;width:40px;height:40px;border-radius:11px;background:#F1F5F9;display:flex;align-items:center;justify-content:center;cursor:pointer;flex:none;" style-hover="background:#E9EFF5;">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M6 9a6 6 0 0 1 12 0c0 5 2 6 2 6H4s2-1 2-6Z" stroke="#5B6B86" stroke-width="1.8" stroke-linejoin="round"/><path d="M10 19a2 2 0 0 0 4 0" stroke="#5B6B86" stroke-width="1.8" stroke-linecap="round"/></svg>
+        <span style="position:absolute;top:6px;right:7px;min-width:16px;height:16px;border-radius:999px;background:#E23D4B;color:#fff;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;padding:0 4px;border:2px solid #fff;">3</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:9px;padding:5px 6px 5px 5px;border-radius:11px;cursor:pointer;" style-hover="background:#F1F5F9;">
+        <div style="width:34px;height:34px;border-radius:50%;background:linear-gradient(140deg,#16C0A8,#0E9A88);color:#fff;font-size:14px;font-weight:700;display:flex;align-items:center;justify-content:center;">N</div>
+        <div style="line-height:1.25;">
+          <div style="font-size:13.5px;font-weight:600;">nantawan</div>
+          <div style="font-size:11.5px;color:#9AA8BF;">admin</div>
+        </div>
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M6 9l6 6 6-6" stroke="#9AA8BF" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </div>
+    </div>
+
+    <!-- SCROLL AREA -->
+    <div style="padding:24px 30px 56px;max-width:1320px;width:100%;margin:0 auto;">
+
+      <!-- PAGE HEADER -->
+      <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:20px;flex-wrap:wrap;">
+        <div>
+          <div style="display:flex;align-items:center;gap:11px;">
+            <h1 style="margin:0;font-size:27px;font-weight:700;letter-spacing:-.5px;">ภาพรวมการทำงานเดือนมิถุนายน 2026</h1>
+            <span style="background:#E8FBF5;color:#0E9A88;font-size:12.5px;font-weight:600;padding:4px 12px;border-radius:999px;border:1px solid #BFEFE4;white-space:nowrap;">{{ company }}</span>
+          </div>
+          <div style="margin-top:6px;font-size:15px;color:#5B6B86;">ติดตามสถานะงานสำคัญและรายการที่ต้องดำเนินการ · ข้อมูล ณ 21 มิ.ย. 2026</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;">
+          <button style="background:#fff;color:#5B6B86;border:1px solid #DCE7F3;border-radius:11px;padding:11px 17px;font-size:14px;font-weight:500;cursor:pointer;font-family:inherit;display:flex;align-items:center;gap:7px;" style-hover="background:#F7FAFC;">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M4 17v2h16v-2M12 3v12M12 15l-4-4M12 15l4-4" stroke="#5B6B86" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>ดูรายงานทั้งหมด
+          </button>
+          <button style="background:#0E9A88;color:#fff;border:none;border-radius:11px;padding:11px 18px;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;display:flex;align-items:center;gap:7px;box-shadow:0 6px 14px rgba(14,154,136,.28);" style-hover="background:#0C8979;">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M20 11a8 8 0 1 0-2 5.2M20 5v6h-6" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>อัปเดตข้อมูล
+          </button>
+        </div>
+      </div>
+
+      <!-- ============ KPI CARDS ============ -->
+      <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:16px;margin-top:22px;">
+
+        <!-- 1 IV -->
+        <div style="background:#fff;border:1px solid #E6EDF4;border-radius:18px;padding:18px;box-shadow:0 6px 18px rgba(31,42,68,.05);display:flex;flex-direction:column;animation:fadeUp .5s both;cursor:pointer;" onClick="{{ openIV }}" style-hover="box-shadow:0 12px 26px rgba(14,154,136,.16);transform:translateY(-3px);">
+          <div style="display:flex;align-items:center;justify-content:space-between;">
+            <div style="width:38px;height:38px;border-radius:11px;background:#E8FBF5;display:flex;align-items:center;justify-content:center;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M7 3h7l4 4v14H7z" stroke="#0E9A88" stroke-width="1.8" stroke-linejoin="round"/><path d="M14 3v4h4M9.5 13h5M9.5 16.5h5" stroke="#0E9A88" stroke-width="1.6" stroke-linecap="round"/></svg></div>
+            <span style="font-size:12px;font-weight:600;color:#0E9A88;background:#E6F7F1;padding:4px 10px;border-radius:999px;">ตามแผน</span>
+          </div>
+          <div style="font-size:13.5px;color:#5B6B86;margin-top:13px;">การคีย์ IV</div>
+          <div class="tnum" style="font-size:27px;font-weight:700;margin-top:2px;letter-spacing:-.5px;" data-comment-anchor="e70d5686c6-div">86<span style="font-size:16px;color:#9AA8BF;">%</span></div>
+          <div style="font-size:12.5px;color:#9AA8BF;margin-top:1px;">คีย์ถึง 18 มิ.ย. · 18/21 วันทำการ</div>
+          <div style="margin-top:11px;height:7px;background:#EEF2F7;border-radius:5px;overflow:hidden;"><div style="width:86%;height:100%;background:linear-gradient(90deg,#16C0A8,#0E9A88);border-radius:5px;"></div></div>
+          <div style="margin-top:13px;font-size:12.5px;font-weight:600;color:#0E9A88;display:flex;align-items:center;gap:5px;cursor:pointer;" style-hover="gap:8px;">ไปที่ BigSeller → IV <span>→</span></div>
+        </div>
+
+        <!-- 2 RE -->
+        <div style="background:#fff;border:1px solid #E6EDF4;border-radius:18px;padding:18px;box-shadow:0 6px 18px rgba(31,42,68,.05);display:flex;flex-direction:column;animation:fadeUp .5s .06s both;cursor:pointer;" onClick="{{ openRE }}" style-hover="box-shadow:0 12px 26px rgba(199,126,20,.16);transform:translateY(-3px);">
+          <div style="display:flex;align-items:center;justify-content:space-between;">
+            <div style="width:38px;height:38px;border-radius:11px;background:#FBF1DC;display:flex;align-items:center;justify-content:center;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M3 7h18v10H3z" stroke="#C77E14" stroke-width="1.8"/><circle cx="12" cy="12" r="2.6" stroke="#C77E14" stroke-width="1.7"/><path d="M6 12h.01M18 12h.01" stroke="#C77E14" stroke-width="2" stroke-linecap="round"/></svg></div>
+            <span style="font-size:12px;font-weight:600;color:#C77E14;background:#FBEFD7;padding:4px 10px;border-radius:999px;">ต้องติดตาม</span>
+          </div>
+          <div style="font-size:13.5px;color:#5B6B86;margin-top:13px;">การรับชำระเงิน (RE)</div>
+          <div class="tnum" style="font-size:27px;font-weight:700;margin-top:2px;letter-spacing:-.5px;">24<span style="font-size:15px;color:#9AA8BF;font-weight:500;"> รายการค้าง</span></div>
+          <div style="font-size:12.5px;color:#9AA8BF;margin-top:1px;">บันทึกถึง 17 มิ.ย. · ความคืบหน้า 78%</div>
+          <div style="margin-top:11px;height:7px;background:#EEF2F7;border-radius:5px;overflow:hidden;"><div style="width:78%;height:100%;background:linear-gradient(90deg,#F0A02E,#E08C16);border-radius:5px;"></div></div>
+          <div style="margin-top:13px;font-size:12.5px;font-weight:600;color:#C77E14;display:flex;align-items:center;gap:5px;cursor:pointer;" style-hover="gap:8px;">ดูรายการค้าง <span>→</span></div>
+        </div>
+
+        <!-- 3 Bank Recon -->
+        <div style="background:#fff;border:1px solid #E6EDF4;border-radius:18px;padding:18px;box-shadow:0 6px 18px rgba(31,42,68,.05);display:flex;flex-direction:column;animation:fadeUp .5s .12s both;">
+          <div style="display:flex;align-items:center;justify-content:space-between;">
+            <div style="width:38px;height:38px;border-radius:11px;background:#FBF1DC;display:flex;align-items:center;justify-content:center;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M20 11a8 8 0 1 0-2.3 5.6M20 11V5M20 11h-6" stroke="#C77E14" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+            <span style="font-size:12px;font-weight:600;color:#C77E14;background:#FBEFD7;padding:4px 10px;border-radius:999px;">ค้าง 36</span>
+          </div>
+          <div style="font-size:13.5px;color:#5B6B86;margin-top:13px;">Bank Reconciliation</div>
+          <div class="tnum" style="font-size:27px;font-weight:700;margin-top:2px;letter-spacing:-.5px;" data-comment-anchor="dd7ea33baa-div">1,248<span style="font-size:16px;color:#9AA8BF;">/1,284</span> <span style="font-size:14px;color:#9AA8BF;font-weight:500;">รายการ</span></div>
+          <div style="font-size:12.5px;color:#9AA8BF;margin-top:1px;">ตรงกันแล้ว 97% · <span style="color:#E23D4B;font-weight:600;">ไม่ตรง 36 รายการ</span></div>
+          <div style="margin-top:11px;height:7px;background:#EEF2F7;border-radius:5px;overflow:hidden;"><div style="width:97%;height:100%;background:linear-gradient(90deg,#16C0A8,#0E9A88);border-radius:5px;"></div></div>
+          <div style="margin-top:13px;font-size:12.5px;font-weight:600;color:#C77E14;display:flex;align-items:center;gap:5px;cursor:pointer;" style-hover="gap:8px;">ตรวจรายการไม่ตรง <span>→</span></div>
+        </div>
+
+        <!-- 4 AP -->
+        <div style="background:#fff;border:1px solid #E6EDF4;border-radius:18px;padding:18px;box-shadow:0 6px 18px rgba(31,42,68,.05);display:flex;flex-direction:column;animation:fadeUp .5s .18s both;">
+          <div style="display:flex;align-items:center;justify-content:space-between;">
+            <div style="width:38px;height:38px;border-radius:11px;background:#FDECEE;display:flex;align-items:center;justify-content:center;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M7 3h7l4 4v14H7z" stroke="#E23D4B" stroke-width="1.8" stroke-linejoin="round"/><path d="M14 3v4h4M11 11v4M11 17.5h.01" stroke="#E23D4B" stroke-width="1.7" stroke-linecap="round"/></svg></div>
+            <span style="font-size:12px;font-weight:600;color:#E23D4B;background:#FDECEE;padding:4px 10px;border-radius:999px;">เร่งด่วน</span>
+          </div>
+          <div style="font-size:13.5px;color:#5B6B86;margin-top:13px;">AP Outstanding</div>
+          <div class="tnum" style="font-size:27px;font-weight:700;margin-top:2px;letter-spacing:-.5px;">฿{{ fApTotal }}</div>
+          <div style="font-size:12.5px;color:#9AA8BF;margin-top:1px;">ค้างชำระ 42 รายการ · <span style="color:#E23D4B;font-weight:600;">ใกล้ครบกำหนด 8</span></div>
+          <div style="margin-top:11px;height:7px;background:#EEF2F7;border-radius:5px;overflow:hidden;"><div style="width:54%;height:100%;background:linear-gradient(90deg,#F36C79,#E23D4B);border-radius:5px;"></div></div>
+          <div style="margin-top:13px;font-size:12.5px;font-weight:600;color:#E23D4B;display:flex;align-items:center;gap:5px;cursor:pointer;" style-hover="gap:8px;">ตรวจสอบเจ้าหนี้ <span>→</span></div>
+        </div>
+
+        <!-- 5 Cash Position -->
+        <div style="border-radius:18px;padding:18px;color:#fff;display:flex;flex-direction:column;position:relative;overflow:hidden;background:linear-gradient(140deg,#13B6A1 0%,#0C7E70 100%);box-shadow:0 10px 24px rgba(13,150,132,.3);animation:fadeUp .5s .24s both;">
+          <div style="position:absolute;right:-30px;top:-34px;width:120px;height:120px;border-radius:50%;background:radial-gradient(circle,rgba(255,255,255,.22),rgba(255,255,255,0) 70%);"></div>
+          <div style="position:relative;display:flex;align-items:center;justify-content:space-between;" data-comment-anchor="2e53b4614c-div">
+            <div style="width:38px;height:38px;border-radius:11px;background:rgba(255,255,255,.2);display:flex;align-items:center;justify-content:center;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M3 7h18v12H3z" stroke="#fff" stroke-width="1.8"/><path d="M3 11h18M16 15h2" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/></svg></div>
+            <span style="font-size:12px;font-weight:700;color:#fff;background:rgba(255,255,255,.22);padding:4px 10px;border-radius:999px;">▲ +12%</span>
+          </div>
+          <div style="position:relative;font-size:13.5px;color:rgba(255,255,255,.85);margin-top:13px;">ยอดเงินในบัญชี ณ วันนี้ (รวม)</div>
+          <div class="tnum" style="position:relative;font-size:27px;font-weight:700;margin-top:2px;letter-spacing:-.5px;">฿{{ fCash }}</div>
+          <div style="position:relative;font-size:12.5px;color:rgba(255,255,255,.7);margin-top:1px;">เทียบต้นเดือน +305,000</div>
+          <svg viewBox="0 0 200 44" style="position:relative;width:100%;height:34px;margin-top:11px;" preserveAspectRatio="none">
+            <defs><linearGradient id="spark" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="rgba(255,255,255,.45)"/><stop offset="1" stop-color="rgba(255,255,255,0)"/></linearGradient></defs>
+            <path d="M0,34 L0,30 C18,32 28,22 44,26 C62,30 70,14 90,20 C110,26 120,10 140,16 C160,22 172,8 200,6 L200,34 Z" fill="url(#spark)"/>
+            <path d="M0,30 C18,32 28,22 44,26 C62,30 70,14 90,20 C110,26 120,10 140,16 C160,22 172,8 200,6" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round"/>
+          </svg>
+        </div>
+      </div>
+
+      <!-- ============ TASKS + MONTHLY PROGRESS ============ -->
+      <div style="display:grid;grid-template-columns:1.42fr 1fr;gap:18px;margin-top:18px;align-items:flex-start;">
+
+        <!-- Today's tasks -->
+        <div style="background:#fff;border:1px solid #E6EDF4;border-radius:20px;padding:22px 24px;box-shadow:0 6px 18px rgba(31,42,68,.05);">
+          <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;" data-comment-anchor="fb7e06657d-div">
+            <div>
+              <div style="font-size:18px;font-weight:700;">งานที่ต้องดำเนินการวันนี้</div>
+              <div style="font-size:13.5px;color:#9AA8BF;margin-top:2px;">21 มิ.ย. 2026 · ทั้งหมด 20 รายการ</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:7px;font-size:13px;color:#0E9A88;font-weight:600;background:#E6F7F1;padding:7px 13px;border-radius:9px;cursor:pointer;flex:none;" onClick="{{ toggleTasks }}">
+              <span>{{ tasksLabel }}</span>
+              <svg style="{{ tasksChevron }}" width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M6 9l6 6 6-6" stroke="#0E9A88" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </div>
+          </div>
+
+          <sc-if value="{{ tasksOpen }}" hint-placeholder-val="{{ true }}">
+          <!-- filter chips -->
+          <div style="display:flex;gap:9px;margin-top:16px;flex-wrap:wrap;">
+            <div style="{{ chipAll }}" onClick="{{ setAll }}">ทั้งหมด</div>
+            <div style="{{ chipUrgent }}" onClick="{{ setUrgent }}"><span style="width:7px;height:7px;border-radius:50%;background:#E23D4B;display:inline-block;"></span>เร่งด่วน 3</div>
+            <div style="{{ chipDue }}" onClick="{{ setDue }}"><span style="width:7px;height:7px;border-radius:50%;background:#E08C16;display:inline-block;"></span>ใกล้ครบกำหนด 5</div>
+            <div style="{{ chipReview }}" onClick="{{ setReview }}"><span style="width:7px;height:7px;border-radius:50%;background:#5468FF;display:inline-block;"></span>รอตรวจสอบ 12</div>
+          </div>
+
+          <!-- task list -->
+          <div style="display:flex;flex-direction:column;gap:10px;margin-top:16px;">
+            <sc-for list="{{ visibleTasks }}" as="t" hint-placeholder-count="5">
+              <div style="display:flex;align-items:center;gap:14px;padding:14px 16px;border:1px solid #ECF1F6;border-radius:14px;cursor:pointer;transition:all .15s;" style-hover="border-color:#CFE0EC;background:#FAFCFE;">
+                <span style="width:4px;align-self:stretch;border-radius:3px;background:{{ t.priColor }};flex:none;"></span>
+                <div style="flex:1;min-width:0;">
+                  <div style="font-size:15px;font-weight:500;color:#1F2A44;">{{ t.title }}</div>
+                  <div style="display:flex;align-items:center;gap:14px;margin-top:6px;font-size:12.5px;color:#9AA8BF;">
+                    <span style="display:inline-flex;align-items:center;gap:5px;color:{{ t.dueColor }};font-weight:500;"><svg width="13" height="13" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2"/><path d="M12 8v4l2.5 2.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>{{ t.due }}</span>
+                    <span style="display:inline-flex;align-items:center;gap:6px;"><span style="width:18px;height:18px;border-radius:50%;background:#E6F7F1;color:#0E9A88;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;">{{ t.ownerInitial }}</span>{{ t.owner }}</span>
+                  </div>
+                </div>
+                <span style="font-size:12px;font-weight:600;color:{{ t.priColor }};background:{{ t.priBg }};padding:4px 11px;border-radius:999px;white-space:nowrap;flex:none;">{{ t.priLabel }}</span>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" style="flex:none;"><path d="M9 6l6 6-6 6" stroke="#C3CEDC" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </div>
+            </sc-for>
+          </div>
+          </sc-if>
+        </div>
+
+        <!-- Monthly progress -->
+        <div style="background:#fff;border:1px solid #E6EDF4;border-radius:20px;padding:22px 24px;box-shadow:0 6px 18px rgba(31,42,68,.05);" data-comment-anchor="5f34615768-div">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;cursor:pointer;" onClick="{{ toggleProgress }}">
+            <div>
+              <div style="font-size:18px;font-weight:700;">Progress งานประจำเดือน</div>
+              <div style="font-size:13.5px;color:#9AA8BF;margin-top:2px;">มิถุนายน 2026</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:7px;font-size:13px;color:#0E9A88;font-weight:600;background:#E6F7F1;padding:7px 13px;border-radius:9px;flex:none;">
+              <span>{{ progressLabel }}</span>
+              <svg style="{{ progChevron }}" width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M6 9l6 6 6-6" stroke="#0E9A88" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </div>
+          </div>
+          <sc-if value="{{ progressOpen }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;flex-direction:column;gap:16px;margin-top:18px;">
+            <sc-for list="{{ progress }}" as="p" hint-placeholder-count="6">
+              <div>
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+                  <div style="display:flex;align-items:center;gap:9px;min-width:0;">
+                    <span style="width:9px;height:9px;border-radius:50%;background:{{ p.color }};flex:none;"></span>
+                    <span style="font-size:14.5px;font-weight:500;color:#1F2A44;">{{ p.name }}</span>
+                  </div>
+                  <span style="font-size:12px;font-weight:600;color:{{ p.color }};background:{{ p.bg }};padding:3px 10px;border-radius:999px;white-space:nowrap;">{{ p.status }}</span>
+                </div>
+                <div style="display:flex;align-items:center;gap:10px;margin-top:8px;">
+                  <div style="flex:1;height:7px;background:#EEF2F7;border-radius:5px;overflow:hidden;"><div style="width:{{ p.bar }};height:100%;background:{{ p.color }};border-radius:5px;"></div></div>
+                  <span class="tnum" style="font-size:12.5px;font-weight:600;color:#5B6B86;width:34px;text-align:right;">{{ p.pctLabel }}</span>
+                </div>
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-top:6px;font-size:12px;color:#9AA8BF;">
+                  <span>ล่าสุด {{ p.date }} · {{ p.owner }}</span>
+                  <span style="color:#0E9A88;font-weight:600;cursor:pointer;">View detail →</span>
+                </div>
+              </div>
+            </sc-for>
+          </div>
+          </sc-if>
+        </div>
+      </div>
+
+      <!-- ============ CASH FLOW ============ -->
+      <div style="display:grid;grid-template-columns:1.42fr 1fr;gap:18px;margin-top:18px;">
+        <div style="background:#fff;border:1px solid #E6EDF4;border-radius:20px;padding:22px 24px;box-shadow:0 6px 18px rgba(31,42,68,.05);">
+          <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+            <div>
+              <div style="font-size:18px;font-weight:700;">ภาพรวมเงินสดและกระแสเงินสด</div>
+              <div style="font-size:13.5px;color:#9AA8BF;margin-top:2px;">ยอดเงินคงเหลือรายวัน · มิถุนายน 2026</div>
+            </div>
+            <div style="display:flex;gap:8px;">
+              <div style="display:flex;align-items:center;gap:7px;background:#F1F5F9;border:1px solid #E6EDF4;border-radius:9px;padding:7px 12px;font-size:13px;color:#5B6B86;cursor:pointer;">ทุกบัญชี<svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M6 9l6 6 6-6" stroke="#9AA8BF" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+              <div style="display:flex;align-items:center;gap:7px;background:#F1F5F9;border:1px solid #E6EDF4;border-radius:9px;padding:7px 12px;font-size:13px;color:#5B6B86;cursor:pointer;">เดือนนี้<svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M6 9l6 6 6-6" stroke="#9AA8BF" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+            </div>
+          </div>
+          <svg viewBox="0 0 740 270" style="width:100%;height:auto;margin-top:14px;" class="tnum">
+            <defs><linearGradient id="bal" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="rgba(18,181,160,.28)"/><stop offset="1" stop-color="rgba(18,181,160,0)"/></linearGradient></defs>
+            <g stroke="#EEF2F7" stroke-width="1"><line x1="60" y1="30" x2="725" y2="30"/><line x1="60" y1="90" x2="725" y2="90"/><line x1="60" y1="150" x2="725" y2="150"/><line x1="60" y1="210" x2="725" y2="210"/></g>
+            <g fill="#9AA8BF" font-size="12" text-anchor="end" font-family="IBM Plex Sans"><text x="50" y="34">3.0M</text><text x="50" y="94">2.6M</text><text x="50" y="154">2.2M</text><text x="50" y="214">1.8M</text></g>
+            <path d="M70,150 C110,158 130,120 170,128 C210,136 230,96 270,104 C310,112 330,150 370,140 C410,130 430,86 470,96 C510,106 530,70 570,78 C610,86 630,52 670,58 L710,46 L710,210 L70,210 Z" fill="url(#bal)"/>
+            <path d="M70,150 C110,158 130,120 170,128 C210,136 230,96 270,104 C310,112 330,150 370,140 C410,130 430,86 470,96 C510,106 530,70 570,78 C610,86 630,52 670,58 L710,46" fill="none" stroke="#0E9A88" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+            <g fill="#0E9A88"><circle cx="270" cy="104" r="3.5"/><circle cx="470" cy="96" r="3.5"/><circle cx="710" cy="46" r="4.5" stroke="#fff" stroke-width="2"/></g>
+            <g fill="#7A8AA3" font-size="12" text-anchor="middle" font-family="IBM Plex Sans"><text x="70" y="234">1</text><text x="230" y="234">6</text><text x="390" y="234">11</text><text x="550" y="234">16</text><text x="710" y="234">21 มิ.ย.</text></g>
+          </svg>
+        </div>
+
+        <!-- mini cash cards -->
+        <div style="display:flex;flex-direction:column;gap:14px;">
+          <div style="flex:1;background:#fff;border:1px solid #E6EDF4;border-radius:18px;padding:18px 20px;box-shadow:0 6px 18px rgba(31,42,68,.05);display:flex;align-items:center;gap:15px;">
+            <div style="width:46px;height:46px;border-radius:13px;background:#E6F7F1;display:flex;align-items:center;justify-content:center;flex:none;"><svg width="23" height="23" viewBox="0 0 24 24" fill="none"><path d="M12 19V5M12 5l-6 6M12 5l6 6" stroke="#0E9A88" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+            <div><div style="font-size:13.5px;color:#5B6B86;">เงินเข้าเดือนนี้</div><div class="tnum" style="font-size:23px;font-weight:700;color:#0E9A88;margin-top:1px;">฿{{ fIn }}</div></div>
+          </div>
+          <div style="flex:1;background:#fff;border:1px solid #E6EDF4;border-radius:18px;padding:18px 20px;box-shadow:0 6px 18px rgba(31,42,68,.05);display:flex;align-items:center;gap:15px;">
+            <div style="width:46px;height:46px;border-radius:13px;background:#FDECEE;display:flex;align-items:center;justify-content:center;flex:none;"><svg width="23" height="23" viewBox="0 0 24 24" fill="none"><path d="M12 5v14M12 19l-6-6M12 19l6-6" stroke="#E23D4B" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+            <div><div style="font-size:13.5px;color:#5B6B86;">เงินออกเดือนนี้</div><div class="tnum" style="font-size:23px;font-weight:700;color:#E23D4B;margin-top:1px;">฿{{ fOut }}</div></div>
+          </div>
+          <div style="flex:1;border-radius:18px;padding:18px 20px;display:flex;align-items:center;gap:15px;background:linear-gradient(135deg,#5468FF,#3A45C9);box-shadow:0 8px 20px rgba(58,69,201,.28);">
+            <div style="width:46px;height:46px;border-radius:13px;background:rgba(255,255,255,.2);display:flex;align-items:center;justify-content:center;flex:none;"><svg width="23" height="23" viewBox="0 0 24 24" fill="none"><path d="M4 18V9M10 18V5M16 18v-6M21 18H3" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+            <div><div style="font-size:13.5px;color:rgba(255,255,255,.82);">คาดการณ์คงเหลือสิ้นเดือน</div><div class="tnum" style="font-size:23px;font-weight:700;color:#fff;margin-top:1px;">฿{{ fForecast }}</div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============ QUICK ACCESS ============ -->
+      <div style="margin-top:26px;display:flex;align-items:center;justify-content:space-between;">
+        <div style="font-size:18px;font-weight:700;">โมดูลที่ใช้บ่อย</div>
+        <span style="font-size:13.5px;color:#0E9A88;font-weight:600;cursor:pointer;">ดูทั้งหมด →</span>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-top:14px;">
+        <sc-for list="{{ modules }}" as="m" hint-placeholder-count="8">
+          <div style="background:#fff;border:1px solid #E6EDF4;border-radius:16px;padding:16px 17px;box-shadow:0 4px 12px rgba(31,42,68,.04);cursor:pointer;transition:all .16s;position:relative;" style-hover="border-color:#BFEFE4;box-shadow:0 10px 22px rgba(14,154,136,.12);transform:translateY(-2px);">
+            <div style="display:flex;align-items:center;gap:13px;">
+              <div style="width:42px;height:42px;border-radius:12px;background:{{ m.bg }};display:flex;align-items:center;justify-content:center;flex:none;color:{{ m.color }};">{{ m.icon }}</div>
+              <div style="min-width:0;flex:1;">
+                <div style="font-size:14.5px;font-weight:600;color:#1F2A44;">{{ m.name }}</div>
+                <div style="font-size:12px;color:#9AA8BF;margin-top:1px;">{{ m.desc }}</div>
+              </div>
+            </div>
+            <span style="{{ m.badgeStyle }}">{{ m.badge }}</span>
+          </div>
+        </sc-for>
+      </div>
+
+      <!-- ============ RECENT ACTIVITY ============ -->
+      <div style="background:#fff;border:1px solid #E6EDF4;border-radius:20px;padding:22px 24px;box-shadow:0 6px 18px rgba(31,42,68,.05);margin-top:26px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;">
+          <div style="font-size:18px;font-weight:700;">Activity ล่าสุด</div>
+          <span style="font-size:13.5px;color:#0E9A88;font-weight:600;cursor:pointer;">ดู Audit Trail →</span>
+        </div>
+        <div style="margin-top:16px;">
+          <sc-for list="{{ activity }}" as="a" hint-placeholder-count="5">
+            <div style="display:flex;align-items:flex-start;gap:14px;padding:12px 0;border-bottom:1px solid #F1F5F9;">
+              <div style="width:34px;height:34px;border-radius:50%;background:{{ a.bg }};color:{{ a.color }};font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center;flex:none;">{{ a.initial }}</div>
+              <div style="flex:1;min-width:0;">
+                <div style="font-size:14.5px;color:#1F2A44;"><strong style="font-weight:600;">{{ a.who }}</strong> {{ a.text }}</div>
+                <div style="font-size:12.5px;color:#9AA8BF;margin-top:2px;">{{ a.time }}</div>
+              </div>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+
+    </div>
+  </main>
+</div>
+
+
+<sc-if value="{{ modalOpen }}" hint-placeholder-val="{{ false }}">
+  <div onClick="{{ closeModal }}" style="position:fixed;inset:0;background:rgba(20,30,50,.45);display:flex;align-items:center;justify-content:center;z-index:50;padding:24px;">
+    <div onClick="{{ stop }}" style="background:#fff;border-radius:22px;width:680px;max-width:100%;max-height:90vh;overflow:auto;box-shadow:0 30px 70px rgba(20,30,50,.3);font-family:'IBM Plex Sans Thai','IBM Plex Sans',system-ui,sans-serif;">
+      <div style="padding:22px 26px;display:flex;align-items:flex-start;justify-content:space-between;gap:16px;border-bottom:1px solid #EEF2F7;position:sticky;top:0;background:#fff;border-radius:22px 22px 0 0;">
+        <div>
+          <div style="font-size:19px;font-weight:700;color:#1F2A44;">{{ modal.title }}</div>
+          <div style="font-size:13.5px;color:#9AA8BF;margin-top:3px;">{{ modal.sub }}</div>
+        </div>
+        <div onClick="{{ closeModal }}" style="width:34px;height:34px;border-radius:10px;display:flex;align-items:center;justify-content:center;cursor:pointer;flex:none;" style-hover="background:#F1F5F9;">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="#5B6B86" stroke-width="2" stroke-linecap="round"/></svg>
+        </div>
+      </div>
+
+      <div style="padding:18px 26px 6px;display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+        <sc-for list="{{ modal.channels }}" as="c" hint-placeholder-count="4">
+          <div style="display:flex;align-items:center;gap:11px;background:#F8FAFC;border:1px solid #EEF2F7;border-radius:13px;padding:12px 14px;">
+            <span style="width:11px;height:11px;border-radius:3px;background:{{ c.color }};flex:none;"></span>
+            <div style="flex:1;min-width:0;">
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+                <span style="font-size:14px;font-weight:600;color:#1F2A44;">{{ c.name }}</span>
+                <span style="font-size:12.5px;color:#9AA8BF;white-space:nowrap;">{{ c.dateLabel }}</span>
+              </div>
+              <div style="display:flex;align-items:center;gap:9px;margin-top:7px;">
+                <div style="flex:1;height:6px;background:#EEF2F7;border-radius:4px;overflow:hidden;"><div style="width:{{ c.bar }};height:100%;background:{{ c.color }};border-radius:4px;"></div></div>
+                <span class="tnum" style="font-size:12px;font-weight:600;color:#5B6B86;width:30px;text-align:right;">{{ c.pct }}%</span>
+              </div>
+            </div>
+          </div>
+        </sc-for>
+      </div>
+
+      <div style="padding:14px 26px 8px;">
+        <div style="font-size:13px;font-weight:600;color:#5B6B86;margin-bottom:11px;">ปฏิทินความคืบหน้า · แถบสีในแต่ละวัน = ช่องทางที่คีย์ถึงวันนั้นแล้ว</div>
+        <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:6px;margin-bottom:6px;">
+          <div style="font-size:11.5px;color:#9AA8BF;text-align:center;font-weight:600;">จ</div>
+          <div style="font-size:11.5px;color:#9AA8BF;text-align:center;font-weight:600;">อ</div>
+          <div style="font-size:11.5px;color:#9AA8BF;text-align:center;font-weight:600;">พ</div>
+          <div style="font-size:11.5px;color:#9AA8BF;text-align:center;font-weight:600;">พฤ</div>
+          <div style="font-size:11.5px;color:#9AA8BF;text-align:center;font-weight:600;">ศ</div>
+          <div style="font-size:11.5px;color:#9AA8BF;text-align:center;font-weight:600;">ส</div>
+          <div style="font-size:11.5px;color:#9AA8BF;text-align:center;font-weight:600;">อา</div>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:6px;">
+          <sc-for list="{{ modal.days }}" as="d" hint-placeholder-count="30">
+            <div style="border-radius:8px;padding:5px 5px 6px;background:{{ d.cellBg }};border:1px solid #EEF2F7;">
+              <div style="font-size:11px;font-weight:600;color:{{ d.numColor }};text-align:right;line-height:1;">{{ d.num }}</div>
+              <div style="display:flex;gap:2px;margin-top:6px;">
+                <sc-for list="{{ d.segs }}" as="s" hint-placeholder-count="4">
+                  <div style="flex:1;height:5px;border-radius:2px;background:{{ s }};"></div>
+                </sc-for>
+              </div>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+
+      <div style="padding:14px 26px 22px;display:flex;align-items:center;gap:18px;flex-wrap:wrap;">
+        <span style="display:flex;align-items:center;gap:7px;font-size:13px;color:#5B6B86;"><span style="width:11px;height:11px;border-radius:3px;background:#F0682E;"></span>Shopee</span>
+        <span style="display:flex;align-items:center;gap:7px;font-size:13px;color:#5B6B86;"><span style="width:11px;height:11px;border-radius:3px;background:#1F2A44;"></span>TikTok</span>
+        <span style="display:flex;align-items:center;gap:7px;font-size:13px;color:#5B6B86;"><span style="width:11px;height:11px;border-radius:3px;background:#6C5CE7;"></span>Lazada</span>
+        <span style="display:flex;align-items:center;gap:7px;font-size:13px;color:#5B6B86;"><span style="width:11px;height:11px;border-radius:3px;background:#16C0A8;"></span>อื่นๆ</span>
+      </div>
+    </div>
+  </div>
+</sc-if></x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1440,&quot;height&quot;:1860}}">
+class Component extends DCLogic {
+  state = { p: 0, company: 'Benya', filter: 'all', modal: null, progressOpen: false, tasksOpen: true };
+
+  componentDidMount() { this.run(); }
+  componentWillUnmount() { cancelAnimationFrame(this._raf); }
+
+  run = () => {
+    cancelAnimationFrame(this._raf);
+    const dur = 850, s = performance.now();
+    const tick = (n) => {
+      const t = Math.min(1, (n - s) / dur);
+      const e = 1 - Math.pow(1 - t, 3);
+      this.setState({ p: e });
+      if (t < 1) this._raf = requestAnimationFrame(tick);
+    };
+    this.setState({ p: 0 });
+    this._raf = requestAnimationFrame(tick);
+  };
+
+  intFmt(v) { return Math.round(v * (this.state.p ?? 0)).toLocaleString('en-US'); }
+
+  modalData(type) {
+    const CH = [
+      { name: 'Shopee', color: '#F0682E' },
+      { name: 'TikTok', color: '#1F2A44' },
+      { name: 'Lazada', color: '#6C5CE7' },
+      { name: 'อื่นๆ', color: '#16C0A8' }
+    ];
+    const cfg = type === 'iv'
+      ? { title: 'ความคืบหน้าการคีย์ IV', sub: 'แยกตามช่องทางการขาย · มิถุนายน 2026', day: [20, 19, 17, 15], pct: [95, 90, 81, 71] }
+      : { title: 'ความคืบหน้าการบันทึก RE', sub: 'แยกตามช่องทางการขาย · มิถุนายน 2026', day: [18, 17, 15, 13], pct: [86, 81, 71, 62] };
+    const channels = CH.map((c, i) => ({ name: c.name, color: c.color, maxDay: cfg.day[i], pct: cfg.pct[i], bar: cfg.pct[i] + '%', dateLabel: 'ถึง ' + cfg.day[i] + ' มิ.ย.' }));
+    const days = [];
+    for (let d = 1; d <= 30; d++) {
+      const wk = ((d - 1) % 7) >= 5;
+      days.push({ num: d, cellBg: wk ? '#F6F9FC' : '#FFFFFF', numColor: wk ? '#B6C2D2' : '#5B6B86', segs: channels.map(c => d <= c.maxDay ? c.color : '#E7ECF2') });
+    }
+    return { title: cfg.title, sub: cfg.sub, channels, days };
+  }
+
+  toggleSidebar = () => {
+    const el = this.sb; if (!el) return;
+    this._col = !this._col;
+    el.style.width = this._col ? '76px' : '252px';
+    el.dataset.collapsed = this._col;
+  };
+
+  seg(active) {
+    return {
+      flex: 1, textAlign: 'center', padding: '7px 6px', borderRadius: '8px',
+      fontSize: '13px', fontWeight: 600, cursor: 'pointer', transition: 'all .15s',
+      background: active ? '#0E9A88' : 'transparent',
+      color: active ? '#fff' : '#7C8AA0',
+      boxShadow: active ? '0 2px 6px rgba(14,154,136,.3)' : 'none'
+    };
+  }
+
+  chip(key, color, bg) {
+    const a = this.state.filter === key;
+    return {
+      display: 'inline-flex', alignItems: 'center', gap: '7px',
+      padding: '7px 14px', borderRadius: '999px', fontSize: '13px',
+      fontWeight: 600, cursor: 'pointer', transition: 'all .15s',
+      border: '1px solid ' + (a ? color : '#E6EDF4'),
+      background: a ? bg : '#fff',
+      color: a ? color : '#5B6B86'
+    };
+  }
+
+  icon(path) {
+    return React.createElement('svg', { width: 21, height: 21, viewBox: '0 0 24 24', fill: 'none' },
+      React.createElement('path', { d: path, stroke: 'currentColor', strokeWidth: 1.8, strokeLinecap: 'round', strokeLinejoin: 'round' }));
+  }
+
+  renderVals() {
+    const PRI = {
+      urgent: { priLabel: 'เร่งด่วน', priColor: '#E23D4B', priBg: '#FDECEE', dueColor: '#E23D4B' },
+      due:    { priLabel: 'ใกล้ครบกำหนด', priColor: '#C77E14', priBg: '#FBEFD7', dueColor: '#C77E14' },
+      review: { priLabel: 'รอตรวจสอบ', priColor: '#5468FF', priBg: '#ECEEFF', dueColor: '#9AA8BF' }
+    };
+    const rawTasks = [
+      { pri: 'urgent', title: 'ตรวจสอบ Bank reconciliation ที่ไม่ตรง 36 รายการ', due: 'ครบกำหนดวันนี้', owner: 'แนน' },
+      { pri: 'urgent', title: 'อนุมัติจ่ายเจ้าหนี้ 8 รายการ ก่อน 25 มิ.ย.', due: 'อีก 4 วัน', owner: 'แนน' },
+      { pri: 'urgent', title: 'ปิดยอด IV ค้าง 3 วันทำการ', due: 'ครบกำหนดวันนี้', owner: 'ฝ้าย' },
+      { pri: 'due', title: 'บันทึก RE ของ Shopee วันที่ 18–20 มิ.ย.', due: 'อีก 2 วัน', owner: 'แนน' },
+      { pri: 'due', title: 'ตรวจสอบเอกสารรอแนบ 6 รายการ', due: 'อีก 3 วัน', owner: 'มิ้น' },
+      { pri: 'due', title: 'กระทบยอดถอนเงิน Lazada เดือน มิ.ย.', due: 'อีก 3 วัน', owner: 'ฝ้าย' },
+      { pri: 'review', title: 'ตรวจทานยอด AR Aging 12 ราย', due: 'รอตรวจสอบ', owner: 'มิ้น' },
+      { pri: 'review', title: 'ตรวจ Settlement TikTok สัปดาห์นี้', due: 'รอตรวจสอบ', owner: 'แนน' }
+    ];
+    const tasks = rawTasks.map(t => ({ ...t, ...PRI[t.pri], ownerInitial: t.owner.charAt(0) }));
+    const f = this.state.filter;
+    const visibleTasks = f === 'all' ? tasks : tasks.filter(t => t.pri === f);
+
+    const ST = {
+      done: { color: '#0E9A88', bg: '#E6F7F1' },
+      prog: { color: '#3D7DD8', bg: '#E7F1FD' },
+      late: { color: '#C77E14', bg: '#FBEFD7' },
+      none: { color: '#94A0B4', bg: '#EEF2F7' }
+    };
+    const rawProg = [
+      { name: 'Sales Import', s: 'done', status: 'เสร็จ', pct: 100, date: '20 มิ.ย.', owner: 'แนน' },
+      { name: 'IV Posting', s: 'prog', status: 'กำลังทำ', pct: 86, date: '21 มิ.ย.', owner: 'ฝ้าย' },
+      { name: 'RE Posting', s: 'late', status: 'ต้องติดตาม', pct: 78, date: '17 มิ.ย.', owner: 'แนน' },
+      { name: 'Bank Reconciliation', s: 'prog', status: 'กำลังทำ', pct: 67, date: '21 มิ.ย.', owner: 'มิ้น' },
+      { name: 'AP Upload', s: 'none', status: 'ยังไม่เริ่ม', pct: 0, date: '—', owner: 'ฝ้าย' },
+      { name: 'Cash Flow Forecast', s: 'none', status: 'ยังไม่เริ่ม', pct: 8, date: '—', owner: 'แนน' }
+    ];
+    const progress = rawProg.map(p => ({ ...p, color: ST[p.s].color, bg: ST[p.s].bg, bar: Math.max(p.pct, 3) + '%', pctLabel: p.pct + '%' }));
+
+    const badge = (txt, color, bg) => txt ? {
+      position: 'absolute', top: '13px', right: '14px', fontSize: '11px', fontWeight: 700,
+      color, background: bg, padding: '2px 8px', borderRadius: '999px'
+    } : { display: 'none' };
+    const mk = (name, desc, path, color, bg, bTxt, bColor, bBg) => ({
+      name, desc, icon: this.icon(path), color, bg,
+      badge: bTxt || '', badgeStyle: badge(bTxt, bColor, bBg)
+    });
+    const modules = [
+      mk('Executive Cash Flow', 'แดชบอร์ดผู้บริหาร', 'M4 17l5-5 3.5 3.5L20 8M20 8h-4M20 8v4', '#0E9A88', '#E6F7F1'),
+      mk('Sales Dashboard', 'สรุปยอดขายรายวัน', 'M4 20V10M10 20V4M16 20v-7M22 20H2', '#3D7DD8', '#E7F1FD'),
+      mk('Bank Reconciliation', 'กระทบ Express → Statement', 'M20 11a8 8 0 1 0-2.3 5.6M20 11V5M20 11h-6', '#C77E14', '#FBF1DC', '36', '#C77E14', '#FBEFD7'),
+      mk('AP Outstanding', 'เจ้าหนี้ค้างจ่าย', 'M7 3h7l4 4v14H7zM14 3v4h4', '#E23D4B', '#FDECEE', 'เร่งด่วน', '#E23D4B', '#FDECEE'),
+      mk('Cash Flow Forecast', 'Real-time projection', 'M3 8c2-2 4-2 6 0s4 2 6 0 4-2 6 0M3 16c2-2 4-2 6 0s4 2 6 0 4-2 6 0', '#5468FF', '#ECEEFF'),
+      mk('AR Outstanding', 'ลูกหนี้คงค้าง + Aging', 'M3 7h15a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z', '#0E9A88', '#E6F7F1'),
+      mk('Task Management', 'งานที่ต้องทำ', 'M4 6l2 2 3-3M4 13l2 2 3-3M13 6h7M13 13h7', '#C77E14', '#FBF1DC', '3', '#C77E14', '#FBEFD7'),
+      mk('Document Center', 'เก็บเอกสาร', 'M3 7a2 2 0 0 1 2-2h4l2 2.5h8a2 2 0 0 1 2 2V18a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z', '#3D7DD8', '#E7F1FD', '6', '#C77E14', '#FBEFD7')
+    ];
+
+    const AV = { 'แนน': { bg: '#E6F7F1', color: '#0E9A88' }, 'ฝ้าย': { bg: '#FBF1DC', color: '#C77E14' }, 'มิ้น': { bg: '#ECEEFF', color: '#5468FF' }, 'ระบบ': { bg: '#EEF2F7', color: '#5B6B86' } };
+    const rawAct = [
+      { who: 'แนน', text: 'อัปโหลดไฟล์ Settlement Shopee', time: 'วันนี้ 09:42' },
+      { who: 'ระบบ', text: 'จับคู่รายการธนาคารสำเร็จ 156 รายการ', time: 'วันนี้ 09:15' },
+      { who: 'ฝ้าย', text: 'แก้ไขยอด IV ใบที่ IV-2406-0182', time: 'วันนี้ 08:58' },
+      { who: 'แนน', text: 'อนุมัติจ่ายเจ้าหนี้ 5 รายการ', time: 'วันนี้ 08:30' },
+      { who: 'มิ้น', text: 'แนบเอกสารใบกำกับภาษี 12 ไฟล์', time: 'เมื่อวาน 17:20' }
+    ];
+    const activity = rawAct.map(a => ({ ...a, initial: a.who === 'ระบบ' ? '⚙' : a.who.charAt(0), bg: (AV[a.who] || AV['ระบบ']).bg, color: (AV[a.who] || AV['ระบบ']).color }));
+
+    return {
+      company: this.state.company,
+      sidebarRef: (el) => { this.sb = el; },
+      toggleSidebar: this.toggleSidebar,
+      modalOpen: !!this.state.modal,
+      modal: this.state.modal ? this.modalData(this.state.modal) : { title: '', sub: '', channels: [], days: [] },
+      openIV: () => this.setState({ modal: 'iv' }),
+      openRE: () => this.setState({ modal: 're' }),
+      closeModal: () => this.setState({ modal: null }),
+      stop: (e) => e.stopPropagation(),
+      tasksOpen: this.state.tasksOpen,
+      toggleTasks: () => this.setState(s => ({ tasksOpen: !s.tasksOpen })),
+      tasksLabel: this.state.tasksOpen ? 'ซ่อน' : 'แสดง',
+      tasksChevron: { transition: 'transform .2s', transform: this.state.tasksOpen ? 'rotate(180deg)' : 'rotate(0deg)' },
+      progressOpen: this.state.progressOpen,
+      toggleProgress: () => this.setState(s => ({ progressOpen: !s.progressOpen })),
+      progressLabel: this.state.progressOpen ? 'ซ่อน' : 'แสดง',
+      progChevron: { transition: 'transform .2s', transform: this.state.progressOpen ? 'rotate(180deg)' : 'rotate(0deg)' },
+      benyaStyle: this.seg(this.state.company === 'Benya'),
+      mbarkStyle: this.seg(this.state.company === 'M Bark'),
+      switchBenya: () => this.setState({ company: 'Benya' }),
+      switchMBark: () => this.setState({ company: 'M Bark' }),
+      chipAll: this.chip('all', '#1F2A44', '#EEF2F7'),
+      chipUrgent: this.chip('urgent', '#E23D4B', '#FDECEE'),
+      chipDue: this.chip('due', '#C77E14', '#FBEFD7'),
+      chipReview: this.chip('review', '#5468FF', '#ECEEFF'),
+      setAll: () => this.setState({ filter: 'all' }),
+      setUrgent: () => this.setState({ filter: 'urgent' }),
+      setDue: () => this.setState({ filter: 'due' }),
+      setReview: () => this.setState({ filter: 'review' }),
+      visibleTasks, progress, modules, activity,
+      fApTotal: this.intFmt(1250000),
+      fCash: this.intFmt(2845000),
+      fIn: this.intFmt(4120000),
+      fOut: this.intFmt(3815000),
+      fForecast: this.intFmt(3150000)
+    };
+  }
+}
+</script>
+</body>
+</html>

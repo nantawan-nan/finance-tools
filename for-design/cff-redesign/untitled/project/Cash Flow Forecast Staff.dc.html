@@ -1,0 +1,619 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  *{box-sizing:border-box;}
+  body{margin:0;font-family:'IBM Plex Sans Thai','IBM Plex Sans',system-ui,sans-serif;color:#15233D;-webkit-font-smoothing:antialiased;}
+  .tnum{font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1;}
+  ::-webkit-scrollbar{width:9px;height:9px;}
+  ::-webkit-scrollbar-thumb{background:#C7D0DE;border-radius:6px;}
+  .gcard{background:rgba(255,255,255,.74);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border:1px solid rgba(255,255,255,.7);box-shadow:0 10px 30px rgba(30,44,90,.08);}
+  .irow:hover{background:rgba(99,120,160,.06)!important;}
+  .irow:hover .trash{opacity:1!important;}
+  .trash:hover{background:#FEE2E2!important;border-color:#FCA5A5!important;}
+  .trash:hover svg{stroke:#DC2626!important;}
+</style>
+</helmet>
+
+<div style="min-height:100vh;padding:22px 26px 60px;background:{{ pageBg }};transition:background .3s;">
+  <div style="max-width:1280px;margin:0 auto;">
+
+    <!-- ============ HEADER ============ -->
+    <div class="gcard" style="border-radius:20px;padding:20px 26px;display:flex;align-items:flex-start;justify-content:space-between;gap:24px;flex-wrap:wrap;">
+      <div style="display:flex;gap:15px;align-items:flex-start;">
+        <div style="width:48px;height:48px;border-radius:14px;background:{{ brandGrad }};display:flex;align-items:center;justify-content:center;flex:none;box-shadow:0 8px 18px {{ brandShadow }};">
+          <svg width="25" height="25" viewBox="0 0 24 24" fill="none"><path d="M3 8c2.2-2.4 4.4-2.4 6.6 0s4.4 2.4 6.6 0 4.4-2.4 4.8 0M3 16c2.2-2.4 4.4-2.4 6.6 0s4.4 2.4 6.6 0 4.4-2.4 4.8 0" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </div>
+        <div>
+          <div style="display:flex;align-items:center;gap:11px;flex-wrap:wrap;">
+            <h1 style="margin:0;font-size:25px;font-weight:700;letter-spacing:-.4px;">Cash Flow Forecast</h1>
+            <span style="background:{{ brandChipBg }};color:#fff;font-size:13px;font-weight:600;padding:4px 13px;border-radius:999px;white-space:nowrap;">{{ companyName }}</span>
+          </div>
+          <div style="margin-top:6px;font-size:14px;color:#5B6B86;line-height:1.55;">
+            ประมาณการรายรับ-รายจ่าย · ทั้งหมด 03 มิ.ย.–31 ก.ค. · ยอดธนาคาร ณ 21 มิ.ย. · หน่วย: บาท
+          </div>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:14px;">
+        <div style="display:flex;gap:5px;background:rgba(240,243,250,.8);border-radius:12px;padding:4px;">
+          <div style="display:flex;align-items:center;gap:7px;padding:9px 15px;border-radius:9px;background:{{ brandPrimary }};color:#fff;font-size:14px;font-weight:600;cursor:pointer;box-shadow:0 3px 8px {{ brandShadow }};">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M8 4h8a1 1 0 0 1 1 1v15l-5-3-5 3V5a1 1 0 0 1 1-1Z" stroke="#fff" stroke-width="1.8" stroke-linejoin="round"/></svg>พนักงาน
+          </div>
+          <div style="display:flex;align-items:center;gap:7px;padding:9px 15px;border-radius:9px;color:#5B6B86;font-size:14px;font-weight:500;cursor:pointer;">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M4 20V10M10 20V4M16 20v-7M21 20H3" stroke="#5B6B86" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>ผู้บริหาร
+          </div>
+        </div>
+        <div style="display:flex;gap:6px;background:rgba(240,243,250,.8);border-radius:12px;padding:4px;">
+          <div style="{{ segMbark }}" onClick="{{ pickMbark }}">M Bark</div>
+          <div style="{{ segBenya }}" onClick="{{ pickBenya }}">Benya</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============ DATE FILTER BAR ============ -->
+    <div class="gcard" style="border-radius:16px;padding:12px 16px;margin-top:16px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+      <div style="display:flex;align-items:center;gap:9px;color:#5B6B86;font-size:14px;font-weight:600;padding-right:6px;flex:none;">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><rect x="3" y="5" width="18" height="16" rx="2.5" stroke="#5B6B86" stroke-width="1.8"/><path d="M3 9h18M8 3v4M16 3v4" stroke="#5B6B86" stroke-width="1.8" stroke-linecap="round"/></svg>วันชำระเงิน
+      </div>
+      <div style="display:flex;gap:7px;flex-wrap:wrap;flex:1;">
+        <sc-for list="{{ dateChips }}" as="c" hint-placeholder-count="8">
+          <div style="{{ c.style }}" onClick="{{ c.pick }}">{{ c.label }}</div>
+        </sc-for>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;flex:none;">
+        <span style="font-size:13.5px;color:#8595AC;">ช่วง:</span>
+        <div style="background:rgba(255,255,255,.7);border:1px solid #DCE3EF;border-radius:9px;padding:8px 11px;font-size:13px;color:#9AA8BF;">วว/ดด/ปปปป</div>
+        <span style="color:#9AA8BF;">→</span>
+        <div style="background:rgba(255,255,255,.7);border:1px solid #DCE3EF;border-radius:9px;padding:8px 11px;font-size:13px;color:#9AA8BF;">วว/ดด/ปปปป</div>
+        <button style="background:{{ brandPrimary }};color:#fff;border:none;border-radius:9px;padding:9px 16px;font-size:13.5px;font-weight:600;cursor:pointer;font-family:inherit;">ใช้ช่วง</button>
+      </div>
+    </div>
+
+    <!-- ============ KPI CARDS ============ -->
+    <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:14px;margin-top:16px;">
+      <!-- available -->
+      <div class="gcard" style="border-radius:18px;padding:18px 19px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;">
+          <div style="width:38px;height:38px;border-radius:11px;background:#E6F5F3;display:flex;align-items:center;justify-content:center;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M3 7a2 2 0 0 1 2-2h11a2 2 0 0 1 2 2v1h1a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z" stroke="#0D9488" stroke-width="1.8" stroke-linejoin="round"/><circle cx="17" cy="13" r="1.4" fill="#0D9488"/></svg></div>
+        </div>
+        <div style="font-size:14px;color:#5B6B86;margin-top:13px;">เงินคงเหลือใช้ได้</div>
+        <div class="tnum" style="font-size:26px;font-weight:700;color:#0D9488;margin-top:3px;letter-spacing:-.5px;">{{ fAvailable }}</div>
+        <div style="font-size:12.5px;color:#9AA8BF;margin-top:3px;">รวม 1 บัญชี</div>
+      </div>
+      <!-- due -->
+      <div class="gcard" style="border-radius:18px;padding:18px 19px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;">
+          <div style="width:38px;height:38px;border-radius:11px;background:#FCE7EF;display:flex;align-items:center;justify-content:center;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="#D14B7C" stroke-width="1.8"/><path d="M12 8v5M12 16l-3-3M12 16l3-3" stroke="#D14B7C" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+        </div>
+        <div style="font-size:14px;color:#5B6B86;margin-top:13px;">ค่าใช้จ่ายถึงกำหนด</div>
+        <div class="tnum" style="font-size:26px;font-weight:700;color:#D14B7C;margin-top:3px;letter-spacing:-.5px;">{{ fDue }}</div>
+        <div style="font-size:12.5px;color:#9AA8BF;margin-top:3px;">{{ dueCount }} รายการ</div>
+      </div>
+      <!-- inflow -->
+      <div class="gcard" style="border-radius:18px;padding:18px 19px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;">
+          <div style="width:38px;height:38px;border-radius:11px;background:#E6F0FB;display:flex;align-items:center;justify-content:center;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="#3D7DD8" stroke-width="1.8"/><path d="M12 16v-5M12 8l-3 3M12 8l3 3" stroke="#3D7DD8" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+        </div>
+        <div style="font-size:14px;color:#5B6B86;margin-top:13px;">ประมาณการเงินรับ</div>
+        <div class="tnum" style="font-size:26px;font-weight:700;color:#1F2A44;margin-top:3px;letter-spacing:-.5px;">0.00</div>
+        <div style="font-size:12.5px;color:#9AA8BF;margin-top:3px;">ยังไม่มีข้อมูล</div>
+      </div>
+      <!-- net -->
+      <div class="gcard" style="border-radius:18px;padding:18px 19px;position:relative;overflow:hidden;background:{{ brandGrad }};border:none;box-shadow:0 12px 26px {{ brandShadow }};">
+        <div style="position:absolute;right:-26px;top:-30px;width:110px;height:110px;border-radius:50%;background:radial-gradient(circle,rgba(255,255,255,.18),rgba(255,255,255,0) 70%);"></div>
+        <div style="position:relative;display:flex;align-items:center;justify-content:space-between;">
+          <div style="width:38px;height:38px;border-radius:11px;background:rgba(255,255,255,.2);display:flex;align-items:center;justify-content:center;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M3 7h18v11H3z" stroke="#fff" stroke-width="1.8"/><path d="M3 11h18M16 14.5h2" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/></svg></div>
+        </div>
+        <div style="position:relative;font-size:14px;color:rgba(255,255,255,.85);margin-top:13px;">เงินคงเหลือสุทธิ</div>
+        <div class="tnum" style="position:relative;font-size:26px;font-weight:700;color:#fff;margin-top:3px;letter-spacing:-.5px;">{{ fNet }}</div>
+        <div style="position:relative;font-size:12.5px;color:rgba(255,255,255,.72);margin-top:3px;">หลังหักถึงกำหนด</div>
+      </div>
+      <!-- negative accounts -->
+      <div class="gcard" style="border-radius:18px;padding:18px 19px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;">
+          <div style="width:38px;height:38px;border-radius:11px;background:#E6F5F3;display:flex;align-items:center;justify-content:center;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="#0D9488" stroke-width="1.8"/><path d="m8.5 12 2.5 2.5 4.5-5" stroke="#0D9488" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+        </div>
+        <div style="font-size:14px;color:#5B6B86;margin-top:13px;">บัญชีติดลบ</div>
+        <div class="tnum" style="font-size:26px;font-weight:700;color:#0D9488;margin-top:3px;letter-spacing:-.5px;">0</div>
+        <div style="font-size:12.5px;color:#9AA8BF;margin-top:3px;">ไม่มี</div>
+      </div>
+    </div>
+
+    <!-- ============ KEY HIGHLIGHTS ============ -->
+    <div style="display:flex;align-items:center;gap:9px;margin-top:20px;">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M12 3l2.4 5.4 5.9.5-4.5 3.9 1.4 5.8L12 16.9 6.8 19.6l1.4-5.8L3.7 9.9l5.9-.5L12 3Z" stroke="{{ brandPrimary }}" stroke-width="1.7" stroke-linejoin="round"/></svg>
+      <span style="font-size:14px;font-weight:700;color:#15233D;letter-spacing:.2px;">ไฮไลต์สำคัญวันนี้</span>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:11px;">
+      <!-- overdue -->
+      <div style="position:relative;border-radius:16px;padding:17px 19px 16px;background:linear-gradient(135deg,#FEF2F4 0%,rgba(255,255,255,.65) 100%);border:1px solid #F6CBD6;box-shadow:0 8px 20px rgba(220,38,38,.08);overflow:hidden;">
+        <div style="position:absolute;left:0;top:0;bottom:0;width:4px;background:#DC2626;"></div>
+        <div style="display:flex;align-items:center;justify-content:space-between;">
+          <div style="width:34px;height:34px;border-radius:10px;background:#FEE2E2;display:flex;align-items:center;justify-content:center;"><svg width="19" height="19" viewBox="0 0 24 24" fill="none"><path d="M12 3 2 20h20L12 3Z" stroke="#DC2626" stroke-width="1.8" stroke-linejoin="round"/><path d="M12 10v4M12 17h.01" stroke="#DC2626" stroke-width="2" stroke-linecap="round"/></svg></div>
+          <span style="font-size:11px;font-weight:700;color:#DC2626;background:#FEE2E2;padding:3px 10px;border-radius:999px;">{{ overdueRoundCount }} รอบ</span>
+        </div>
+        <div style="font-size:13px;color:#9A4B5C;margin-top:13px;">ต้องจ่ายที่เลยกำหนดแล้ว</div>
+        <div class="tnum" style="font-size:25px;font-weight:700;color:#DC2626;margin-top:3px;letter-spacing:-.5px;">{{ fOverdue }}</div>
+        <div style="font-size:12px;color:#B58792;margin-top:3px;">ควรเคลียร์ก่อนเป็นอันดับแรก</div>
+      </div>
+      <!-- heaviest round -->
+      <div style="position:relative;border-radius:16px;padding:17px 19px 16px;background:linear-gradient(135deg,#FFF8EC 0%,rgba(255,255,255,.65) 100%);border:1px solid #F4DEB4;box-shadow:0 8px 20px rgba(217,119,6,.08);overflow:hidden;">
+        <div style="position:absolute;left:0;top:0;bottom:0;width:4px;background:#D97706;"></div>
+        <div style="display:flex;align-items:center;justify-content:space-between;">
+          <div style="width:34px;height:34px;border-radius:10px;background:#FEF0DC;display:flex;align-items:center;justify-content:center;"><svg width="19" height="19" viewBox="0 0 24 24" fill="none"><path d="M4 19V11M9 19V5M14 19v-6M19 19V8" stroke="#D97706" stroke-width="2" stroke-linecap="round"/></svg></div>
+          <span style="font-size:11px;font-weight:700;color:#B45309;background:#FEF0DC;padding:3px 10px;border-radius:999px;">{{ heavyDate }}</span>
+        </div>
+        <div style="font-size:13px;color:#9A6A1C;margin-top:13px;">รอบจ่ายหนักสุด</div>
+        <div class="tnum" style="font-size:25px;font-weight:700;color:#B45309;margin-top:3px;letter-spacing:-.5px;">{{ fHeavy }}</div>
+        <div style="font-size:12px;color:#BC9968;margin-top:3px;">เตรียมสภาพคล่องให้พร้อมรอบนี้</div>
+      </div>
+      <!-- liquidity -->
+      <div style="position:relative;border-radius:16px;padding:17px 19px 16px;background:{{ brandHiBg }};border:1px solid {{ brandHiBorder }};box-shadow:0 8px 20px {{ brandShadow }};overflow:hidden;">
+        <div style="position:absolute;left:0;top:0;bottom:0;width:4px;background:{{ brandPrimary }};"></div>
+        <div style="display:flex;align-items:center;justify-content:space-between;">
+          <div style="width:34px;height:34px;border-radius:10px;background:{{ brandSoft }};display:flex;align-items:center;justify-content:center;"><svg width="19" height="19" viewBox="0 0 24 24" fill="none"><path d="M12 3a9 9 0 1 0 9 9" stroke="{{ brandPrimary }}" stroke-width="1.9" stroke-linecap="round"/><path d="m8.5 12 2.5 2.5L21 5" stroke="{{ brandPrimary }}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+          <span style="font-size:11px;font-weight:700;color:{{ brandPrimary }};background:{{ brandSoft }};padding:3px 10px;border-radius:999px;">หลังจ่ายครบ</span>
+        </div>
+        <div style="font-size:13px;color:#5B6B86;margin-top:13px;">สภาพคล่องคงเหลือสุทธิ</div>
+        <div class="tnum" style="font-size:25px;font-weight:700;color:{{ brandPrimary }};margin-top:3px;letter-spacing:-.5px;">{{ fNet }}</div>
+        <div style="font-size:12px;color:#8595AC;margin-top:3px;">{{ netStatusLabel }}</div>
+      </div>
+    </div>
+
+    <!-- ============ CASH BRIDGE ============ -->
+    <div class="gcard" style="border-radius:20px;padding:20px 24px;margin-top:16px;">
+      <div style="display:flex;align-items:center;gap:10px;">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><circle cx="5" cy="6" r="2.2" stroke="#15233D" stroke-width="1.8"/><circle cx="19" cy="6" r="2.2" stroke="#15233D" stroke-width="1.8"/><circle cx="12" cy="18" r="2.2" stroke="#15233D" stroke-width="1.8"/><path d="M5 8.2v2.3a3 3 0 0 0 3 3h2M19 8.2v2.3a3 3 0 0 1-3 3h-2" stroke="#15233D" stroke-width="1.7"/></svg>
+        <span style="font-size:17px;font-weight:700;">Cash Bridge</span>
+      </div>
+      <div style="font-size:13.5px;color:#8595AC;margin-top:4px;">เงินคงเหลือต้นงวด + ประมาณการเงินรับ − ค่าใช้จ่ายถึงกำหนด = ประมาณการเงินคงเหลือ</div>
+      <div style="display:flex;align-items:stretch;gap:12px;margin-top:16px;flex-wrap:wrap;">
+        <div style="flex:1;min-width:170px;background:rgba(245,247,251,.8);border:1px solid #E6EDF4;border-radius:14px;padding:16px 18px;">
+          <div style="font-size:13.5px;color:#5B6B86;">เงินคงเหลือต้นงวด</div>
+          <div class="tnum" style="font-size:23px;font-weight:700;margin-top:4px;color:#15233D;">{{ fAvailable }}</div>
+        </div>
+        <div style="display:flex;align-items:center;font-size:26px;color:#A6B2C4;font-weight:300;">+</div>
+        <div style="flex:1;min-width:170px;background:rgba(224,245,242,.6);border:1px solid #BCE6DF;border-radius:14px;padding:16px 18px;">
+          <div style="font-size:13.5px;color:#0B7D72;">ประมาณการเงินรับ</div>
+          <div class="tnum" style="font-size:23px;font-weight:700;margin-top:4px;color:#0D9488;">0.00</div>
+        </div>
+        <div style="display:flex;align-items:center;font-size:26px;color:#A6B2C4;font-weight:300;">−</div>
+        <div style="flex:1;min-width:170px;background:rgba(252,231,239,.6);border:1px solid #F5C9D9;border-radius:14px;padding:16px 18px;">
+          <div style="font-size:13.5px;color:#B23A66;">ค่าใช้จ่ายถึงกำหนด</div>
+          <div class="tnum" style="font-size:23px;font-weight:700;margin-top:4px;color:#D14B7C;">{{ fDue }}</div>
+        </div>
+        <div style="display:flex;align-items:center;font-size:26px;color:#A6B2C4;font-weight:300;">=</div>
+        <div style="flex:1.1;min-width:190px;border-radius:14px;padding:16px 18px;background:{{ brandGrad }};box-shadow:0 10px 22px {{ brandShadow }};">
+          <div style="font-size:13.5px;color:rgba(255,255,255,.82);">ประมาณการเงินคงเหลือ</div>
+          <div class="tnum" style="font-size:23px;font-weight:700;margin-top:4px;color:#fff;">{{ fNet }}</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============ BANK STATUS ============ -->
+    <div class="gcard" style="border-radius:20px;padding:20px 24px;margin-top:16px;">
+      <div style="display:flex;align-items:center;gap:10px;">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M4 10h16M5 10 12 4l7 6M6 10v8M10 10v8M14 10v8M18 10v8M4 18h16" stroke="#15233D" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span style="font-size:17px;font-weight:700;">สถานะแต่ละธนาคาร</span>
+      </div>
+      <div style="margin-top:14px;border:1px solid #E6EDF4;border-radius:16px;padding:18px 20px;max-width:680px;background:rgba(255,255,255,.5);">
+        <!-- summary header -->
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:18px;flex-wrap:wrap;">
+          <div style="display:flex;align-items:center;gap:12px;">
+            <div style="width:40px;height:40px;border-radius:11px;background:linear-gradient(135deg,#6C3FCF,#4B1FA8);display:flex;align-items:center;justify-content:center;flex:none;"><svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M12 3 4 8v8l8 5 8-5V8l-8-5Z" stroke="#fff" stroke-width="1.6" stroke-linejoin="round"/><path d="M12 8v8M8.5 10.5 12 8l3.5 2.5" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+            <div><div style="font-size:15.5px;font-weight:600;">ไทยพาณิชย์</div><div class="tnum" style="font-size:12.5px;color:#9AA8BF;">136-2-2709281</div></div>
+          </div>
+          <div style="text-align:right;">
+            <div style="font-size:12.5px;color:#8595AC;">ประมาณการเงินคงเหลือ (หลังจ่ายครบ)</div>
+            <div class="tnum" style="font-size:28px;font-weight:700;color:{{ brandPrimary }};letter-spacing:-.6px;line-height:1.15;">{{ fNet }}</div>
+          </div>
+        </div>
+        <!-- mini stats -->
+        <div style="display:flex;gap:10px;margin-top:14px;flex-wrap:wrap;">
+          <div style="flex:1;min-width:130px;background:rgba(245,247,251,.7);border-radius:11px;padding:11px 14px;">
+            <div style="font-size:12.5px;color:#5B6B86;">คงเหลือใช้ได้วันนี้</div>
+            <div class="tnum" style="font-size:17px;font-weight:700;color:#15233D;margin-top:2px;">{{ fAvailable }}</div>
+          </div>
+          <div style="flex:1;min-width:130px;background:rgba(252,231,239,.5);border-radius:11px;padding:11px 14px;">
+            <div style="font-size:12.5px;color:#B23A66;">ต้องจ่ายถึงกำหนด</div>
+            <div class="tnum" style="font-size:17px;font-weight:700;color:#D14B7C;margin-top:2px;">{{ fDue }}</div>
+          </div>
+          <div style="flex:1;min-width:130px;background:rgba(245,247,251,.7);border-radius:11px;padding:11px 14px;">
+            <div style="font-size:12.5px;color:#5B6B86;">จำนวนรอบจ่าย</div>
+            <div class="tnum" style="font-size:17px;font-weight:700;color:#15233D;margin-top:2px;">{{ roundCount }} รอบ</div>
+          </div>
+        </div>
+
+        <!-- toggle rounds -->
+        <div onClick="{{ bankToggle }}" style="margin-top:14px;display:flex;align-items:center;justify-content:space-between;cursor:pointer;border-top:1px solid #EEF2F7;padding-top:14px;">
+          <div style="display:flex;align-items:center;gap:9px;font-size:14.5px;font-weight:700;color:#15233D;">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M3 8c2.2-2.4 4.4-2.4 6.6 0s4.4 2.4 6.6 0 4.4-2.4 4.8 0M3 16c2.2-2.4 4.4-2.4 6.6 0s4.4 2.4 6.6 0 4.4-2.4 4.8 0" stroke="{{ brandPrimary }}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            ไทม์ไลน์รอบการจ่าย
+          </div>
+          <div style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:{{ brandPrimary }};background:{{ brandSoft }};padding:6px 12px;border-radius:9px;">
+            <span>{{ bankToggleLabel }}</span>
+            <svg style="{{ bankChevron }}" width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M6 9l6 6 6-6" stroke="{{ brandPrimary }}" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+        </div>
+
+        <!-- rounds timeline -->
+        <sc-if value="{{ bankOpen }}" hint-placeholder-val="{{ true }}">
+        <div style="margin-top:12px;display:flex;flex-direction:column;gap:9px;">
+          <sc-for list="{{ rounds }}" as="rd" hint-placeholder-count="6">
+            <div style="border:1px solid {{ rd.rowBorder }};border-radius:13px;background:{{ rd.rowBg }};overflow:hidden;">
+              <div onClick="{{ rd.toggle }}" style="display:grid;grid-template-columns:auto 1fr auto 30px;gap:14px;align-items:center;padding:13px 15px;cursor:pointer;">
+                <!-- date + status -->
+                <div style="min-width:96px;">
+                  <div style="font-size:15px;font-weight:700;color:#15233D;">{{ rd.dateLabel }}</div>
+                  <span style="display:inline-flex;align-items:center;gap:5px;background:{{ rd.dueBg }};color:{{ rd.dueColor }};font-size:11.5px;font-weight:600;padding:2px 8px;border-radius:7px;margin-top:4px;">
+                    <span style="width:5px;height:5px;border-radius:50%;background:{{ rd.dueColor }};display:inline-block;"></span>{{ rd.statusLabel }}
+                  </span>
+                </div>
+                <!-- count + paid -->
+                <div>
+                  <div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap;">
+                    <span style="font-size:13px;color:#7A8AA3;">{{ rd.count }} รายการในรอบนี้</span>
+                    <sc-if value="{{ rd.heavy }}" hint-placeholder-val="{{ false }}">
+                      <span style="font-size:11px;font-weight:700;color:#B45309;background:#FEF0DC;padding:1px 8px;border-radius:999px;white-space:nowrap;">● รอบหนักสุด</span>
+                    </sc-if>
+                  </div>
+                  <div class="tnum" style="font-size:15px;font-weight:600;color:#D14B7C;margin-top:2px;">− {{ rd.fPaid }}</div>
+                </div>
+                <!-- carried balance -->
+                <div style="text-align:right;">
+                  <div style="font-size:12px;color:#8595AC;">คงเหลือยกไป</div>
+                  <div class="tnum" style="font-size:18px;font-weight:700;color:{{ rd.balanceColor }};margin-top:1px;letter-spacing:-.3px;">{{ rd.fBalance }}</div>
+                </div>
+                <!-- chevron -->
+                <div style="display:flex;justify-content:center;">
+                  <svg style="{{ rd.chevron }}" width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M6 9l6 6 6-6" stroke="#A6B2C4" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </div>
+              </div>
+              <!-- expanded items -->
+              <sc-if value="{{ rd.open }}" hint-placeholder-val="{{ false }}">
+              <div style="padding:4px 15px 13px;">
+                <div style="border-top:1px dashed #D9E0EC;padding-top:10px;display:flex;flex-direction:column;gap:8px;">
+                  <sc-for list="{{ rd.items }}" as="li" hint-placeholder-count="3">
+                    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
+                      <div style="min-width:0;">
+                        <span style="font-size:13.5px;font-weight:600;color:#15233D;">{{ li.vendor }}</span>
+                        <span style="font-size:12.5px;color:#9AA8BF;"> · {{ li.detail }}</span>
+                      </div>
+                      <span class="tnum" style="font-size:14px;font-weight:600;color:#5B6B86;white-space:nowrap;">− {{ li.fAmount }}</span>
+                    </div>
+                  </sc-for>
+                </div>
+              </div>
+              </sc-if>
+            </div>
+          </sc-for>
+
+          <!-- final net -->
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:3px;padding:14px 16px;border-radius:13px;background:{{ brandGrad }};box-shadow:0 8px 20px {{ brandShadow }};">
+            <span style="font-size:14.5px;font-weight:700;color:#fff;">เงินคงเหลือสุทธิ หลังจ่ายครบทุกรอบ</span>
+            <span class="tnum" style="font-size:21px;font-weight:700;color:#fff;letter-spacing:-.4px;">{{ fNet }}</span>
+          </div>
+        </div>
+        </sc-if>
+      </div>
+    </div>
+
+    <!-- ============ ⭐ CATEGORY TABLE (redesigned) ============ -->
+    <div class="gcard" style="border-radius:20px;padding:20px 24px 22px;margin-top:16px;">
+      <div style="display:flex;align-items:flex-end;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+        <div>
+          <div style="display:flex;align-items:center;gap:10px;">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M4 6h4M4 12h4M4 18h4" stroke="#15233D" stroke-width="2" stroke-linecap="round"/><path d="M11 6h9M11 12h9M11 18h9" stroke="#15233D" stroke-width="2" stroke-linecap="round"/></svg>
+            <span style="font-size:17px;font-weight:700;">ค่าใช้จ่ายถึงกำหนดชำระ</span>
+          </div>
+          <div style="font-size:13.5px;color:#8595AC;margin-top:4px;">แยกตามหมวด · ทั้งหมด 03 มิ.ย.–31 ก.ค.</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:14px;">
+          <div style="display:flex;align-items:center;gap:6px;font-size:12.5px;color:#8595AC;"><span style="width:8px;height:8px;border-radius:50%;background:#DC2626;display:inline-block;"></span>เลยกำหนด</div>
+          <div style="display:flex;align-items:center;gap:6px;font-size:12.5px;color:#8595AC;"><span style="width:8px;height:8px;border-radius:50%;background:#D97706;display:inline-block;"></span>ใกล้กำหนด</div>
+          <div style="display:flex;align-items:center;gap:6px;font-size:12.5px;color:#8595AC;"><span style="width:8px;height:8px;border-radius:50%;background:#64748B;display:inline-block;"></span>ตามกำหนด</div>
+        </div>
+      </div>
+
+      <!-- column header -->
+      <div style="display:grid;grid-template-columns:1fr 132px 158px 40px;gap:10px;align-items:center;margin-top:16px;padding:0 12px 9px;border-bottom:1.5px solid #E6EDF4;">
+        <div style="font-size:12.5px;font-weight:600;color:#8595AC;letter-spacing:.3px;">หมวด / รายการ</div>
+        <div style="font-size:12.5px;font-weight:600;color:#8595AC;letter-spacing:.3px;">ครบกำหนด</div>
+        <div style="font-size:12.5px;font-weight:600;color:#8595AC;letter-spacing:.3px;text-align:right;">จำนวน (บาท)</div>
+        <div></div>
+      </div>
+
+      <!-- categories -->
+      <sc-for list="{{ cats }}" as="cat" hint-placeholder-count="3">
+        <div style="margin-top:12px;">
+          <!-- category header -->
+          <div onClick="{{ cat.toggle }}" style="display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;background:{{ cat.headBg }};border:1px solid {{ cat.headBorder }};border-radius:13px;padding:13px 16px;cursor:pointer;">
+            <div style="display:flex;align-items:center;gap:12px;min-width:0;">
+              <svg style="{{ cat.chevron }}" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="{{ cat.accent }}"><path d="M6 9l6 6 6-6" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              <div style="width:32px;height:32px;border-radius:9px;background:{{ cat.iconBg }};display:flex;align-items:center;justify-content:center;flex:none;color:{{ cat.accent }};">{{ cat.icon }}</div>
+              <span style="font-size:15.5px;font-weight:700;color:#15233D;">{{ cat.name }}</span>
+              <span style="font-size:12px;font-weight:600;color:{{ cat.accent }};background:{{ cat.iconBg }};padding:2px 9px;border-radius:999px;white-space:nowrap;">{{ cat.count }} รายการ</span>
+            </div>
+            <div style="text-align:right;">
+              <span style="font-size:11.5px;color:#8595AC;display:block;line-height:1;">ยอดรวมหมวด</span>
+              <span class="tnum" style="font-size:19px;font-weight:700;color:#15233D;letter-spacing:-.3px;">{{ cat.fSubtotal }}</span>
+            </div>
+          </div>
+
+          <!-- items -->
+          <sc-if value="{{ cat.open }}" hint-placeholder-val="{{ true }}">
+          <div style="margin-top:4px;">
+            <sc-for list="{{ cat.items }}" as="it" hint-placeholder-count="4">
+              <div class="irow" style="display:grid;grid-template-columns:1fr 132px 158px 40px;gap:10px;align-items:center;padding:11px 12px;border-radius:11px;background:{{ it.zebra }};transition:background .12s;">
+                <!-- vendor / detail -->
+                <div style="min-width:0;display:flex;flex-direction:column;gap:3px;">
+                  <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;row-gap:4px;">
+                    <span style="font-size:15px;font-weight:600;color:#15233D;line-height:1.35;">{{ it.vendor }}</span>
+                    <sc-if value="{{ it.recurring }}" hint-placeholder-val="{{ false }}">
+                      <span style="font-size:11px;font-weight:600;color:#0B7D72;background:#E0F2EF;padding:1px 8px;border-radius:999px;line-height:1.5;white-space:nowrap;">ประจำ</span>
+                    </sc-if>
+                  </div>
+                  <div style="font-size:13px;color:#7A8AA3;line-height:1.4;">{{ it.detail }} <span style="color:#B6C2D2;">·</span> {{ it.note }}</div>
+                </div>
+                <!-- due pill -->
+                <div>
+                  <span style="display:inline-flex;align-items:center;gap:6px;background:{{ it.dueBg }};color:{{ it.dueColor }};font-size:13px;font-weight:600;padding:5px 11px;border-radius:8px;white-space:nowrap;">
+                    <span style="width:6px;height:6px;border-radius:50%;background:{{ it.dueColor }};display:inline-block;"></span>{{ it.due }}
+                  </span>
+                </div>
+                <!-- amount -->
+                <div class="tnum" style="font-size:17px;font-weight:700;color:#15233D;text-align:right;letter-spacing:-.3px;">{{ it.fAmount }}</div>
+                <!-- trash -->
+                <div style="display:flex;justify-content:center;">
+                  <sc-if value="{{ it.recurring }}" hint-placeholder-val="{{ false }}">
+                    <div class="trash" onClick="{{ it.remove }}" title="ลบออกจากประมาณการ (เฉพาะวันนี้)" style="width:30px;height:30px;border-radius:8px;border:1px solid #E6EDF4;background:rgba(255,255,255,.6);display:flex;align-items:center;justify-content:center;cursor:pointer;opacity:.45;transition:all .14s;">
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13M10 11v6M14 11v6" stroke="#94A0B4" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                    </div>
+                  </sc-if>
+                </div>
+              </div>
+            </sc-for>
+          </div>
+          </sc-if>
+        </div>
+      </sc-for>
+
+      <!-- grand total -->
+      <div style="display:grid;grid-template-columns:1fr 132px 158px 40px;gap:10px;align-items:center;margin-top:16px;padding:16px 16px;border-radius:14px;background:{{ brandGrad }};box-shadow:0 10px 24px {{ brandShadow }};">
+        <span style="font-size:16px;font-weight:700;color:#fff;">รวมทั้งสิ้น</span>
+        <span style="font-size:13px;color:rgba(255,255,255,.75);">{{ dueCount }} รายการ</span>
+        <span class="tnum" style="font-size:23px;font-weight:700;color:#fff;text-align:right;letter-spacing:-.4px;">{{ fDue }}</span>
+        <span></span>
+      </div>
+
+      <!-- removed recurring -->
+      <sc-if value="{{ hasRemoved }}" hint-placeholder-val="{{ false }}">
+      <div style="margin-top:16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;background:rgba(245,247,251,.7);border:1px dashed #CFD8E5;border-radius:13px;padding:12px 16px;">
+        <div style="display:flex;align-items:center;gap:8px;font-size:13.5px;font-weight:600;color:#5B6B86;flex:none;">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none"><path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13" stroke="#94A0B4" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          ค่าใช้จ่ายประจำที่ลบไว้ ({{ removedCount }}):
+        </div>
+        <div style="display:flex;gap:9px;flex-wrap:wrap;">
+          <sc-for list="{{ removedChips }}" as="r" hint-placeholder-count="2">
+            <span style="display:inline-flex;align-items:center;gap:9px;background:#fff;border:1px solid #E6EDF4;border-radius:999px;padding:6px 8px 6px 13px;font-size:13px;color:#5B6B86;">
+              {{ r.label }}
+              <span onClick="{{ r.restore }}" style="display:inline-flex;align-items:center;gap:4px;color:{{ brandPrimary }};font-weight:600;background:{{ brandSoft }};padding:3px 9px;border-radius:999px;cursor:pointer;">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M9 14 4 9l5-5M4 9h11a5 5 0 0 1 0 10h-3" stroke="{{ brandPrimary }}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>คืนค่า
+              </span>
+            </span>
+          </sc-for>
+        </div>
+      </div>
+      </sc-if>
+
+      <!-- actions -->
+      <div style="margin-top:18px;">
+        <button style="display:inline-flex;align-items:center;gap:9px;background:{{ brandGrad }};color:#fff;border:none;border-radius:12px;padding:12px 20px;font-size:14.5px;font-weight:600;cursor:pointer;font-family:inherit;box-shadow:0 8px 18px {{ brandShadow }};">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><rect x="3" y="4" width="18" height="16" rx="2.5" stroke="#fff" stroke-width="1.8"/><circle cx="8.5" cy="9.5" r="1.8" stroke="#fff" stroke-width="1.6"/><path d="m4 18 5-5 4 4 3-3 4 4" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>Snapshot PNG / PDF
+        </button>
+      </div>
+    </div>
+
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1280,&quot;height&quot;:1700}}">
+class Component extends DCLogic {
+  state = { co: 'mbark', collapsed: {}, removed: { 'rec-tm1': true, 'rec-tm2': true }, dateFilter: 'all', bankOpen: true, roundOpen: {} };
+
+  money(v) {
+    const s = Math.abs(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    return v < 0 ? '(' + s + ')' : s;
+  }
+
+  icon(path) {
+    return React.createElement('svg', { width: 18, height: 18, viewBox: '0 0 24 24', fill: 'none' },
+      React.createElement('path', { d: path, stroke: 'currentColor', strokeWidth: 1.8, strokeLinecap: 'round', strokeLinejoin: 'round' }));
+  }
+
+  dueMeta(m, d) {
+    const today = 6 * 31 + 21;
+    const v = m * 31 + d;
+    if (v < today) return { color: '#DC2626', bg: '#FEE2E2', label: 'เลยกำหนด' };
+    if (v === today) return { color: '#D97706', bg: '#FEF3C7', label: 'รอบวันนี้' };
+    if (m === 6) return { color: '#D97706', bg: '#FEF3C7', label: 'ใกล้กำหนด' };
+    return { color: '#64748B', bg: '#F1F5F9', label: 'ตามกำหนด' };
+  }
+
+  renderVals() {
+    const THEME = {
+      mbark: { name: 'M Bark', primary: '#1E3A8A', grad: 'linear-gradient(135deg,#2A4DA8 0%,#16275C 100%)', shadow: 'rgba(30,58,138,.16)', soft: '#EEF2FB', chipBg: '#1E3A8A', pageBg: 'linear-gradient(135deg,#EEF2FB 0%,#E9EEF7 45%,#F3F0FA 100%)', hiBg: 'linear-gradient(135deg,#EEF2FB 0%,rgba(255,255,255,.65) 100%)', hiBorder: '#C9D5F0' },
+      benya: { name: 'Benya', primary: '#0D9488', grad: 'linear-gradient(135deg,#13B0A0 0%,#0A6F65 100%)', shadow: 'rgba(13,148,136,.16)', soft: '#E6F5F3', chipBg: '#0D9488', pageBg: 'linear-gradient(135deg,#E6F5F3 0%,#E7F1F0 45%,#EAF3FB 100%)', hiBg: 'linear-gradient(135deg,#E6F5F3 0%,rgba(255,255,255,.65) 100%)', hiBorder: '#B6E4DC' }
+    };
+    const th = THEME[this.state.co];
+
+    const seg = (active) => ({
+      padding: '8px 16px', borderRadius: '9px', fontSize: '14px', fontWeight: 600, cursor: 'pointer',
+      transition: 'all .15s', background: active ? th.primary : 'transparent',
+      color: active ? '#fff' : '#5B6B86', boxShadow: active ? '0 3px 8px ' + th.shadow : 'none'
+    });
+
+    // date filter chips
+    const DATES = [['all','ทั้งหมด'],['0603','03 มิ.ย.'],['0615','15 มิ.ย.'],['0619','19 มิ.ย.'],['0625','25 มิ.ย.'],['0630','30 มิ.ย.'],['0703','03 ก.ค.'],['0715','15 ก.ค.'],['0725','25 ก.ค.']];
+    const dateChips = DATES.map(([k, label]) => {
+      const a = this.state.dateFilter === k;
+      return {
+        label,
+        style: { padding: '8px 15px', borderRadius: '9px', fontSize: '13.5px', fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap', transition: 'all .15s', background: a ? th.primary : 'rgba(255,255,255,.55)', color: a ? '#fff' : '#5B6B86', border: '1px solid ' + (a ? th.primary : '#E0E6F0') },
+        pick: () => this.setState({ dateFilter: k })
+      };
+    });
+
+    // raw data: [vendor, detail, note, m, d, amount, id|null]
+    const RAW = [
+      { id: 'rec', name: 'ค่าใช้จ่ายประจำ', accent: '#1E6F66', iconBg: '#E0F2EF', headBg: 'rgba(224,242,239,.55)', headBorder: '#C5E8E1', iconPath: 'M17 2.5 21 6.5 17 10.5M21 6.5H9a4 4 0 0 0-4 4v1M7 21.5 3 17.5 7 13.5M3 17.5h12a4 4 0 0 0 4-4v-1',
+        items: [
+          ['กรมสรรพากร', 'ภาษีซื้อ-ขาย / ภพ.30', 'ภาษี', 6, 15, 20000, true, 'r1'],
+          ['กรมสรรพากร', 'ภาษีซื้อ-ขาย / ภพ.30', 'ภาษี', 7, 15, 20000, true, 'r2'],
+          ['กรมสรรพากร', 'ภาษีหัก ณ ที่จ่าย', 'ภาษี', 6, 15, 8000, true, 'r3'],
+          ['กรมสรรพากร', 'ภาษีหัก ณ ที่จ่าย', 'ภาษี', 7, 15, 8000, true, 'r4'],
+          ['กสล. ไทยพาณิชย์ มาสเตอร์ฟันด์', 'กองทุนสำรองเลี้ยงชีพ', 'กองทุนสำรอง', 6, 3, 12000, true, 'r5'],
+          ['กสล. ไทยพาณิชย์ มาสเตอร์ฟันด์', 'กองทุนสำรองเลี้ยงชีพ', 'กองทุนสำรอง', 7, 3, 12000, true, 'r6'],
+          ['กองทุนเงินให้กู้ยืมเพื่อการศึกษา', 'เงินกู้ยืมเพื่อการศึกษา', 'สินเชื่อ', 6, 15, 1695, true, 'r7'],
+          ['กองทุนเงินให้กู้ยืมเพื่อการศึกษา', 'เงินกู้ยืมเพื่อการศึกษา', 'สินเชื่อ', 7, 15, 1695, true, 'r8'],
+          ['เงินเดือนพนักงาน', 'เงินเดือน สนญ.+สาขา', 'เงินเดือน', 6, 30, 100000, true, 'r9'],
+          ['ประกันสังคม', 'เงินสมทบนายจ้าง', 'ประกันสังคม', 7, 15, 45000, true, 'r10'],
+          ['ค่าเช่าสำนักงาน', 'สำนักงานใหญ่', 'ค่าเช่า', 7, 5, 55000, true, 'r11'],
+          ['ค่าสาธารณูปโภค', 'ไฟฟ้า / น้ำ / อินเทอร์เน็ต', 'สาธารณูปโภค', 6, 20, 12182.26, true, 'r12'],
+          ['TRUEMOVE H', 'ค่าโทรศัพท์', 'สาธารณูปโภค', 6, 25, 899, true, 'rec-tm1'],
+          ['TRUEMOVE H', 'ค่าโทรศัพท์', 'สาธารณูปโภค', 7, 25, 899, true, 'rec-tm2']
+        ]
+      },
+      { id: 'trade', name: 'เจ้าหนี้การค้า', accent: '#B45309', iconBg: '#FEF0DC', headBg: 'rgba(254,240,220,.5)', headBorder: '#F5DCB8', iconPath: 'M3 8h13v8H3zM16 11h3l2 2.5V16h-5M7 19a1.8 1.8 0 1 0 0-3.6 1.8 1.8 0 0 0 0 3.6ZM18 19a1.8 1.8 0 1 0 0-3.6 1.8 1.8 0 0 0 0 3.6Z',
+        items: [
+          ['บจก. สยามวัสดุ', 'ค่าสินค้าล็อต #4821', 'จัดซื้อ', 6, 18, 86400, false, 't1'],
+          ['บจก. ทรานสปอร์ตพลัส', 'ค่าขนส่งสินค้า มิ.ย.', 'โลจิสติกส์', 6, 22, 38000, false, 't2'],
+          ['หจก. แพ็คกิ้งโปร', 'บรรจุภัณฑ์', 'จัดซื้อ', 6, 28, 32000, false, 't3']
+        ]
+      },
+      { id: 'op', name: 'ค่าใช้จ่ายดำเนินงาน', accent: '#3D5BBF', iconBg: '#E6ECFA', headBg: 'rgba(230,236,250,.5)', headBorder: '#CBD7F2', iconPath: 'M9 7V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2M3 7h18v12H3zM3 12h18',
+        items: [
+          ['บจก. ดิจิทัลแอด', 'ค่าโฆษณาออนไลน์', 'การตลาด', 6, 19, 28500, false, 'o1'],
+          ['การ์ดดีไซน์ สตูดิโอ', 'ค่าออกแบบสื่อ', 'การตลาด', 6, 24, 15000, false, 'o2'],
+          ['บจก. คลีนเซอร์วิส', 'ทำความสะอาดสำนักงาน', 'บริการ', 6, 30, 8500, false, 'o3'],
+          ['ค่าใช้จ่ายเบ็ดเตล็ด', 'ค่าใช้จ่ายปลีกย่อย', 'อื่นๆ', 6, 21, 10263.40, false, 'o4']
+        ]
+      }
+    ];
+
+    const TH = ['', 'ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
+    const removed = this.state.removed || {};
+    const df = this.state.dateFilter;
+    const matchDate = (m, d) => df === 'all' || df === (String(m).padStart(2, '0') + String(d).padStart(2, '0'));
+
+    let grand = 0, count = 0;
+    const cats = RAW.map(c => {
+      let sub = 0;
+      const items = c.items
+        .filter(r => !removed[r[7]] && matchDate(r[3], r[4]))
+        .map((r, i) => {
+          const [vendor, detail, note, m, d, amount, recurring, id] = r;
+          sub += amount; grand += amount; count++;
+          const dm = this.dueMeta(m, d);
+          return {
+            vendor, detail, note, recurring, id, fAmount: this.money(amount),
+            due: d + ' ' + TH[m], dueColor: dm.color, dueBg: dm.bg,
+            zebra: i % 2 === 1 ? 'rgba(99,120,160,.035)' : 'transparent',
+            remove: recurring ? () => this.setState(s => ({ removed: { ...s.removed, [id]: true } })) : null
+          };
+        });
+      const open = !this.state.collapsed[c.id];
+      return {
+        id: c.id, name: c.name, accent: c.accent, iconBg: c.iconBg, headBg: c.headBg, headBorder: c.headBorder,
+        icon: this.icon(c.iconPath), count: items.length, items, open,
+        fSubtotal: this.money(sub),
+        chevron: { transition: 'transform .2s', transform: open ? 'rotate(0deg)' : 'rotate(-90deg)' },
+        toggle: () => this.setState(s => ({ collapsed: { ...s.collapsed, [c.id]: !s.collapsed[c.id] } }))
+      };
+    }).filter(c => c.count > 0 || df === 'all');
+
+    // removed chips
+    const allItems = {};
+    RAW.forEach(c => c.items.forEach(r => { allItems[r[7]] = r; }));
+    const removedChips = Object.keys(removed).filter(k => removed[k]).map(k => {
+      const r = allItems[k];
+      const label = r ? (r[0] + ' — ' + r[1] + ' · ' + r[4] + ' ' + TH[r[3]]) : k;
+      return { label, restore: () => this.setState(s => { const nx = { ...s.removed }; delete nx[k]; return { removed: nx }; }) };
+    });
+
+    const available = 760051.54;
+    const net = available - grand;
+
+    // ===== payment rounds for bank card (all non-removed items, grouped by due date) =====
+    const flat = [];
+    RAW.forEach(c => c.items.forEach(r => { if (!removed[r[7]]) flat.push({ vendor: r[0], detail: r[1], note: r[2], m: r[3], d: r[4], amount: r[5] }); }));
+    const groups = {};
+    flat.forEach(it => { const k = it.m * 100 + it.d; (groups[k] = groups[k] || { m: it.m, d: it.d, items: [] }).items.push(it); });
+    const sortedKeys = Object.keys(groups).map(Number).sort((a, b) => a - b);
+    let run = available;
+    const rounds = sortedKeys.map(k => {
+      const g = groups[k];
+      const paid = g.items.reduce((s, x) => s + x.amount, 0);
+      run -= paid;
+      const dm = this.dueMeta(g.m, g.d);
+      const todayRound = (g.m === 6 && g.d === 21);
+      const open = !!this.state.roundOpen[k];
+      return {
+        key: String(k), dateLabel: g.d + ' ' + TH[g.m],
+        statusLabel: dm.label, dueColor: dm.color, dueBg: dm.bg,
+        count: g.items.length, fPaid: this.money(paid), fBalance: this.money(run),
+        paidNum: paid, isOverdue: (g.m * 31 + g.d) < (6 * 31 + 21),
+        balanceColor: run < 0 ? '#DC2626' : '#15233D',
+        todayRound, rowBg: todayRound ? th.soft : 'rgba(255,255,255,.55)',
+        rowBorder: todayRound ? th.primary : '#E6EDF4',
+        chevron: { transition: 'transform .2s', transform: open ? 'rotate(0deg)' : 'rotate(-90deg)' },
+        toggle: () => this.setState(s => ({ roundOpen: { ...s.roundOpen, [k]: !s.roundOpen[k] } })),
+        open,
+        items: g.items.map(x => ({ vendor: x.vendor, detail: x.detail, fAmount: this.money(x.amount) }))
+      };
+    });
+
+    let __mk = null, __mp = -1;
+    rounds.forEach(r => { if (r.paidNum > __mp) { __mp = r.paidNum; __mk = r.key; } });
+    rounds.forEach(r => { r.heavy = r.key === __mk; });
+    const heavyRound = rounds.find(r => r.key === __mk) || { dateLabel: '', fPaid: '0.00' };
+    const overdueRounds = rounds.filter(r => r.isOverdue);
+    const overdueTotal = overdueRounds.reduce((s, r) => s + r.paidNum, 0);
+
+    return {
+      brandSoftBg: th.soft,
+      fOverdue: this.money(overdueTotal), overdueRoundCount: overdueRounds.length, hasOverdue: overdueRounds.length > 0,
+      heavyDate: heavyRound.dateLabel, fHeavy: heavyRound.fPaid,
+      netSafe: net > 0, netStatusLabel: net > 0 ? 'เพียงพอจ่ายได้ครบทุกรอบ' : 'เงินไม่เพียงพอ ต้องเตรียมเพิ่ม',
+      rounds, roundCount: rounds.length,
+      bankOpen: this.state.bankOpen,
+      bankToggle: () => this.setState(s => ({ bankOpen: !s.bankOpen })),
+      bankToggleLabel: this.state.bankOpen ? 'ซ่อนรายละเอียด' : 'ดูรายละเอียด',
+      bankChevron: { transition: 'transform .2s', transform: this.state.bankOpen ? 'rotate(0deg)' : 'rotate(-90deg)' },
+      pageBg: th.pageBg, brandPrimary: th.primary, brandGrad: th.grad, brandShadow: th.shadow,
+      brandSoft: th.soft, brandChipBg: th.chipBg, companyName: th.name,
+      brandHiBg: th.hiBg, brandHiBorder: th.hiBorder,
+      brandGradHeader: th.grad,
+      segMbark: seg(this.state.co === 'mbark'), segBenya: seg(this.state.co === 'benya'),
+      pickMbark: () => this.setState({ co: 'mbark' }), pickBenya: () => this.setState({ co: 'benya' }),
+      dateChips,
+      cats,
+      fAvailable: this.money(available), fDue: this.money(grand), fNet: this.money(net),
+      dueCount: count,
+      removedChips, hasRemoved: removedChips.length > 0, removedCount: removedChips.length
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -654,7 +654,7 @@ function updateCrumb(){
    ===================================================================== */
 /* ★ เลข build — บั๊มทุกครั้งที่ deploy (โชว์มุมล่าง sidebar) · ใช้เช็คว่าเบราว์เซอร์ได้โค้ดล่าสุดหรือยัง
    (ตัวเช็คเวอร์ชันอัตโนมัติถูกปิดตามคำขอเจ้าของ — เลขนี้คือทางเช็คด้วยตาแทน) */
-const APP_BUILD = "3007w";
+const APP_BUILD = "3007x";
 const APP_CONFIG = {
   // null = โชว์ทุกโมดูล (ของเดิม) · หรือ array = โชว์เฉพาะ id เหล่านี้
   enabledTools: null,
@@ -24146,6 +24146,27 @@ function brecInjectCSS(){
   .cb-bulk-sel:focus{outline:2px solid var(--brand);outline-offset:-1px}
   .cb-bulk-sel.bad{border-color:#f59e0b;background:#fffbeb}
   .cb-bulk-warn{font:500 11.5px/1 inherit;color:#b45309}
+  /* ★ สรุปรายหมวด (รีวิว) */
+  .cb-grpwrap{margin-bottom:10px;border:1px solid #e2e8f0;border-radius:10px;overflow:hidden;background:#fff}
+  .cb-grphead{display:flex;align-items:center;gap:10px;padding:8px 12px;background:#f1f5f9;
+    font:600 12.5px/1.4 inherit;color:#334155;border-bottom:1px solid #e2e8f0}
+  .cb-grps{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:6px;padding:10px;max-height:340px;overflow:auto}
+  .cb-grp{display:grid;grid-template-columns:38px 1fr auto auto;align-items:center;gap:8px;text-align:left;
+    padding:6px 9px;border:1px solid #e2e8f0;border-radius:8px;background:#fff;cursor:pointer;font:inherit}
+  .cb-grp:hover{border-color:var(--brand);background:rgba(var(--brand-rgb),.04)}
+  .cb-grp.on{border-color:var(--brand);background:rgba(var(--brand-rgb),.10);box-shadow:inset 3px 0 0 var(--brand)}
+  .cb-grp.blank{border-color:#fca5a5;background:#fff1f2}
+  .cb-grp .g-n{font:800 14px/1 inherit;color:var(--brand);text-align:right}
+  .cb-grp .g-c{font:600 12px/1.35 inherit;color:#0f172a;overflow:hidden;text-overflow:ellipsis}
+  .cb-grp .g-a{display:flex;flex-direction:column;align-items:flex-end;gap:1px;font:600 10.5px/1.2 inherit;white-space:nowrap}
+  .cb-grp .g-a .in{color:#0d9488}
+  .cb-grp .g-a .out{color:#e11d48}
+  .cb-grp .g-m{display:flex;gap:4px;font:600 10px/1 inherit;color:#64748b;font-style:normal}
+  .cb-grp .g-m i{font-style:normal}
+  .cb-grp .g-m i.rv{color:#b45309}
+  .cb-pickbar{display:flex;align-items:center;gap:10px;margin-bottom:10px;padding:7px 12px;border-radius:9px;
+    background:rgba(var(--brand-rgb),.08);border:1px solid rgba(var(--brand-rgb),.25);font:500 12.5px/1.4 inherit;color:#0f172a}
+  .cb-x2{border:1px solid #cbd5e1;background:#fff;color:#475569;border-radius:7px;padding:3px 9px;cursor:pointer;font:600 11.5px/1.3 inherit}
   .cb-chips{display:inline-flex;gap:6px;flex-wrap:wrap}
   .cb-chip{border:1px solid var(--line,#e2e8f0);background:#fff;border-radius:999px;padding:6px 13px;font:600 12.5px/1 inherit;color:var(--ink-2,#475569);cursor:pointer;display:inline-flex;gap:6px;align-items:center}
   .cb-chip b{font-weight:800}
@@ -24846,6 +24867,43 @@ function catbotGet(d){
   return d.catbot;
 }
 
+/* ★★ เก็บงานที่ยังไม่ยืนยันไว้บนเซิร์ฟเวอร์ (catbot_session) — refresh/ปิดเว็บแล้วกลับมาทำต่อได้
+   เก็บทั้งแถวที่อ่านจากไฟล์ + หมวดที่ผู้ใช้เลือกไว้ · ยืนยันสำเร็จ/กดล้าง = ลบทิ้ง */
+async function catbotSaveSession(){
+  try{
+    const cb = catbotGet(brecGet());
+    const cid = await edCompanyId(); if(!cid) return;
+    if(!cb.accounts.length){ await sb.from("catbot_session").delete().eq("company_id", cid); return; }
+    const { error } = await sb.from("catbot_session").upsert({
+      company_id: cid, accounts: cb.accounts, file_names: cb.fileNames||[],
+      updated_at: new Date().toISOString()
+    }, { onConflict:"company_id" });
+    if(error) console.warn("[catbot] save session", error);
+  }catch(e){ console.warn("[catbot] save session", e); }
+}
+/* debounce — เลือกหมวดรัว ๆ ไม่ต้องยิงทุกครั้ง */
+function catbotQueueSave(){
+  clearTimeout(window._cbSaveT);
+  window._cbSaveT = setTimeout(()=>{ catbotSaveSession(); }, 900);
+}
+async function catbotLoadSession(){
+  const cb = catbotGet(brecGet());
+  if(cb.sessLoaded) return;
+  cb.sessLoaded = true;
+  try{
+    const cid = await edCompanyId(); if(!cid) return;
+    const { data, error } = await sb.from("catbot_session")
+      .select("accounts,file_names,updated_at").eq("company_id", cid).maybeSingle();
+    if(error || !data || !Array.isArray(data.accounts) || !data.accounts.length) return;
+    if(cb.accounts.length) return;          // มีของที่เพิ่งอัปอยู่แล้ว ไม่ทับ
+    cb.accounts = data.accounts;
+    cb.fileNames = Array.isArray(data.file_names) ? data.file_names : [];
+    cb.note = "กู้งานที่ค้างไว้กลับมาแล้ว ("+cb.accounts.reduce((s,a)=>s+(a.rows||[]).length,0)+" รายการ · บันทึกล่าสุด "+
+              (data.updated_at? new Date(data.updated_at).toLocaleString("th-TH",{dateStyle:"short",timeStyle:"short"}) : "-")+")";
+    brecRefresh();
+  }catch(e){ console.warn("[catbot] load session", e); }
+}
+
 // โหลด rules ทั้งหมดของบริษัท → สร้าง model (แบ่งหน้ากัน cap 1000)
 async function catbotLoadModel(){
   const cid = await edCompanyId();
@@ -24906,7 +24964,7 @@ function catbotUpload(){
           from:parsed.periodFrom, to:parsed.periodTo, fileName:f.name, rows:rowObjs });
         cb.fileNames.push(f.name);
       }
-      cb.busy=false; brecRefresh();
+      cb.busy=false; brecRefresh(); catbotSaveSession();
     }catch(err){ cb.busy=false; cb.err = String(err.message||err); brecRefresh(); }
   };
   inp.click();
@@ -24935,7 +24993,7 @@ function catbotSetCat(ai,ri,val){
     return;
   }
   r.cat = val; r.act = catbotActOf(val); r.method="manual"; r.tier = val? "ok":"none"; r.edited=true;
-  brecRefresh();
+  brecRefresh(); catbotQueueSave();
 }
 function catbotSetFilter(f){ catbotGet(brecGet()).filter=f; brecRefresh(); }
 /* ★ ค้นหาในหมายเหตุ/เลขที่ — debounce + คง caret (ห้าม re-render ทุกตัวอักษร · [[feedback_input_no_rerender]]) */
@@ -24948,18 +25006,45 @@ function catbotSetSearch(v){
 }
 function catbotClearSearch(){ const cb=catbotGet(brecGet()); cb.q=""; cb.bulkCat=""; brecRefresh(); }
 function catbotSetBulkCat(v){ catbotGet(brecGet()).bulkCat = v||""; brecRefresh(); }
-/* แถวที่ผ่านทั้งชิปกรอง + คำค้น (ใช้ร่วม render + จัดหมวดทีเดียว) */
-function catbotVisibleRows(cb){
+/* แถวที่ผ่านทั้งชิปกรอง + คำค้น + หมวดที่เลือกรีวิว (ใช้ร่วม render + จัดหมวดทีเดียว)
+   ignorePick=true → ไม่กรองด้วยหมวดที่เลือก (ใช้ตอนสรุปรายหมวด ให้ตัวเลขนิ่ง) */
+function catbotVisibleRows(cb, ignorePick){
   const filt = cb.filter||"all";
   const q = String(cb.q||"").trim().toLowerCase();
+  const pick = cb.catPick;
   return catbotFlatRows(cb).filter(x=>{
     const r=x.r;
     const passFilt = filt==="all" ? true : filt==="ok" ? r.tier==="ok" : filt==="review" ? (r.tier==="review"||r.tier==="none") : true;
     if(!passFilt) return false;
+    if(!ignorePick && pick!=null && (r.cat||"") !== pick) return false;
     if(!q) return true;
     return `${r.remark||""} ${r.docNo||""} ${r.amount||""} ${r.cat||""}`.toLowerCase().includes(q);
   });
 }
+/* ★ สรุปรายหมวด (รีวิวว่าจัดถูกไหม) — นับจำนวน + ยอดรับ/จ่าย + จัดเอง vs ระบบเดา */
+function catbotCatGroups(cb){
+  const m = new Map();
+  for(const x of catbotVisibleRows(cb, true)){
+    const r=x.r, k=r.cat||"";
+    let g=m.get(k);
+    if(!g){ g={ cat:k, n:0, inAmt:0, outAmt:0, manual:0, auto:0, review:0 }; m.set(k,g); }
+    g.n++;
+    if(r.dir==="in") g.inAmt += Number(r.amount)||0; else g.outAmt += Number(r.amount)||0;
+    if(r.method==="manual") g.manual++; else g.auto++;
+    if(r.tier!=="ok") g.review++;
+  }
+  // "ยังไม่จัด" ไว้บนสุด (ต้องทำก่อน) · ที่เหลือเรียงตามจำนวนมาก→น้อย
+  return [...m.values()].sort((a,b)=> (a.cat?1:0)-(b.cat?1:0) || b.n-a.n);
+}
+function catbotToggleReview(){ const cb=catbotGet(brecGet()); cb.reviewOpen=!cb.reviewOpen; brecRefresh(); }
+/* i = index ใน CATBOT_CATS · -1 = "ยังไม่จัด" (กด​ซ้ำ = ยกเลิกการเลือก) */
+function catbotPickCat(i){
+  const cb=catbotGet(brecGet());
+  const c = (i<0) ? "" : (CATBOT_CATS[i]||"");
+  cb.catPick = (cb.catPick===c) ? null : c;
+  brecRefresh();
+}
+function catbotClearPick(){ catbotGet(brecGet()).catPick=null; brecRefresh(); }
 /* ★ จัดหมวดให้ทุกแถวที่กรองอยู่ทีเดียว (เช่น ค้น "IShip" → เลือกหมวด → กดปุ่มเดียวจบ) */
 function catbotBulkApply(){
   const cb = catbotGet(brecGet());
@@ -24981,12 +25066,12 @@ function catbotBulkApply(){
     const r=x.r; r.cat=cat; r.act=catbotActOf(cat); r.method="manual"; r.tier="ok"; r.edited=true;
   }
   cb.bulkCat="";
-  brecRefresh();
+  brecRefresh(); catbotQueueSave();
 }
 function catbotClear(){
   if(!confirm("ล้างรายการที่อัปไว้ทั้งหมด? (ยังไม่ได้บันทึกจะหาย)")) return;
-  const d=brecGet(); d.catbot = { accounts:[], model:(d.catbot||{}).model, loaded:true, busy:false, filter:"all", note:"", err:"", fileNames:[] };
-  brecRefresh();
+  const d=brecGet(); d.catbot = { accounts:[], model:(d.catbot||{}).model, loaded:true, busy:false, filter:"all", note:"", err:"", fileNames:[], sessLoaded:true };
+  brecRefresh(); catbotSaveSession();   // accounts ว่าง = ลบ session ทิ้ง
 }
 
 // สร้าง book { sheets:{ "YYYY.MM": aoa }, names } ตาม layout ที่ edParse อ่าน
@@ -25095,7 +25180,7 @@ async function catbotConfirm(){
     try{ fn = catbotExportExcel(cb); }catch(e){ console.warn("export excel", e); }
     await catbotPushExec(cb);
     cb.busy=false;
-    cb.note = "✓ เรียนรู้ "+learned+" รูปแบบ · ส่งออก "+(fn||"Excel")+" · อัปเข้า Executive Dashboard แล้ว";
+    cb.note = "✓ เรียนรู้ "+learned+" รูปแบบ · ส่งออก "+(fn||"Excel")+" · อัปเข้า Executive Dashboard แล้ว — ตรวจซ้ำได้ · ทำเสร็จแล้วกด 🗑 ล้าง";
     brecRefresh();
   }catch(err){ cb.busy=false; cb.err=String(err.message||err); brecRefresh(); }
 }
@@ -25136,6 +25221,17 @@ function catbotRenderTab(d){
   const shown = catbotVisibleRows(cb);
   const bulkBad = !!(cb.bulkCat && !CATBOT_CATS.includes(cb.bulkCat));   // พิมพ์เองแล้วไม่ตรงหมวดที่ล็อกไว้
   const bulkOk  = !!(shown.length && cb.bulkCat && !bulkBad);
+  const grps    = catbotCatGroups(cb);                                    // สรุปรายหมวด (รีวิว)
+  const grpHtml = grps.map(g=>{
+    const idx = g.cat ? CATBOT_CATS.indexOf(g.cat) : -1;
+    const on  = cb.catPick===g.cat;
+    return `<button class="cb-grp ${on?"on":""} ${g.cat?"":"blank"}" onclick="catbotPickCat(${idx})">
+      <span class="g-n">${g.n}</span>
+      <span class="g-c">${g.cat? esc(g.cat) : "— ยังไม่จัดหมวด —"}</span>
+      <span class="g-a">${g.inAmt?`<b class="in">+${fmt(g.inAmt)}</b>`:""}${g.outAmt?`<b class="out">-${fmt(g.outAmt)}</b>`:""}</span>
+      <span class="g-m">${g.manual?`<i title="เลือกเอง">✎${g.manual}</i>`:""}${g.review?`<i class="rv" title="ยังต้องตรวจ">⚠${g.review}</i>`:""}</span>
+    </button>`;
+  }).join("");
   const chip=(v,l,n,cls)=>`<button class="cb-chip ${filt===v?"active":""} ${cls||""}" onclick="catbotSetFilter('${v}')">${l} <b>${n}</b></button>`;
   const rowsHtml = shown.map(x=>{
     const r=x.r;
@@ -25160,6 +25256,7 @@ function catbotRenderTab(d){
         ${chip("all","ทั้งหมด",cnt.total,"")}
         ${chip("ok","✅ มั่นใจ",cnt.ok,"ok")}
         ${chip("review","⚠️ ต้องรีวิว",cnt.review+cnt.none,"rv")}
+        <button class="cb-chip ${cb.reviewOpen?"active":""}" onclick="catbotToggleReview()" title="ดูสรุปรายหมวด — ตรวจว่าจัดถูกไหม">📊 รีวิวตามหมวด <b>${grps.length}</b></button>
       </div>
       <div class="sp" style="flex:1"></div>
       <button class="brec-btn" onclick="catbotUpload()"><i data-lucide="plus"></i> เพิ่มไฟล์</button>
@@ -25185,6 +25282,13 @@ function catbotRenderTab(d){
         ${bulkBad?`<span class="cb-bulk-warn">ไม่มีหมวดนี้ — พิมพ์คำบางส่วนแล้วเลือกจากรายการ</span>`:""}
       </div>
     </div>
+    ${cb.reviewOpen?`<div class="cb-grpwrap">
+      <div class="cb-grphead">📊 สรุปรายหมวด — คลิกหมวดเพื่อดูเฉพาะรายการในหมวดนั้น (ตรวจว่าจัดถูกไหม)
+        ${cb.catPick!=null?`<button class="cb-x2" onclick="catbotClearPick()">✕ ดูทุกหมวด</button>`:""}</div>
+      <div class="cb-grps">${grpHtml||`<div class="cb-note-sm">ไม่มีรายการ</div>`}</div>
+    </div>`:""}
+    ${(!cb.reviewOpen && cb.catPick!=null)?`<div class="cb-pickbar">กำลังดูเฉพาะหมวด <b>${cb.catPick?esc(cb.catPick):"— ยังไม่จัดหมวด —"}</b>
+      <button class="cb-x2" onclick="catbotClearPick()">✕ ดูทุกหมวด</button></div>`:""}
     <div class="cb-legend">
       <span><b>${cnt.ok}</b> รายการมั่นใจ (เติมให้แล้ว)</span> ·
       <span><b>${cnt.review+cnt.none}</b> รายการควรตรวจ/เลือกหมวดเอง</span> ·
@@ -25268,6 +25372,7 @@ async function renderToolBankRec(){
   // body content per tab
   let body = "";
   if(tab === "autocat"){
+    catbotLoadSession();         // ★ กู้งานที่ค้างไว้จาก catbot_session (ครั้งเดียว · async ไม่บล็อก render)
     body = catbotRenderTab(d);   // ★ ทำงานได้แม้ยังไม่มีบัญชีธนาคาร (ไม่พึ่ง bank_accounts)
   } else if(tab === "cod"){
     body = codRenderTab(d);      // ★ COD ขนส่ง — client-side · ทำงานได้แม้ยังไม่มีบัญชีธนาคาร

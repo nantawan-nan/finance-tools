@@ -654,7 +654,7 @@ function updateCrumb(){
    ===================================================================== */
 /* ★ เลข build — บั๊มทุกครั้งที่ deploy (โชว์มุมล่าง sidebar) · ใช้เช็คว่าเบราว์เซอร์ได้โค้ดล่าสุดหรือยัง
    (ตัวเช็คเวอร์ชันอัตโนมัติถูกปิดตามคำขอเจ้าของ — เลขนี้คือทางเช็คด้วยตาแทน) */
-const APP_BUILD = "3007y";
+const APP_BUILD = "3007z";
 const APP_CONFIG = {
   // null = โชว์ทุกโมดูล (ของเดิม) · หรือ array = โชว์เฉพาะ id เหล่านี้
   enabledTools: null,
@@ -10332,7 +10332,7 @@ function renderToolExecDash(){
           <div class="big">↑</div>
           <div>ลากไฟล์มาวางที่นี่ หรือ <b>คลิกเพื่อเลือกไฟล์</b></div>
           <div class="sm">ไฟล์อ่านในเครื่องเท่านั้น ไม่อัปขึ้นเซิร์ฟเวอร์</div>
-          <input type="file" id="edInput" accept=".xlsx,.xls" style="display:none">
+          <input type="file" id="edInput" accept=".xlsx,.xls" multiple style="display:none">
         </div>
         ${d.err ? `<div style="background:#fef2f2;color:#991b1b;padding:10px 14px;border-radius:8px;margin-top:12px;font-size:13px">${esc(d.err)}</div>` : ""}
         <div class="soon-note" style="margin-top:14px">
@@ -10344,8 +10344,8 @@ function renderToolExecDash(){
     drop.onclick = ()=>inp.click();
     drop.ondragover = e=>{e.preventDefault(); drop.classList.add("over");};
     drop.ondragleave = ()=>drop.classList.remove("over");
-    drop.ondrop = e=>{ e.preventDefault(); drop.classList.remove("over"); if(e.dataTransfer.files[0]) edHandleFile(e.dataTransfer.files[0]); };
-    inp.onchange = e=>{ if(e.target.files[0]) edHandleFile(e.target.files[0]); };
+    drop.ondrop = e=>{ e.preventDefault(); drop.classList.remove("over"); if(e.dataTransfer.files.length) edHandleFiles(e.dataTransfer.files); };
+    inp.onchange = e=>{ if(e.target.files.length) edHandleFiles(e.target.files); };
     return;
   }
 
@@ -10420,62 +10420,85 @@ function edRebuildFromMonths(monthList, company){
   return { company: company || "", months, transactions, accounts, errors };
 }
 
-/* รวมข้อมูลเก่า + ใหม่ เข้าด้วยกัน — เดือนเดียวกัน (key ซ้ำ) = ของใหม่ทับ, เดือน/ปีใหม่ = เพิ่มเข้าไป
-   ใช้ตอนอัปไฟล์ปีอื่นเพิ่ม (เช่น มี 2026 อยู่แล้ว อัป 2025 เข้าไป โดย 2026 ยังอยู่ครบ) */
+/* ★★ รวม "เดือนเดียวกัน" ระดับ **บัญชี** — ไฟล์ที่แยกตามบัญชี (0405 / 4889 / 1640) เดือนเดียวกัน
+   ต้องอยู่ครบทั้ง 3 บัญชี · เดิมทับทั้งเดือน → อัปไฟล์ที่ 2 = บัญชีของไฟล์ที่ 1 หายเกลี้ยง */
+function edMergeMonth(oldM, newM){
+  const byAcc = {};
+  for(const a of (oldM.accounts||[])) byAcc[a.accountKey] = a;
+  for(const a of (newM.accounts||[])) byAcc[a.accountKey] = a;   // บัญชีเดียวกันเดือนเดียวกัน = ของใหม่ทับ (อัปซ้ำแก้ไข)
+  return { key:newM.key, year:newM.year, month:newM.month, accounts: Object.values(byAcc) };
+}
+/* รวมข้อมูลเก่า + ใหม่ เข้าด้วยกัน — เดือน/ปีใหม่ = เพิ่มเข้าไป · เดือนซ้ำ = รวมรายบัญชี (ดู edMergeMonth)
+   ใช้ตอนอัปไฟล์ปีอื่นเพิ่ม + อัปไฟล์แยกบัญชีของเดือนเดียวกันทีละไฟล์ */
 function edMergeData(base, add){
   if(!base || !base.months || !base.months.length) return add;
-  // index เดือนตาม key — ของใหม่ทับของเก่าถ้า key ตรงกัน
   const monthMap = {};
   for(const m of base.months) monthMap[m.key] = m;
-  for(const m of add.months)  monthMap[m.key] = m;
+  for(const m of add.months)  monthMap[m.key] = monthMap[m.key] ? edMergeMonth(monthMap[m.key], m) : m;
   return edRebuildFromMonths(Object.values(monthMap), base.company || add.company);
 }
 
-function edHandleFile(file){
+/* อ่าน 1 ไฟล์ → merge เข้า d.data · คืน Promise (ใช้อัปหลายไฟล์เรียงกันได้) · opts.silent = ยังไม่ต้อง render/save */
+function edHandleFile(file, opts){
+  opts = opts || {};
   const d = edState();
   d.err = null;
-  const reader = new FileReader();
-  reader.onload = e => {
-    try{
-      const wb = XLSX.read(e.target.result, { type:"array", cellDates:true });
-      const sheets = {}, names = wb.SheetNames.slice();
-      names.forEach(n => { sheets[n] = XLSX.utils.sheet_to_json(wb.Sheets[n], { header:1, defval:"", blankrows:false }); });
-      const nd = edParse({ sheets, names });
-      if(!nd.months.length){
-        d.err = "ไม่พบชีตในรูปแบบ YYYY.MM (เช่น 2026.01)";
-        renderToolExecDash();
-        return;
-      }
-      const hadData = d.data && d.data.months && d.data.months.length;
-      if(hadData){
-        // มีข้อมูลอยู่แล้ว → รวมเข้าด้วยกัน (เดือนซ้ำของใหม่ทับ, ปีใหม่เพิ่มเข้าไป)
-        const newYears = [...new Set(nd.months.map(m=>m.key.slice(0,4)))];
-        d.data = edMergeData(d.data, nd);
-        const allYears = [...new Set(d.data.months.map(m=>m.key.slice(0,4)))].sort();
+  return new Promise(resolve=>{
+    const reader = new FileReader();
+    reader.onload = e => {
+      try{
+        const wb = XLSX.read(e.target.result, { type:"array", cellDates:true });
+        const sheets = {}, names = wb.SheetNames.slice();
+        names.forEach(n => { sheets[n] = XLSX.utils.sheet_to_json(wb.Sheets[n], { header:1, defval:"", blankrows:false }); });
+        const nd = edParse({ sheets, names });
+        if(!nd.months.length){
+          d.err = "ไฟล์ " + file.name + ": ไม่พบชีตในรูปแบบ YYYY.MM (เช่น 2026.01)";
+          if(!opts.silent) renderToolExecDash();
+          return resolve(false);
+        }
+        const hadData = d.data && d.data.months && d.data.months.length;
+        d.data = hadData ? edMergeData(d.data, nd) : nd;
         d.file = file.name;
-        d.mergeMsg = "เพิ่มข้อมูลปี " + newYears.map(y=>Number(y)+543).join(", ")
-          + " แล้ว — ตอนนี้มีปี " + allYears.map(y=>Number(y)+543).join(", ") + " (รวม " + d.data.months.length + " เดือน)";
-      } else {
-        d.data = nd;
-        d.file = file.name;
-        d.mergeMsg = null;
+        d.mergeMsg = hadData ? edMergeSummary(d.data) : null;
+        if(!opts.silent){ edSave(); edSaveCloud(); renderToolExecDash(); }
+        resolve(true);
+      }catch(err){
+        d.err = "อ่านไฟล์ " + file.name + " ไม่สำเร็จ: " + (err.message||err);
+        if(!opts.silent) renderToolExecDash();
+        resolve(false);
       }
-      edSave();         // เก็บลง localStorage
-      edSaveCloud();    // เก็บขึ้น Supabase (shared ทุกอุปกรณ์)
-      renderToolExecDash();
-    }catch(err){
-      d.err = "อ่านไฟล์ไม่สำเร็จ: " + (err.message||err);
-      renderToolExecDash();
-    }
-  };
-  reader.readAsArrayBuffer(file);
+    };
+    reader.onerror = () => { d.err = "อ่านไฟล์ " + file.name + " ไม่สำเร็จ"; resolve(false); };
+    reader.readAsArrayBuffer(file);
+  });
 }
-/* เปิดตัวเลือกไฟล์เพื่ออัป "เพิ่ม" (รวมปี) จากในหน้า dashboard */
+/* ข้อความสรุปหลังรวม — บอกปี/เดือน/บัญชี ที่มีอยู่ตอนนี้ (ให้เห็นว่าของเก่าไม่หาย) */
+function edMergeSummary(data){
+  const years = [...new Set(data.months.map(m=>m.key.slice(0,4)))].sort().map(y=>Number(y)+543);
+  const accN  = Object.keys(data.accounts||{}).length;
+  return "รวมข้อมูลแล้ว — ตอนนี้มีปี " + years.join(", ") + " · " + data.months.length + " เดือน · " + accN + " บัญชี (ของเดิมยังอยู่ครบ)";
+}
+/* อัปหลายไฟล์ทีเดียว — รวมทุกไฟล์ก่อน แล้วค่อยเซฟ/วาดครั้งเดียว */
+async function edHandleFiles(files){
+  const list = Array.from(files||[]);
+  if(!list.length) return;
+  const d = edState();
+  let ok = 0;
+  for(const f of list){ if(await edHandleFile(f, { silent:true })) ok++; }
+  if(ok){
+    edSave(); edSaveCloud();
+    if(d.data) d.mergeMsg = (list.length>1 ? "อัป " + ok + "/" + list.length + " ไฟล์ · " : "") + edMergeSummary(d.data);
+    if(ok === list.length) d.err = null;      // สำเร็จหมด = ไม่ต้องค้างข้อความ error ของไฟล์ก่อนหน้า
+  }
+  renderToolExecDash();
+}
+/* เปิดตัวเลือกไฟล์เพื่ออัป "เพิ่ม" (รวมปี/รวมบัญชี) จากในหน้า dashboard — เลือกได้หลายไฟล์ */
 function edAddFile(){
   const inp = document.createElement("input");
   inp.type = "file";
   inp.accept = ".xlsx,.xls";
-  inp.onchange = e => { if(e.target.files[0]) edHandleFile(e.target.files[0]); };
+  inp.multiple = true;
+  inp.onchange = e => { if(e.target.files.length) edHandleFiles(e.target.files); };
   inp.click();
 }
 function edReset(){

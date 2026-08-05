@@ -191,6 +191,16 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-08-05 (2) — ★★ จัดหมวด (AI): เก็บงานค้างบนเซิร์ฟเวอร์ (refresh ไม่หาย) + รีวิวตามหมวด (b3007x)
+- **เจ้าของถาม:** "ข้อมูลจะยังอยู่ไหมถ้ารีเฟรช" — **เดิม: ไม่อยู่** · `cb.accounts` เป็น in-memory (`state.brec[co].catbot`) ล้วน · ยืนยันแล้วถึงจะเขียน DB (`catbot_rules` + exec dashboard) · งานที่จัดค้างไว้ = หายหมด ต้องอัปไฟล์ใหม่
+- **Migration `catbot-session.sql`:** ตาราง `catbot_session` (`company_id` PK · `accounts` jsonb · `file_names` jsonb · RLS ตามบริษัท เหมือน `brec_cod_data`) — เก็บ**ทั้งแถวที่อ่านจากไฟล์ + หมวดที่ผู้ใช้เลือกไว้**
+- **`catbotSaveSession`** (upsert · `accounts` ว่าง = delete row) · **`catbotQueueSave`** (debounce 900ms — เลือกหมวดรัว ๆ ไม่ยิงทุกครั้ง) · **`catbotLoadSession`** (guard `cb.sessLoaded` · ไม่ทับของที่เพิ่งอัป · โชว์ note "กู้งานที่ค้างไว้กลับมาแล้ว N รายการ · บันทึกล่าสุด …")
+- **จุดเรียก:** หลังอัปไฟล์ (`catbotSaveSession` ทันที) · `catbotSetCat`/`catbotBulkApply` (queue) · `catbotClear` (ลบ session) · เข้าแท็บ `autocat` ใน `renderToolBankRec` (โหลด · async ไม่บล็อก render) · **ยืนยันแล้วไม่ลบอัตโนมัติ** (ตรวจซ้ำได้ · note บอกให้กด 🗑 ล้างเมื่อเสร็จ)
+- **★ per-company อัตโนมัติ** — `state.brec[co]` แยกบริษัทอยู่แล้ว → `sessLoaded`/`catbot` ไม่ปนข้ามบริษัท
+- **รีวิวตามหมวด** (`catbotCatGroups`/`catbotToggleReview`/`catbotPickCat`/`catbotClearPick` · ชิป "📊 รีวิวตามหมวด"): การ์ดต่อหมวด — จำนวน · ยอดรับ(+เขียว)/จ่าย(−แดง) · ✎ เลือกเองกี่ใบ · ⚠ ยังต้องตรวจกี่ใบ · **"— ยังไม่จัดหมวด —" ขึ้นบนสุดพื้นแดง** · คลิกหมวด = ดูเฉพาะรายการในหมวดนั้น (`cb.catPick` · `""` = ยังไม่จัด) กดซ้ำ/ปุ่ม ✕ = ดูทุกหมวด
+- **★ `catbotVisibleRows(cb, ignorePick)`** — สรุปรายหมวดส่ง `ignorePick=true` (ตัวเลขนิ่งตอน drill) แต่ **ตาราง + ปุ่มจัดหมวดทีเดียวใช้ตัวกรองเต็ม** (สิ่งที่เห็น = สิ่งที่จัด) · `catbotPickCat(i)` รับ **index ใน CATBOT_CATS** (-1 = ยังไม่จัด) ไม่ส่ง string เข้า onclick (กัน quote พัง)
+- **verified:** syntax OK · unit test grouping/drill/bulk-scope 8 เคส (ยังไม่จัดขึ้นบนสุด · drill 2 แถว · กลุ่มไม่เปลี่ยนตอน drill · bulk แตะเฉพาะ 2 แถวที่ drill) · render test (panel/การ์ด/on-state) · **db-migrate เขียว** (`catbot_session` สร้างแล้ว)
+
 ### 2026-08-05 — ★ จัดหมวด (AI): ค้นหาในหมายเหตุ + จัดหมวดทีเดียวทั้งชุด + ดรอปดาวน์พิมพ์ค้นหาได้ (b3007w)
 - **เจ้าของขอ:** เลือกหมวดในแท็บ "🏷️ จัดหมวด (AI)" ให้ค้นหาในดรอปดาวน์ได้ + ค้นคำในหมายเหตุ (เช่น "IShip") แล้วกดจัดหมวดทีเดียวทั้งชุด
 - **ค้นหา** `catbotSetSearch(v)` (`cb.q`) — debounce 180ms + คง caret ที่ `#cbSearchBox` ([[feedback_input_no_rerender]]) · ค้นใน `remark + docNo + amount + cat` (case-insensitive)

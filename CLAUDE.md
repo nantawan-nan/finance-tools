@@ -191,6 +191,13 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-08-05 (3) — ★ จัดหมวด (AI): ช่องเลือกหมวด คลิกแล้วเห็นครบ 40 หมวด (b3007y)
+- **เจ้าของแจ้ง "แก้ไม่ได้" → หาเองเจอว่า "ต้องลบข้อความก่อนถึงกดดรอปดาวน์ได้"**
+- **ต้นเหตุ (พฤติกรรม native `<input list>`):** ถ้าช่องมีค่าเดิมค้างอยู่ เบราว์เซอร์ใช้ค่านั้นเป็น**คำกรอง datalist** → เห็นแค่หมวดเดิมหมวดเดียว เลือกหมวดอื่นไม่ได้ · ต่างจาก `<select>` เดิมที่กดแล้วเห็นครบ (ปัญหาที่ b3007w สร้างขึ้นเองตอนเปลี่ยนเป็น input)
+- **แก้:** `catbotCatFocus` (โฟกัส = เคลียร์ช่อง · จำค่าเดิมใน `dataset.prev` → เห็นครบ 40 หมวด) · `catbotCatInput` (ค่าตรงหมวดพอดี = ใช้ทันที + `blur()` ปิดลิสต์ ไม่ต้องรอ) · `catbotCatBlur` (ออกจากช่องโดยไม่เลือก = คืนค่าเดิม · **ล้างหมวดต้องใช้ปุ่ม ✕** ในช่อง `catbotCatWipe`) · เลิกใช้ `onchange`
+- **คู่แฝดฝั่ง bulk:** `catbotBulkInput`/`catbotBulkBlur` (blur ค่าว่าง = ล้างช่อง ปุ่ม disabled เอง)
+- **verified:** syntax OK · render test (onfocus/oninput/onblur ครบ · ปุ่ม ✕ โผล่เฉพาะแถวที่มีหมวด · ไม่เหลือ onchange เก่า)
+
 ### 2026-08-05 (2) — ★★ จัดหมวด (AI): เก็บงานค้างบนเซิร์ฟเวอร์ (refresh ไม่หาย) + รีวิวตามหมวด (b3007x)
 - **เจ้าของถาม:** "ข้อมูลจะยังอยู่ไหมถ้ารีเฟรช" — **เดิม: ไม่อยู่** · `cb.accounts` เป็น in-memory (`state.brec[co].catbot`) ล้วน · ยืนยันแล้วถึงจะเขียน DB (`catbot_rules` + exec dashboard) · งานที่จัดค้างไว้ = หายหมด ต้องอัปไฟล์ใหม่
 - **Migration `catbot-session.sql`:** ตาราง `catbot_session` (`company_id` PK · `accounts` jsonb · `file_names` jsonb · RLS ตามบริษัท เหมือน `brec_cod_data`) — เก็บ**ทั้งแถวที่อ่านจากไฟล์ + หมวดที่ผู้ใช้เลือกไว้**

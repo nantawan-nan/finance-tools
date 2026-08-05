@@ -654,7 +654,7 @@ function updateCrumb(){
    ===================================================================== */
 /* ★ เลข build — บั๊มทุกครั้งที่ deploy (โชว์มุมล่าง sidebar) · ใช้เช็คว่าเบราว์เซอร์ได้โค้ดล่าสุดหรือยัง
    (ตัวเช็คเวอร์ชันอัตโนมัติถูกปิดตามคำขอเจ้าของ — เลขนี้คือทางเช็คด้วยตาแทน) */
-const APP_BUILD = "3007x";
+const APP_BUILD = "3007y";
 const APP_CONFIG = {
   // null = โชว์ทุกโมดูล (ของเดิม) · หรือ array = โชว์เฉพาะ id เหล่านี้
   enabledTools: null,
@@ -24194,6 +24194,11 @@ function brecInjectCSS(){
   .cb-sel.empty{border-color:#fca5a5;background:#fff1f2}
   .cb-sel:focus{outline:2px solid var(--brand);outline-offset:-1px}
   .cb-sel::placeholder{color:#94a3b8;font-weight:400}
+  .cb-catbox{position:relative;display:block}
+  .cb-catbox .cb-sel{padding-right:26px}
+  .cb-catx{position:absolute;right:4px;top:50%;transform:translateY(-50%);border:0;background:transparent;
+    color:#94a3b8;cursor:pointer;font:700 12px/1 inherit;padding:3px 4px;border-radius:5px}
+  .cb-catx:hover{background:#fee2e2;color:#b91c1c}
   .cb-badge{font-size:11px;font-weight:700;padding:3px 10px;border-radius:999px;white-space:nowrap}
   .cb-badge.ok{background:#dcfce7;color:#15803d}
   .cb-badge.rv{background:#fef3c7;color:#b45309}
@@ -24995,6 +25000,21 @@ function catbotSetCat(ai,ri,val){
   r.cat = val; r.act = catbotActOf(val); r.method="manual"; r.tier = val? "ok":"none"; r.edited=true;
   brecRefresh(); catbotQueueSave();
 }
+/* ★★ ช่องหมวดแบบ input+datalist: ถ้าปล่อยค่าเดิมค้างไว้ ดรอปดาวน์จะกรองด้วยค่านั้น → เห็นหมวดเดียว เลือกหมวดอื่นไม่ได้
+   แก้: โฟกัส = เคลียร์ช่อง (โชว์ครบ 40 หมวด) · เลือกตรงหมวด = ใช้ทันที · ออกจากช่องโดยไม่เลือก = คืนค่าเดิม */
+function catbotCatFocus(el){ el.dataset.prev = el.value; el.value = ""; }
+function catbotCatInput(ai,ri,el){
+  const v = String(el.value||"").trim();
+  if(v && CATBOT_CATS.includes(v)){ el.dataset.prev = v; el.blur(); catbotSetCat(ai,ri,v); }
+}
+function catbotCatBlur(ai,ri,el){
+  const v = String(el.value||"").trim();
+  const prev = el.dataset.prev||"";
+  if(v === prev) return;
+  if(!v){ el.value = prev; return; }                 // ไม่ได้เลือกอะไร = คืนค่าเดิม (ล้างหมวดใช้ปุ่ม ✕)
+  catbotSetCat(ai,ri,v);
+}
+function catbotCatWipe(ai,ri){ catbotSetCat(ai,ri,""); }   // ล้างหมวดของแถวนี้
 function catbotSetFilter(f){ catbotGet(brecGet()).filter=f; brecRefresh(); }
 /* ★ ค้นหาในหมายเหตุ/เลขที่ — debounce + คง caret (ห้าม re-render ทุกตัวอักษร · [[feedback_input_no_rerender]]) */
 function catbotSetSearch(v){
@@ -25006,6 +25026,16 @@ function catbotSetSearch(v){
 }
 function catbotClearSearch(){ const cb=catbotGet(brecGet()); cb.q=""; cb.bulkCat=""; brecRefresh(); }
 function catbotSetBulkCat(v){ catbotGet(brecGet()).bulkCat = v||""; brecRefresh(); }
+function catbotBulkInput(el){
+  const v = String(el.value||"").trim();
+  if(v && CATBOT_CATS.includes(v)){ el.dataset.prev = v; el.blur(); catbotSetBulkCat(v); }
+}
+function catbotBulkBlur(el){
+  const v = String(el.value||"").trim();
+  const prev = el.dataset.prev||"";
+  if(v === prev) return;
+  catbotSetBulkCat(v);          // ว่าง = ล้างช่อง (ปุ่มจะ disabled เอง)
+}
 /* แถวที่ผ่านทั้งชิปกรอง + คำค้น + หมวดที่เลือกรีวิว (ใช้ร่วม render + จัดหมวดทีเดียว)
    ignorePick=true → ไม่กรองด้วยหมวดที่เลือก (ใช้ตอนสรุปรายหมวด ให้ตัวเลขนิ่ง) */
 function catbotVisibleRows(cb, ignorePick){
@@ -25242,8 +25272,14 @@ function catbotRenderTab(d){
       <div class="cb-c amt ${amtCls}">${fmt(r.amount)}</div>
       <div class="cb-c rem"><div class="t">${esc(r.remark||"—")}</div><div class="s">${esc(r.docNo||"")}${r.method&&r.method!=="none"?" · "+catbotMethodLbl(r.method):""}</div></div>
       <div class="cb-c cat">
-        <input list="cbCatList" class="cb-sel ${r.cat?"":"empty"}" placeholder="— เลือก/พิมพ์ค้นหาหมวด —"
-               value="${esc(r.cat||"")}" onchange="catbotSetCat(${x.ai},${x.ri},this.value)">
+        <div class="cb-catbox">
+          <input list="cbCatList" class="cb-sel ${r.cat?"":"empty"}" placeholder="— คลิกเพื่อเลือก / พิมพ์ค้นหาหมวด —"
+                 value="${esc(r.cat||"")}"
+                 onfocus="catbotCatFocus(this)"
+                 oninput="catbotCatInput(${x.ai},${x.ri},this)"
+                 onblur="catbotCatBlur(${x.ai},${x.ri},this)">
+          ${r.cat?`<button class="cb-catx" title="ล้างหมวดของแถวนี้" onmousedown="event.preventDefault()" onclick="catbotCatWipe(${x.ai},${x.ri})">✕</button>`:""}
+        </div>
       </div>
       <div class="cb-c badge">${catbotBadge(r)}</div>
     </div>`;
@@ -25273,8 +25309,11 @@ function catbotRenderTab(d){
       </div>
       <div class="cb-bulk-act">
         <span class="cb-bulk-n">พบ <b>${shown.length}</b> รายการ</span>
-        <input list="cbCatList" class="cb-bulk-sel ${bulkBad?"bad":""}" placeholder="— เลือก/พิมพ์ค้นหาหมวด —"
-               value="${esc(cb.bulkCat||"")}" onchange="catbotSetBulkCat(this.value)">
+        <input list="cbCatList" class="cb-bulk-sel ${bulkBad?"bad":""}" placeholder="— คลิกเพื่อเลือก / พิมพ์ค้นหาหมวด —"
+               value="${esc(cb.bulkCat||"")}"
+               onfocus="catbotCatFocus(this)"
+               oninput="catbotBulkInput(this)"
+               onblur="catbotBulkBlur(this)">
         <datalist id="cbCatList">${CATBOT_CATS.map(c=>`<option value="${esc(c)}"></option>`).join("")}</datalist>
         <button class="brec-btn primary" onclick="catbotBulkApply()" ${bulkOk?"":"disabled"}>
           <i data-lucide="wand-2"></i> จัดหมวดทั้ง ${shown.length} รายการ

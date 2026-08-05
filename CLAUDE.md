@@ -191,6 +191,15 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-08-05 (6) — ★ งบกระแสเงินสด (Exec): ลบข้อมูลแบบเลือกได้ บัญชี/เดือน/ปี (b3008b)
+- **เจ้าของ:** "เผลออัป 1640 (บัญชี Benya) เข้าเอ็มบาร์ค · มีให้ลบไฟล์แบบเลือกได้ไหม" — เดิมมีแต่ **ล้าง & เริ่มใหม่** (ลบหมด) · `edDeleteYear` มีโค้ดแต่ **ไม่มีปุ่มเรียก** (แถบ "📅 ข้อมูลที่มี" ถูกถอดไปก่อนหน้า) · ลบทั้งปี = ข้อมูล M Bark ที่ถูกต้องหายด้วย
+- **`edDataInventory(data)`** — รายการ **บัญชี × เดือน** ที่มีจริง (accountKey/bank/no/nick/months{in,out,n})
+- **`edDeleteAccount(accountKey, monthKey)`** — `monthKey` ว่าง = ลบบัญชีนั้นทุกเดือน · ระบุเดือน = ลบเฉพาะเดือนนั้น · **`edDeleteMonth(monthKey)`** = ลบทั้งเดือนทุกบัญชี
+- **`edApplyMonths(keep,msg)`** (helper กลาง) = `edRebuildFromMonths` + sync `monthFilter` + `edSave/edSaveCloud/render` · **ไม่เหลือเดือน → `edReset()`**
+- **ปุ่ม "🧹 จัดการข้อมูล"** (`edToggleManage` · `d.manageOpen` · gate `canEditExec`) → แผงเหลือง `edManagePanelHtml`: ตารางบัญชี (ชิปลบรายเดือน + ปุ่ม "ลบบัญชีนี้ทั้งหมด") + ชิปลบทั้งเดือน + ชิปลบทั้งปี (ปลุก `edDeleteYear` กลับมาใช้งาน)
+- **★ ไม่แตะ logic การรวมเลข/แสดงผลของ Exec Dashboard** (เพิ่มเฉพาะ path ลบข้อมูล · คู่กับ b3007z ที่แก้ path นำเข้า)
+- **verified:** unit test 10 เคส (ลบบัญชี → บัญชีอื่นอยู่ครบ · ลบเฉพาะเดือนไม่โดนเดือนอื่น · transactions ไม่ค้าง · ลบจนหมด = reset · ปุ่มในแผงครบ) · syntax OK
+
 ### 2026-08-05 (5) — ★ จัดหมวด (AI): แก้ "ยอดยกมา" รายบัญชีได้ในหน้า (b3008a)
 - **อาการ:** เงินสดปลายงวด SCB 417-077164-0 = **(74,533.97)** ติดลบ · เจ้าของ "ไฟล์ 1640 ยอดยกมาผิด แก้ยังไง"
 - **ต้นเหตุ (`catbotUpload`):** `opening = f0.balance!=null ? f0.balance-(dep-wd) : 0` → **Express XML ที่แถวแรกไม่มียอดคงเหลือ → opening = 0** → ปลายงวดติดลบทั้งบัญชี · เดิมแก้ไม่ได้เลย ต้องไปแก้ไฟล์ต้นทาง

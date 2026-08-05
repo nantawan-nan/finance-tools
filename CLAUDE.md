@@ -191,6 +191,15 @@ Live: **https://nantawan-nan.github.io/finance-tools/**
 
 ## Recent changes (chronological)
 
+### 2026-08-05 — ★ จัดหมวด (AI): ค้นหาในหมายเหตุ + จัดหมวดทีเดียวทั้งชุด + ดรอปดาวน์พิมพ์ค้นหาได้ (b3007w)
+- **เจ้าของขอ:** เลือกหมวดในแท็บ "🏷️ จัดหมวด (AI)" ให้ค้นหาในดรอปดาวน์ได้ + ค้นคำในหมายเหตุ (เช่น "IShip") แล้วกดจัดหมวดทีเดียวทั้งชุด
+- **ค้นหา** `catbotSetSearch(v)` (`cb.q`) — debounce 180ms + คง caret ที่ `#cbSearchBox` ([[feedback_input_no_rerender]]) · ค้นใน `remark + docNo + amount + cat` (case-insensitive)
+- **`catbotVisibleRows(cb)` (helper กลาง)** = ชิปกรอง (all/ok/review) + คำค้น — **ใช้ร่วมทั้ง render และ bulk** (สิ่งที่เห็น = สิ่งที่จัด ตรงกันเสมอ)
+- **`catbotBulkApply()`** ใส่หมวดให้ทุกแถวที่กรองอยู่ (`cat/act/method="manual"/tier="ok"/edited`) · confirm บอกจำนวน + คำค้น + **⚠️ เตือนถ้าทับหมวดที่เลือกไว้แล้ว N รายการ** · ปุ่มโชว์ "จัดหมวดทั้ง N รายการ"
+- **ดรอปดาวน์พิมพ์ค้นหาได้** — เปลี่ยน `<select>` เป็น `<input list="cbCatList">` + `<datalist>` (datalist เดียวใช้ร่วมทุกแถว · render ในแถบ bulk ที่มาก่อนตาราง) **ทั้งช่องรายแถวและช่อง bulk** · native select เดิม type-ahead ตรงตัวแรกเท่านั้น ค้นหมวดไทย 40 หมวดไม่ไหว
+- **★ คงกฎ "หมวดล็อก 40 หมวด ห้ามสร้างใหม่":** input พิมพ์เองได้ → validate ด้วย `CATBOT_CATS.includes()` ทั้ง `catbotSetCat` (ไม่ตรง = alert + `brecRefresh()` คืนค่าเดิม) และ `catbotBulkApply` · ปุ่ม bulk disabled + ช่องขอบเหลือง + คำเตือนเมื่อค่าไม่ตรงหมวด (`bulkBad`/`bulkOk`)
+- **verified:** syntax OK · unit test 9 เคส (ค้น case-insensitive · ค้น+ชิปรวมกัน · หมวดมั่วถูกบล็อก · จัดเฉพาะแถวที่กรอง แถวอื่นไม่แตะ · ไม่มีคำค้น = จัดทั้งหมด) · render smoke test (search box/datalist/ปุ่ม disabled/คำเตือน/นับแถว) · ไม่ต้อง migration
+
 ### 2026-08-04 — ★ Lazada: ออเดอร์ข้ามรอบบิล → รวมเป็นเช็คใบเดียว (b3007v)
 - **เจ้าของถาม:** ออเดอร์ Lazada ที่เงินเข้า 2 รอบบิล ค่าธรรมเนียมบันทึกครบไหม · การ์ดโชว์ GROSS 755 / NET 532.78 / ผลต่าง 222.22 แต่ timeline บอก net 500.68 / fee 254.32
 - **★ ธรรมชาติ Lazada:** 1 ออเดอร์เงินเข้า **หลายรอบบิล** — รอบแรก = ยอดขาย − ค่าธรรมเนียมหลัก (บวก) · รอบถัดไป = **ค่าบริการจัดส่ง (ติดลบ)** · verified ไฟล์จริง QI: ออเดอร์ 62 ใบ **ข้ามรอบบิล 26 ใบ (42%)** · รูปแบบคงที่ (รอบหลังติดลบเสมอ · ไม่มีเคสบวก 2 รอบ)

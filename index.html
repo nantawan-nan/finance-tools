@@ -360,6 +360,10 @@
   .ed-glow{animation:edGlow 2.6s ease-in-out infinite}
   .ed-card{background:rgba(255,255,255,.85);backdrop-filter:blur(8px);border:1px solid #d6e4ff;border-radius:14px;box-shadow:0 1px 3px rgba(30,58,138,.06),0 4px 16px rgba(30,58,138,.05);padding:18px 20px;margin-bottom:14px}
   .ed-card h3{margin:0 0 10px;font-family:"IBM Plex Sans","IBM Plex Sans Thai",ui-sans-serif,sans-serif;font-size:14.5px;font-weight:700;color:#1e3a8a;letter-spacing:-.2px}
+  .ed-mchip{border:1px solid #fbbf24;background:#fff;color:#92400e;border-radius:7px;padding:3px 8px;margin:2px 0;cursor:pointer;font:600 11.5px/1.3 inherit}
+  .ed-mchip:hover{background:#fee2e2;border-color:#f87171;color:#b91c1c}
+  .ed-mdel{border:1px solid #fca5a5;background:#fff1f2;color:#b91c1c;border-radius:7px;padding:4px 10px;cursor:pointer;font:700 11.5px/1.3 inherit}
+  .ed-mdel:hover{background:#fecaca}
   .ed-tabs{display:flex;gap:4px;background:rgba(99,179,237,.12);padding:4px;border-radius:11px;margin-bottom:16px;flex-wrap:wrap}
   .ed-tabs button{flex:1;min-width:120px;border:none;background:transparent;padding:9px 14px;font-size:12.5px;font-weight:600;color:#475569;border-radius:8px;cursor:pointer;transition:.15s;font-family:inherit}
   .ed-tabs button:hover{background:rgba(255,255,255,.5)}
@@ -654,7 +658,7 @@ function updateCrumb(){
    ===================================================================== */
 /* ★ เลข build — บั๊มทุกครั้งที่ deploy (โชว์มุมล่าง sidebar) · ใช้เช็คว่าเบราว์เซอร์ได้โค้ดล่าสุดหรือยัง
    (ตัวเช็คเวอร์ชันอัตโนมัติถูกปิดตามคำขอเจ้าของ — เลขนี้คือทางเช็คด้วยตาแทน) */
-const APP_BUILD = "3008a";
+const APP_BUILD = "3008b";
 const APP_CONFIG = {
   // null = โชว์ทุกโมดูล (ของเดิม) · หรือ array = โชว์เฉพาะ id เหล่านี้
   enabledTools: null,
@@ -10540,6 +10544,82 @@ function edDeleteYear(y){
   edSaveCloud();
   renderToolExecDash();
 }
+/* ★★ ลบข้อมูลแบบเลือกได้ — เคสอัปไฟล์ผิดบริษัท (เช่นเผลออัปบัญชี 1640 ของ Benya เข้า M Bark)
+   ลบได้ 3 ระดับ: ทั้งบัญชี (ทุกเดือน) · บัญชีนั้นเฉพาะเดือน · ทั้งเดือน */
+function edDataInventory(data){
+  const inv = {};   // accountKey → { bank, no, months:{ key:{in,out,n} } }
+  for(const m of (data.months||[])){
+    for(const a of (m.accounts||[])){
+      if(!inv[a.accountKey]) inv[a.accountKey] = { key:a.accountKey, bank:a.header.bank, no:a.header.no, nick:a.header.nick, months:{} };
+      inv[a.accountKey].months[m.key] = { in:a.totalIn||0, out:a.totalOut||0, n:(a.items||[]).length };
+    }
+  }
+  return Object.values(inv).sort((x,y)=> (x.bank+x.no).localeCompare(y.bank+y.no));
+}
+function edApplyMonths(keep, msg){
+  const d = edState();
+  if(!keep.length){ edReset(); return; }
+  d.data = edRebuildFromMonths(keep, d.data.company);
+  if(d.monthFilter && d.monthFilter !== "all" && !edScopeMonthKeys(d.data, d.monthFilter).length) d.monthFilter = "all";
+  d.mergeMsg = msg + " — เหลือ " + d.data.months.length + " เดือน · " + Object.keys(d.data.accounts||{}).length + " บัญชี";
+  edSave(); edSaveCloud(); renderToolExecDash();
+}
+/* ลบบัญชีออกจากทุกเดือน (monthKey = "" ) หรือเฉพาะเดือนเดียว */
+function edDeleteAccount(accountKey, monthKey){
+  const d = edState();
+  if(!d.data || !d.data.months) return;
+  const inv = edDataInventory(d.data).find(x=>x.key===accountKey);
+  const label = inv ? (inv.bank+" "+inv.no) : accountKey;
+  const scope = monthKey ? ("เดือน " + monthKey) : "ทุกเดือน";
+  const coName = state.company === "mbark" ? "M Bark" : "Benya";
+  if(!confirm("ลบบัญชี " + label + " (" + scope + ") ออกจาก " + coName + " ?\n\nบัญชีอื่น/เดือนอื่นยังอยู่ครบ\nถ้าลบผิด อัปไฟล์บัญชีนั้นกลับเข้ามาใหม่ได้")) return;
+  const keep = [];
+  for(const m of d.data.months){
+    if(monthKey && m.key !== monthKey){ keep.push(m); continue; }
+    const accs = (m.accounts||[]).filter(a=> a.accountKey !== accountKey);
+    if(accs.length) keep.push({ key:m.key, year:m.year, month:m.month, accounts:accs });
+  }
+  edApplyMonths(keep, "ลบบัญชี " + label + " (" + scope + ") แล้ว");
+}
+function edDeleteMonth(monthKey){
+  const d = edState();
+  if(!d.data || !d.data.months) return;
+  const coName = state.company === "mbark" ? "M Bark" : "Benya";
+  if(!confirm("ลบข้อมูลเดือน " + monthKey + " ทั้งเดือน (ทุกบัญชี) ออกจาก " + coName + " ?")) return;
+  edApplyMonths(d.data.months.filter(m=>m.key!==monthKey), "ลบเดือน " + monthKey + " แล้ว");
+}
+function edToggleManage(){ const d=edState(); d.manageOpen=!d.manageOpen; edRenderDashboard(); }
+function edManagePanelHtml(data){
+  const inv = edDataInventory(data);
+  const months = data.months.map(m=>m.key);
+  const rows = inv.map(a=>{
+    const mk = Object.keys(a.months).sort();
+    const chips = mk.map(k=>`<button class="ed-mchip" title="ลบบัญชีนี้เฉพาะเดือน ${k}" onclick="edDeleteAccount('${esc(a.key)}','${k}')">${k} ✕</button>`).join("");
+    return `<tr>
+      <td style="font-weight:700">${esc(a.bank||"")} ${esc(a.no||"")}</td>
+      <td style="color:#64748b">${esc(a.nick||"")}</td>
+      <td>${chips}</td>
+      <td style="text-align:right"><button class="ed-mdel" onclick="edDeleteAccount('${esc(a.key)}','')">ลบบัญชีนี้ทั้งหมด</button></td>
+    </tr>`;
+  }).join("");
+  const yrs = [...new Set(months.map(k=>k.slice(0,4)))].sort();
+  return `<div class="ed-hide-present" style="border:1px solid #fcd34d;background:#fffbeb;border-radius:10px;padding:12px 14px;margin:0 0 12px">
+    <div style="font-weight:700;color:#92400e;margin-bottom:8px">🧹 จัดการข้อมูล — ลบเฉพาะบัญชี / เดือน / ปี ที่อัปผิด</div>
+    <table style="width:100%;border-collapse:collapse;font-size:12.5px">
+      <thead><tr style="color:#92400e;text-align:left">
+        <th style="padding:4px 6px">บัญชี</th><th style="padding:4px 6px">ฝ่าย</th>
+        <th style="padding:4px 6px">ลบเฉพาะเดือน</th><th style="padding:4px 6px;text-align:right">ลบทั้งบัญชี</th>
+      </tr></thead>
+      <tbody>${rows||`<tr><td colspan="4" style="padding:8px;color:#92400e">ไม่มีข้อมูล</td></tr>`}</tbody>
+    </table>
+    <div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+      <span style="color:#92400e;font-size:12px">ลบทั้งเดือน:</span>
+      ${months.map(k=>`<button class="ed-mchip" onclick="edDeleteMonth('${k}')">${k} ✕</button>`).join("")}
+      <span style="color:#92400e;font-size:12px;margin-left:10px">ลบทั้งปี:</span>
+      ${yrs.map(y=>`<button class="ed-mchip" onclick="edDeleteYear('${y}')">${Number(y)+543} ✕</button>`).join("")}
+    </div>
+  </div>`;
+}
 function edSetTab(tab){ edState().tab = tab; edSave(); edRenderDashboard(); }
 function edSetMonth(m){ edState().monthFilter = m; edSave(); edRenderDashboard(); }
 
@@ -11339,11 +11419,13 @@ function edRenderDashboard(){
           <button class="btn ghost btn sm ed-hide-present" onclick="edExportFullPDF()" title="รวมทั้ง 6 หัวข้อเป็น PDF ไฟล์เดียว"><i data-lucide="file-text"></i>ทั้งรายงาน</button>
           ${canEditExec ? `
           <button class="btn ed-hide-present" onclick="edAddFile()" style="background:linear-gradient(135deg,#10b981,#059669);border:none" title="อัปไฟล์ปีอื่นเพิ่ม — ปีที่มีอยู่ยังอยู่ครบ (เดือนซ้ำของใหม่ทับ)"><i data-lucide="plus"></i>อัปโหลดเพิ่ม</button>
+          <button class="btn ghost btn sm ed-hide-present" onclick="edToggleManage()" title="ลบเฉพาะบัญชี/เดือน/ปี ที่อัปผิด (ไม่ต้องล้างทั้งหมด)"><i data-lucide="eraser"></i>จัดการข้อมูล</button>
           <button class="btn ghost btn sm ed-hide-present" onclick="edReset()" title="ล้างข้อมูลทั้งหมดแล้วเริ่มอัปใหม่"><i data-lucide="rotate-ccw"></i>ล้าง &amp; เริ่มใหม่</button>` : ""}
         </div>
       </div>
       <!-- ★ ตัวเลือกช่วงเวลา = แถวของตัวเอง (กันดันปุ่มนำเสนอ/พิมพ์ เวลาแถวเดือนโผล่) -->
       <div style="margin:2px 0 14px">${edPeriodPicker(data, d.monthFilter)}</div>
+      ${(canEditExec && d.manageOpen) ? edManagePanelHtml(data) : ""}
       ${d.mergeMsg ? `<div class="ed-hide-present" style="background:#ecfdf5;color:#065f46;border:1px solid #a7f3d0;padding:9px 14px;border-radius:9px;margin:0 0 12px;font-size:13px;display:flex;justify-content:space-between;align-items:center;gap:10px"><span>✅ ${esc(d.mergeMsg)}</span><button onclick="edState().mergeMsg=null;edRenderDashboard()" style="background:none;border:none;color:#065f46;cursor:pointer;font-size:16px;line-height:1">✕</button></div>` : ""}
 
       <div class="ed-tabs">
